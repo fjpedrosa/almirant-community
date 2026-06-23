@@ -1,0 +1,1 @@
+ALTER TABLE "seeds" ALTER COLUMN "status" SET DEFAULT 'draft';

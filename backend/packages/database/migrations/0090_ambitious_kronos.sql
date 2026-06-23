@@ -1,0 +1,2 @@
+ALTER TABLE "provider_connections" ADD COLUMN "is_default" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "provider_connections_default_unique_idx" ON "provider_connections" USING btree ("provider","scope","scope_id") WHERE is_default = true AND is_active = true;

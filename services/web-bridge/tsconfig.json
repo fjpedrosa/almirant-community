@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "paths": {
+      "@almirant/bridge-core": ["../../backend/packages/bridge-core/src/index.ts"],
+      "@almirant/canonical-events": ["../../backend/packages/canonical-events/src/index.ts"],
+      "@almirant/stream-consumer": ["../../backend/packages/stream-consumer/src/index.ts"]
+    },
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src"]
+}

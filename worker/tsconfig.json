@@ -1,0 +1,13 @@
+{
+  "extends": "../backend/tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".."
+  },
+  "include": [
+    "src/**/*.ts",
+    "../backend/packages/config/src/**/*.ts",
+    "../backend/packages/database/src/**/*.ts",
+    "../backend/packages/shared/src/**/*.ts"
+  ]
+}

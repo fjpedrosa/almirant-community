@@ -1,0 +1,11 @@
+node_modules
+*/node_modules
+*/*/node_modules
+api/dist
+packages/database/migrations
+packages/database/drizzle
+.env
+.env.*
+*.md
+.git
+.gitignore

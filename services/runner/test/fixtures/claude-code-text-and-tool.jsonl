@@ -1,0 +1,9 @@
+{"event":"message","data":"{\"type\":\"server.connected\",\"properties\":{}}"}
+{"event":"message","data":"{\"type\":\"message.part.delta\",\"properties\":{\"contentType\":\"text\",\"delta\":\"Let me read the file to understand the structure.\"}}"}
+{"event":"message","data":"{\"type\":\"message.part.delta\",\"properties\":{\"contentType\":\"tool_use\",\"delta\":\"{\\\"name\\\":\\\"Read\\\",\\\"id\\\":\\\"tc-read-001\\\",\\\"input\\\":{\\\"file_path\\\":\\\"/src/index.ts\\\"}}\"}}"}
+{"event":"message","data":"{\"type\":\"message.part.delta\",\"properties\":{\"contentType\":\"text\",\"delta\":\"The file contains a basic Express server setup. Let me edit it.\"}}"}
+{"event":"message","data":"{\"type\":\"message.part.delta\",\"properties\":{\"contentType\":\"tool_use\",\"delta\":\"{\\\"name\\\":\\\"Edit\\\",\\\"id\\\":\\\"tc-edit-002\\\",\\\"input\\\":{\\\"file_path\\\":\\\"/src/index.ts\\\",\\\"old_string\\\":\\\"const port = 3000;\\\",\\\"new_string\\\":\\\"const port = process.env.PORT || 3000;\\\"}}\"}}"}
+{"event":"message","data":"{\"type\":\"message.part.delta\",\"properties\":{\"contentType\":\"text\",\"delta\":\"I've updated the port configuration to use environment variables.\"}}"}
+{"event":"message","data":"{\"type\":\"message.part.delta\",\"properties\":{\"contentType\":\"tool_use\",\"delta\":\"{\\\"name\\\":\\\"Bash\\\",\\\"id\\\":\\\"tc-bash-003\\\",\\\"input\\\":{\\\"command\\\":\\\"bun run type-check\\\",\\\"description\\\":\\\"Run type checker\\\"}}\"}}"}
+{"event":"message","data":"{\"type\":\"message.part.delta\",\"properties\":{\"contentType\":\"text\",\"delta\":\"Type check passed. The changes are complete.\"}}"}
+{"event":"message","data":"{\"type\":\"session.idle\",\"properties\":{}}"}

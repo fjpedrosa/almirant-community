@@ -1,0 +1,4 @@
+DROP INDEX "bug_fix_attempts_feedback_attempt_number_unique_idx";--> statement-breakpoint
+DROP INDEX "bug_fix_attempts_feedback_active_unique_idx";--> statement-breakpoint
+CREATE UNIQUE INDEX "bug_fix_attempts_feedback_attempt_number_unique_idx" ON "bug_fix_attempts" USING btree ("feedback_item_id","attempt_number") WHERE "bug_fix_attempts"."cluster_id" IS NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "bug_fix_attempts_feedback_active_unique_idx" ON "bug_fix_attempts" USING btree ("feedback_item_id") WHERE "bug_fix_attempts"."cluster_id" IS NULL AND "bug_fix_attempts"."status" IN ('analyzing', 'proposed', 'implementing');

@@ -1,0 +1,1 @@
+ALTER TABLE "work_items" ADD COLUMN "is_ai_processing" boolean DEFAULT false NOT NULL;

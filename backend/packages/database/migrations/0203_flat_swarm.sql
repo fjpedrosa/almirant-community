@@ -1,0 +1,1 @@
+ALTER TABLE "scheduled_agent_configs" ADD COLUMN "mcp_servers" jsonb;

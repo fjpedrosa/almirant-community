@@ -1,0 +1,23 @@
+export type DocumentRepository = {
+  getAll: (orgId: string, pagination: any, filters: any) => Promise<{ items: any[]; total: number }>;
+  getById: (orgId: string, id: string) => Promise<any | null>;
+  create: (orgId: string, data: any) => Promise<any>;
+  update: (orgId: string, id: string, data: any) => Promise<any | null>;
+  delete: (orgId: string, id: string) => Promise<boolean>;
+  getCrossProject: (orgId: string, filters: any) => Promise<{ groups: any[] }>;
+  searchFullText: (orgId: string, query: string, filters: any, pagination: any) => Promise<{ items: any[]; total: number }>;
+  getByFilePath: (orgId: string, filePath: string, projectId: string) => Promise<any | null>;
+  getWorkItemsByDocumentId: (documentId: string) => Promise<any[]>;
+  getVersionsByDocumentId: (documentId: string, pagination: any) => Promise<{ items: any[]; total: number }>;
+  getVersionByHash: (documentId: string, contentHash: string) => Promise<any | null>;
+  markAsRead: (userId: string, documentId: string) => Promise<void>;
+  getReadDocumentIds: (userId: string, docIds: string[]) => Promise<Set<string>>;
+  toggleFavorite: (userId: string, documentId: string, orgId: string) => Promise<any | null>;
+  getFavorites: (userId: string, orgId: string) => Promise<any[]>;
+  createSynced: (orgId: string, data: any) => Promise<any>;
+  updateSynced: (orgId: string, id: string, data: any) => Promise<any>;
+  createVersion: (data: any) => Promise<any>;
+  getUncategorizedSynced: (projectId: string) => Promise<any[]>;
+  updateCategoryAssignment: (orgId: string, id: string, categoryId: string) => Promise<void>;
+  getDocsPathByProjectId: (projectId: string) => Promise<string | null>;
+};

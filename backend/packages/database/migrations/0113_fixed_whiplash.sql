@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "skill_config" jsonb DEFAULT '{"skillSet":"platform","customSkillsUrl":null,"disabledSkills":[],"agentInstructions":""}'::jsonb;

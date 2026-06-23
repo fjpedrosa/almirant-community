@@ -1,0 +1,192 @@
+/*
+ * Gantt Chart Style Overrides
+ *
+ * These styles override @svar-ui/react-gantt defaults to improve
+ * bar text visibility, contrast, and tooltip behavior.
+ *
+ * The library uses these key classes (NOT .wx-bar-text):
+ *   .wx-bar        – the task bar container
+ *   .wx-content    – text rendered INSIDE the bar
+ *   .wx-text-out   – text rendered OUTSIDE the bar (milestones)
+ *   .wx-summary    – summary/parent bar variant
+ *   .wx-milestone  – milestone bar variant
+ *   .wx-progress-wrapper / .wx-progress-percent – progress overlay
+ *
+ * Color scheme:
+ *   - Not started (backlog/to-do): gray  (#94a3b8)
+ *   - In Progress (doing/working):  amber (#f59e0b)
+ *   - Review (testing/validating):  blue  (#3b82f6)
+ *   - Done (completed/finished):    green (#22c55e)
+ */
+
+/* ── Wrapper ─────────────────────────────────────── */
+
+.gantt-chart-wrapper {
+  --wx-gantt-progress-color: rgba(0, 0, 0, 0.15);
+}
+
+/* ── Progress overlay ────────────────────────────── */
+
+.gantt-chart-wrapper .wx-progress-wrapper {
+  opacity: 0.85;
+}
+
+/* ── Bar text INSIDE bars (.wx-bar .wx-content) ──── */
+
+.gantt-chart-wrapper .wx-bar .wx-content {
+  color: #fff;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 0 1px rgba(0, 0, 0, 0.2);
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* Ensure text sits above the progress overlay */
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Bar template elements ────────────────────────── */
+
+.gantt-chart-wrapper .gantt-type-icon {
+  flex-shrink: 0;
+  font-size: 10px;
+  opacity: 0.85;
+  line-height: 1;
+}
+
+.gantt-chart-wrapper .gantt-bar-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.gantt-chart-wrapper .gantt-progress-label {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.8;
+  margin-left: auto;
+  padding-left: 4px;
+}
+
+/* ── Bar text OUTSIDE bars (.wx-text-out) ────────── */
+
+.gantt-chart-wrapper .wx-bar .wx-text-out {
+  color: var(--foreground, #1e293b);
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 6px;
+}
+
+/* ── Summary (parent) task bars ──────────────────── */
+
+.gantt-chart-wrapper .wx-summary {
+  opacity: 0.95;
+}
+
+/* ── Tooltip styling ─────────────────────────────── */
+
+.gantt-chart-wrapper .wx-gantt-tooltip {
+  max-width: 360px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background-color: hsl(0 0% 10%);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  z-index: 50;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.gantt-chart-wrapper .wx-gantt-tooltip-text {
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* ── Visual hierarchy by work item type ────────── */
+
+/* Epic bars: most prominent – bold borders, shadow, full opacity */
+.gantt-chart-wrapper .wx-bar:has([data-work-item-type="epic"]) {
+  opacity: 1;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.gantt-chart-wrapper .wx-bar:has([data-work-item-type="epic"]) .wx-content {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.gantt-chart-wrapper .wx-bar:has([data-work-item-type="epic"]) .gantt-type-icon {
+  font-size: 12px;
+  opacity: 1;
+}
+
+/* Feature bars: medium prominence */
+.gantt-chart-wrapper .wx-bar:has([data-work-item-type="feature"]) {
+  opacity: 1;
+  border: 1.5px solid rgba(0, 0, 0, 0.12);
+  border-radius: 5px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.gantt-chart-wrapper .wx-bar:has([data-work-item-type="feature"]) .wx-content {
+  font-weight: 600;
+}
+
+/* Story bars: standard prominence */
+.gantt-chart-wrapper .wx-bar:has([data-work-item-type="story"]) {
+  opacity: 0.95;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 4px;
+}
+
+.gantt-chart-wrapper .wx-bar:has([data-work-item-type="story"]) .wx-content {
+  font-weight: 500;
+}
+
+/* Task bars: compact, minimal chrome */
+.gantt-chart-wrapper .wx-bar:has([data-work-item-type="task"]) {
+  opacity: 0.9;
+  border-radius: 3px;
+}
+
+.gantt-chart-wrapper .wx-bar:has([data-work-item-type="task"]) .wx-content {
+  font-weight: 400;
+  font-size: 11px;
+}
+
+/* ── Grid lines and alternating rows ─────────── */
+
+.gantt-chart-wrapper .wx-row:nth-child(even) {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+.gantt-chart-wrapper .wx-row {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* ── Scale header styling ────────────────────── */
+
+.gantt-chart-wrapper .wx-scale {
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--muted-foreground, #64748b);
+}

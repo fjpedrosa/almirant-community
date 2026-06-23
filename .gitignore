@@ -1,0 +1,105 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+bun.lockb
+
+# Testing
+coverage/
+*.lcov
+playwright-report/
+**/playwright-report/
+test-results/
+**/test-results/
+
+# Next.js
+.next/
+out/
+build/
+dist/
+
+# Production
+*.tsbuildinfo
+next-env.d.ts
+
+# Misc
+.DS_Store
+*.pem
+Thumbs.db
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Local env files
+.env
+.env*.local
+.env.development
+.env.production
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# Turbo
+.turbo
+
+# Docker volumes
+postgres-data/
+uploads/
+.almirant-storage/
+data/tailscale-db.env
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+desktop.ini
+
+# Almirant CLI local agent config
+.mcp.json
+.codex/
+/.claude/
+/.clawpatch/
+/.discord/
+/.opencode/
+/.serena/
+opencode.json
+opencode.jsonc
+.claude/settings.local.json
+
+# Local agent/operator instructions and memory snapshots
+/AGENTS.md
+/CLAUDE.md
+/MEMORY.md
+
+# Private/internal release artifacts
+/docs-internal/
+/docs/debugging/
+/data/
+/tmp/
+*.dump
+*_backup_*.sql
+planning_session_messages_backup_*.sql
+plan-project-requests.txt
+projects-page-requests.txt
+services/runner/PUSH_DEBUG_LOG.md
+.github/CODEOWNERS
+
+# Local experimental tools
+.local-tools/
+frontend/src/app/(app-shell)/__bridge-lens/

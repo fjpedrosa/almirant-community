@@ -1,0 +1,26 @@
+{
+  "name": "@almirant/feedback-react",
+  "version": "0.1.0",
+  "description": "React/Next.js adapter for the Almirant feedback widget",
+  "private": true,
+  "main": "dist/index.mjs",
+  "module": "dist/index.mjs",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "types": "./src/index.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outfile dist/index.mjs --format esm --target browser --external react",
+    "type-check": "tsc --noEmit"
+  }
+}

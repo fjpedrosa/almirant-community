@@ -1,0 +1,548 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@svar-ui/react-gantt/style.css";
+
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-status-success: var(--status-success);
+  --color-status-warning: var(--status-warning);
+  --color-status-error: var(--status-error);
+  --color-status-info: var(--status-info);
+  --color-tag-purple: var(--tag-purple);
+  --color-tag-blue: var(--tag-blue);
+  --color-tag-cyan: var(--tag-cyan);
+  --color-tag-green: var(--tag-green);
+  --color-tag-yellow: var(--tag-yellow);
+  --color-tag-orange: var(--tag-orange);
+  --color-tag-red: var(--tag-red);
+  --color-tag-pink: var(--tag-pink);
+  --color-tab-active: var(--tab-active);
+  --color-kanban-column-bg: var(--kanban-column-bg);
+  --color-kanban-column-header: var(--kanban-column-header);
+  --color-kanban-drop-highlight: var(--kanban-drop-highlight);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.985 0.002 285);
+  --foreground: oklch(0.14 0.02 285);
+  --card: oklch(1.0 0 0);
+  --card-foreground: oklch(0.14 0.02 285);
+  --popover: oklch(1.0 0 0);
+  --popover-foreground: oklch(0.14 0.02 285);
+  --primary: oklch(0.55 0.25 295);
+  --primary-foreground: oklch(0.98 0.005 285);
+  --secondary: oklch(0.94 0.01 285);
+  --secondary-foreground: oklch(0.20 0.02 285);
+  --muted: oklch(0.94 0.005 285);
+  --muted-foreground: oklch(0.45 0.015 285);
+  --accent: oklch(0.93 0.01 290);
+  --accent-foreground: oklch(0.20 0.02 285);
+  --destructive: oklch(0.55 0.22 25);
+  --border: oklch(0.20 0.02 285 / 15%);
+  --input: oklch(0.20 0.02 285 / 15%);
+  --ring: oklch(0.55 0.25 295 / 40%);
+  --chart-1: oklch(0.55 0.25 295);
+  --chart-2: oklch(0.596 0.17 162.48);
+  --chart-3: oklch(0.669 0.188 70.08);
+  --chart-4: oklch(0.527 0.265 303.9);
+  --chart-5: oklch(0.545 0.246 16.439);
+  --sidebar: oklch(0.97 0.005 285);
+  --sidebar-foreground: oklch(0.14 0.02 285);
+  --sidebar-primary: oklch(0.55 0.25 295);
+  --sidebar-primary-foreground: oklch(0.98 0.005 285);
+  --sidebar-accent: oklch(0.93 0.01 285);
+  --sidebar-accent-foreground: oklch(0.20 0.02 285);
+  --sidebar-border: oklch(0.20 0.02 285 / 12%);
+  --sidebar-ring: oklch(0.55 0.25 295 / 40%);
+  --status-success: oklch(0.55 0.19 145);
+  --status-warning: oklch(0.65 0.18 85);
+  --status-error: oklch(0.55 0.22 25);
+  --status-info: oklch(0.55 0.15 245);
+  --tag-purple: oklch(0.55 0.25 295);
+  --tag-blue: oklch(0.55 0.20 255);
+  --tag-cyan: oklch(0.55 0.15 200);
+  --tag-green: oklch(0.55 0.19 145);
+  --tag-yellow: oklch(0.65 0.18 85);
+  --tag-orange: oklch(0.60 0.18 55);
+  --tag-red: oklch(0.55 0.22 25);
+  --tag-pink: oklch(0.55 0.20 340);
+  --tab-active: oklch(0.55 0.25 295 / 10%);
+  --kanban-column-bg: oklch(0.96 0.003 285);
+  --kanban-column-header: oklch(0.94 0.005 285);
+  --kanban-drop-highlight: oklch(0.55 0.25 295 / 8%);
+}
+
+.dark {
+  --background: oklch(0.13 0.02 285);
+  --foreground: oklch(0.97 0.005 285);
+  --card: oklch(0.18 0.02 285);
+  --card-foreground: oklch(0.97 0.005 285);
+  --popover: oklch(0.18 0.02 285);
+  --popover-foreground: oklch(0.97 0.005 285);
+  --primary: oklch(0.65 0.25 295);
+  --primary-foreground: oklch(0.98 0.005 285);
+  --secondary: oklch(0.22 0.025 285);
+  --secondary-foreground: oklch(0.97 0.005 285);
+  --muted: oklch(0.20 0.02 285);
+  --muted-foreground: oklch(0.65 0.015 285);
+  --accent: oklch(0.25 0.03 290);
+  --accent-foreground: oklch(0.97 0.005 285);
+  --destructive: oklch(0.65 0.2 25);
+  --border: oklch(0.80 0.02 285 / 12%);
+  --input: oklch(0.80 0.02 285 / 15%);
+  --ring: oklch(0.65 0.25 295 / 70%);
+  --chart-1: oklch(0.65 0.25 295);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.15 0.02 285);
+  --sidebar-foreground: oklch(0.97 0.005 285);
+  --sidebar-primary: oklch(0.65 0.25 295);
+  --sidebar-primary-foreground: oklch(0.98 0.005 285);
+  --sidebar-accent: oklch(0.22 0.025 285);
+  --sidebar-accent-foreground: oklch(0.97 0.005 285);
+  --sidebar-border: oklch(0.80 0.02 285 / 12%);
+  --sidebar-ring: oklch(0.65 0.25 295 / 40%);
+  --status-success: oklch(0.72 0.19 145);
+  --status-warning: oklch(0.80 0.18 85);
+  --status-error: oklch(0.65 0.2 25);
+  --status-info: oklch(0.70 0.15 245);
+  --tag-purple: oklch(0.65 0.25 295);
+  --tag-blue: oklch(0.65 0.20 255);
+  --tag-cyan: oklch(0.72 0.15 200);
+  --tag-green: oklch(0.72 0.19 145);
+  --tag-yellow: oklch(0.80 0.18 85);
+  --tag-orange: oklch(0.75 0.18 55);
+  --tag-red: oklch(0.65 0.2 25);
+  --tag-pink: oklch(0.70 0.20 340);
+  --tab-active: oklch(0.65 0.25 295 / 15%);
+  --kanban-column-bg: oklch(0.16 0.02 285);
+  --kanban-column-header: oklch(0.20 0.025 285);
+  --kanban-drop-highlight: oklch(0.65 0.25 295 / 10%);
+}
+
+@keyframes kanban-ungroup {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-kanban-ungroup {
+  animation: kanban-ungroup 300ms ease-out;
+}
+
+@keyframes agent-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.1);
+  }
+}
+
+.animate-agent-pulse {
+  animation: agent-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes agent-fade-out {
+  0% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-agent-complete {
+  animation: agent-fade-out 3s ease-out forwards;
+}
+
+/* AI Agent inner glow + shimmer */
+@keyframes agent-glow-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.85; }
+}
+
+@keyframes agent-shimmer {
+  0%, 100% { background-position: 200% 0; }
+  60% { background-position: -100% 0; }
+}
+
+.ai-agent-border {
+  position: relative;
+}
+
+/* Wide inner glow that fades toward center */
+.ai-agent-border::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 20;
+  box-shadow:
+    inset 0 0 4px 1px var(--agent-color-1),
+    inset 0 0 16px 0 var(--agent-color-2);
+  animation: agent-glow-pulse 2.5s ease-in-out infinite;
+}
+
+/* Shimmer sweep for activity indication */
+.ai-agent-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 21;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    var(--agent-color-3) 48%,
+    var(--agent-color-1) 50%,
+    var(--agent-color-3) 52%,
+    transparent 60%
+  );
+  background-size: 250% 100%;
+  opacity: 0.13;
+  animation: agent-shimmer 3s ease-in-out infinite;
+}
+
+/* Queued: slower, dimmer */
+.ai-agent-border--queued::after {
+  animation-duration: 4s;
+}
+.ai-agent-border--queued::before {
+  animation-duration: 5s;
+  opacity: 0.07;
+}
+
+/* Provider colors */
+.ai-agent-border--openai {
+  --agent-color-1: #10b981;
+  --agent-color-2: #059669;
+  --agent-color-3: #34d399;
+}
+
+.ai-agent-border--anthropic {
+  --agent-color-1: #f97316;
+  --agent-color-2: #c2532d;
+  --agent-color-3: #ea580c;
+}
+
+.ai-agent-border--zai {
+  --agent-color-1: #404040;
+  --agent-color-2: #1a1a1a;
+  --agent-color-3: #525252;
+}
+
+.ai-agent-border--default {
+  --agent-color-1: #3b82f6;
+  --agent-color-2: #8b5cf6;
+  --agent-color-3: #06b6d4;
+}
+
+.ai-agent-border--waiting-color {
+  --agent-color-1: #f59e0b;
+  --agent-color-2: #d97706;
+  --agent-color-3: #fbbf24;
+}
+
+/* Waiting: steady glow, no shimmer sweep */
+.ai-agent-border--waiting::after {
+  animation: agent-glow-pulse 3s ease-in-out infinite;
+}
+.ai-agent-border--waiting::before {
+  animation: none;
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-agent-border::after {
+    animation: none;
+    opacity: 0.6;
+  }
+  .ai-agent-border::before {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* Hero gradient blob animations */
+@keyframes hero-gradient-1 {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(15%, 10%) scale(1.1);
+  }
+  66% {
+    transform: translate(-5%, 15%) scale(0.95);
+  }
+}
+
+@keyframes hero-gradient-2 {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(-10%, -15%) scale(1.05);
+  }
+  66% {
+    transform: translate(10%, -5%) scale(0.9);
+  }
+}
+
+@keyframes hero-gradient-3 {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-8%, 12%) scale(1.15);
+  }
+}
+
+@keyframes slide-down-from-top {
+  0% {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-up-to-top {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+}
+
+.animate-slide-down-from-top {
+  animation: slide-down-from-top 300ms ease-out;
+}
+
+.animate-slide-up-to-top {
+  animation: slide-up-to-top 200ms ease-in;
+}
+
+/* Sonner: allow custom toast close buttons positioned outside bounds to be clickable */
+[data-sonner-toaster],
+[data-sonner-toaster] ol,
+[data-sonner-toast] {
+  overflow: visible !important;
+}
+[data-sonner-toaster] ol {
+  padding-left: 8px !important;
+  padding-top: 8px !important;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    overflow-x: hidden;
+  }
+  body {
+    @apply bg-background text-foreground;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button,
+  [role="button"],
+  a,
+  select,
+  summary,
+  [type="button"],
+  [type="submit"],
+  [type="reset"] {
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+}
+
+/**
+ * Touch-visible utility for hover-dependent actions
+ *
+ * Replaces the pattern `opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto`
+ * which is inaccessible on touch devices (no hover capability).
+ *
+ * Behavior:
+ * - On hover-capable devices (desktop): hidden and non-clickable by default, visible on group hover/focus
+ * - On touch devices (no hover): always visible and clickable
+ *
+ * Usage:
+ * Replace: className="opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
+ * With:    className="touch-visible"
+ *
+ * The parent must have the `group` class for hover detection.
+ *
+ * @example
+ * ```tsx
+ * <div className="group relative">
+ *   <span>Content</span>
+ *   <button className="touch-visible absolute right-0">
+ *     Action
+ *   </button>
+ * </div>
+ * ```
+ */
+@layer utilities {
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  .touch-visible {
+    /* Touch devices (no hover): always visible and clickable */
+    opacity: 1;
+    pointer-events: auto;
+    transition: opacity 150ms ease-in-out;
+  }
+
+  /* Hover-capable devices: hidden by default, visible on group hover */
+  @media (hover: hover) and (pointer: fine) {
+    .touch-visible {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .group:hover .touch-visible,
+    .group:focus-within .touch-visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+}
+
+/**
+ * Touch-friendly hit areas for icon buttons (WCAG 2.5.5 Target Size)
+ *
+ * On touch devices (coarse pointer), expands the clickable area to a minimum of
+ * 44x44px via a pseudo-element, without changing the visual size on desktop.
+ *
+ * Applied automatically to icon button variants via data-size attribute.
+ * Requires the button to have `position: relative` (added in button.tsx).
+ */
+@media (pointer: coarse) {
+  [data-slot="button"][data-size="icon"]::after,
+  [data-slot="button"][data-size="icon-xs"]::after,
+  [data-slot="button"][data-size="icon-sm"]::after,
+  [data-slot="button"][data-size="icon-lg"]::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    min-width: 44px;
+    min-height: 44px;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+/* Shimmer text effect for streaming indicators */
+@keyframes shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--primary) 0%,
+    var(--primary) 35%,
+    oklch(from var(--primary) min(l + 0.35, 1) c h) 50%,
+    var(--primary) 65%,
+    var(--primary) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text {
+    animation: none;
+    background: var(--primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
+}
+
+@keyframes agent-color-shift {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-agent-color-shift {
+  animation: agent-color-shift 2s ease-in-out infinite;
+}

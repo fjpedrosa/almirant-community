@@ -1,0 +1,76 @@
+services:
+  worker:
+    build:
+      context: ..
+      dockerfile: worker/Dockerfile
+    container_name: mc-worker
+    restart: unless-stopped
+    environment:
+      MC_API_URL: ${MC_API_URL:-http://host.docker.internal:3001}
+      MC_API_KEY: ${MC_API_KEY:-}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://worker_user:worker_password@postgres:5432/worker_db}
+      MC_WORKER_ID: ${MC_WORKER_ID:-}
+      MC_MAX_CONCURRENT: ${MC_MAX_CONCURRENT:-2}
+      MC_POLL_INTERVAL_MS: ${MC_POLL_INTERVAL_MS:-5000}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GH_TOKEN: ${GH_TOKEN:-}
+      GITHUB_API_TOKEN: ${GITHUB_API_TOKEN:-}
+      NODE_ENV: ${NODE_ENV:-production}
+      WORKER_REPO_BASE_PATH: /app/repos
+    volumes:
+      - worker-repos:/app/repos
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: mc-worker-postgres
+    restart: unless-stopped
+    profiles: ["local"]
+    ports:
+      - "${WORKER_POSTGRES_PORT:-5434}:5432"
+    environment:
+      POSTGRES_USER: ${WORKER_POSTGRES_USER:-worker_user}
+      POSTGRES_PASSWORD: ${WORKER_POSTGRES_PASSWORD:-worker_password}
+      POSTGRES_DB: ${WORKER_POSTGRES_DB:-worker_db}
+    volumes:
+      - worker-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${WORKER_POSTGRES_USER:-worker_user} -d ${WORKER_POSTGRES_DB:-worker_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  db-seed:
+    image: postgres:16-alpine
+    container_name: mc-worker-db-seed
+    restart: "no"
+    profiles: ["local"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${WORKER_POSTGRES_USER:-worker_user}:${WORKER_POSTGRES_PASSWORD:-worker_password}@postgres:5432/${WORKER_POSTGRES_DB:-worker_db}
+    volumes:
+      - ./seeds:/seed:ro
+      - ./scripts/seed-postgres.sh:/seed-postgres.sh:ro
+    entrypoint: ["/bin/sh", "/seed-postgres.sh"]
+
+  redis:
+    image: redis:7-alpine
+    container_name: mc-worker-redis
+    restart: unless-stopped
+    profiles: ["local"]
+    ports:
+      - "${WORKER_REDIS_PORT:-6380}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - worker-redis-data:/data
+
+volumes:
+  worker-repos:
+  worker-postgres-data:
+  worker-redis-data:

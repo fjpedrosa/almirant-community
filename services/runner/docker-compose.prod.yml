@@ -1,0 +1,195 @@
+# docker-compose.prod.yml - Production deployment for the Almirant Runner stack
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d
+#   docker compose -f docker-compose.prod.yml --profile shims build   # Build shim images
+#
+# Prerequisites:
+#   - Copy .env.example to .env and fill in all required values
+#   - Docker socket must be accessible for sibling container management
+#   - REPOS_HOST_PATH must point to the host-side path of ./repos
+
+name: almirant-runner
+
+services:
+  # --------------------------------------------------------------------------
+  # Docker Socket Proxy - Limits Docker API surface exposed to the runner
+  # --------------------------------------------------------------------------
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: almirant-docker-proxy
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      NETWORKS: 1
+      POST: 1
+      EXEC: 1
+      VOLUMES: 0
+      SWARM: 0
+      NODES: 0
+      SERVICES: 0
+      TASKS: 0
+      SECRETS: 0
+      CONFIGS: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - runner-internal
+
+  # --------------------------------------------------------------------------
+  # Egress Proxy - Squid proxy with domain allowlist for agent containers
+  # --------------------------------------------------------------------------
+  egress-proxy:
+    image: ubuntu/squid:latest
+    container_name: almirant-egress-proxy
+    restart: unless-stopped
+    volumes:
+      - ./docker/squid.conf:/etc/squid/squid.conf:ro
+    networks:
+      - runner-internal
+      - agent-network
+    healthcheck:
+      test: ["CMD", "squid", "-k", "check"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # --------------------------------------------------------------------------
+  # Runner - Claims jobs from Almirant API and spawns OpenCode containers
+  # --------------------------------------------------------------------------
+  runner:
+    profiles: ["runner"]
+    build:
+      context: ../..
+      dockerfile: services/runner/Dockerfile
+    image: almirant-runner:latest
+    container_name: almirant-runner
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    env_file:
+      # Production: reads secrets from the restricted host directory.
+      # For local dev, symlink: ln -sf .env /opt/almirant/secrets/runner.env
+      - /opt/almirant/secrets/runner.env
+    environment:
+      PORT: ${PORT:-3002}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DOCKER_HOST: tcp://docker-proxy:2375
+      RUNNER_RELEASE_SLICE: runner
+      OPENCODE_IMAGE: ${OPENCODE_IMAGE:-almirant-opencode-shim:1.14.31}
+      CLAUDE_SHIM_IMAGE: ${CLAUDE_SHIM_IMAGE:-almirant-claude-shim:2.1.126}
+      CODEX_SHIM_IMAGE: ${CODEX_SHIM_IMAGE:-almirant-codex-shim:0.128.0}
+    volumes:
+      - ./repos:/app/repos
+    networks:
+      - runner-internal
+    depends_on:
+      docker-proxy:
+        condition: service_started
+      egress-proxy:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3002/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        reservations:
+          memory: 512M
+
+  web-bridge:
+    profiles: ["web-bridge"]
+    build:
+      context: ../..
+      dockerfile: services/web-bridge/Dockerfile
+    image: almirant-web-bridge:latest
+    container_name: almirant-web-bridge
+    restart: unless-stopped
+    ports:
+      - "3004:3004"
+    env_file:
+      - /opt/almirant/secrets/web-bridge.env
+    environment:
+      PORT: ${WEB_BRIDGE_PORT:-3004}
+      RELEASE_SLICE: web-bridge
+    networks:
+      - runner-internal
+    depends_on:
+      egress-proxy:
+        condition: service_healthy
+
+  discord-bridge:
+    profiles: ["discord-bridge"]
+    build:
+      context: ../..
+      dockerfile: services/discord-bridge/Dockerfile
+    image: almirant-discord-bridge:latest
+    container_name: almirant-discord-bridge
+    restart: unless-stopped
+    ports:
+      - "3003:3003"
+    env_file:
+      - /opt/almirant/secrets/discord-bridge.env
+    environment:
+      PORT: ${DISCORD_BRIDGE_PORT:-3003}
+      RELEASE_SLICE: discord-bridge
+    networks:
+      - runner-internal
+    depends_on:
+      egress-proxy:
+        condition: service_healthy
+
+  scaler:
+    profiles: ["scaler"]
+    build:
+      context: ../..
+      dockerfile: services/scaler/Dockerfile
+    image: almirant-scaler:latest
+    container_name: almirant-scaler
+    restart: unless-stopped
+    ports:
+      - "3005:3003"
+    env_file:
+      - /opt/almirant/secrets/scaler.env
+    environment:
+      PORT: ${SCALER_PORT:-3003}
+      RELEASE_SLICE: scaler
+    networks:
+      - runner-internal
+    depends_on:
+      egress-proxy:
+        condition: service_healthy
+
+  # --------------------------------------------------------------------------
+  # Shim images - Built on demand, not started as services
+  # --------------------------------------------------------------------------
+  claude-shim:
+    profiles: ["shims"]
+    build:
+      context: ../..
+      dockerfile: services/runner-claude/Dockerfile
+    image: almirant-claude-shim:2.1.126
+
+  codex-shim:
+    profiles: ["shims"]
+    build:
+      context: ../..
+      dockerfile: services/runner/docker/Dockerfile.codex
+    image: almirant-codex-shim:0.128.0
+
+  opencode-shim:
+    profiles: ["shims"]
+    build:
+      context: ../..
+      dockerfile: services/runner/docker/Dockerfile.opencode
+    image: almirant-opencode-shim:1.14.31
+
+networks:
+  runner-internal:
+    driver: bridge
+  agent-network:
+    driver: bridge
+    internal: true # No direct internet access - agents must use egress-proxy

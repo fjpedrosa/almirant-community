@@ -1,0 +1,27 @@
+# docker-compose.tailscale.override.yml
+#
+# Optional override that mounts the host's Tailscale socket and CLI binary
+# into the backend container. With this in place, the backend can call
+# `tailscale serve` on behalf of the user from the /onboarding wizard or
+# /settings/instance UI, without anyone SSH-ing into the host.
+#
+# Requirements:
+# - Tailscale must be installed AND already joined to a tailnet on the host.
+# - The host must run Linux (the socket and binary paths are Linux-specific).
+#
+# Usage:
+#   docker compose --env-file .env.production \
+#     -f docker-compose.prod.yml \
+#     -f docker-compose.tailscale.override.yml \
+#     up -d
+#
+# If you do not want this behaviour, simply do not include this file. The
+# default `docker-compose.prod.yml` ships a vanilla `backend` service with
+# no host mounts, and you can publish the proxy manually from the host
+# instead (see docs/self-hosting/production-tailnet.md, "Plan B").
+
+services:
+  backend:
+    volumes:
+      - /var/run/tailscale:/var/run/tailscale:ro
+      - /usr/bin/tailscale:/usr/bin/tailscale:ro

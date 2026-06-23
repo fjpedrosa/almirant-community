@@ -1,0 +1,4 @@
+[test]
+# Exclude docker shim packages — they have their own dependencies
+# and must be tested from their own directories
+pathIgnorePatterns = ["docker/**"]

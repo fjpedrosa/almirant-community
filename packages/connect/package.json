@@ -1,0 +1,21 @@
+{
+  "name": "@almirant/connect",
+  "version": "0.1.0",
+  "description": "Connect your AI subscriptions (Claude Max, ChatGPT Pro) with Almirant",
+  "type": "module",
+  "bin": {
+    "almirant-connect": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target node --format esm",
+    "type-check": "tsc --noEmit"
+  },
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}

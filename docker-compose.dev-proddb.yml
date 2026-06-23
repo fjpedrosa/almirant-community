@@ -1,0 +1,39 @@
+# Override for running the local stack against an external production-like DB.
+# Use together with docker-compose.yml and an .env.dev-prod file.
+
+services:
+  postgres:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+    restart: "no"
+    environment: {}
+    volumes: []
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 1s
+      timeout: 1s
+      retries: 1
+      start_period: 0s
+
+  db-init:
+    image: alpine:3.20
+    command: ["true"]
+    restart: "no"
+    environment: {}
+    volumes: []
+
+  backend:
+    environment:
+      DATABASE_URL: ${PROD_DATABASE_URL:?Set PROD_DATABASE_URL in .env.dev-prod}
+
+  frontend:
+    environment:
+      DATABASE_URL: ${PROD_DATABASE_URL:?Set PROD_DATABASE_URL in .env.dev-prod}
+
+  runner:
+    environment:
+      ALMIRANT_API_KEY: ${PROD_ALMIRANT_API_KEY:?Set PROD_ALMIRANT_API_KEY in .env.dev-prod}
+
+  web-bridge:
+    environment:
+      BRIDGE_API_KEY: ${PROD_ALMIRANT_API_KEY:?Set PROD_ALMIRANT_API_KEY in .env.dev-prod}

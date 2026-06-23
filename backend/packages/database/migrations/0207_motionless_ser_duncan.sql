@@ -1,0 +1,2 @@
+ALTER TABLE "integration_batches" ADD COLUMN "release_number" integer;--> statement-breakpoint
+CREATE UNIQUE INDEX "integration_batches_repository_release_number_idx" ON "integration_batches" USING btree ("repository_id","release_number");

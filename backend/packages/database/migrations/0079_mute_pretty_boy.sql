@@ -1,0 +1,1 @@
+ALTER TYPE "public"."entity_type" ADD VALUE 'work_item';

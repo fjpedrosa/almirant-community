@@ -1,0 +1,22 @@
+{
+  "name": "@almirant/opencode-shim",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build:deps": "cd ../shim-server && bun run build",
+    "build": "bun run build:deps && tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "type-check": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@almirant/shim-server": "file:../shim-server"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.14",
+    "@types/node": "^20.19.30",
+    "typescript": "^5.9.3"
+  }
+}

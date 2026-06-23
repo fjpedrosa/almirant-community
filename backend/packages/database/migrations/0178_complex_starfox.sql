@@ -1,0 +1,1 @@
+ALTER TABLE "api_keys" ADD CONSTRAINT "api_keys_allowed_perms_check" CHECK ("allowed_issued_permissions" <@ ARRAY['mcp:read','mcp:write','mcp:internal','mcp:debug']::text[]);

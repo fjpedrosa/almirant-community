@@ -1,0 +1,14 @@
+{
+  "opencode": {
+    "repository": "almirant-opencode-shim",
+    "tag": "1.14.31"
+  },
+  "claude": {
+    "repository": "almirant-claude-shim",
+    "tag": "2.1.126"
+  },
+  "codex": {
+    "repository": "almirant-codex-shim",
+    "tag": "0.128.0"
+  }
+}

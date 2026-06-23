@@ -1,0 +1,38 @@
+{
+  "name": "@almirant/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/lib.ts",
+  "types": "src/lib.ts",
+  "bin": {
+    "mc-worker": "./src/index.ts"
+  },
+  "exports": {
+    ".": "./src/lib.ts"
+  },
+  "scripts": {
+    "daemon": "bun run src/index.ts daemon",
+    "run": "bun run src/index.ts run",
+    "validate": "bun run src/index.ts validate",
+    "test": "bun test --pass-with-no-tests",
+    "test:watch": "bun test --watch --pass-with-no-tests",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.0",
+    "typescript": "^5.8.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.38",
+    "@anthropic-ai/claude-code": "2.1.119",
+    "@almirant/config": "file:../backend/packages/config",
+    "@almirant/database": "file:../backend/packages/database",
+    "@almirant/shared": "file:../backend/packages/shared",
+    "zod": "^4.3.6"
+  },
+  "optionalDependencies": {
+    "bullmq": "^5.20.0",
+    "ioredis": "^5.6.0"
+  }
+}

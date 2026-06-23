@@ -1,0 +1,1 @@
+ALTER TABLE "integration_batch_items" ADD COLUMN "retry_count" integer DEFAULT 0 NOT NULL;

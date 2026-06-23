@@ -1,0 +1,38 @@
+name: Lint Markdown
+
+on:
+  pull_request:
+    paths:
+      - '**/*.md'
+  push:
+    branches: [main]
+    paths:
+      - '**/*.md'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint markdown files
+        uses: DavidAnson/markdownlint-cli2-action@v16
+        with:
+          globs: |
+            **/*.md
+            !**/node_modules/**
+            !CODE_OF_CONDUCT.md
+            !.agents/**
+            !.claude/**
+            !.codex/**
+            !.opencode/**
+            !.worktrees/**
+            !autodev/**
+            !data/**
+            !deploy/**
+            !docs-internal/**
+            !qa/**
+            !research/**
+            !s3/**
+            !tmp/**
+            !vercel-featured/**
+            !backend/packages/database/dumps/**

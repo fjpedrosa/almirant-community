@@ -1,0 +1,15 @@
+[phases.setup]
+nixPkgs = ["nodejs_24", "bun"]
+
+[phases.install]
+cmds = ["bun install --frozen-lockfile"]
+
+[phases.build]
+cmds = ["bun run build"]
+
+[start]
+cmd = "bun run start -- --port 3000"
+
+[variables]
+NODE_ENV = "production"
+PORT = "3000"

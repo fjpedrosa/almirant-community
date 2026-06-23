@@ -1,0 +1,1 @@
+ALTER TABLE "project_repositories" ADD COLUMN "docs_path" varchar(500);

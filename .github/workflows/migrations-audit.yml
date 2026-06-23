@@ -1,0 +1,26 @@
+name: Migrations chain audit
+
+on:
+  pull_request:
+    paths:
+      - 'backend/packages/database/migrations/**'
+      - 'scripts/audit-migrations.sh'
+      - '.github/workflows/migrations-audit.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'backend/packages/database/migrations/**'
+      - 'scripts/audit-migrations.sh'
+
+jobs:
+  audit:
+    name: No new orphans / duplicate idx / missing files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Audit
+        run: bash scripts/audit-migrations.sh

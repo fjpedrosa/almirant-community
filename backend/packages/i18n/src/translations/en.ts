@@ -1,0 +1,181 @@
+import type { Translations } from '../types';
+
+/**
+ * English translations for backend i18n
+ */
+export const en: Translations = {
+  emails: {
+    common: {
+      greeting: 'Hello',
+      farewell: 'Best regards',
+      footer: 'This email was sent from Almirant',
+      poweredBy: 'Powered by Almirant',
+      viewInApp: 'View in Almirant',
+      viewReport: 'View report',
+      unsubscribe: 'Unsubscribe',
+      manageNotifications: 'Manage notification preferences',
+      copyright: '© {year} Almirant. All rights reserved.',
+    },
+    workItem: {
+      subject: {
+        moved: 'Task moved: {title}',
+        assigned: 'Task assigned: {title}',
+        completed: 'Task completed: {title}',
+        reviewed: 'Review {result}: {title}',
+        userActions: 'Actions required: {title}',
+      },
+      heading: {
+        moved: 'Task moved',
+        assigned: 'Task assigned',
+        completed: 'Task completed',
+        reviewed: 'Review completed',
+        userActions: 'Actions required',
+      },
+      preheader: {
+        moved: '{taskId} moved from {from} to {to}',
+        assigned: 'You have been assigned {taskId}: {title}',
+        completed: '{taskId} marked as completed',
+        reviewed: 'Review {result} for {title}',
+        userActions: 'Actions required for {taskId}',
+      },
+      body: {
+        moved: 'A task has been moved to a new column.',
+        movedFrom: 'From',
+        movedTo: 'To',
+        assigned: 'A task has been assigned to you.',
+        assignedTo: 'Assigned to',
+        assignedBy: 'Assigned by',
+        completed: 'A task has been marked as completed.',
+        completedBy: 'Completed by',
+        reviewed: 'An AI review has been completed for a task.',
+        reviewPassed: 'Approved',
+        reviewFailed: 'Rejected',
+        reviewResult: 'Result',
+        viewDetails: 'View task details',
+      },
+      meta: {
+        project: 'Project',
+        board: 'Board',
+      },
+    },
+    sprint: {
+      subject: {
+        closed: 'Sprint closed: {name}',
+      },
+      heading: {
+        closed: 'Sprint closed',
+      },
+      preheader: {
+        closed: 'Sprint "{name}" closed - {completed}/{total} completed',
+      },
+      meta: {
+        sprint: 'Sprint',
+        completed: 'Completed',
+      },
+    },
+    ideaHub: {
+      subject: {
+        created: 'New idea created: {title}',
+        promoted: 'Idea promoted: {title}',
+        statusChanged: 'Idea status updated: {title}',
+        assignmentSingle: '{assignerName} assigned you an idea in Almirant',
+        assignmentPlural: 'You have {count} new assignments in Almirant',
+        commentSingle: '{commenterName} commented on {ideaTitle}',
+        commentPlural: 'You have {count} new comments in Almirant',
+        mentionSingle: '{mentionerName} mentioned you in {ideaTitle}',
+        mentionPlural: 'You have {count} new mentions in Almirant',
+      },
+      body: {
+        created: 'A new idea has been created.',
+        promoted: 'An idea has been promoted to a work item.',
+        promotedTo: 'Promoted to',
+        statusChanged: 'An idea status has been updated.',
+        statusChangedFrom: 'From',
+        statusChangedTo: 'To',
+        viewIdea: 'View idea',
+        greeting: 'Hello {name},',
+        assignmentSingle: 'You have been assigned an idea:',
+        assignmentPlural: 'You have been assigned {count} ideas:',
+        assignedBy: 'Assigned by',
+        commentSingle: 'You have a new comment:',
+        commentPlural: 'You have {count} new comments:',
+        commentedOn: 'commented on',
+        mentionSingle: 'You were mentioned in a comment:',
+        mentionPlural: 'You were mentioned in {count} comments:',
+        mentionedOn: 'mentioned you in',
+        footer: 'This email was sent by Almirant',
+      },
+    },
+    memberRemoval: {
+      subject: "You've been removed from {organization}",
+      heading: 'Membership Removed',
+      preheader: 'Your access to {organization} has been revoked',
+      body: {
+        accessRevoked: 'Your access to {organization} has been revoked.',
+        disclaimer: 'If you believe this was a mistake, please contact your organization administrator.',
+      },
+      meta: {
+        member: 'Member',
+        organization: 'Organization',
+        removedOn: 'Removed on',
+      },
+      cta: 'Visit Almirant',
+    },
+    waitlistThankYou: {
+      subject: {
+        pioneer: 'Almirant is almost here. A note from the founders',
+        supporter: 'Almirant is launching soon. Thank you for being early',
+        earlyAdopter: 'Almirant is launching soon. We\'d love your input',
+      },
+      body: {
+        header: 'Thank You',
+        greeting: 'Hi {name},',
+        pioneer: {
+          opening: 'Let\'s be honest. Paying a dollar to join a waitlist is kind of insane. And yet, here you are.',
+          main: 'That dollar wasn\'t about the money. It made you part of this, and it\'s about to pay off: we\'re <b>days away from launching</b>. As a pioneer, you\'re not just on a waitlist. You\'re on the team. Whatever you tell us goes straight into our backlog, no forms, no filters, no middlemen.',
+          closing: 'We\'re building the tool we wish existed for managing AI agents that build software. So tell us: What frustrates you most about how you work with AI agents today? If we could nail one thing, what should it be? Hit reply. We treat pioneer feedback like internal feature requests.',
+        },
+        supporter: {
+          opening: 'Most people wait until something is finished to care about it. You didn\'t.',
+          main: 'Your early support isn\'t just a number on our dashboard. It\'s fuel. Knowing that real people are out there waiting keeps us honest and keeps us pushing. And now we\'re <b>days away from launching</b>. You\'ll be among the first to get in.',
+          closing: 'We\'re building the tool we wish existed for managing AI agents that build software. While you wait, here\'s a genuine ask: What\'s broken about the tools you use today? What\'s the one thing you wish existed? Hit reply and tell us, even if it\'s just a few words. We\'re shaping Almirant around real pain, not assumptions.',
+        },
+        earlyAdopter: {
+          opening: 'You signed up when most people hadn\'t even heard of us. That curiosity? We love it.',
+          main: 'Early adopters like you are the reason startups survive the first chapter. You took a chance on something unproven, and that means you get a seat at the table now that things are getting real. We\'re <b>days away from launching</b>, and you\'ll be among the first to get in.',
+          closing: 'We\'re building the tool we wish existed for managing AI agents that build software. We\'d love to know what brought you here. What are you struggling with right now? What would make you switch tools tomorrow? Hit reply and let us know. Your answers are directly shaping what we build next.',
+        },
+        replyInvite: 'Seriously, just reply to this email. Even a one-liner helps. No surveys, no forms. We read and respond to every message personally.',
+        signatureIntro: 'With gratitude,',
+        signature: 'Almirant Team',
+        footer: 'You\'re receiving this because you joined the Almirant waitlist.',
+      },
+    },
+    waitlist: {
+      subject: {
+        confirmation: 'Confirm your email for Almirant waitlist',
+        referralConfirmed: 'Your referral confirmed their email',
+        approved: 'Welcome to Almirant!',
+      },
+      body: {
+        confirmation: 'Waitlist Confirmation',
+        confirmationMessage: 'Thank you for joining our waitlist. We\'ll notify you when your account is ready.',
+        approved: 'Your Account is Ready',
+        approvedMessage: 'Great news! Your Almirant account has been approved. Click below to get started.',
+        getStarted: 'Get Started',
+        header: 'Almirant',
+        subheading: 'You\'re almost in',
+        greeting: 'Hey',
+        greetingSuffix: ', welcome 👋',
+        confirmMessage: 'To confirm your spot and unlock your waitlist panel, you need to validate this email.',
+        confirmButton: 'Confirm email and see my spot',
+        disclaimer: 'If this wasn\'t you, you can ignore this message.',
+        warmGreeting: 'We\'re excited to have you on board. 🚀',
+        footer: 'You\'re receiving this because you signed up for the Almirant waitlist.',
+        referralMessage: 'confirmed their email on the waitlist.',
+        referralPointsAdded: 'We\'ve added the confirmed referral points. Keep sharing your link to move up.',
+        referralFallbackName: 'A referred person',
+      },
+    },
+  },
+};

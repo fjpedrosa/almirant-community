@@ -1,0 +1,2 @@
+ALTER TABLE "scheduled_agent_configs" ADD COLUMN "skill_id" uuid;--> statement-breakpoint
+ALTER TABLE "scheduled_agent_configs" ADD CONSTRAINT "scheduled_agent_configs_skill_id_skills_id_fk" FOREIGN KEY ("skill_id") REFERENCES "public"."skills"("id") ON DELETE set null ON UPDATE no action;

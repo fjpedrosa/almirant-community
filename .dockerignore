@@ -1,0 +1,79 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+**/dist/
+build/
+**/build/
+
+# Exception: shim dist dirs are needed in agent containers
+!services/runner/docker/opencode-shim/dist/
+!services/runner/docker/shim-server/dist/
+!services/runner/docker/opencode-shim/node_modules/
+!services/runner/docker/shim-server/node_modules/
+
+# Environment files (will be provided by Coolify)
+.env
+.env.local
+.env.production
+**/.env
+**/.env.local
+**/.env.production
+
+# Development files
+*.log
+**/*.log
+.DS_Store
+**/.DS_Store
+.claude/
+.codex/
+.clawpatch/
+.discord/
+.opencode/
+.serena/
+.mcp.json
+opencode.json
+opencode.jsonc
+AGENTS.md
+CLAUDE.md
+MEMORY.md
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+README.md
+docs/
+docs-internal/
+docs/debugging/
+
+# Testing
+coverage/
+playwright-report/
+**/playwright-report/
+test-results/
+**/test-results/
+.nyc_output/
+**/__tests__/
+**/*.test.ts
+**/*.spec.ts
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.dump
+*_backup_*.sql
+planning_session_messages_backup_*.sql
+
+# Private datasets / exports
+data/

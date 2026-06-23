@@ -1,0 +1,21 @@
+services:
+  postgres-preview:
+    image: pgvector/pgvector:pg17
+    container_name: crm-postgres-preview
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: preview_user
+      POSTGRES_PASSWORD: preview_password
+      POSTGRES_DB: preview_default
+    volumes:
+      - postgres_preview_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U preview_user -d preview_default"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_preview_data:

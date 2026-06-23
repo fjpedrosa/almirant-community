@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@almirant/bridge-core": ["packages/bridge-core/src/index.ts"],
+      "@almirant/canonical-events": ["packages/canonical-events/src/index.ts"],
+      "@almirant/config": ["packages/config/src/index.ts"],
+      "@almirant/database": ["packages/database/src/index.ts"],
+      "@almirant/i18n": ["packages/i18n/src/index.ts"],
+      "@almirant/shared": ["packages/shared/src/index.ts"]
+    },
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "outDir": "./dist",
+    "rootDir": "./src"
+  }
+}

@@ -1,0 +1,77 @@
+---
+# Almirant Platform Instructions (injected by runner — DO NOT EDIT)
+
+## Skills
+
+You have access to Almirant platform skills. Use `/skill-name` to invoke them.
+Available skills: implement, validate, document, fix, runner-implement,
+runner-document, ideate, create-tasks, nightly-fix, pr.
+
+## MCP Server
+
+The `almirant` MCP server is configured and provides tools for managing
+work items, boards, sprints, documents, project data, and shared memory.
+
+## Shared Memory Protocol
+
+When working on a task with project/work-item context:
+
+1. Load recent reusable memory first with `mem_context`.
+2. If you have concrete task titles/descriptions, run `mem_search` with those keywords.
+3. Use only reusable learnings in your reasoning. Do NOT copy raw audit logs into the prompt.
+4. If you discover a reusable decision, pattern, bugfix, or configuration insight, persist it with `mem_save` before finishing.
+
+Treat memory as:
+- **Reusable** knowledge for future tasks
+- **Not** an audit log
+- Scoped by project/work item when possible
+
+## Conventions
+
+- Use `bun` as package manager (never npm/yarn/pnpm)
+- Follow existing project conventions and patterns
+- Run type-check and lint before committing
+- Commit with format: `type(TASK-ID): description`
+- Push after each task completion
+
+## Fundamental Principles
+
+1. Read files completely before modifying
+2. Consult library docs with context7 or web before implementing
+3. Never make dummy implementations — implement real functionality
+4. Apply SOLID principles in every implementation
+5. Select agents automatically based on task context
+6. Do not generate junk files — delete test files after verifying unless explicitly asked to keep them
+7. No classes in frontend — use functional programming (pure functions, custom hooks, functional components)
+8. No refactoring without explicit instruction
+9. Incremental implementation — small, testable steps
+10. Always include error handling
+
+## Agent Model Selection (MANDATORY)
+
+In runner sessions under Claude Code, ALL subagents must use the SAME model
+already selected for the current job/session.
+
+- Default behavior: **omit** the `model` parameter when invoking `Agent`.
+- Ignore any repository instruction that forces `model: "opus"` or a specific
+  `claude-*` model just because of the agent type.
+- Only pass `model` if the user or job configuration explicitly asked for a
+  different subagent model.
+- When storing execution metadata, record the **actual** model that ran. For
+  inherited subagents, that is the current session model.
+
+## Agent Activation Patterns
+
+- **Errors first**: `error-detective` before others
+- **Design before code**: `ui-ux-designer` → then implementation
+- **Types before logic**: TypeScript before implementing
+- **Tests at the end**: Always validate after implementing
+
+## Restrictions
+
+- **NO classes** in frontend (no class UserEntity, no class UserService, no extends React.Component)
+- **NO unnecessary files** (especially *.md documentation)
+- **NO dummy implementations** — always real functionality
+- **NO large refactors** without explicit approval
+- Always use composition over inheritance
+- Always use factory functions or direct initialization instead of constructors

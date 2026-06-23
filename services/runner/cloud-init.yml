@@ -1,0 +1,57 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+packages:
+  - ca-certificates
+  - curl
+  - git
+  - jq
+  - ufw
+
+users:
+  - default
+  - name: almirant
+    shell: /bin/bash
+    groups: [docker, sudo]
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_import_id: []
+    ssh_authorized_keys: []
+    lock_passwd: true
+
+write_files:
+  - path: /etc/docker/daemon.json
+    owner: root:root
+    permissions: "0644"
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "5"
+        }
+      }
+
+runcmd:
+  - mkdir -p /home/almirant/.ssh
+  - cp /root/.ssh/authorized_keys /home/almirant/.ssh/authorized_keys
+  - chown -R almirant:almirant /home/almirant/.ssh
+  - chmod 700 /home/almirant/.ssh
+  - chmod 600 /home/almirant/.ssh/authorized_keys
+  - curl -fsSL https://get.docker.com | sh
+  - systemctl enable docker
+  - systemctl restart docker
+  - usermod -aG docker almirant
+  - mkdir -p /opt/almirant
+  - chown -R almirant:almirant /opt/almirant
+  # --- Secrets directory (restricted permissions) ---
+  - mkdir -p /opt/almirant/secrets
+  - chmod 700 /opt/almirant/secrets
+  - chown almirant:almirant /opt/almirant/secrets
+  - touch /opt/almirant/secrets/runner.env
+  - chmod 600 /opt/almirant/secrets/runner.env
+  - chown almirant:almirant /opt/almirant/secrets/runner.env
+  # --- Clone repo and symlink secrets ---
+  - sudo -u almirant git clone ${REPO_URL} /opt/almirant/repo || true
+  - cd /opt/almirant/repo/services/runner && ln -sf /opt/almirant/secrets/runner.env .env
+  - ufw allow 22/tcp
+  - ufw --force enable

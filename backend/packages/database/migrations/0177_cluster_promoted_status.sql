@@ -1,0 +1,1 @@
+ALTER TYPE "public"."feedback_cluster_status" ADD VALUE 'promoted';

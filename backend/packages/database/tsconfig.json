@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    // Widen rootDir to the backend monorepo so cross-package imports
+    // (e.g. @almirant/config → ../config/src/...) satisfy the composite
+    // build's rootDir constraint without needing project references.
+    "rootDir": "../.."
+  },
+  "include": [
+    "src/**/*.ts",
+    "../config/src/**/*.ts",
+    "../shared/src/**/*.ts"
+  ],
+  // Legacy dev-only seed script. It predates the multi-tenant schema and
+  // would need a full rewrite (create organization + thread org id through
+  // tags/documentCategories/etc.) to typecheck. Excluded until somebody
+  // revives it — it is not wired into any runtime path.
+  "exclude": ["src/seed.ts"]
+}

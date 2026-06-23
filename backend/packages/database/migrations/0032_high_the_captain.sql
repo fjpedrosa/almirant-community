@@ -1,0 +1,1 @@
+ALTER TABLE "work_items" ADD COLUMN "start_date" timestamp with time zone;

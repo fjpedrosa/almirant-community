@@ -1,0 +1,60 @@
+name: Env schema coherence
+
+on:
+  pull_request:
+    paths:
+      - 'docker-compose.prod.yml'
+      - '.env.production.example'
+      - 'scripts/install.sh'
+      - 'scripts/sync-env.sh'
+      - 'scripts/validate-env-schema.sh'
+      - '.github/workflows/env-schema-check.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docker-compose.prod.yml'
+      - '.env.production.example'
+      - 'scripts/install.sh'
+      - 'scripts/sync-env.sh'
+      - 'scripts/validate-env-schema.sh'
+
+jobs:
+  validate:
+    name: Validate .env.production.example matches compose + install.sh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run env schema guard
+        run: bash scripts/validate-env-schema.sh
+
+      - name: Smoke test sync-env.sh on a clean env
+        run: |
+          tmp=$(mktemp -d)
+          cp .env.production.example "$tmp/"
+          bash scripts/sync-env.sh \
+            --schema "$tmp/.env.production.example" \
+            --env    "$tmp/.env.production" \
+            --stack-dir /var/lib/almirant
+          # Idempotency: second run must be a no-op (no backup written).
+          before=$(stat -c %Y "$tmp/.env.production")
+          bash scripts/sync-env.sh \
+            --schema "$tmp/.env.production.example" \
+            --env    "$tmp/.env.production" \
+            --stack-dir /var/lib/almirant
+          after=$(stat -c %Y "$tmp/.env.production")
+          if [ "$before" != "$after" ]; then
+            echo "✗ sync-env.sh is not idempotent (mtime changed)" >&2
+            exit 1
+          fi
+          # All required vars must be present and non-empty after sync.
+          for var in POSTGRES_PASSWORD ENCRYPTION_KEY BETTER_AUTH_SECRET \
+                     INTERNAL_EMAIL_API_SECRET ALMIRANT_API_KEY \
+                     UPDATER_INTERNAL_TOKEN ALMIRANT_REPO_PATH; do
+            line=$(grep -E "^${var}=" "$tmp/.env.production" || true)
+            value="${line#*=}"
+            if [ -z "$value" ]; then
+              echo "✗ ${var} is empty after sync" >&2
+              exit 1
+            fi
+          done
+          echo "✓ sync-env.sh produced a complete, idempotent env file"

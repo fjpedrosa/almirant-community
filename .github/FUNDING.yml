@@ -1,0 +1,14 @@
+# Uncomment lines below as funding channels become available.
+# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+
+# github: [almirant-ai]
+# patreon: # username
+# open_collective: # almirant
+# ko_fi: # username
+# tidelift: # platform-name/package-name
+# community_bridge: # project-name
+# liberapay: # username
+# issuehunt: # username
+# lfx_crowdfunding: # project-name
+# polar: # username
+custom: ['https://almirant.ai/pricing']

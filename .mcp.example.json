@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "deepgraph_react_mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "mcp-code-graph@latest", "facebook/react"]
+    },
+    "almirant": {
+      "type": "http",
+      "url": "https://api.almirant.ai/mcp?projectId=<your-project-uuid>",
+      "headers": {
+        "Authorization": "Bearer ${MC_MCP_API_KEY}"
+      }
+    }
+  }
+}

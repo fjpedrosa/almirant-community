@@ -1,0 +1,35 @@
+{
+  "name": "@almirant/runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "start": "bun run src/index.ts",
+    "test": "bun test",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@almirant/canonical-events": "workspace:*",
+    "@almirant/remote-agent": "workspace:*",
+    "@almirant/shared": "workspace:*",
+    "@almirant/stream-consumer": "workspace:*",
+    "@aws-sdk/client-s3": "^3.0.0",
+    "@sentry/bun": "^10.47.0",
+    "croner": "^10.0.1",
+    "dockerode": "^4.0.7",
+    "elysia": "^1.4.3",
+    "posthog-node": "^5.28.11",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.8",
+    "@types/dockerode": "^3.3.38",
+    "typescript": "^5.8.0"
+  }
+}

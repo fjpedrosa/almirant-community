@@ -1,0 +1,4 @@
+interface:
+  display_name: "DoD Review"
+  short_description: "Review work items against Definition of Done"
+  default_prompt: "Review this work item against its Definition of Done and mark the DoD workflow result."

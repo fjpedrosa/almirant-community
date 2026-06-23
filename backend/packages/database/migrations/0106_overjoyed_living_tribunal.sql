@@ -1,0 +1,1 @@
+ALTER TABLE "seeds" ADD COLUMN "maturity_level" integer DEFAULT 1 NOT NULL;

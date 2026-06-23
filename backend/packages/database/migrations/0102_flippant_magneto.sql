@@ -1,0 +1,1 @@
+ALTER TYPE "public"."column_role" ADD VALUE 'to_document' BEFORE 'done';

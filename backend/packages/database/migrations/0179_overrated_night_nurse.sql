@@ -1,0 +1,1 @@
+CREATE INDEX "feedback_clusters_status_created_idx" ON "feedback_clusters" USING btree ("status","created_at");

@@ -1,0 +1,1 @@
+ALTER TYPE "public"."agent_job_status" ADD VALUE 'finalizing' BEFORE 'completed';

@@ -1,0 +1,1 @@
+ALTER TABLE "waitlist_users" ADD COLUMN "locale" varchar(10) DEFAULT 'en' NOT NULL;

@@ -1,0 +1,33 @@
+{
+	auto_https off
+}
+
+:80 {
+	@mcp_api path /api/mcp /api/mcp/*
+	handle @mcp_api {
+		uri strip_prefix /api
+		reverse_proxy backend:3001
+	}
+
+	@legacy_onboarding_api path /api/api/instance/onboarding /api/api/instance/onboarding/*
+	handle @legacy_onboarding_api {
+		uri replace /api/api/instance/onboarding /api/onboarding
+		reverse_proxy backend:3001
+	}
+
+	@legacy_api path /api/api /api/api/*
+	handle @legacy_api {
+		uri strip_prefix /api
+		reverse_proxy backend:3001
+	}
+
+	@backend path /api* /ws /mcp* /.well-known/oauth-authorization-server /.well-known/oauth-protected-resource
+
+	handle @backend {
+		reverse_proxy backend:3001
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

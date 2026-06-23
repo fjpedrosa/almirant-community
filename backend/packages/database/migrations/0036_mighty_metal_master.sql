@@ -1,0 +1,3 @@
+ALTER TABLE "document_categories" ADD COLUMN "parent_id" uuid;--> statement-breakpoint
+ALTER TABLE "document_categories" ADD CONSTRAINT "document_categories_parent_id_document_categories_id_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."document_categories"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "document_categories_parent_idx" ON "document_categories" USING btree ("parent_id");

@@ -1,0 +1,14 @@
+{
+  "apiUrl": "http://localhost:3001",
+  "apiKey": "your-worker-api-key-from-almirant-settings",
+  "maxConcurrentAgents": 2,
+  "providers": ["claude-code"],
+  "projects": [
+    {
+      "projectId": "79d7fd78-037b-41ff-92aa-3671f692062e",
+      "repoPath": "/Users/YOURUSERNAME/projects/almirant",
+      "baseBranch": "main",
+      "repoUrl": "https://github.com/example-org/example-repo.git"
+    }
+  ]
+}

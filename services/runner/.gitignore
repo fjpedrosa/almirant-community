@@ -1,0 +1,10 @@
+# Prevent secrets from being committed
+.env
+.env.local
+.env.production
+.env.*.local
+*.env
+!.env.example
+
+# Runtime repo clones created by the runner container
+repos/

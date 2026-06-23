@@ -1,0 +1,1 @@
+ALTER TABLE "api_keys" ADD COLUMN "allowed_issued_permissions" text[] DEFAULT ARRAY['mcp:read', 'mcp:write']::text[] NOT NULL;

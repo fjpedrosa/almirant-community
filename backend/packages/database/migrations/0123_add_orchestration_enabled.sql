@@ -1,0 +1,1 @@
+ALTER TABLE "provider_connections" ADD COLUMN "orchestration_enabled" boolean DEFAULT false NOT NULL;

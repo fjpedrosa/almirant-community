@@ -1,0 +1,410 @@
+name: almirant-prod
+
+# Production stack built from source. Run via `scripts/install.sh` from
+# inside the cloned repo, or manually:
+#   docker compose -f docker-compose.prod.yml --env-file .env.production build
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env.production}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env.production}
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    networks:
+      - almirant-prod
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_prod_data:/data
+    networks:
+      - almirant-prod
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  db-init:
+    build:
+      context: .
+      dockerfile: backend/api/Dockerfile
+      target: builder
+    restart: "no"
+    working_dir: /app/backend/packages/database
+    command:
+      [
+        "sh",
+        "-lc",
+        "echo '⏳ Maintaining self-hosted database...' && bun run db:self-hosted-maintenance",
+      ]
+    env_file:
+      - ./.env.production
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # The runtime runner uses ALMIRANT_API_KEY for its real service-account
+      # identity. Do not let db-init consume that key, otherwise preview-seed
+      # mirrors it into the local-infra dev key and API-key auth can resolve the
+      # runner as local-infra instead of the user's organization.
+      ALMIRANT_API_KEY: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - almirant-prod
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/api/Dockerfile
+      args:
+        # Injected by scripts/install.sh and scripts/update-remote.sh so the
+        # backend can report its build SHA to the version-check endpoint.
+        ALMIRANT_BUILD_SHA: ${ALMIRANT_BUILD_SHA:-unknown}
+    restart: unless-stopped
+    env_file:
+      - ./.env.production
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Optional: CORS_ORIGIN can be left empty — runtime-cors merges it with
+      # instance_settings.public_url populated by the onboarding wizard.
+      CORS_ORIGIN: ${CORS_ORIGIN-}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in .env.production}
+      # Optional: ALMIRANT_PROJECT_ID is auto-provisioned by preview-seed into
+      # instance_settings.internal_feedback_project_id and loaded at boot.
+      ALMIRANT_PROJECT_ID: ${ALMIRANT_PROJECT_ID-}
+      MCP_INTERNAL_ENABLED: ${MCP_INTERNAL_ENABLED:-false}
+      # Optional click-to-update support: backend proxies to the updater
+      # sidecar when both vars are populated. Without them the version
+      # banner falls back to the copy-command UX.
+      UPDATER_INTERNAL_URL: ${UPDATER_INTERNAL_URL:-http://updater:9999}
+      UPDATER_INTERNAL_TOKEN: ${UPDATER_INTERNAL_TOKEN-}
+      ALMIRANT_STORAGE_DIR: /app/storage
+    # In full prod mode the backend is behind the `proxy` service and only
+    # exposed internally. For local smoke-test (when the proxy is disabled
+    # via the `with-proxy` profile) we publish 8081 so the host can hit
+    # the API directly at http://localhost:${BACKEND_HOST_PORT:-8081}.
+    ports:
+      - "${ALMIRANT_BIND_ADDRESS:-127.0.0.1}:${BACKEND_HOST_PORT:-8081}:3001"
+    expose:
+      - "3001"
+    volumes:
+      - almirant_prod_storage:/app/storage
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    networks:
+      - almirant-prod
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:?Set NEXT_PUBLIC_SITE_URL in .env.production}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL-}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL-}
+        BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS-}
+    restart: unless-stopped
+    env_file:
+      - ./.env.production
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:?Set NEXT_PUBLIC_SITE_URL in .env.production}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
+      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL-}
+      BACKEND_URL: http://backend:3001
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # Optional URLs — empty strings get resolved at runtime from
+      # instance_settings.public_url once the admin configures Tailscale or
+      # sets a custom public URL in the onboarding wizard.
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL-}
+      BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS-}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env.production}
+      INTERNAL_EMAIL_API_SECRET: ${INTERNAL_EMAIL_API_SECRET:?Set INTERNAL_EMAIL_API_SECRET in .env.production}
+    # Published on the host for direct access when the Caddy proxy service
+    # is disabled (local smoke-test). The proxy still forwards /api and /ws
+    # when it is running under the `with-proxy` profile.
+    ports:
+      - "${ALMIRANT_BIND_ADDRESS:-127.0.0.1}:${FRONTEND_HOST_PORT:-8080}:3000"
+    expose:
+      - "3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - almirant-prod
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/llms.txt || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+
+  proxy:
+    image: caddy:2.9-alpine
+    profiles: ["with-proxy"]
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    ports:
+      - "${ALMIRANT_BIND_ADDRESS:-127.0.0.1}:${PROXY_PORT:-8080}:80"
+    volumes:
+      - ./deploy/tailnet/Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+      - almirant-prod
+
+  public-proxy:
+    image: caddy:2.9-alpine
+    profiles: ["public-proxy"]
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    environment:
+      ALMIRANT_DOMAIN: ${ALMIRANT_DOMAIN:-localhost}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/public/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_prod_data:/data
+      - caddy_prod_config:/config
+    networks:
+      - almirant-prod
+
+  # Restricted Docker socket proxy — exposes only the operations the runner
+  # needs to spin up sibling agent containers (claude/codex shims).
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      NETWORKS: 1
+      POST: 1
+      EXEC: 1
+      VOLUMES: 0
+      SWARM: 0
+      NODES: 0
+      SERVICES: 0
+      TASKS: 0
+      SECRETS: 0
+      CONFIGS: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - almirant-prod
+
+  runner:
+    build:
+      context: .
+      dockerfile: services/runner/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./.env.production
+    environment:
+      NODE_ENV: production
+      PORT: "3002"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DOCKER_HOST: tcp://docker-proxy:2375
+      ALMIRANT_API_URL: http://backend:3001
+      ALMIRANT_API_KEY: "${ALMIRANT_API_KEY:?Set ALMIRANT_API_KEY in .env.production}"
+      REDIS_URL: redis://redis:6379
+      # Host path where sibling agent containers will mount cloned repos.
+      # MUST be a path on the HOST filesystem (not the runner container)
+      # because the docker-proxy creates sibling — not nested — containers.
+      REPOS_HOST_PATH: ${REPOS_HOST_PATH:-${PWD}/data/repos}
+      PLATFORM_CONFIG_PATH: /app/platform-config
+      ENABLE_BROWSER: ${ENABLE_BROWSER:-false}
+      WEB_OUTPUT_ENABLED: ${WEB_OUTPUT_ENABLED:-true}
+      # Let RAM, not a fixed slot count, decide how many agent jobs may run.
+      RUNNER_RAM_BUDGET_ENABLED: ${RUNNER_RAM_BUDGET_ENABLED:-true}
+      RUNNER_RAM_RESERVED_MB: ${RUNNER_RAM_RESERVED_MB:-2048}
+      OPENCODE_IMAGE: ${OPENCODE_IMAGE:-almirant-opencode-shim:1.14.31}
+      CLAUDE_SHIM_IMAGE: ${CLAUDE_SHIM_IMAGE:-almirant-claude-shim:2.1.126}
+      CODEX_SHIM_IMAGE: ${CODEX_SHIM_IMAGE:-almirant-codex-shim:0.128.0}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Bind the same host path inside the runner so it can read/write the
+      # repos it asks the sibling shims to mount.
+      - ${REPOS_HOST_PATH:-${PWD}/data/repos}:/app/repos
+    networks:
+      - almirant-prod
+    depends_on:
+      docker-proxy:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3002/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  web-bridge:
+    build:
+      context: .
+      dockerfile: services/web-bridge/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./.env.production
+    environment:
+      NODE_ENV: production
+      PORT: "3004"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      REDIS_URL: redis://redis:6379
+      BACKEND_API_URL: http://backend:3001
+      BRIDGE_API_KEY: "${ALMIRANT_API_KEY:?Set ALMIRANT_API_KEY in .env.production}"
+    networks:
+      - almirant-prod
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3004/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # Optional Discord bridge — opt-in via `--profile discord-bridge`.
+  discord-bridge:
+    profiles: ["discord-bridge"]
+    build:
+      context: .
+      dockerfile: services/discord-bridge/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./.env.production
+    environment:
+      NODE_ENV: production
+      PORT: "3003"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      REDIS_URL: redis://redis:6379
+      BACKEND_API_URL: http://backend:3001
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN-}
+      DISCORD_CHANNEL_ID: ${DISCORD_CHANNEL_ID-}
+      BRIDGE_API_KEY: "${ALMIRANT_API_KEY:?Set ALMIRANT_API_KEY in .env.production}"
+    networks:
+      - almirant-prod
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3003/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # In-stack updater. Receives `POST /jobs` from the backend, runs
+  # `git pull` + `docker compose up -d --build` against the host's clone.
+  # Excluded from --force-recreate so it survives the rebuild it triggers.
+  updater:
+    build:
+      context: .
+      dockerfile: services/updater/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "9999"
+      UPDATER_INTERNAL_TOKEN: ${UPDATER_INTERNAL_TOKEN:?Set UPDATER_INTERNAL_TOKEN in .env.production}
+      ALMIRANT_REPO_PATH: /repo
+      COMPOSE_FILE: docker-compose.prod.yml
+      ENV_FILE: .env.production
+      UPDATER_BRANCH: ${UPDATER_BRANCH:-main}
+      UPDATER_EXCLUDE_SERVICES: updater
+    volumes:
+      # Bind-mount the host clone of the repo. Generated by install.sh as
+      # `${REPO_DIR}` from the install location.
+      - ${ALMIRANT_REPO_PATH:?Set ALMIRANT_REPO_PATH in .env.production}:/repo
+      # Direct docker.sock — needed because docker-proxy doesn't expose the
+      # full surface area required by `docker compose build`.
+      - /var/run/docker.sock:/var/run/docker.sock
+    expose:
+      - "9999"
+    networks:
+      - almirant-prod
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9999/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Agent shim images. Built on demand with `--profile shims build`.
+  # Never started — runner spawns them as sibling containers per job.
+  claude-shim:
+    profiles: ["shims"]
+    build:
+      context: .
+      dockerfile: services/runner-claude/Dockerfile
+    image: almirant-claude-shim:2.1.126
+
+  codex-shim:
+    profiles: ["shims"]
+    build:
+      context: .
+      dockerfile: services/runner/docker/Dockerfile.codex
+    image: almirant-codex-shim:0.128.0
+
+  opencode-shim:
+    profiles: ["shims"]
+    build:
+      context: .
+      dockerfile: services/runner/docker/Dockerfile.opencode
+    image: almirant-opencode-shim:1.14.31
+
+networks:
+  almirant-prod:
+    driver: bridge
+
+volumes:
+  postgres_prod_data:
+  redis_prod_data:
+  almirant_prod_storage:
+  caddy_prod_data:
+  caddy_prod_config:

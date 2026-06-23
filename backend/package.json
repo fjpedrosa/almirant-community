@@ -1,0 +1,30 @@
+{
+  "name": "almirant-backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev:api": "cd .. && bun run --filter @almirant/api dev",
+    "build:api": "cd .. && bun run --filter @almirant/api build",
+    "db:generate": "cd .. && bun run --filter @almirant/database db:generate",
+    "db:migrate": "cd .. && bun run --filter @almirant/database db:migrate",
+    "db:studio": "cd .. && bun run --filter @almirant/database db:studio",
+    "db:seed": "bun run ../scripts/seed-database.ts",
+    "db:clear": "bun run ../scripts/clear-data.ts",
+    "db:backfill-idea-items": "cd .. && bun run --filter @almirant/database db:backfill-idea-items",
+    "db:snapshot": "cd .. && bun run --filter @almirant/database db:snapshot",
+    "db:restore": "cd .. && bun run --filter @almirant/database db:restore",
+    "test": "cd .. && bun run --filter @almirant/api test && bun run --filter @almirant/config test && bun run --filter @almirant/database test && bun run --filter @almirant/i18n test && bun run --filter @almirant/remote-agent test && bun run --filter @almirant/shared test && bun run --filter @almirant/stream-consumer test",
+    "test:watch": "cd .. && bun run --filter @almirant/api test:watch && bun run --filter @almirant/config test:watch && bun run --filter @almirant/database test:watch && bun run --filter @almirant/i18n test:watch && bun run --filter @almirant/remote-agent test:watch && bun run --filter @almirant/shared test:watch && bun run --filter @almirant/stream-consumer test:watch",
+    "lint": "cd .. && bunx eslint backend/api/src --ext .ts",
+    "type-check": "cd .. && bun run --filter @almirant/api type-check && bun run --filter @almirant/config type-check && bun run --filter @almirant/database typecheck && bun run --filter @almirant/i18n type-check && bun run --filter @almirant/remote-agent type-check && bun run --filter @almirant/shared type-check && bun run --filter @almirant/stream-consumer type-check && bun run --filter @almirant/worker type-check",
+    "memory:import-engram": "cd .. && bun run --filter @almirant/api memory:import-engram"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.8",
+    "@types/node": "^25.2.0",
+    "typescript": "^5.8.0"
+  },
+  "dependencies": {
+    "ioredis": "^5.10.1"
+  }
+}

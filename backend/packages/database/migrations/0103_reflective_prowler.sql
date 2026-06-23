@@ -1,0 +1,2 @@
+ALTER TABLE "waitlist_users" ALTER COLUMN "profile_ai_stack" SET DATA TYPE jsonb USING CASE WHEN "profile_ai_stack" IS NULL THEN NULL ELSE jsonb_build_array("profile_ai_stack"::text) END;--> statement-breakpoint
+ALTER TABLE "waitlist_users" ALTER COLUMN "profile_vibe_tool" SET DATA TYPE jsonb USING CASE WHEN "profile_vibe_tool" IS NULL THEN NULL ELSE jsonb_build_array("profile_vibe_tool"::text) END;

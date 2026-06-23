@@ -1,0 +1,1 @@
+ALTER TYPE "public"."agent_job_type" ADD VALUE 'feedback-triage-batch';

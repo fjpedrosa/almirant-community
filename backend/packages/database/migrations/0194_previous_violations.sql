@@ -1,0 +1,1 @@
+ALTER TABLE "instance_settings" ADD COLUMN "internal_feedback_project_id" uuid;

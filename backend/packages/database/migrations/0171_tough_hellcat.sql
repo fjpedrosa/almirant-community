@@ -1,0 +1,1 @@
+ALTER TABLE "agent_jobs" ALTER COLUMN "skill_name" DROP DEFAULT;

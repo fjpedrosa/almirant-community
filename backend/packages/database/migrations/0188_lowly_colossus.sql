@@ -1,0 +1,1 @@
+CREATE INDEX "bug_fix_attempts_active_created_at_idx" ON "bug_fix_attempts" USING btree ("created_at") WHERE "bug_fix_attempts"."status" IN ('analyzing', 'proposed', 'implementing');

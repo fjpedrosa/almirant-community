@@ -1,0 +1,1 @@
+ALTER TABLE "system_settings" ADD COLUMN "agent_routing" jsonb DEFAULT '{}'::jsonb NOT NULL;

@@ -1,0 +1,1 @@
+ALTER TYPE "planning_session_status" ADD VALUE 'interrupted' BEFORE 'completed';

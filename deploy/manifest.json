@@ -1,0 +1,53 @@
+{
+  "$schema": "./manifest.schema.json",
+  "description": "Cross-service feature dependency manifest. Used by validate-deployment.ts to ensure all required pieces are present.",
+  "features": {
+    "runner-implement": {
+      "description": "Remote implementation skill for coding agents",
+      "requires": [
+        { "service": "backend", "path": "backend/api/src/domains/agents/routes/agent-jobs.routes.ts", "marker": "runner-implement" },
+        { "service": "runner", "path": "services/runner/src/job-executor.ts", "marker": "runner-implement" },
+        { "service": "skills", "path": ".claude/skills/runner-implement/SKILL.md" }
+      ],
+      "runtimeSupport": {
+        "claude-code": "required",
+        "codex": "planned",
+        "zipu": "planned"
+      }
+    },
+    "runner-document": {
+      "description": "Remote documentation skill for coding agents",
+      "requires": [
+        { "service": "backend", "path": "backend/api/src/domains/agents/routes/agent-jobs.routes.ts", "marker": "runner-document" },
+        { "service": "runner", "path": "services/runner/src/job-executor.ts", "marker": "runner-document" },
+        { "service": "skills", "path": ".claude/skills/runner-document/SKILL.md" }
+      ],
+      "runtimeSupport": {
+        "claude-code": "required",
+        "codex": "planned",
+        "zipu": "planned"
+      }
+    },
+    "smoke-test": {
+      "description": "Pipeline health verification skill",
+      "requires": [
+        { "service": "skills", "path": ".claude/skills/smoke-test/SKILL.md" },
+        { "service": "scripts", "path": "scripts/smoke-test.ts" }
+      ]
+    },
+    "validate": {
+      "description": "Validation skill for code review and testing",
+      "requires": [
+        { "service": "backend", "path": "backend/api/src/domains/agents/routes/agent-jobs.routes.ts", "marker": "validate" },
+        { "service": "skills", "path": ".claude/skills/validate/SKILL.md" }
+      ]
+    },
+    "nightly-fix": {
+      "description": "Automated fix skill for failed validations",
+      "requires": [
+        { "service": "runner", "path": "services/runner/src/orchestration/orchestrator.ts", "marker": "nightly-fix" },
+        { "service": "skills", "path": ".claude/skills/nightly-fix/SKILL.md" }
+      ]
+    }
+  }
+}

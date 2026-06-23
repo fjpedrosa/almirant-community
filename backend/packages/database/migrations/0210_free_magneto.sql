@@ -1,0 +1,2 @@
+ALTER TYPE "public"."integration_batch_item_failure_category" ADD VALUE 'schema_obsolete_branch' BEFORE 'migration_apply_failed';--> statement-breakpoint
+ALTER TYPE "public"."integration_batch_item_failure_category" ADD VALUE 'schema_irreconcilable' BEFORE 'migration_apply_failed';

@@ -1,0 +1,15 @@
+# Frontend validation image — runs Next.js in dev mode
+# Context: repository root (.)
+
+FROM oven/bun:1.3.8-alpine AS deps
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/bun.lock ./
+RUN bun install --frozen-lockfile
+
+FROM oven/bun:1.3.8-alpine
+WORKDIR /app/frontend
+COPY --from=deps /app/frontend/node_modules ./node_modules
+COPY frontend/ .
+ENV NODE_ENV=development
+EXPOSE 3000
+CMD ["bun", "run", "dev"]

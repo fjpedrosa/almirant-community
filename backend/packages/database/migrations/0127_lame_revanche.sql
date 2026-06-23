@@ -1,0 +1,1 @@
+ALTER TABLE "scheduled_agent_configs" ADD COLUMN "paused_until" timestamp with time zone;

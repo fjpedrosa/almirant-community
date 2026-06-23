@@ -1,0 +1,23 @@
+{
+  "name": "@almirant/feedback-widget",
+  "version": "0.1.0",
+  "description": "Universal feedback widget for Almirant - vanilla JS, no framework dependencies",
+  "private": true,
+  "main": "dist/index.mjs",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.ts"
+    },
+    "./iife": "./dist/feedback-widget.iife.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "bun build src/index.ts --outfile dist/index.mjs --format esm --target browser && bun build src/iife-entry.ts --outfile dist/feedback-widget.iife.js --format iife --target browser && tsc --declaration --emitDeclarationOnly --outDir dist",
+    "type-check": "tsc --noEmit"
+  }
+}

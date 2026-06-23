@@ -1,0 +1,4757 @@
+{
+  "common": {
+    "betaBadge": "Beta",
+    "save": "Save",
+    "saveChanges": "Save Changes",
+    "saving": "Saving...",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "create": "Create",
+    "creating": "Creating...",
+    "search": "Search",
+    "loading": "Loading...",
+    "noResults": "No results",
+    "confirm": "Confirm",
+    "back": "Back",
+    "close": "Close",
+    "actions": "Actions",
+    "filters": "Filters",
+    "clearFilters": "Clear filters",
+    "clearAll": "Clear all",
+    "all": "All",
+    "none": "None",
+    "yes": "Yes",
+    "no": "No",
+    "or": "or",
+    "add": "Add",
+    "remove": "Remove",
+    "select": "Select",
+    "selectDate": "Select date",
+    "noOptions": "No options",
+    "moreItems": "+{count} more",
+    "required": "Required",
+    "optional": "Optional",
+    "apply": "Apply",
+    "clear": "Clear",
+    "filter": "Filter",
+    "noFiltersAvailable": "No filters available",
+    "typeToFilter": "Type to filter...",
+    "selectOption": "Select...",
+    "value": "Value...",
+    "from": "From",
+    "to": "To"
+  },
+  "shared": {
+    "comments": {
+      "empty": "No comments yet.",
+      "writePlaceholder": "Write a comment... use @ to mention",
+      "editPlaceholder": "Edit comment...",
+      "editAriaLabel": "Edit comment",
+      "deleteAriaLabel": "Delete comment",
+      "attachFile": "Attach file",
+      "sendComment": "Send comment",
+      "mentionHint": "Use <strong>@</strong> to mention · Enter to send",
+      "edited": "(edited)",
+      "user": "User",
+      "timeNow": "now",
+      "timeMinutes": "{count}m ago",
+      "timeHours": "{count}h ago"
+    },
+    "editor": {
+      "removeImage": "Remove image",
+      "imageSizeError": "Image size exceeds the 5MB limit",
+      "fileSizeError": "File size exceeds the 10MB limit"
+    },
+    "filters": {
+      "searchOwner": "Search owner...",
+      "noOwnersFound": "No owners found",
+      "allOwners": "All owners",
+      "ownerCount": "{count} owners"
+    },
+    "quickActions": {
+      "changeStatusTo": "Change status to {label}",
+      "delete": "Delete"
+    }
+  },
+  "metadata": {
+    "title": "Almirant",
+    "description": "Almirant - Project & Document Management"
+  },
+  "nav": {
+    "appName": "Almirant",
+    "tasks": "Tasks",
+    "boards": "Board",
+    "projects": "Projects",
+    "roadmap": "Roadmap",
+    "handbook": "Handbook",
+    "docs": "Docs",
+    "people": "People",
+    "feedback": "Feedback",
+    "plan": "Plan",
+    "sessions": "Sessions",
+    "todos": "To-Do",
+    "ideas": "Ideas",
+    "teams": "Teams",
+    "seeds": "Seeds",
+    "settings": "Settings",
+    "expenses": "Expenses",
+    "analytics": "Analytics",
+    "ask": "Ask",
+    "agents": "Agents",
+    "goals": "Goals",
+    "management": "Management",
+    "workspace": "Workspace",
+    "backToApp": "Back to App",
+    "humans": "Humans",
+    "create": "Create",
+    "skills": "Skills",
+    "schedules": "Schedules",
+    "inbox": "Inbox",
+    "brain": "Brain"
+  },
+  "profileMenu": {
+    "expenses": "Expenses",
+    "analytics": "Analytics",
+    "settings": "Settings",
+    "backoffice": "Backoffice",
+    "signOut": "Sign out",
+    "organizations": "Organizations",
+    "createOrganization": "Create organization",
+    "teams": "Teams",
+    "roadmap": "Roadmap",
+    "goals": "Goals",
+    "projects": "Projects",
+    "handbook": "Handbook"
+  },
+  "priorities": {
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High",
+    "urgent": "Urgent"
+  },
+  "workItemTypes": {
+    "epic": "Epic",
+    "feature": "Feature",
+    "story": "Story",
+    "task": "Task",
+    "idea": "Idea"
+  },
+  "estimation": {
+    "unestimated": "Unestimated",
+    "hours": "{count} hours",
+    "hour": "{count} hour"
+  },
+  "agents": {
+    "implementWithAi": "Implement with AI",
+    "jobQueued": "Job queued",
+    "batchQueued": "{count} jobs queued",
+    "selectProvider": "Select AI provider",
+    "selectRepo": "Repository",
+    "defaultRepo": "Default",
+    "claudeCode": "Claude Code",
+    "codex": "Codex",
+    "needsInput": "Needs your input",
+    "status": {
+      "queued": "Queued",
+      "running": "Running",
+      "finalizing": "Finalizing",
+      "completed": "Completed",
+      "incomplete": "Incomplete",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "waiting_for_input": "Waiting for input",
+      "paused": "Paused by quota"
+    },
+    "worker": {
+      "online": "Worker online",
+      "offline": "No workers connected",
+      "details": "Details"
+    },
+    "activity": {
+      "running": "{count} running",
+      "queued": "{count} queued",
+      "waiting": "waiting: {count}",
+      "panelTitle": "Active AI Jobs",
+      "noActiveJobs": "No active AI jobs",
+      "cancelJob": "Cancel job",
+      "cancelConfirm": "Are you sure you want to cancel this job?",
+      "elapsed": "Elapsed",
+      "unknownItem": "Unknown work item"
+    },
+    "thread": {
+      "empty": "No interactions yet. The agent will ask questions here when it needs your input.",
+      "pending": "Pending",
+      "answered": "Answered",
+      "expired": "Expired",
+      "cancelled": "Cancelled",
+      "expiredAt": "Expired at {time}",
+      "approve": "Approve",
+      "reject": "Reject",
+      "send": "Send",
+      "answerPlaceholder": "Type your response...",
+      "showContext": "Show context",
+      "questionType": {
+        "clarification": "Clarification",
+        "approval": "Approval",
+        "choice": "Choice",
+        "free_text": "Free text"
+      }
+    }
+  },
+  "sessions": {
+    "title": "Sessions",
+    "description": "Browse current and historical agent runs across the workspace.",
+    "filters": {
+      "project": "Project",
+      "status": "Status",
+      "type": "Session Type",
+      "taskId": "Task ID",
+      "taskIdPlaceholder": "Search by task ID...",
+      "allProjects": "All projects",
+      "allStatuses": "All statuses",
+      "allTypes": "All session types",
+      "jobTypes": {
+        "implementation": "Implementation",
+        "validation": "Validation",
+        "review": "Review",
+        "planning": "Planning"
+      }
+    },
+    "table": {
+      "task": "Execution",
+      "project": "Project",
+      "skill": "Skill",
+      "status": "Status",
+      "started": "Started",
+      "startedDuration": "Started / Duration",
+      "duration": "Duration",
+      "open": "Open",
+      "empty": "No sessions found for the current filters."
+    },
+    "pagination": {
+      "page": "Page {page} of {totalPages}"
+    },
+    "detail": {
+      "back": "Back to sessions",
+      "description": "Inspect the full execution output and metadata for this run.",
+      "runDetails": "Run Details",
+      "timeline": "Session Timeline",
+      "live": "Live",
+      "replay": "Replay",
+      "workItem": "Open work item",
+      "noOutput": "This session has not produced any output yet.",
+      "provider": "Provider",
+      "model": "Model",
+      "type": "Type",
+      "started": "Started",
+      "finished": "Finished",
+      "duration": "Duration",
+      "project": "Project",
+      "board": "Board",
+      "createdBy": "Created by",
+      "error": "Error",
+      "notFound": "Session not found",
+      "tabOutput": "Output",
+      "tabTranscript": "Transcript",
+      "noTranscript": "No transcript available for this session.",
+      "dialogTitle": "Session Detail",
+      "transcriptPlaceholder": "Transcript will appear here",
+      "timelinePlaceholder": "Event timeline will appear here"
+    },
+    "workItemPanel": {
+      "title": "Agent Sessions",
+      "empty": "No agent sessions for this work item yet.",
+      "latest": "Latest session",
+      "open": "Open full session",
+      "skill": "Skill",
+      "started": "Started",
+      "duration": "Duration",
+      "sessions": "Sessions"
+    }
+  },
+  "workItems": {
+    "title": "Work Items",
+    "createItem": "Create Item",
+    "editItem": "Edit Item",
+    "form": {
+      "title": "Title",
+      "titlePlaceholder": "Item title...",
+      "type": "Type",
+      "status": "Status",
+      "priority": "Priority",
+      "project": "Project",
+      "fromBoard": "From board",
+      "description": "Description",
+      "descriptionPlaceholder": "Describe the item...",
+      "definitionOfDone": "Definition of Done",
+      "definitionOfDonePlaceholder": "Acceptance criteria...",
+      "assignee": "Assigned to",
+      "assigneePlaceholder": "Unassigned",
+      "assignToMe": "Assign to me",
+      "dueDate": "Due date",
+      "estimatedHours": "Estimated hours",
+      "parent": "Parent",
+      "noParent": "No parent",
+      "selectParent": "Select parent",
+      "epicsNoParent": "Epics have no parent",
+      "bug": "Bug",
+      "tags": "Tags",
+      "searchTags": "Search tags...",
+      "createTag": "Create tag",
+      "backToMain": "Back to main form",
+      "createParent": "Create parent",
+      "createParentLabel": "Create Parent",
+      "newParent": "New Parent",
+      "newItem": "New Item",
+      "editItemPlaceholder": "Edit Item",
+      "backToEdit": "Back to edit",
+      "viewHistory": "View history",
+      "searchItem": "Search item...",
+      "noItemsFound": "No items found.",
+      "selectParentPlaceholder": "Select parent..."
+    },
+    "kanban": {
+      "addItem": "Add item",
+      "emptyColumn": "No items in this column",
+      "dragHint": "Drag to move",
+      "group": "Group",
+      "groupBy": {
+        "label": "Group by",
+        "none": "None",
+        "parent": "Parent",
+        "epic": "Epic",
+        "feature": "Feature",
+        "story": "Story",
+        "hierarchy": "Hierarchy",
+        "topmost": "Topmost",
+        "without": "Without {type}"
+      },
+      "collapseAll": "Collapse all",
+      "expandAll": "Expand all",
+      "ungrouped": "Ungrouped",
+      "noSubItems": "No sub-items",
+      "sprintFilter": {
+        "all": "All items",
+        "active": "active"
+      },
+      "sort": {
+        "label": "Sort items",
+        "manual": "Manual",
+        "priority": "Priority",
+        "created": "Created",
+        "updated": "Updated",
+        "dueDate": "Due date"
+      }
+    },
+    "detail": {
+      "children": "Sub-items",
+      "attachments": "Attachments",
+      "uploadFile": "Upload file",
+      "uploading": "Uploading...",
+      "noAttachments": "No attachments",
+      "loadingAttachments": "Loading attachments...",
+      "pendingFiles": "Pending files",
+      "pendingFilesHint": "Will be uploaded when creating the item",
+      "dropFilesHere": "Drop files here",
+      "aiUsage": "AI Usage",
+      "sessions": "{count, plural, one {# session} other {# sessions}}",
+      "tokens": "tokens",
+      "cost": "cost",
+      "time": "time",
+      "viewBreakdown": "View breakdown by session",
+      "planningOrigin": "Planning Origin",
+      "walkthrough": "Walkthrough",
+      "walkthroughs": "Walkthroughs",
+      "nextSteps": "Next Steps",
+      "deployChecklist": "Deploy Checklist",
+      "validationChecks": "Validation Checks",
+      "documentationNotes": "Documentation Notes",
+      "dependencies": "Dependencies",
+      "linkedCommits": "Linked Commits",
+      "pullRequest": "Pull Request",
+      "linkedDocuments": "Linked Documents",
+      "suggestedDocuments": "Suggested Documents",
+      "aiCost": "AI Cost",
+      "agentThread": "Agent Thread",
+      "aiRunLogs": "AI Run Logs"
+    },
+    "card": {
+      "copySavedPrompt": "Copy saved prompt",
+      "copyReviewCommand": "Copy review command",
+      "managedByClaude": "Managed by Claude Code (legacy)",
+      "managedByCodex": "Managed by Codex (legacy)",
+      "managedByOpenAI": "Managed by OpenAI",
+      "managedByAnthropic": "Managed by Anthropic",
+      "managedByProvider": "Managed by {provider}",
+      "userActionsTitle": "Pending actions",
+      "deployChecklistTitle": "Deploy checklist",
+      "sub": "sub",
+      "copyTaskCommand": "Copy /implement {taskId}",
+      "copyImplementCommand": "Copy implement command",
+      "commandCopied": "Copied!",
+      "tested": "Tests verified",
+      "definitionOfDoneApproved": "Definition of Done approved",
+      "humanActionRequired": "Human action required",
+      "humanActionRequiredAction": "What the human must do",
+      "humanActionRequiredFallback": "This task needs human intervention before it can be completed automatically.",
+      "externalValidationRequired": "External validation required",
+      "externalValidationRequiredFallback": "This task needs an external validator before automation can continue.",
+      "previewDeployment": "Open preview deployment",
+      "autoPositioned": "Position calculated automatically from children",
+      "bug": "Bug",
+      "prStatus": "PR #{number} ({state})",
+      "childrenProgress": "{done}/{total} done",
+      "pendingTasks": "{count, plural, one {# pending} other {# pending}}",
+      "creator": "Creator",
+      "createdBy": "Created by {name}",
+      "storyPoints": "Story Points: {points}",
+      "releasePr": "Release v{number}",
+      "releaseOpen": "open",
+      "releaseMerged": "shipped"
+    },
+    "selection": {
+      "selected": "{count, plural, one {# task selected} other {# tasks selected}}",
+      "generatePrompt": "Generate Prompt",
+      "generateCombinedPrompt": "Generate combined prompt",
+      "generating": "Generating...",
+      "clearSelection": "Clear selection",
+      "bulkMove": "Move to",
+      "implementWithAi": "Implement with AI",
+      "implementing": "Implementing...",
+      "moving": "Moving...",
+      "copyCommand": "Copy command",
+      "commandCopied": "Copied!"
+    },
+    "prompt": {
+      "copy": "Copy Prompt",
+      "copying": "Generating prompt...",
+      "copied": "Copied!",
+      "copyAsPrompt": "Copy as prompt",
+      "formatDescription": "Format description with AI",
+      "formatDefinitionOfDone": "Format DoD with AI"
+    },
+    "voice": {
+      "activating": "Activating microphone...",
+      "stopDictation": "Stop dictation",
+      "dictate": "Dictate"
+    },
+    "ai": {
+      "formatting": "Formatting with AI...",
+      "format": "Format with AI"
+    },
+    "tags": {
+      "selectTags": "Select tags...",
+      "searchTag": "Search tag...",
+      "noTagsFound": "No tags found.",
+      "createTagOption": "+ Create tag",
+      "tagNamePlaceholder": "Tag name",
+      "tagsSelected": "{count} tag{count, plural, one {} other {s}} selected"
+    },
+    "dependencies": {
+      "title": "Dependencies",
+      "add": "Add dependency",
+      "searchWorkItem": "Search work item...",
+      "noItems": "No items available",
+      "blockedBy": "Blocked by",
+      "blocks": "Blocks",
+      "removeDependency": "Remove dependency"
+    },
+    "linkedDocuments": {
+      "title": "Documentation",
+      "add": "Link document",
+      "searchDocument": "Search document...",
+      "noDocuments": "No documents available",
+      "unlink": "Unlink document",
+      "linkSuccess": "Document linked",
+      "linkError": "Error linking document",
+      "unlinkSuccess": "Document unlinked",
+      "unlinkError": "Error unlinking document"
+    },
+    "linkedCommits": {
+      "title": "Commits",
+      "add": "Link commit",
+      "searchCommit": "Search by SHA or message...",
+      "noCommits": "No commits available",
+      "unlink": "Unlink commit",
+      "auto": "auto",
+      "manual": "manual"
+    },
+    "suggestedDocs": {
+      "title": "Related Knowledge",
+      "link": "Link to this work item",
+      "empty": "No related documents found"
+    },
+    "timeline": {
+      "title": "History",
+      "noEvents": "No events recorded",
+      "now": "Now",
+      "minutesAgo": "{count}m ago",
+      "hoursAgo": "{count}h ago",
+      "daysAgo": "{count}d ago",
+      "showAll": "View all",
+      "showLess": "View less",
+      "dayGroup": {
+        "today": "Today",
+        "yesterday": "Yesterday"
+      },
+      "actions": {
+        "createdItem": "created this item",
+        "deletedItem": "deleted this item",
+        "movedFrom": "moved from",
+        "movedTo": "to",
+        "assignedTo": "assigned to",
+        "unassigned": "removed assignee",
+        "changedPriority": "changed priority to",
+        "changed": "changed",
+        "attachmentAdded": "attached",
+        "attachmentRemoved": "removed attachment",
+        "aiSession": "recorded an AI session",
+        "commented": "added a comment"
+      },
+      "events": {
+        "created": "Created",
+        "updated": "Updated",
+        "moved": "Moved",
+        "deleted": "Deleted",
+        "attachmentAdded": "Attachment added",
+        "attachmentRemoved": "Attachment removed",
+        "aiSession": "AI Session",
+        "comment": "Comment"
+      },
+      "actors": {
+        "user": "User",
+        "system": "System",
+        "claudeCode": "Claude Code"
+      },
+      "fields": {
+        "title": "Title",
+        "description": "Description",
+        "type": "Type",
+        "priority": "Priority",
+        "assignee": "Assigned",
+        "dueDate": "Due date",
+        "estimatedHours": "Estimated hours",
+        "parentId": "Parent",
+        "projectId": "Project",
+        "boardColumnId": "Column"
+      }
+    },
+    "typeFilter": {
+      "label": "Filter by type",
+      "all": "All"
+    },
+    "board": {
+      "copied": "Copied: {command}",
+      "copyError": "Copy error",
+      "promptCopied": "Prompt copied to clipboard",
+      "filters": "Filters",
+      "resetFilters": "Reset filters",
+      "viewMode": {
+        "normal": "Normal view",
+        "compact": "Compact view"
+      },
+      "shareBanner": {
+        "title": "You just finished a task",
+        "description": "Share what you shipped in the last 7 days on X to trigger your viral loop.",
+        "share": "Share progress",
+        "notNow": "Not now",
+        "close": "Close banner"
+      }
+    },
+    "savedViews": {
+      "label": "Views",
+      "saveCurrentView": "Save current view",
+      "viewNamePlaceholder": "View name...",
+      "save": "Save",
+      "savedViewsList": "Saved views",
+      "viewApplied": "View applied",
+      "viewSaved": "View saved",
+      "viewDeleted": "View deleted"
+    },
+    "generateDocs": {
+      "title": "Generate documentation?",
+      "description": "The task \"{title}\" has been moved to Done. Would you like to generate automatic documentation?",
+      "explanation": "AI will analyze the title, description, and definition of done to create a structured Know-How document linked to this task.",
+      "confirm": "Yes, generate",
+      "skip": "No, skip",
+      "generating": "Generating...",
+      "success": "Documentation generated successfully",
+      "error": "Error generating documentation",
+      "viewDocument": "View document"
+    },
+    "parentDetail": {
+      "noItemSelected": "No item selected",
+      "back": "Back",
+      "description": "Description",
+      "noDescription": "No description",
+      "metadata": "Details",
+      "priority": "Priority",
+      "status": "Status",
+      "assignee": "Assignee",
+      "unassigned": "Unassigned",
+      "estimatedPoints": "Estimated points",
+      "definitionOfDone": "Definition of Done",
+      "children": "Sub-items",
+      "noChildren": "No sub-items",
+      "childrenCount": "{count, plural, one {# sub-item} other {# sub-items}}",
+      "tabs": {
+        "details": "Details",
+        "history": "History",
+        "sessions": "Sessions",
+        "sessionsEmpty": "No AI sessions recorded yet."
+      },
+      "history": {
+        "showAll": "Show all events",
+        "showLess": "Show less"
+      },
+      "edit": "Edit",
+      "cancelEdit": "Cancel",
+      "save": "Save",
+      "dueDate": "Due date",
+      "parent": "Parent",
+      "tags": "Tags",
+      "bugFlag": "Bug"
+    },
+    "assignees": {
+      "selectAssignees": "Select assignees...",
+      "searchMembers": "Search members...",
+      "noMembersFound": "No members found.",
+      "removeAssignee": "Remove {name}",
+      "assigneesSelected": "{count} assignee{count, plural, one {} other {s}}"
+    },
+    "boardFilters": {
+      "priority": "Priority",
+      "assignee": "Assignee",
+      "project": "Project",
+      "assigneePlaceholder": "Assignee name...",
+      "priorityUrgent": "Urgent",
+      "priorityHigh": "High",
+      "priorityMedium": "Medium",
+      "priorityLow": "Low"
+    }
+  },
+  "leads": {
+    "title": "Leads",
+    "newLead": "New Lead",
+    "editLead": "Edit Lead",
+    "kanbanView": "Kanban View",
+    "tableView": "Table View",
+    "form": {
+      "name": "Name",
+      "nameRequired": "Name *",
+      "namePlaceholder": "Full name",
+      "email": "Email",
+      "emailPlaceholder": "email@example.com",
+      "phone": "Phone",
+      "phonePlaceholder": "+1 555 123 4567",
+      "company": "Company",
+      "companyPlaceholder": "Company name",
+      "position": "Position",
+      "positionPlaceholder": "CEO, Director...",
+      "source": "Source",
+      "selectSource": "Select source",
+      "profileUrl": "Profile URL",
+      "profileUrlPlaceholder": "https://linkedin.com/in/...",
+      "notes": "Notes",
+      "notesPlaceholder": "Additional notes about the lead...",
+      "tags": "Tags",
+      "createLead": "Create Lead"
+    },
+    "sources": {
+      "website": "Website",
+      "referral": "Referral",
+      "linkedin": "LinkedIn",
+      "coldOutreach": "Cold Outreach",
+      "event": "Event",
+      "import": "Import",
+      "other": "Other",
+      "instagram": "Instagram",
+      "tiktok": "TikTok",
+      "manual": "Manual",
+      "api": "API"
+    },
+    "table": {
+      "name": "Name",
+      "company": "Company",
+      "contact": "Contact",
+      "funnel": "Funnel",
+      "tags": "Tags",
+      "source": "Source",
+      "created": "Created",
+      "noFunnel": "No funnel",
+      "more": "+{count} more"
+    },
+    "filters": {
+      "searchPlaceholder": "Search by name, email or company...",
+      "allSources": "All sources",
+      "allFunnels": "All funnels",
+      "noFunnel": "No funnel",
+      "search": "Search",
+      "source": "Source",
+      "clearFilters": "Clear filters"
+    },
+    "emptyState": "No leads found with the applied filters",
+    "detail": {
+      "positionAt": "{position} at {company}",
+      "contact": "Contact:",
+      "emailAction": "Email",
+      "callAction": "Call",
+      "tabs": {
+        "details": "Details",
+        "activity": "Activity"
+      },
+      "contactInfo": "Contact information",
+      "noEmail": "No email",
+      "noPhone": "No phone",
+      "noCompany": "No company",
+      "viewProfile": "View profile on {source}",
+      "funnelPositions": "Funnel positions",
+      "notes": "Notes",
+      "notesPlaceholder": "Add notes about this lead...",
+      "noNotes": "No notes",
+      "customFields": "Custom fields",
+      "recordInfo": "Record information",
+      "sourceLabel": "Source: {source}",
+      "createdLabel": "Created: {date}",
+      "noActivity": "No recent activity",
+      "notFound": "Lead not found"
+    },
+    "kanban": {
+      "title": "Leads - Kanban",
+      "selectFunnel": "Select funnel",
+      "defaultFunnel": "(Default)",
+      "noFunnels": "No funnels configured",
+      "createFunnel": "Create Funnel",
+      "errorLoading": "Error loading funnel",
+      "dragHere": "Drag leads here"
+    },
+    "pagination": {
+      "showing": "Showing {start} - {end} of {total} leads",
+      "page": "Page",
+      "of": "of",
+      "firstPage": "First page",
+      "previousPage": "Previous page",
+      "nextPage": "Next page",
+      "lastPage": "Last page"
+    }
+  },
+  "projects": {
+    "title": "Projects",
+    "subtitle": "Manage your projects and tasks",
+    "createProject": "Create Project",
+    "newProject": "New Project",
+    "editProject": "Edit Project",
+    "notFound": "Project not found",
+    "backToProjects": "Back to projects",
+    "searchPlaceholder": "Search projects...",
+    "filterStatus": "Status",
+    "allStatuses": "All",
+    "activeFilter": "Active",
+    "onHoldFilter": "On Hold",
+    "archivedFilter": "Archived",
+    "archivedBanner": {
+      "title": "Archived project",
+      "description": "This project is archived. It is excluded from normal listings and selectors but remains accessible via direct URL."
+    },
+    "noProjects": "No projects",
+    "noProjectsHint": "Create your first project to get started",
+    "form": {
+      "name": "Name",
+      "nameRequired": "Name",
+      "namePlaceholder": "Project name",
+      "description": "Description",
+      "descriptionPlaceholder": "Brief project description",
+      "status": "Status",
+      "workspace": "Workspace",
+      "workspacePlaceholder": "Select workspace",
+      "client": "Client",
+      "clientPlaceholder": "Internal if left empty",
+      "internal": "Internal",
+      "techStack": "Tech Stack",
+      "techStackPlaceholder": "Type + Enter",
+      "productionUrl": "Production URL",
+      "stagingUrl": "Staging URL",
+      "startDate": "Start Date",
+      "targetDate": "Target Date",
+      "colorTitle": "Project color"
+    },
+    "status": {
+      "active": "Active",
+      "onHold": "On Hold",
+      "completed": "Completed",
+      "archived": "Archived"
+    },
+    "tabs": {
+      "overview": "Overview",
+      "repos": "Repositories",
+      "boards": "Boards",
+      "sprints": "Sprints",
+      "docLinks": "Documentation",
+      "notes": "Notes",
+      "github": "GitHub"
+    },
+    "overview": {
+      "generalInfo": "General Information",
+      "description": "Description:",
+      "client": "Client:",
+      "status": "Status:",
+      "dates": "Dates",
+      "start": "Start:",
+      "target": "Target:",
+      "environments": "Environments",
+      "production": "Production:",
+      "staging": "Staging:"
+    },
+    "stats": {
+      "boards": "Boards",
+      "totalTasks": "Total tasks",
+      "completed": "Completed",
+      "progress": "Progress",
+      "byTypeTitle": "By type",
+      "epic": "Epics",
+      "feature": "Features",
+      "story": "Stories",
+      "task": "Tasks"
+    },
+    "boardsTab": {
+      "title": "Project boards",
+      "items": "items",
+      "noBoards": "No boards created for this project"
+    },
+    "sprintsTab": {
+      "title": "Project sprints",
+      "items": "items",
+      "board": "Board",
+      "open": "Open",
+      "closed": "Closed",
+      "completed": "Closed",
+      "noSprints": "No sprints found for this project",
+      "viewReport": "View report",
+      "closedOn": "Closed on {date}"
+    },
+    "docsTab": {
+      "title": "Documentation links",
+      "titlePlaceholder": "Title",
+      "other": "Other"
+    },
+    "notesTab": {
+      "newNotePlaceholder": "New note...",
+      "save": "Save",
+      "contentPlaceholder": "Write the note content in Markdown...",
+      "selectNote": "Select a note to edit it"
+    },
+    "reposTab": {
+      "repoNamePlaceholder": "Repository name",
+      "repoUrlPlaceholder": "Repository URL",
+      "selectRepo": "Select repository...",
+      "searchRepo": "Search repository...",
+      "noReposFound": "No repositories found",
+      "other": "Other",
+      "monorepo": "Monorepo",
+      "adding": "Adding...",
+      "add": "Add",
+      "noRepos": "No repositories",
+      "repository": "Repository"
+    },
+    "screenshot": {
+      "noUrlConfigured": "no-url-configured",
+      "noProductionUrl": "No production URL configured",
+      "visit": "Visit",
+      "capturing": "Capturing...",
+      "refreshScreenshot": "Refresh screenshot"
+    },
+    "card": {
+      "boards": "boards",
+      "tasks": "tasks",
+      "epics": "epics",
+      "features": "features",
+      "stories": "stories"
+    },
+    "transfer": {
+      "title": "Confirm project transfer",
+      "description": "The project \"{projectName}\" will be moved from workspace \"{fromWorkspace}\" to workspace \"{toWorkspace}\". It will no longer be visible from the current workspace.",
+      "cancel": "Cancel",
+      "confirm": "Confirm transfer"
+    },
+    "wizard": {
+      "vercelDeploy": {
+        "title": "Deploy on Vercel",
+        "description": "Create a Vercel project linked to your repository for automatic deployments.",
+        "toggleLabel": "Enable deploy on Vercel",
+        "createProject": "Create project on Vercel",
+        "projectName": "Vercel project name",
+        "projectNamePlaceholder": "my-project",
+        "linkedRepo": "It will be automatically linked with the repository {repoName}.",
+        "noRepo": "No GitHub repository selected. The Vercel project will be created without linking to a repository.",
+        "laterConfig": "You can configure Vercel deployment later from the project settings."
+      },
+      "githubRepo": {
+        "title": "GitHub Repository",
+        "description": "Select an existing repository or create a new one to link to the project.",
+        "githubAccount": "GitHub account",
+        "createNewRepo": "Create new repository",
+        "repoName": "Repository name",
+        "repoNamePlaceholder": "my-project",
+        "privateRepo": "Private repository",
+        "readmeNote": "The repository will be created with an initial README when the wizard finishes.",
+        "availableRepos": "Available repositories",
+        "noReposFound": "No repositories found for this account.",
+        "connectAccountTitle": "Connect your GitHub account",
+        "connectAccountDescription": "Link your GitHub account to create repositories from the wizard.",
+        "connectAccountAction": "Connect GitHub",
+        "personalAccountHint": "Create a repository with your personal GitHub account",
+        "personalAccountOAuthTitle": "OAuth connection required",
+        "personalAccountOAuthDescription": "Personal GitHub accounts require OAuth authorization to create repositories. Connect your account to continue.",
+        "tokenExpiredTitle": "Your GitHub connection has expired",
+        "tokenExpiredDescription": "You need to reconnect your GitHub account to create repositories.",
+        "reconnectAction": "Reconnect GitHub"
+      },
+      "collaborators": {
+        "title": "Invite collaborators",
+        "optionalStep": "Optional step. You can add members now or do it later.",
+        "placeholder": "email@company.com",
+        "add": "Add",
+        "removeAriaLabel": "Remove {email}",
+        "empty": "No collaborators added yet."
+      }
+    }
+  },
+  "boards": {
+    "title": "Boards",
+    "subtitle": "Kanban boards to manage your work",
+    "createBoard": "Create Board",
+    "newBoard": "New Board",
+    "editBoard": "Edit Board",
+    "manageSubtitle": "Manage your Kanban boards, columns and templates",
+    "editSubtitle": "Edit board configuration and columns",
+    "notFound": "Board not found",
+    "backToBoards": "Back to Boards",
+    "noBoards": "No boards in this area",
+    "createBoardHint": "Create a project and add a {area} board",
+    "noProject": "No project",
+    "tabs": {
+      "all": "All Boards",
+      "byArea": "By Area"
+    },
+    "areas": {
+      "development": "Development",
+      "developmentDesc": "Software development management",
+      "sales": "Sales",
+      "salesDesc": "Sales pipeline and tracking",
+      "prospecting": "Prospecting",
+      "prospectingDesc": "Lead research and qualification",
+      "marketing": "Marketing",
+      "marketingDesc": "Campaigns and content",
+      "general": "General",
+      "generalDesc": "General Kanban boards"
+    },
+    "delete": {
+      "title": "Delete board",
+      "warning": "This action cannot be undone.",
+      "confirmation": "Are you sure you want to delete",
+      "itemsWarning": "This board has {count} {count, plural, one {item} other {items}} that will also be deleted.",
+      "button": "Delete board",
+      "deleting": "Deleting...",
+      "success": "Board deleted successfully",
+      "error": "Error deleting board"
+    },
+    "empty": {
+      "title": "No boards yet",
+      "description": "Create your first board to start organizing your work.",
+      "button": "Create your first board"
+    },
+    "form": {
+      "name": "Name",
+      "namePlaceholder": "Board name",
+      "description": "Description",
+      "descriptionPlaceholder": "Board description...",
+      "descriptionOptional": "Optional board description",
+      "area": "Area",
+      "selectArea": "Select area",
+      "columns": "Columns",
+      "addColumn": "Add column",
+      "defaultBoard": "Default board",
+      "defaultBoardDesc": "This board will be selected by default when opening this area.",
+      "setDefaultDesc": "Set as the default board for this area.",
+      "allowedTypes": "Allowed types",
+      "allowedTypesDesc": "Select which work item types can be created on this board. If none are selected, all types are allowed.",
+      "allTypesAllowed": "All types allowed"
+    },
+    "create": {
+      "title": "Create new board",
+      "chooseDesc": "Start from a template or create from scratch.",
+      "templateTitle": "Choose template",
+      "templateDesc": "Choose a template to get started quickly.",
+      "scratchTitle": "Create from scratch",
+      "scratchDesc": "Configure your board with a custom setup.",
+      "fromTemplate": "From template",
+      "fromTemplateDesc": "Start with a preconfigured board",
+      "fromScratch": "From scratch",
+      "fromScratchDesc": "Create a custom board",
+      "noTemplates": "No templates available.",
+      "boardNameOptional": "Board name (optional)"
+    },
+    "settings": {
+      "editBoard": "Edit board",
+      "manageColumns": "Manage columns",
+      "deleteBoard": "Delete board",
+      "searchPlaceholder": "Search boards...",
+      "noMatch": "No boards match your filters.",
+      "newBoard": "New board"
+    },
+    "columns": {
+      "title": "Columns",
+      "configured": "{count} {count, plural, one {column} other {columns}} configured",
+      "addColumn": "Add column",
+      "newColumn": "New column",
+      "noColumns": "No columns. Add your first column to get started.",
+      "nameLabel": "Name",
+      "colorLabel": "Color",
+      "presetColors": "Preset colors",
+      "hexValue": "Hex value",
+      "doneColumn": "This is the done column",
+      "markDone": "Mark as done column",
+      "adding": "Adding..."
+    }
+  },
+  "funnels": {
+    "title": "Funnels",
+    "subtitle": "Manage your sales funnels",
+    "createFunnel": "Create Funnel",
+    "newFunnel": "New Funnel",
+    "editFunnel": "Edit Funnel",
+    "viewInKanban": "View in Kanban",
+    "empty": "No funnels created",
+    "createFirst": "Create first funnel",
+    "form": {
+      "name": "Funnel Name",
+      "namePlaceholder": "B2B Sales",
+      "description": "Description (optional)",
+      "descriptionPlaceholder": "Funnel for enterprise clients",
+      "stages": "Stages",
+      "stageName": "Stage name",
+      "addStage": "Add stage"
+    }
+  },
+  "tags": {
+    "title": "Tags",
+    "subtitle": "Manage tags for organizing leads",
+    "createTag": "Create Tag",
+    "newTag": "New Tag",
+    "editTag": "Edit Tag",
+    "empty": "No tags created",
+    "createFirst": "Create first tag",
+    "popular": "Popular Tags",
+    "viewAll": "View All",
+    "leads": "leads",
+    "form": {
+      "name": "Name",
+      "namePlaceholder": "Tag name",
+      "color": "Color"
+    },
+    "delete": {
+      "title": "Delete {name}?",
+      "description": "This action cannot be undone.",
+      "cancel": "Cancel",
+      "confirm": "Delete"
+    }
+  },
+  "documents": {
+    "title": "Documents",
+    "createDocument": "New Document",
+    "editDocument": "Edit Document",
+    "searchPlaceholder": "Search docs...",
+    "allCategories": "All",
+    "noDocumentsFound": "No documents found",
+    "noContentYet": "*No content yet*",
+    "words": "{count} words",
+    "selectDocument": "Select a document to view",
+    "expandAll": "Expand all folders",
+    "collapseAll": "Collapse all folders",
+    "form": {
+      "title": "Title",
+      "titlePlaceholder": "Document title...",
+      "category": "Category",
+      "selectCategory": "Select category...",
+      "project": "Project",
+      "selectProject": "Select project...",
+      "noProject": "No project",
+      "content": "Content"
+    },
+    "filters": {
+      "allProjects": "All projects",
+      "noProject": "No project"
+    },
+    "empty": {
+      "title": "No documents",
+      "description": "Create your first document to get started."
+    },
+    "crossProject": {
+      "tabTitle": "Browse All",
+      "title": "Documentation Browser",
+      "knowHow": "Know-How",
+      "unknownProject": "Unknown Project"
+    },
+    "editorTab": "Viewer",
+    "search": {
+      "title": "Search Documentation",
+      "placeholder": "Search across all documents...",
+      "searching": "Searching...",
+      "hint": "Type at least 2 characters to search across all documents",
+      "typeToSearch": "Type to search...",
+      "noResults": "No documents found",
+      "noResultsHint": "Try different keywords or adjust filters",
+      "resultsCount": "{count, plural, one {# result found} other {# results found}}"
+    },
+    "linkedWorkItems": {
+      "title": "Related Tasks",
+      "loading": "Loading tasks..."
+    },
+    "versionHistory": {
+      "title": "Version History",
+      "loading": "Loading versions...",
+      "latest": "Latest",
+      "viewingVersion": "Viewing version {hash} from {time}",
+      "backToLatest": "Back to latest"
+    },
+    "favorites": {
+      "title": "Favorites",
+      "remove": "Remove from favorites"
+    },
+    "viewer": {
+      "sidebarTitle": "Documents",
+      "toggleSidebar": "Toggle document sidebar"
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "subtitle": "Manage your application settings and preferences",
+    "betaBadge": "Beta",
+    "tabs": {
+      "general": "General",
+      "webhooks": "Webhooks",
+      "apiKeys": "API Keys",
+      "imports": "Imports"
+    },
+    "sections": {
+      "general": "General",
+      "generalDesc": "Language, theme, and display preferences",
+      "tags": "Tags",
+      "tagsDesc": "Manage tags for organizing work items and leads",
+      "funnels": "Funnels",
+      "funnelsDesc": "Configure sales funnels and stages",
+      "webhooks": "Webhooks",
+      "webhooksDesc": "Manage webhook integrations",
+      "boards": "Boards",
+      "boardsDesc": "Manage Kanban boards, columns and templates",
+      "github": "GitHub",
+      "githubDesc": "Connect GitHub to track PRs, commits and deployments",
+      "telegram": "Telegram",
+      "telegramDesc": "Link your account to use the Telegram bot",
+      "apiKeys": "API Keys",
+      "apiKeysDesc": "Manage API keys for external integrations and MCP access",
+      "providerKeys": "Provider Keys",
+      "providerKeysDesc": "Manage encrypted API keys for AI providers (Anthropic, OpenAI, Google)",
+      "feedbackSources": "Feedback Sources",
+      "feedbackSourcesDesc": "Configure feedback collection sources",
+      "ideas": "Ideas Hub",
+      "ideasDesc": "Manage ideas, seeds, and ideation workflow",
+      "agentDashboard": "Agent Dashboard",
+      "agentDashboardDesc": "Monitor AI agent job execution, queue status, and performance",
+      "scheduledAgents": "Scheduled Agents",
+      "scheduledAgentsDesc": "Configure automated agent runs on a schedule",
+      "vercel": "Vercel",
+      "vercelDesc": "Connect Vercel to manage deployments and projects",
+      "providers": "Providers",
+      "providersDesc": "Manage all external service connections and AI provider keys",
+      "usage": "Usage",
+      "usageDesc": "Monitor agent consumption across sessions and projects",
+      "integrations": "Integrations",
+      "integrationsDesc": "Manage external service connections across all categories",
+      "notifications": "Notifications",
+      "notificationsDesc": "Manage your email notification preferences",
+      "orchestration": "Account Orchestration",
+      "orchestrationDesc": "Configure how AI provider accounts are selected and rotated",
+      "instance": "Instance",
+      "instanceDesc": "Configure self-hosted instance: capacity, public URL, Tailscale and GitHub App",
+      "codeProviders": "Code Providers",
+      "codeProvidersDesc": "Connect repository providers such as GitHub and GitLab",
+      "aiProviders": "AI Providers",
+      "aiProvidersDesc": "Manage model providers, API keys and account scope",
+      "agentProviders": "Agent Providers",
+      "agentProvidersDesc": "Configure agent execution providers and runtime access",
+      "otherIntegrations": "Other Integrations",
+      "otherIntegrationsDesc": "Connect deployment, observability and communication tools"
+    },
+    "groups": {
+      "general": "General",
+      "projectManagement": "Project Management",
+      "crm": "CRM",
+      "integrations": "Integrations",
+      "aiAutomation": "AI & Automation"
+    },
+    "language": {
+      "title": "Language",
+      "description": "Choose your preferred language for the interface",
+      "updating": "Updating...",
+      "updated": "Language updated",
+      "updateError": "Failed to update language preference"
+    },
+    "appearance": {
+      "title": "Appearance",
+      "description": "Choose your preferred theme for the interface",
+      "light": "Light",
+      "lightDesc": "A clean and bright interface",
+      "dark": "Dark",
+      "darkDesc": "Easy on the eyes in low-light",
+      "system": "System",
+      "systemDesc": "Follows your OS preference"
+    },
+    "security": {
+      "title": "Password",
+      "description": "Change the password for your account.",
+      "currentPassword": "Current password",
+      "newPassword": "New password",
+      "confirmPassword": "Confirm new password",
+      "hint": "Use at least 8 characters. Other sessions will be revoked after the change.",
+      "save": "Change password",
+      "saving": "Changing...",
+      "updated": "Password changed",
+      "updateError": "Failed to change password",
+      "errors": {
+        "currentRequired": "Enter your current password.",
+        "tooShort": "New password must be at least 8 characters.",
+        "tooLong": "New password must be 128 characters or fewer.",
+        "samePassword": "New password must be different from the current password.",
+        "mismatch": "New passwords do not match."
+      }
+    },
+    "connectionPriority": {
+      "priorityLabel": "Priority #{rank}",
+      "moveUp": "Move up in priority",
+      "moveDown": "Move down in priority",
+      "suspended": "Suspended",
+      "suspendedTooltip": "Connection suspended due to repeated failures",
+      "tokenExpired": "Token Expired",
+      "tokenExpiredTooltip": "Token expired on {date}",
+      "priorityUpdated": "Priority updated",
+      "priorityUpdateFailed": "Failed to update priority"
+    },
+    "emailNotifications": {
+      "title": "Email Notifications",
+      "description": "Configure which events trigger email notifications",
+      "enabled": "Enable Email Notifications",
+      "enabledDesc": "Turn on/off all email notifications",
+      "events": "Notification Events",
+      "eventsDesc": "Choose which events you want to be notified about",
+      "workItemMoved": "Work Item Moved",
+      "workItemMovedDesc": "When a work item is moved between columns",
+      "workItemAssigned": "Work Item Assigned",
+      "workItemAssignedDesc": "When a work item is assigned to you",
+      "workItemDone": "Work Item Done",
+      "workItemDoneDesc": "When a work item is marked as done",
+      "reviewCompleted": "Review Completed",
+      "reviewCompletedDesc": "When a review is completed on your work item",
+      "sprintClosed": "Sprint Closed",
+      "sprintClosedDesc": "When a sprint is closed",
+      "userActions": "Action Items",
+      "userActionsDesc": "When there are pending actions for you",
+      "saving": "Saving...",
+      "saved": "Saved"
+    },
+    "orchestration": {
+      "title": "Account Orchestration",
+      "description": "Choose how AI provider accounts are selected when processing requests",
+      "roundRobin": "Round Robin",
+      "roundRobinDesc": "Distributes usage evenly across accounts by selecting the one with the lowest consumption percentage",
+      "sequential": "Sequential",
+      "sequentialDesc": "Uses accounts in priority order, automatically switching to the next when one is exhausted",
+      "resetFirst": "Reset First",
+      "resetFirstDesc": "Prioritizes accounts closest to their quota reset date to maximize token utilization",
+      "disabled": "Disabled",
+      "disabledDesc": "No orchestration — uses standard priority-based key selection",
+      "saving": "Saving...",
+      "connectionsTitle": "Orchestrated Accounts",
+      "connectionsDescription": "Connections currently participating in orchestration",
+      "noConnections": "No connections have orchestration enabled. Enable orchestration on provider connections in the Integrations settings."
+    },
+    "instance": {
+      "title": "Instance settings",
+      "subtitle": "Manage the public URL of your self-hosted Almirant and review the Tailscale and GitHub App configuration.",
+      "publicUrl": {
+        "title": "Public URL",
+        "description": "URL where this instance is reachable from the internet. Used by webhooks and OAuth callbacks.",
+        "currentLabel": "Current URL",
+        "notConfigured": "No public URL configured yet.",
+        "updateLabel": "New public URL",
+        "updateHint": "Must start with https:// and be reachable from outside.",
+        "save": "Save URL",
+        "saving": "Saving...",
+        "saved": "Public URL updated.",
+        "saveError": "Failed to update the public URL."
+      },
+      "tailscale": {
+        "title": "Tailscale",
+        "description": "If Tailscale is installed on the host, you can publish the instance through Tailscale Funnel without configuring DNS or certificates.",
+        "available": "Tailscale detected on this host.",
+        "notAvailable": "Tailscale is not available in this container. Install it on the host and mount the socket and binary, or use the manual URL flow.",
+        "hostname": "Hostname",
+        "suggestedUrl": "Suggested URL",
+        "publish": "Publish via Tailscale",
+        "publishing": "Publishing...",
+        "published": "Instance published successfully.",
+        "publishError": "Could not publish the instance via Tailscale."
+      },
+      "githubApp": {
+        "title": "GitHub App",
+        "description": "Status of the GitHub App credentials stored in the database.",
+        "configured": "Configured as {slug}",
+        "notConfigured": "GitHub App not configured yet.",
+        "manage": "Manage GitHub App",
+        "remove": "Remove credentials",
+        "removing": "Removing...",
+        "removed": "GitHub App credentials removed.",
+        "removeError": "Failed to remove GitHub App credentials."
+      }
+    },
+    "codeProviders": {
+      "description": "Connect repository providers that Almirant uses to sync code activity, pull requests, and deployments.",
+      "comingSoon": "Coming Soon",
+      "gitlabDescription": "GitLab repository, merge request, and pipeline sync will live here when the provider is enabled.",
+      "gitlabReserved": "GitHub is the active code provider today; GitLab is reserved in this same scope."
+    }
+  },
+  "usage": {
+    "title": "Usage",
+    "subtitle": "Monitor activity on this self-hosted instance: runtime, sessions, projects, and hourly patterns.",
+    "errorLoading": "Failed to load usage data. Please try again later.",
+    "totalTime": "Runtime",
+    "totalJobs": "Sessions run",
+    "mostActiveType": "Most used type",
+    "quotaUsage": "Provider account limits",
+    "breakdownByType": "Distribution by session type",
+    "breakdownByProject": "Activity by project",
+    "monthlyUsage": "Server activity",
+    "serverStats": "Server activity",
+    "serverStatsDescription": "Current month totals for this Almirant instance. These are operational metrics, not billing counters.",
+    "sessionDistribution": "Session distribution",
+    "hourlyDistribution": "Activity by hour",
+    "hourlyDistributionDescription": "Session frequency by UTC hour over the last 30 days, useful to see when the server is used most.",
+    "ranges": {
+      "sevenDays": "7 days",
+      "thirtyDays": "30 days",
+      "ninetyDays": "90 days",
+      "twelveMonths": "12 months"
+    },
+    "timeline": {
+      "dailyTitle": "Daily runtime",
+      "dailyDescription": "Minutes executed per day for the selected range.",
+      "monthlyTitle": "Monthly runtime",
+      "monthlyDescription": "Minutes executed per month across the last 12 months."
+    },
+    "hourly": {
+      "sessionsLabel": "Sessions",
+      "peakLabel": "Peak hour",
+      "minutesLabel": "runtime"
+    },
+    "noData": "No usage data available yet.",
+    "noHistoryData": "No history data available yet."
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "subtitle": "Overview of your CRM",
+    "welcome": "Welcome to Almirant",
+    "viewKanban": "View Kanban",
+    "totalLeads": "Total Leads",
+    "mainFunnel": "Main Funnel",
+    "manageLeads": "Manage Leads",
+    "noFunnelConfigured": "No funnel configured",
+    "noTagsCreated": "No tags created"
+  },
+  "auth": {
+    "title": "Almirant",
+    "signInToContinue": "Sign in to continue",
+    "continueWithGoogle": "Continue with Google",
+    "signingIn": "Signing in...",
+    "signIn": "Sign in",
+    "createAccount": "Create account",
+    "createAccountDescription": "Create an account with email and password.",
+    "invitedSignupDescription": "Use this form only if an administrator invited you.",
+    "invitedSignupHint": "Registration is closed for everyone else. If you were not invited, ask an administrator first.",
+    "name": "Name",
+    "email": "Email",
+    "password": "Password",
+    "confirmPassword": "Confirm password",
+    "createAdminTitle": "Create the first administrator",
+    "createAdminDescription": "This self-hosted workspace does not have any users yet. Finish the setup by creating the first admin account.",
+    "setupHint": "The first account becomes the global admin and closes open registration automatically.",
+    "completeSetup": "Complete setup",
+    "errors": {
+      "unauthorized": "Your email is not authorized to access this application.",
+      "generic": "An error occurred during authentication.",
+      "nameRequired": "Name is required.",
+      "passwordTooShort": "Password must be at least 8 characters long.",
+      "passwordsDoNotMatch": "Passwords do not match."
+    },
+    "acceptInvitation": {
+      "title": "Organization Invitation",
+      "signInToAccept": "Continue to sign in or create your account",
+      "goHome": "Go to home"
+    }
+  },
+  "sprints": {
+    "title": "Sprints",
+    "createSprint": "Create Sprint",
+    "closeSprint": "Close Sprint",
+    "create": "Create",
+    "activeSprint": "Active sprint",
+    "history": "History",
+    "noSprints": "No sprints yet",
+    "noSprintsHint": "Create a sprint or directly close completed tasks.",
+    "open": "Open",
+    "closed": "Closed",
+    "noItems": "No items",
+    "activeHint": "Completed tasks will be associated with this sprint when closing it.",
+    "viewFullReport": "View full report",
+    "backToBoard": "Back to board",
+    "shareBanner": {
+      "title": "Sprint closed. Share your progress",
+      "description": "Sprint \"{sprintName}\" is closed. Share it on X to boost discovery.",
+      "share": "Share on X",
+      "notNow": "Not now",
+      "close": "Close banner"
+    },
+    "form": {
+      "name": "Name",
+      "startDate": "Start date",
+      "endDate": "End date"
+    },
+    "close": {
+      "title": "Close Sprint",
+      "descAdHoc": "A sprint will be created and closed with the completed tasks.",
+      "descActive": "\"{name}\" will be closed and completed tasks will be archived.",
+      "allTasks": "All tasks",
+      "byDateRange": "By date range",
+      "sprintName": "Sprint name",
+      "completedTasks": "Completed tasks ({count})",
+      "tasksInRange": "Tasks in range ({count})",
+      "noCompletedTasks": "No completed tasks to archive. The sprint will be closed empty.",
+      "selectDateRange": "Select a date range to see the completed tasks in that period.",
+      "closing": "Closing...",
+      "closeButton": "Close Sprint",
+      "closeWithCount": "Close Sprint ({count} items)",
+      "closeByDate": "Close by dates",
+      "closeByDateWithCount": "Close by dates ({count} items)",
+      "startDate": "Start date",
+      "endDate": "End date"
+    },
+    "report": {
+      "velocity": "Velocity",
+      "tasksPerDay": "tasks/day",
+      "completed": "Completed",
+      "ofTotal": "{percentage}% of total",
+      "pending": "Pending",
+      "carryover": "carry over to next",
+      "avgTime": "Avg time",
+      "perTask": "per task",
+      "distributionByType": "Distribution by type",
+      "distributionByPriority": "Distribution by priority",
+      "distributionByAssignee": "Distribution by assignee",
+      "userContributions": "User Contributions",
+      "tasksCreated": "Created",
+      "tasksCompleted": "Completed",
+      "tasksAssigned": "Assigned",
+      "noData": "No data",
+      "unassigned": "Unassigned",
+      "completedTab": "Completed ({count})",
+      "pendingTab": "Pending ({count})",
+      "noCompletedTasks": "No completed tasks in this sprint",
+      "noPendingTasks": "No pending carryover tasks",
+      "tableTitle": "Title",
+      "tableType": "Type",
+      "tablePriority": "Priority",
+      "tableAssignee": "Assignee",
+      "tableCompleted": "Completed",
+      "aiCost": "AI Cost",
+      "sessions": "Sessions",
+      "tokens": "Tokens",
+      "estimatedCost": "Estimated cost",
+      "velocityTrend": "Velocity trend",
+      "velocityLabel": "Velocity: {value} tasks/day",
+      "totalItems": "total items",
+      "vsFormer": "vs previous",
+      "sameAsPrevious": "Same as previous",
+      "viewFullReport": "View full report",
+      "screenshots": "Screenshots ({count})",
+      "viewVisualReport": "View visual report",
+      "unknownGroup": "No feature",
+      "changelog": "Changelog",
+      "summaryTab": "Summary",
+      "changelogTab": "Changelog",
+      "shareToX": "Share to X",
+      "share": {
+        "title": "Share on X",
+        "description": "Preview the post, copy it, and publish on X.",
+        "loading": "Preparing post...",
+        "empty": "No shareable content available yet.",
+        "hint": "X opens with this post prefilled. You can copy and tweak it before publishing.",
+        "copy": "Copy post",
+        "copying": "Copying...",
+        "openX": "Open X",
+        "tweets": "{count} post(s)",
+        "characters": "{count} characters",
+        "toastNoContent": "No content available to share yet.",
+        "toastCopySuccess": "Post copied to clipboard.",
+        "toastCopyError": "Could not copy the post.",
+        "toastOpenMulti": "X opened with the first post and the full draft is in your clipboard.",
+        "toastOpenSingle": "X opened with the post ready to publish."
+      }
+    },
+    "summary": {
+      "completed": "completed",
+      "velocity": "tasks/day",
+      "aiCost": "AI"
+    }
+  },
+  "imports": {
+    "title": "Import Leads",
+    "subtitle": "Import leads from a CSV file",
+    "upload": {
+      "title": "Upload CSV file",
+      "dragActive": "Drop the file here",
+      "dragInactive": "Drag a CSV file or click to select",
+      "headerRequired": "The file must have a header row"
+    },
+    "mapping": {
+      "title": "Column mapping",
+      "rows": "rows",
+      "funnelLabel": "Destination funnel (optional)",
+      "selectFunnel": "Select funnel",
+      "csvColumn": "CSV Column",
+      "crmField": "CRM Field",
+      "sample": "Sample",
+      "preview": "Preview (first 5 rows)",
+      "importButton": "Import {count} leads"
+    },
+    "progress": {
+      "importing": "Importing leads...",
+      "wait": "This may take a few seconds"
+    },
+    "completed": {
+      "title": "Import completed",
+      "success": "Successful",
+      "errors": "Errors",
+      "total": "Total",
+      "importMore": "Import more",
+      "viewLeads": "View Leads"
+    }
+  },
+  "webhooks": {
+    "title": "Webhooks",
+    "subtitle": "Configure webhooks to integrate with N8N or other tools",
+    "createWebhook": "Create Webhook",
+    "newWebhook": "New Webhook",
+    "empty": "No webhooks configured",
+    "createFirst": "Create first webhook",
+    "form": {
+      "name": "Name",
+      "namePlaceholder": "N8N - New Lead",
+      "url": "Webhook URL",
+      "urlPlaceholder": "https://n8n.example.com/webhook/...",
+      "event": "Event",
+      "funnel": "Funnel (optional)",
+      "allFunnels": "All funnels",
+      "stage": "Specific stage (optional)",
+      "allStages": "All stages"
+    },
+    "info": {
+      "title": "N8N Integration",
+      "description": "Webhooks send data in JSON format when events occur in your CRM.",
+      "examplePayload": "Example payload:"
+    },
+    "delete": {
+      "title": "Delete {name}?",
+      "description": "This action cannot be undone.",
+      "cancel": "Cancel",
+      "confirm": "Delete"
+    },
+    "actions": {
+      "testAriaLabel": "Test webhook"
+    }
+  },
+  "instanceSettings": {
+    "title": "Instance",
+    "description": "Configure your self-hosted instance settings.",
+    "publicUrl": {
+      "title": "Public URL",
+      "description": "The public HTTPS URL where this Almirant instance is accessible. Used for webhooks, OAuth callbacks and external integrations.",
+      "label": "Public URL",
+      "placeholder": "https://your-domain.com",
+      "hint": "Must use HTTPS. This is where external services will reach your instance.",
+      "current": "Current URL",
+      "notSet": "No public URL configured",
+      "save": "Save URL",
+      "saving": "Saving...",
+      "saved": "Public URL updated successfully"
+    },
+    "tailscale": {
+      "title": "Tailscale",
+      "description": "Expose your local instance via Tailscale Funnel for a public HTTPS URL without port forwarding.",
+      "hostname": "Hostname",
+      "suggestedUrl": "Suggested URL",
+      "notAvailable": "Tailscale is not available on this machine.",
+      "publish": "Publish via Tailscale",
+      "publishing": "Publishing...",
+      "publishedSuccess": "Published successfully",
+      "disable": "Disable Tailscale Serve",
+      "disabling": "Disabling...",
+      "serving": "Tailscale Funnel is active",
+      "servingTarget": "Serving HTTPS to",
+      "copyCommand": "Run this command manually if needed",
+      "copy": "Copy"
+    },
+    "privateDatabase": {
+      "title": "Private database access",
+      "description": "Connect this instance to your Tailscale network and access Postgres from trusted devices without opening port 5432 to the internet.",
+      "securityNote": "Almirant creates a Tailscale sidecar and a private TCP proxy to Postgres. The database is not exposed on the VPS public interface.",
+      "provisioningTitle": "Provisioning private database access",
+      "provisioningDescription": "Almirant is connecting the Tailscale sidecar and proxy. Inputs are locked until the job finishes.",
+      "connectedSummary": "Private database access is active. Configuration is locked to avoid accidental changes.",
+      "status": {
+        "not_configured": "Not configured",
+        "provisioning": "Provisioning",
+        "connected": "Connected",
+        "error": "Needs attention"
+      },
+      "connectionString": "Connection string",
+      "copyConnectionString": "Copy connection string",
+      "magicDns": "MagicDNS",
+      "tailscaleIp": "Tailscale IP",
+      "hostname": "Tailnet hostname",
+      "tag": "Tailscale tag",
+      "authKey": "Auth key",
+      "authKeyHint": "Fast setup with a one-off or reusable auth key.",
+      "authKeyLabel": "Tailscale auth key",
+      "oauthClient": "OAuth client",
+      "oauthClientHint": "Recommended for long-lived managed access with scoped tags.",
+      "oauthClientId": "OAuth client ID",
+      "oauthClientSecret": "OAuth client secret",
+      "connect": "Connect Tailscale DB access",
+      "test": "Test connection",
+      "testing": "Testing...",
+      "disable": "Disable private DB access",
+      "disabling": "Disabling...",
+      "authMethod": "Authentication method",
+      "edit": "Edit configuration",
+      "cancelEdit": "Cancel",
+      "saveChanges": "Save changes",
+      "editHelp": "To modify this connection, paste a fresh Tailscale auth key or OAuth secret. Existing secrets are never shown again."
+    },
+    "capacity": {
+      "title": "Deployment & Capacity",
+      "description": "Host facts, runner memory budget and safe concurrency guardrails for this self-hosted instance.",
+      "refresh": "Refresh",
+      "errorTitle": "Capacity diagnostics unavailable",
+      "errorDescription": "Almirant could not load host capacity data. Check the backend logs and runner heartbeat.",
+      "state": {
+        "safe": "safe",
+        "warning": "warning",
+        "critical": "critical"
+      },
+      "source": {
+        "runner-heartbeat": "runner heartbeat",
+        "backend-os": "backend host"
+      },
+      "metrics": {
+        "totalRam": "Total RAM",
+        "totalRamHint": "Measured from {source}.",
+        "availableRam": "Available RAM",
+        "availableRamHint": "Current headroom before runners and upgrades compete.",
+        "cpuCores": "CPU cores",
+        "cpuCoresHint": "Used to bound safe parallel agent work.",
+        "safeMax": "Safe max",
+        "safeMaxHint": "Configured MAX_CONCURRENT: {configured}."
+      },
+      "guardrails": {
+        "title": "Safe capacity guardrails",
+        "description": "These limits are derived from RAM, CPU and upgrade headroom. They are not arbitrary form values.",
+        "recommended": "Recommended concurrency",
+        "reserved": "Configured reserve",
+        "recommendedReserve": "Recommended reserve"
+      },
+      "progress": {
+        "ram": "RAM used",
+        "runnerBudget": "Runner budget",
+        "concurrency": "Current concurrency"
+      },
+      "recommendedEnv": {
+        "title": "Recommended production values",
+        "description": "Use these values in the managed install/reconfigure flow or in .env.production before recreating the runner.",
+        "copy": "Copy recommended values",
+        "hint": "The UI is intentionally diagnostic first; it does not mutate .env.production directly."
+      },
+      "warnings": {
+        "title": "Capacity warning",
+        "severity": {
+          "info": "info",
+          "warning": "warning",
+          "critical": "critical"
+        },
+        "messages": {
+          "no_runner_heartbeat": "No online runner heartbeat is available; capacity is estimated from the backend container.",
+          "ram_budget_disabled": "Runner RAM budget is disabled; concurrency is only protected by the slot cap.",
+          "reserved_below_recommendation": "Reserved RAM is below the recommendation for this host.",
+          "configured_concurrency_above_safe_max": "Configured concurrency exceeds the safe maximum for this host.",
+          "insufficient_runner_budget": "The reserved memory leaves less than one default agent job worth of RAM for runners.",
+          "low_upgrade_headroom": "Current available RAM is low for running agents while building frontend/backend images during an upgrade.",
+          "unknown": "Review the capacity configuration before increasing concurrency."
+        }
+      },
+      "workers": {
+        "title": "Runner heartbeat",
+        "description": "Online runners plus offline runners that still have actionable orphaned jobs.",
+        "active": "active",
+        "empty": "No runner has reported heartbeat data yet.",
+        "summary": "{online} online · {visible}/{total} visible",
+        "hiddenOffline": "{count} historical offline runner(s) hidden because they have no active jobs attached.",
+        "offlineWithOrphans": "{count} offline with jobs",
+        "jobs": "Jobs",
+        "free": "Free",
+        "ram": "RAM"
+      },
+      "orphanedJobs": {
+        "title": "Orphaned jobs",
+        "description": "Active jobs assigned to offline or missing runners. Cancelling them releases AI state and prevents stuck work.",
+        "cancel": "Kill job",
+        "cancelling": "Killing...",
+        "cancelAll": "Kill all",
+        "cancellingAll": "Killing all...",
+        "worker": "Runner",
+        "started": "Started",
+        "skill": "Skill"
+      },
+      "upgrade": {
+        "title": "Upgrade readiness",
+        "description": "Current available headroom is {headroom}. Pause or drain agent work before upgrades when warnings are present, because frontend/backend image builds need this memory too."
+      }
+    },
+    "operations": {
+      "title": "Operations & recovery",
+      "description": "Safe operational controls to recover runners and allowlisted services without SSH access.",
+      "loading": "Loading operational status...",
+      "refresh": "Refresh",
+      "errorTitle": "Could not load operational status",
+      "errorDescription": "Check the backend and updater sidecar before running actions.",
+      "updaterUnavailableTitle": "Updater unavailable",
+      "updaterUnavailableDescription": "Restart actions require the updater sidecar to be online. The UI never talks to Docker directly.",
+      "servicesTitle": "Controllable services",
+      "servicesDescription": "Only allowlisted services are shown. There is no arbitrary shell or direct Docker access from the browser.",
+      "restart": "Restart",
+      "forceRestart": "Force restart",
+      "serviceRuntime": "Compose: {composeState} · Health: {health}",
+      "runnerActiveWarning": "The runner has {count} active job(s). Restarting it can leave orphan containers.",
+      "services": {
+        "runner": "Runner",
+        "web-bridge": "Web bridge",
+        "discord-bridge": "Discord bridge",
+        "frontend": "Frontend",
+        "backend": "Backend"
+      },
+      "state": {
+        "healthy": "healthy",
+        "degraded": "degraded",
+        "down": "down",
+        "not_configured": "not configured",
+        "unknown": "unknown"
+      },
+      "summary": {
+        "queued": "Queued jobs",
+        "activeRunnerJobs": "Running jobs",
+        "exitedContainers": "Stopped containers"
+      },
+      "containers": {
+        "title": "Agent containers",
+        "description": "{running} running · {exited} removable stopped",
+        "cleanup": "Clean stopped"
+      },
+      "activeOperation": {
+        "title": "Operation in progress",
+        "description": "Status: {status} · Step: {step} · Started: {startedAt}"
+      },
+      "confirm": {
+        "restartService": "You are about to restart {service}. Continue?",
+        "forceRunnerRestart": "The runner has active jobs. Restarting it can leave orphan containers. Force restart anyway?",
+        "cleanupExited": "This will remove agent containers that are already stopped. Running containers are not touched. Continue?"
+      }
+    }
+  },
+  "onboarding": {
+    "title": "Welcome to Almirant",
+    "subtitle": "Let's finish setting up your self-hosted instance in three quick steps.",
+    "goToDashboard": "Go to dashboard",
+    "stepOf": "Step {step} of {total}",
+    "steps": {
+      "admin": "Admin account",
+      "tailscale": "Public URL",
+      "github": "GitHub App"
+    },
+    "banner": {
+      "message": "{count, plural, =0 {Setup complete.} one {You have # pending setup step.} other {You have # pending setup steps.}}",
+      "action": "Resume setup",
+      "dismiss": "Dismiss banner"
+    },
+    "admin": {
+      "title": "Admin account ready",
+      "description": "The first administrator was created and registration is now closed for everyone except invited users.",
+      "email": "Email",
+      "userCount": "Total users"
+    },
+    "tailscale": {
+      "title": "Publish your instance",
+      "titleDone": "Public URL configured",
+      "description": "Make Almirant reachable from outside your network. Use Tailscale Funnel for a quick HTTPS URL or set your own domain.",
+      "tabTailscale": "Tailscale (recommended)",
+      "tabCustom": "Custom URL",
+      "hostname": "Hostname",
+      "suggestedUrl": "Suggested URL",
+      "publish": "Publish via Tailscale",
+      "publishing": "Publishing...",
+      "publishedSuccess": "Published successfully",
+      "notAvailable": "Tailscale is not available in this container. Install it on the host and mount the socket and binary, or use the custom URL tab.",
+      "copyCommand": "Run this command on the host",
+      "customUrlLabel": "Public HTTPS URL",
+      "customUrlHint": "Use a URL that resolves from the public internet (e.g. behind Caddy, Cloudflare or Vercel).",
+      "saveUrl": "Save URL",
+      "saving": "Saving...",
+      "skip": "Skip for now",
+      "detectedUrlHint": "This browser is already using a public HTTPS URL. You can save it and continue.",
+      "useDetectedUrl": "Use this URL",
+      "enterCustomUrl": "Enter a different URL"
+    },
+    "github": {
+      "title": "Connect GitHub",
+      "titleDone": "GitHub App configured",
+      "description": "Create a GitHub App to sync repositories, PRs and activity into Almirant.",
+      "tabManifest": "Auto setup (manifest)",
+      "tabManual": "Paste credentials",
+      "manifestDescription": "We will open GitHub with a pre-filled manifest. After you confirm, the credentials are saved automatically.",
+      "manifestNeedsUrl": "Configure the public URL first to enable the automatic flow.",
+      "appNameLabel": "GitHub App name",
+      "appNamePlaceholder": "e.g. Almirant - my-instance",
+      "appNameHint": "Must be unique on the GitHub account where you create the app.",
+      "installTargetLabel": "Install on",
+      "installTargetPersonal": "My personal account",
+      "installTargetOrg": "An organization",
+      "orgSlugLabel": "Organization slug",
+      "orgSlugPlaceholder": "my-org",
+      "tailscaleFunnelWarning": "You are using a Tailscale Funnel URL. If it ever changes you will need to recreate this GitHub App because the webhook and callback URLs are baked into the app at creation.",
+      "createGithubApp": "Create GitHub App",
+      "creatingApp": "Opening GitHub...",
+      "configuredAs": "Configured as {slug}",
+      "alreadyConfigured": "GitHub App already configured as {slug}.",
+      "fields": {
+        "appId": "App ID",
+        "slug": "App slug",
+        "clientId": "Client ID",
+        "clientSecret": "Client secret",
+        "webhookSecret": "Webhook secret",
+        "privateKeyPem": "Private key (PEM)"
+      },
+      "saveCredentials": "Save credentials",
+      "saving": "Saving...",
+      "skip": "Skip for now",
+      "installNextTitle": "Next: install the app on repositories",
+      "installNextDescription": "GitHub created the app, but it still needs to be installed on an account and repository selection before Almirant can sync repos.",
+      "installDoneTitle": "GitHub installation connected",
+      "installDoneDescription": "You can now create a project and choose one of the installed repositories, or create a new repository during project setup.",
+      "installApp": "Choose repositories in GitHub",
+      "syncInstallations": "I installed it, check again",
+      "checkingInstallations": "Checking...",
+      "createProject": "Create project"
+    },
+    "continueToStep": "Continue to {step}"
+  },
+  "providers": {
+    "title": "Providers",
+    "subtitle": "Manage all external service connections and AI provider keys"
+  },
+  "vercel": {
+    "connect": "Connect Vercel",
+    "disconnect": "Disconnect",
+    "connected": "Connected",
+    "notConnected": "Not connected",
+    "team": "Team",
+    "personalAccount": "Personal Account"
+  },
+  "github": {
+    "title": "GitHub Integration",
+    "subtitle": "Connect your GitHub repositories to track PRs, commits and deployments.",
+    "connection": "GitHub Connection",
+    "connect": "Connect GitHub",
+    "disconnect": "Disconnect",
+    "reconnect": "Reconnect",
+    "checking": "Checking...",
+    "alreadyInstalled": "Already installed? Check again",
+    "notConnected": "GitHub is not connected. Install the GitHub App to get started.",
+    "connectedNoData": "Connected but no installations or repositories found.",
+    "installations": "Installations",
+    "linkedRepos": "Linked Repositories",
+    "pullRequests": "Pull Requests",
+    "noPrs": "No pull requests",
+    "recentActivity": "Recent Activity",
+    "noActivity": "No recent activity",
+    "sync": "Sync",
+    "syncing": "Syncing...",
+    "installApp": "Install GitHub App",
+    "manageInstallations": "Manage installations on GitHub",
+    "missingSlug": {
+      "title": "Incomplete configuration",
+      "description": "The instance-level GitHub App is not configured yet. Create or configure it in Settings → GitHub before installing it on repositories."
+    },
+    "setupGuide": {
+      "title": "How to connect GitHub",
+      "step1Title": "Install the GitHub App",
+      "step1Link": "Install {slug} on GitHub",
+      "step2Title": "Select repositories",
+      "step2Description": "Choose which repositories you want to grant access to during the installation.",
+      "step3Title": "Come back here",
+      "step3Description": "The connection will sync automatically when you return to this page."
+    },
+    "appSetup": {
+      "title": "GitHub App setup",
+      "subtitle": "Create a GitHub App that lets Almirant read repositories and receive webhooks.",
+      "manifestTab": "Automatic (manifest)",
+      "manualTab": "Manual credentials",
+      "manifestDescription": "We will open GitHub with a pre-filled manifest. When you confirm, GitHub redirects back and Almirant stores the credentials automatically.",
+      "manifestNeedsUrl": "Configure the instance public URL first so GitHub can call back.",
+      "createApp": "Create GitHub App",
+      "creating": "Opening GitHub...",
+      "manualDescription": "If you already have a GitHub App, paste its credentials here.",
+      "fields": {
+        "appId": "App ID",
+        "slug": "App slug",
+        "clientId": "Client ID",
+        "clientSecret": "Client secret",
+        "webhookSecret": "Webhook secret",
+        "privateKeyPem": "Private key (PEM)"
+      },
+      "save": "Save credentials",
+      "saving": "Saving...",
+      "saved": "GitHub App credentials saved.",
+      "saveError": "Failed to save GitHub App credentials.",
+      "configured": "GitHub App configured as {slug}",
+      "remove": "Remove credentials",
+      "removing": "Removing...",
+      "removed": "Credentials removed.",
+      "removeError": "Failed to remove credentials.",
+      "recommendedBadge": "Recommended",
+      "guidedIntro": "We will guide you step by step. Almirant will open GitHub with the configuration prepared and will save the credentials automatically when you come back.",
+      "stepPublicUrlTitle": "Confirm the public URL",
+      "stepPublicUrlDescription": "GitHub needs this instance public HTTPS URL for callbacks and webhooks.",
+      "stepNameTitle": "Name the App",
+      "stepNameDescription": "This name will appear in GitHub when you install it on your repositories.",
+      "stepOwnerTitle": "Choose where to create it",
+      "stepOwnerDescription": "Create it in your personal account or in the organization where you want to manage the installation.",
+      "advancedManualTitle": "I already have a GitHub App / advanced setup",
+      "reconfigure": "Reconfigure GitHub App"
+    },
+    "addRepositories": "Add repositories"
+  },
+  "telegram": {
+    "title": "Telegram",
+    "subtitle": "Link your Almirant account to the Telegram bot.",
+    "statusTitle": "Status",
+    "linked": "Linked",
+    "notLinked": "Not linked",
+    "instructions": {
+      "title": "How it works",
+      "step1": "1) Open the Telegram bot and send /start",
+      "step2": "2) Generate a linking code here",
+      "step3": "3) Send the code to the bot"
+    },
+    "code": {
+      "title": "Linking code",
+      "description": "Send this code to the bot in Telegram. It expires automatically.",
+      "valueLabel": "Code",
+      "expiresAt": "Expires at: {expiresAt}"
+    },
+    "actions": {
+      "generate": "Generate code",
+      "copy": "Copy code",
+      "unlink": "Unlink"
+    },
+    "toasts": {
+      "codeGenerated": "Code generated",
+      "copied": "Copied",
+      "unlinked": "Unlinked",
+      "nothingToUnlink": "Nothing to unlink",
+      "notificationsUpdated": "Notification settings updated",
+      "genericError": "An error occurred"
+    },
+    "notifications": {
+      "title": "Notifications",
+      "subtitle": "Choose which Telegram notifications you want to receive.",
+      "disabledHint": "(Link your account first to receive messages.)",
+      "enabled": "Enable Telegram notifications",
+      "notifyWorkItemMoved": "Work item moved between columns",
+      "notifyWorkItemAssigned": "Work item assigned to you",
+      "notifyWorkItemDone": "Work item completed (Done)",
+      "notifyReviewCompleted": "AI review completed (pass/fail)",
+      "notifySprintClosed": "Sprint closed",
+      "notifyUserActions": "Post-task required actions (userActions)"
+    }
+  },
+  "todos": {
+    "title": "To-Do",
+    "todoLabel": "To-do",
+    "newTodo": "New To-Do",
+    "createTodo": "Create To-Do",
+    "creating": "Creating...",
+    "subtitle": "Inbox of tasks for human team members",
+    "hideOldCompleted": "Hide old completed",
+    "showAllCompleted": "Show all completed",
+    "status": {
+      "pending": "Pending",
+      "in_progress": "In Progress",
+      "done": "Done",
+      "blocked": "Blocked"
+    },
+    "priority": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "urgent": "Urgent",
+      "noPriority": "No priority"
+    },
+    "form": {
+      "titlePlaceholder": "Task title...",
+      "descriptionPlaceholder": "Description (optional)",
+      "project": "Project",
+      "responsible": "Responsible",
+      "priority": "Priority",
+      "date": "Date",
+      "cancel": "Cancel"
+    },
+    "detail": {
+      "tags": "Tags",
+      "noTags": "No tags",
+      "owner": "Owner",
+      "project": "Project",
+      "dueDate": "Due date",
+      "noDate": "No date",
+      "clearDate": "Clear date",
+      "noProject": "No project",
+      "searchProject": "Search project...",
+      "noProjectsFound": "No projects found.",
+      "searchMember": "Search member...",
+      "noMembersFound": "No members found.",
+      "unassigned": "Unassigned",
+      "savingDescription": "Saving description...",
+      "description": "Description",
+      "writeDescription": "Write a description...",
+      "cancel": "Cancel",
+      "save": "Save",
+      "saveHint": "Cmd+Enter to save · Esc to cancel",
+      "history": "History",
+      "noHistory": "No changes recorded.",
+      "todoCreated": "To-do created",
+      "createdBy": "Created by",
+      "createdAt": "Created:",
+      "updatedAt": "Updated:",
+      "fieldNames": {
+        "projectId": "project",
+        "status": "status",
+        "priority": "priority",
+        "title": "title",
+        "description": "description",
+        "ownerUserId": "owner",
+        "dueDate": "due date",
+        "metadata": "metadata"
+      },
+      "emptyValue": "(empty)",
+      "sheetTitle": "Task detail",
+      "sheetDescription": "Side panel with the task details, history and comments."
+    },
+    "toasts": {
+      "deleted": "To-do deleted",
+      "deleteError": "Error deleting",
+      "statusUpdated": "Status updated",
+      "statusError": "Error changing status",
+      "ownerError": "Error assigning owner",
+      "dueDateError": "Error changing due date",
+      "priorityError": "Error changing priority"
+    },
+    "delete": {
+      "title": "Delete to-do",
+      "description": "Are you sure you want to delete \"{title}\"?",
+      "confirm": "Delete"
+    },
+    "comments": {
+      "title": "Comments",
+      "noComments": "No comments yet.",
+      "editPlaceholder": "Edit comment... use @ to mention",
+      "addPlaceholder": "Write a comment... use @ to mention",
+      "mentionHint": "Use **@** to mention · Cmd+Enter to send"
+    },
+    "time": {
+      "now": "now",
+      "minutesAgo": "{count}m ago",
+      "hoursAgo": "{count}h ago"
+    },
+    "filters": {
+      "searchPlaceholder": "Search to-dos...",
+      "status": "Status",
+      "allStatuses": "All statuses",
+      "priority": "Priority",
+      "allPriorities": "All priorities",
+      "owner": "Owner",
+      "project": "Project",
+      "allProjects": "All projects",
+      "search": "Search",
+      "dueDate": "Due",
+      "clearFilters": "Clear filters"
+    },
+    "dialog": {
+      "searchProject": "Search project...",
+      "searchResponsible": "Search responsible...",
+      "noResults": "No results"
+    },
+    "list": {
+      "emptyWithFilters": "No to-dos match the current filters.",
+      "emptyNoFilters": "No to-dos in this workspace yet.",
+      "markAsPending": "Mark as pending",
+      "markAsCompleted": "Mark as completed",
+      "dueOn": "Due:",
+      "lastComment": "Last comment:",
+      "block": "Block",
+      "unblock": "Unblock",
+      "delete": "Delete"
+    }
+  },
+  "tasks": {
+    "title": "Tasks",
+    "stats": {
+      "boards": "Boards",
+      "totalItems": "Total items",
+      "areas": "Areas"
+    },
+    "noBoards": "No boards in this area",
+    "noBoardsHint": "Create a board to start organizing tasks."
+  },
+  "backoffice": {
+    "title": "Waitlist Management",
+    "subtitle": "Waitlist user management",
+    "searchPlaceholder": "Search by name or email...",
+    "noWaitlistUsers": "No users on the waitlist",
+    "registrations": "Registrations",
+    "analytics": "Analytics",
+    "status": "Status",
+    "role": "Role",
+    "all": "All",
+    "clear": "Clear",
+    "waitlist": {
+      "table": {
+        "email": "Email",
+        "name": "Name",
+        "status": "Status",
+        "tier": "Tier",
+        "points": "Points"
+      },
+      "statuses": {
+        "confirmed": "Confirmed",
+        "pending": "Pending"
+      },
+      "tiers": {
+        "none": "Base",
+        "early_access": "Early Access",
+        "supporter": "Supporter",
+        "pioneer": "Pioneer"
+      },
+      "roles": {
+        "founder": "Founder",
+        "developer": "Developer",
+        "designer": "Designer",
+        "product": "Product Manager",
+        "marketing": "Marketing",
+        "other": "Other"
+      },
+      "filters": {
+        "tierPlaceholder": "Tier"
+      }
+    }
+  },
+  "blog": {
+    "noPosts": "No posts yet",
+    "noPostsSubtitle": "Check back soon for new content.",
+    "backToBlog": "Back to blog"
+  },
+  "notifications": {
+    "empty": "No notifications",
+    "emptySubtitle": "When you receive notifications, they'll appear here.",
+    "workItemCreated": "Task created: {label}",
+    "workItemMovedColumn": "Task moved to another column",
+    "workItemUpdated": "Task updated",
+    "workItemDeleted": "Task deleted",
+    "reviewPassed": "Review PASSED: {label} → {targetColumn}",
+    "reviewFailed": "Review FAILED: {label} → {targetColumn}",
+    "aiSessionRecorded": "AI session: {label} · {model} · {tokens} tokens · {cost} · {duration}",
+    "agentQuestion": "Agent needs your input",
+    "agentQuestionDescription": "{title}: {question}",
+    "agentQuestionReply": "Reply",
+    "interactionExpired": "Agent question expired",
+    "ideaItemCreated": "Idea created: {title}",
+    "ideaItemUpdated": "Idea updated",
+    "ideaItemDeleted": "Idea deleted",
+    "newNotification": "New notification: {title}",
+    "bell": {
+      "title": "Notifications",
+      "markAllAsRead": "Mark all as read",
+      "viewAll": "View all",
+      "empty": "No notifications",
+      "emptyHint": "When you receive notifications, they will appear here."
+    }
+  },
+  "roadmap": {
+    "title": "Roadmap",
+    "subtitle": "Visualize your project timeline and track progress across epics and features.",
+    "selectProject": "Select a project to view its roadmap",
+    "colorByStatus": "By Status",
+    "colorByType": "By Type",
+    "noEpics": "No epics found for this project",
+    "noEpicsHint": "Create epics and features with dates to see them on the Gantt chart.",
+    "items": "{count, plural, one {# item} other {# items}} on timeline",
+    "gantt": {
+      "columnTask": "Task",
+      "columnStart": "Start",
+      "columnEnd": "End",
+      "emptyTitle": "No tasks to display",
+      "emptyDescription": "Add epics, features, or stories with dates to see them on the Gantt chart.",
+      "itemCount": "{count, plural, one {# item} other {# items}}",
+      "zoomWeek": "Week",
+      "zoomMonth": "Month",
+      "zoomQuarter": "Quarter",
+      "collapseAll": "Collapse All",
+      "expandAll": "Expand All",
+      "colorStatus": "Status",
+      "colorType": "Type",
+      "legend": {
+        "done": "Done",
+        "inProgress": "In Progress",
+        "review": "Review",
+        "notStarted": "Not Started",
+        "epic": "Epic",
+        "feature": "Feature",
+        "story": "Story",
+        "task": "Task"
+      }
+    },
+    "filters": {
+      "allProjects": "All projects",
+      "allEpics": "All epics",
+      "from": "From date",
+      "to": "To date",
+      "status": {
+        "all": "All statuses",
+        "in-progress": "In Progress",
+        "completed": "Completed",
+        "planned": "Planned"
+      }
+    }
+  },
+  "aiPlanning": {
+    "selector": {
+      "title": "AI Planning",
+      "description": "Select a project and board to start an AI-assisted planning session.",
+      "selectProject": "Select a project",
+      "selectBoard": "Select a board",
+      "startPlanning": "Start Planning",
+      "noProjects": "No projects found. Create a project first.",
+      "noBoards": "No boards found for this project."
+    },
+    "sendMessage": "Send message",
+    "placeholder": "Describe what you want to plan...",
+    "streaming": "AI is thinking...",
+    "you": "You",
+    "assistant": "AI Assistant",
+    "emptyChat": "Start a conversation to plan your work items with AI.",
+    "welcomeGreeting": "What do you want to plan today?",
+    "welcomeFallback": "I'm ready to help you plan. What would you like to work on today?",
+    "thinking": "Thinking...",
+    "reasoning": "Thinking",
+    "generatedItems": "Generated Work Items",
+    "alreadyCreatedItems": "Created Work Items",
+    "itemsReady": "{count} items ready to create",
+    "createAll": "Create All",
+    "cancel": "Cancel",
+    "close": "Close",
+    "done": "Done",
+    "creating": "Creating...",
+    "noDescription": "No description",
+    "editTitle": "Edit title",
+    "removeItem": "Remove item",
+    "expandDescription": "Expand description",
+    "noItems": "No items to preview",
+    "title": "AI Planning",
+    "backToBoard": "Back to Board",
+    "newConversation": "New conversation",
+    "selectColumn": "Create in column",
+    "itemsCreated": "Items created successfully!",
+    "itemsCreatedCount": "{count, plural, one {# item} other {# items}} added to the board",
+    "continueChat": "Continue chatting",
+    "chatTab": "Chat",
+    "previewTab": "Preview",
+    "modelSelector": {
+      "selectProvider": "API Key",
+      "selectModel": "Model",
+      "noKeys": "No API keys configured",
+      "configureKeys": "Configure API keys",
+      "defaultModel": "Default (server)",
+      "usingModel": "Using: {model} via {provider}",
+      "backToProviders": "Providers",
+      "model": "Model"
+    },
+    "toggleChat": "Toggle chat",
+    "seedsTab": "Seeds",
+    "searchSeeds": "Search seeds...",
+    "noSeeds": "No seeds yet",
+    "seedsTitle": "Seeds",
+    "seedsCount": "{count} seeds",
+    "header": {
+      "newSession": "New session"
+    },
+    "emptySession": {
+      "title": "AI Planning",
+      "description": "Start a planning session with your AI agent to create and organize work items.",
+      "startSession": "Start session",
+      "starting": "Starting...",
+      "selectProject": "Choose the project you want to work on",
+      "selectProjectPlaceholder": "Choose a project",
+      "noProjectsTitle": "No projects yet",
+      "noProjectsDescription": "Create your first project to start planning with AI.",
+      "createProject": "Create project"
+    },
+    "booting": {
+      "preparing": "Preparing session...",
+      "summoning": "Summoning the team...",
+      "sharpening": "Sharpening pencils...",
+      "reviewing": "Reviewing context...",
+      "almostReady": "Almost ready..."
+    },
+    "interrupted": {
+      "message": "Session was interrupted: {reason}",
+      "resumeButton": "Resume session",
+      "reasons": {
+        "user_requested": "User requested",
+        "timeout": "Timeout",
+        "error": "Internal error",
+        "unknown": "Unknown reason"
+      }
+    },
+    "resumeStepper": {
+      "queued": "Queued",
+      "loading": "Loading context",
+      "restoring": "Restoring state",
+      "ready": "Ready to continue"
+    },
+    "questionCard": {
+      "freeTextPlaceholder": "Custom answer...",
+      "send": "Send answer"
+    },
+    "sidebar": {
+      "toggle": "Toggle sidebar",
+      "collapse": "Collapse sidebar",
+      "expand": "Expand sidebar",
+      "empty": "No planning sessions yet",
+      "deleteConfirm": "Delete session",
+      "newSession": "New session",
+      "search": "Search",
+      "searchPlaceholder": "Search sessions...",
+      "noResults": "No sessions found"
+    },
+    "session": {
+      "deleteAriaLabel": "Delete session",
+      "deleteTooltip": "Delete",
+      "resumeAriaLabel": "Resume session",
+      "resumeTooltip": "Resume",
+      "unknownCreator": "Unknown",
+      "conflictTitle": "Active session in progress",
+      "conflictDescription": "There is already an active session. Resuming this session will automatically close the current one.",
+      "conflictCancel": "Cancel",
+      "conflictConfirm": "Close and resume",
+      "statusActive": "Active session",
+      "statusCompleted": "Completed session",
+      "statusInterrupted": "Interrupted"
+    },
+    "seedImport": {
+      "title": "Import Seeds",
+      "searchPlaceholder": "Search seeds...",
+      "loading": "Loading seeds...",
+      "noResultsTitle": "No results",
+      "noResultsHint": "Try a different search term.",
+      "noSeedsTitle": "No seeds",
+      "noSeedsHint": "Create seeds in the Seeds panel to import them as context.",
+      "statusLabel": {
+        "draft": "Draft",
+        "active": "Active",
+        "to_review": "In review",
+        "approved": "Approved",
+        "archived": "Archived",
+        "rejected": "Rejected"
+      },
+      "filterStatus": "Status",
+      "allStatuses": "All statuses",
+      "filterSource": "Source",
+      "allSources": "All sources",
+      "sourceManual": "Manual",
+      "sourceFeedback": "Feedback",
+      "sourceAi": "AI",
+      "sourceImport": "Import",
+      "filterPriority": "Priority",
+      "allPriorities": "All",
+      "priorityLow": "Low",
+      "priorityMedium": "Medium",
+      "priorityHigh": "High",
+      "priorityUrgent": "Urgent",
+      "filterOwner": "Owner",
+      "allOwners": "All owners",
+      "filterProject": "Project",
+      "allProjects": "All projects",
+      "filterTag": "Tag",
+      "allTags": "All tags",
+      "clearFilters": "Clear",
+      "selectedCount": "{count} selected",
+      "availableCount": "{count, plural, one {# seed} other {# seeds}} available",
+      "selectAll": "Select all",
+      "deselectAll": "Deselect all",
+      "selectSeedAriaLabel": "Select seed: {title}",
+      "seedsAriaLabel": "Seeds to import",
+      "cancel": "Cancel",
+      "import": "Import",
+      "importCount": "Import ({count})"
+    },
+    "voice": {
+      "startRecording": "Start voice recording",
+      "stopRecording": "Stop recording",
+      "transcribing": "Transcribing...",
+      "notSupported": "Voice recording not supported in this browser"
+    },
+    "sessionCompleted": "Planning session completed",
+    "pauseSession": "Pause",
+    "paused": "Paused",
+    "resumeSession": "Resume",
+    "resumeDefaultMessage": "Continue where you left off",
+    "pausedBanner": "Session paused — type instructions or press ▶ to continue",
+    "pausedPlaceholder": "Type instructions for the agent...",
+    "killSession": "Terminate process",
+    "killConfirmTitle": "Terminate planning process?",
+    "killConfirmDescription": "This will immediately stop the running agent and mark the session as completed. This action cannot be undone.",
+    "killConfirmCancel": "Cancel",
+    "killConfirmAction": "Terminate",
+    "processing": "Processing...",
+    "activityMessages": [
+      "Analyzing project context...",
+      "Reviewing existing architecture...",
+      "Exploring dependencies and relations...",
+      "Evaluating possible approaches...",
+      "Structuring the response...",
+      "Consulting project documentation...",
+      "Identifying relevant patterns...",
+      "Preparing recommendations..."
+    ],
+    "questionnaire": {
+      "title": "Interactive questionnaire",
+      "response": "response",
+      "responses": "responses"
+    },
+    "planSummary": "Planning summary",
+    "wizard": {
+      "back": "Back",
+      "next": "Next",
+      "send": "Send",
+      "cancel": "Skip",
+      "freeTextPlaceholder": "Write your answer..."
+    },
+    "actions": "Actions",
+    "enrichment": {
+      "title": "Prepare seeds",
+      "addMore": "Add more",
+      "starting": "Starting...",
+      "startPlanning": "Start planning with {count} {count, plural, one {seed} other {seeds}}",
+      "noteLabel": "Note for AI",
+      "notePlaceholder": "Add context or instructions for this seed...",
+      "detailDescription": "Description",
+      "detailComments": "Comments",
+      "detailTags": "Tags",
+      "detailLinkedItems": "Linked work items",
+      "noComments": "No comments",
+      "noNote": "No note",
+      "removeTooltip": "Remove"
+    },
+    "followUpNeeded": "The agent needs your response to continue",
+    "followUpHint": "Reply so the agent can continue",
+    "followUpPlaceholder": "Write your response...",
+    "sessionEnded": {
+      "noItems": "The session finished without creating any tasks. You can retry to try again.",
+      "idleTimeout": "The session was closed due to inactivity.",
+      "killedByUser": "The session was cancelled.",
+      "default": "The session has ended. You can restart to continue planning.",
+      "retry": "Retry",
+      "newSession": "New session",
+      "restarting": "Restarting..."
+    },
+    "seedEnrichmentCard": {
+      "remove": "Remove",
+      "removeSeedAriaLabel": "Remove seed",
+      "unassigned": "Unassigned",
+      "commentCount": "{count, plural, one {# comment} other {# comments}}",
+      "noteForAi": "Note for AI",
+      "annotationPlaceholder": "Extra context or instructions for the AI..."
+    }
+  },
+  "ideas": {
+    "types": {
+      "idea": "Idea",
+      "seed": "Seed",
+      "todo": "To-do"
+    },
+    "statuses": {
+      "draft": "Draft",
+      "active": "Active",
+      "to_review": "In Review",
+      "approved": "Approved",
+      "archived": "Archived",
+      "rejected": "Rejected"
+    },
+    "priorities": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "urgent": "Urgent"
+    },
+    "fields": {
+      "projectId": "project",
+      "type": "type",
+      "status": "status",
+      "title": "title",
+      "description": "description",
+      "ownerUserId": "owner",
+      "dueDate": "due date",
+      "metadata": "metadata"
+    },
+    "detail": {
+      "promote": "Promote",
+      "tags": "Tags",
+      "noTags": "No tags",
+      "owner": "Owner",
+      "project": "Project",
+      "createdBy": "Created by",
+      "discussed": "Discussed",
+      "markAs": "Mark as {status}",
+      "markAsDiscussed": "Mark as discussed",
+      "markAsNotDiscussed": "Mark as not discussed",
+      "createdAt": "Created: {date}",
+      "updatedAt": "Updated: {date}",
+      "description": "Description",
+      "savingDescription": "Saving description...",
+      "cancel": "Cancel",
+      "save": "Save",
+      "keyboardHint": "Cmd+Enter to save · Esc to cancel",
+      "writeDescription": "Write a description...",
+      "comments": "Comments",
+      "history": "History",
+      "noChanges": "No changes recorded."
+    },
+    "owner": {
+      "unassigned": "Unassigned",
+      "changeOwner": "Change owner",
+      "assignOwner": "Assign owner",
+      "searchMember": "Search member...",
+      "noMembersFound": "No members found."
+    },
+    "history": {
+      "emptyValue": "(empty)",
+      "itemCreated": "Item created",
+      "feedbackLinked": "Feedback linked",
+      "feedbackUnlinked": "Feedback unlinked",
+      "workItemLinked": "Work item linked"
+    },
+    "filterBar": {
+      "searchPlaceholder": "Search ideas or seeds...",
+      "type": "Type",
+      "allTypes": "All types",
+      "status": "Status",
+      "allStatuses": "All statuses",
+      "project": "Project",
+      "allProjects": "All projects",
+      "tag": "Tag",
+      "allTags": "All tags",
+      "discussed": "Discussed",
+      "allDiscussed": "All",
+      "discussedOnly": "Discussed",
+      "notDiscussed": "Not discussed",
+      "mentioned": "Mentioned",
+      "noMentionFilter": "No mention filter",
+      "myMentions": "My mentions",
+      "clearFilters": "Clear filters"
+    },
+    "quickCapture": {
+      "title": "Quick capture",
+      "seedTitlePlaceholder": "A relevant data or insight...",
+      "ideaTitlePlaceholder": "New approach for onboarding...",
+      "seedDescPlaceholder": "Observation, insight or relevant data...",
+      "ideaDescPlaceholder": "Optional context or details",
+      "project": "Project",
+      "searchProject": "Search project...",
+      "noResults": "No results",
+      "owner": "Owner",
+      "searchMember": "Search member...",
+      "dueDate": "Due date",
+      "cancel": "Cancel",
+      "creating": "Creating...",
+      "create": "Create"
+    },
+    "promoteDialog": {
+      "title": "Promote to Work Item",
+      "promoting": "Promoting:",
+      "destinationType": "Destination type",
+      "priority": "Priority",
+      "workItemTitle": "Work item title",
+      "description": "Description",
+      "project": "Project",
+      "board": "Board",
+      "column": "Column",
+      "notes": "Notes",
+      "notesPlaceholder": "Optional",
+      "cancel": "Cancel",
+      "promotingAction": "Promoting...",
+      "promote": "Promote"
+    },
+    "editDialog": {
+      "title": "Edit Ideas Hub Item",
+      "type": "Type",
+      "status": "Status",
+      "project": "Project",
+      "titleField": "Title",
+      "description": "Description",
+      "owner": "Owner",
+      "noOwner": "No owner",
+      "dueDate": "Due date",
+      "cancel": "Cancel",
+      "saving": "Saving...",
+      "saveChanges": "Save Changes"
+    },
+    "seedList": {
+      "emptyState": "No seeds with current filters.",
+      "selectAll": "Select all seeds",
+      "selected": "{count, plural, one {# selected} other {# selected}}",
+      "selectAllLabel": "Select all",
+      "deleteLabel": "Delete \"{title}\""
+    },
+    "list": {
+      "status": "Status",
+      "title": "Title",
+      "project": "Project",
+      "creator": "Creator",
+      "owner": "Owner",
+      "due": "Due",
+      "discussed": "Discussed",
+      "completedSection": "Completed",
+      "actions": "Actions",
+      "edit": "Edit",
+      "promote": "Promote",
+      "traceability": "Traceability",
+      "changeStatus": "Change status",
+      "delete": "Delete",
+      "emptyState": "No ideas or seeds with current filters.",
+      "markAsDiscussed": "Mark \"{title}\" as discussed",
+      "lastCommentBy": "Last comment: {name}"
+    },
+    "priority": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "urgent": "Urgent"
+    },
+    "tags": {
+      "removeTag": "Remove tag {name}",
+      "addTag": "Add tag",
+      "searchOrCreate": "Search or create tag...",
+      "noTagsAvailable": "No tags available.",
+      "existingTags": "Existing tags",
+      "createTag": "Create tag \"{name}\""
+    },
+    "project": {
+      "noProject": "No project",
+      "searchProject": "Search project...",
+      "noProjectsFound": "No projects found."
+    },
+    "toasts": {
+      "deleted": "Item deleted",
+      "deleteError": "Error deleting",
+      "statusUpdated": "Status updated",
+      "statusError": "Error changing status",
+      "discussedError": "Error changing discussion",
+      "ownerError": "Error assigning owner",
+      "addTagError": "Error adding tag",
+      "removeTagError": "Error removing tag",
+      "dueDateError": "Error changing due date",
+      "promoteFieldsRequired": "Project, board and column are required",
+      "addCommentError": "Error adding comment",
+      "editCommentError": "Error editing comment",
+      "deleteCommentError": "Error deleting comment",
+      "itemUpdated": "Item updated",
+      "updateError": "Error updating",
+      "ideaPromoted": "Idea promoted",
+      "promoteError": "Error promoting",
+      "itemCreated": "Item created in Ideas Hub",
+      "createError": "Error creating item"
+    },
+    "delete": {
+      "title": "Delete item",
+      "description": "Are you sure you want to delete \"{title}\"?",
+      "confirm": "Delete"
+    },
+    "filters": {
+      "type": "Type",
+      "status": "Status",
+      "owner": "Owner",
+      "project": "Project",
+      "tags": "Tags",
+      "search": "Search",
+      "dueDate": "Due",
+      "discussed": "Discussed",
+      "discussedYes": "Yes",
+      "discussedNo": "No",
+      "mentioned": "Mentioned",
+      "myMentions": "My mentions"
+    },
+    "pageContainer": {
+      "title": "Ideas Hub",
+      "subtitle": "Unified list of workspace ideas.",
+      "quickCapture": "Quick capture",
+      "hideCompleted": "Hide old completed",
+      "showAllCompleted": "Show all completed"
+    },
+    "traceability": {
+      "dialogTitle": "Ideas Hub Traceability",
+      "sourceItem": "Source item",
+      "relatedFeedback": "Related feedback",
+      "noFeedback": "No linked feedback",
+      "linkedWorkItems": "Linked work items",
+      "noWorkItems": "No linked work items",
+      "title": "Traceability",
+      "noLinks": "No traceability links.",
+      "feedback": "Feedback",
+      "workItems": "Work Items"
+    },
+    "validation": {
+      "titleRequired": "Title is required",
+      "projectRequired": "Project is required"
+    }
+  },
+  "feedback": {
+    "title": "Feedback",
+    "subtitle": "Manage feedback from your users and customers",
+    "list": {
+      "status": "Status",
+      "category": "Category",
+      "type": "Type",
+      "title": "Title",
+      "author": "Author",
+      "source": "Source",
+      "sentiment": "Sentiment",
+      "cluster": "Cluster",
+      "createdAt": "Created",
+      "noItems": "No feedback items found",
+      "noItemsDescription": "Feedback items will appear here when collected from your sources."
+    },
+    "statuses": {
+      "new": "New",
+      "triaged": "Triaged",
+      "in_progress": "In Progress",
+      "pending_validation": "Pending Validation",
+      "implementing": "Implementing",
+      "deployed": "Deployed",
+      "verified": "Verified",
+      "cancelled": "Cancelled",
+      "promoted": "Promoted",
+      "dismissed": "Dismissed",
+      "archived": "Archived"
+    },
+    "categories": {
+      "bug": "Bug",
+      "feature_request": "Feature Request",
+      "improvement": "Improvement",
+      "question": "Question",
+      "praise": "Praise",
+      "other": "Other"
+    },
+    "filters": {
+      "search": "Search",
+      "searchPlaceholder": "Search feedback...",
+      "status": "Status",
+      "category": "Category",
+      "source": "Source",
+      "allStatuses": "All statuses",
+      "allCategories": "All categories",
+      "clearFilters": "Clear filters"
+    },
+    "pagination": {
+      "showing": "Showing {start} - {end} of {total} items",
+      "page": "Page",
+      "of": "of",
+      "firstPage": "First page",
+      "previousPage": "Previous page",
+      "nextPage": "Next page",
+      "lastPage": "Last page"
+    },
+    "moderation": {
+      "actions": "Actions",
+      "selectAll": "Select all triageable items",
+      "selectRow": "Select row",
+      "triage": "Triage",
+      "dismiss": "Dismiss",
+      "archive": "Archive",
+      "reopen": "Reopen",
+      "delete": "Delete",
+      "start_work": "Start work",
+      "request_validation": "Request validation",
+      "approve": "Approve",
+      "request_changes": "Request changes",
+      "deploy": "Deploy",
+      "verify": "Verify",
+      "deleteConfirmTitle": "Delete feedback?",
+      "deleteConfirmDescription": "This action cannot be undone. This will permanently delete this feedback item.",
+      "cancel": "Cancel",
+      "triagedSuccess": "Feedback triaged",
+      "dismissedSuccess": "Feedback dismissed",
+      "archivedSuccess": "Feedback archived",
+      "newSuccess": "Feedback reopened",
+      "deleteSuccess": "Feedback deleted",
+      "in_progressSuccess": "Feedback moved to In Progress",
+      "pending_validationSuccess": "Feedback moved to Pending Validation",
+      "implementingSuccess": "Feedback moved to Implementing",
+      "deployedSuccess": "Feedback marked as Deployed",
+      "verifiedSuccess": "Feedback verified",
+      "cancelledSuccess": "Feedback cancelled",
+      "triageQueued": "Triage queued. The agent will classify this feedback shortly.",
+      "triageAlreadyActive": "A triage job is already running for this feedback",
+      "triageError": "Failed to enqueue triage",
+      "batchTriage": "Triage batch",
+      "batchTriageInvalidCount": "Select between 2 and 50 items to triage in batch",
+      "batchTriageEnqueued": "Batch triage queued. The agent will classify these items shortly.",
+      "batchTriageAlreadyActive": "A batch triage job is already running for some of the selected items",
+      "batchTriageError": "Failed to enqueue batch triage",
+      "error": "An error occurred"
+    },
+    "detail": {
+      "title": "Feedback Detail",
+      "debugInfo": "Debug Information",
+      "screenshot": "Screenshot",
+      "browserInfo": "Browser Info",
+      "pageContext": "Page Context",
+      "consoleErrors": "Console Errors",
+      "noScreenshot": "No screenshot available",
+      "viewport": "Viewport",
+      "userAgent": "User Agent",
+      "route": "Route",
+      "timestamp": "Timestamp",
+      "noErrors": "No errors captured",
+      "anonymous": "Anonymous",
+      "content": "Content",
+      "platform": "Platform",
+      "browser": "Browser",
+      "os": "OS",
+      "architecture": "Architecture",
+      "language": "Language",
+      "url": "URL",
+      "tabDetails": "Details",
+      "tabComments": "Comments"
+    },
+    "bugFix": {
+      "title": "Bug Fix",
+      "empty": "No bug fix attempt yet",
+      "latestAttempt": "Latest attempt",
+      "attemptLabel": "Attempt #{number}",
+      "prNotCreated": "PR not created yet",
+      "prNotSynced": "PR not synced yet",
+      "openPr": "Open PR",
+      "branch": "Branch",
+      "failureReason": "Failure reason",
+      "history": "Previous attempts",
+      "pr": {
+        "state": {
+          "open": "Open",
+          "closed": "Closed",
+          "merged": "Merged"
+        },
+        "review": {
+          "pending": "Review pending",
+          "approved": "Approved",
+          "changes_requested": "Changes requested",
+          "commented": "Commented",
+          "dismissed": "Dismissed"
+        },
+        "ci": {
+          "pending": "Checks pending",
+          "queued": "Checks queued",
+          "in_progress": "Checks running",
+          "success": "Checks passed",
+          "failure": "Checks failed",
+          "cancelled": "Checks cancelled",
+          "skipped": "Checks skipped",
+          "neutral": "Checks neutral"
+        }
+      }
+    },
+    "incidentBundle": {
+      "title": "Incident Analysis",
+      "bundleId": "Bundle ID",
+      "copy": "Copy bundle ID",
+      "copied": "Bundle ID copied",
+      "copyError": "Couldn't copy bundle ID",
+      "status": "Status",
+      "startedAt": "Started",
+      "refresh": "Refresh",
+      "reanalyze": "Re-analyze",
+      "mayBeStale": "Analysis in progress — click Refresh to update",
+      "loading": "Loading incident bundle…",
+      "loadError": "Failed to load incident bundle",
+      "refreshError": "Failed to refresh incident bundle",
+      "reanalyzeError": "Failed to re-analyze incident bundle",
+      "empty": "No incident bundle for this feedback",
+      "job": "Job",
+      "jobStatus": "Status",
+      "jobType": "Type",
+      "skill": "Skill",
+      "errorMessage": "Error",
+      "counts": "Contents",
+      "sessionEvents": "Session events",
+      "jobLogs": "Job logs",
+      "errorMemory": "Error memory",
+      "timeline": "Timeline",
+      "timelineEmpty": "No timeline entries",
+      "timelineTruncated": "Timeline truncated at 800 entries",
+      "showAll": "Show all ({count})",
+      "refreshSuccess": "Bundle refreshed",
+      "reanalyzeSuccess": "Re-analysis enqueued",
+      "reanalyzeSuccessNoJob": "Bundle regenerated but analysis was not enqueued",
+      "statusLabels": {
+        "queued": "Queued",
+        "running": "Running",
+        "completed": "Completed",
+        "failed": "Failed",
+        "notScheduled": "Not scheduled"
+      }
+    }
+  },
+  "feedbackSources": {
+    "title": "Feedback Sources",
+    "subtitle": "Manage the sources that collect feedback from your users",
+    "newSource": "New Source",
+    "name": "Name",
+    "type": "Type",
+    "domains": "Allowed Domains",
+    "publicKey": "Public Key",
+    "active": "Active",
+    "actions": "Actions",
+    "noSources": "No feedback sources configured",
+    "noSourcesDescription": "Create a feedback source to start collecting user feedback.",
+    "createTitle": "Create Feedback Source",
+    "editTitle": "Edit Feedback Source",
+    "namePlaceholder": "My App Feedback",
+    "domainsPlaceholder": "example.com, app.example.com",
+    "domainsHelp": "Comma-separated list of allowed domains",
+    "types": {
+      "widget": "Widget",
+      "api": "API",
+      "telegram": "Telegram",
+      "email": "Email",
+      "manual": "Manual"
+    },
+    "copied": "Copied!",
+    "confirmDelete": "Are you sure you want to delete this source?",
+    "rotateKey": "Rotate Key",
+    "rotateKeyConfirmTitle": "Rotate public key?",
+    "rotateKeyConfirmDescription": "This will generate a new public key. Any integrations using the current key will stop working immediately.",
+    "rotateKeySuccess": "Public key rotated successfully",
+    "rotateKeyError": "Failed to rotate key",
+    "integrationSnippet": "Integration Code",
+    "integration": {
+      "title": "Integration Snippets",
+      "description": "Copy these code snippets to integrate the feedback widget into \"{name}\".",
+      "tabScriptTag": "Script Tag",
+      "tabReactHook": "React Hook",
+      "tabReactComponent": "React Component",
+      "scriptTagDescription": "Add the widget to any website with a simple script tag. No build step required.",
+      "reactHookDescription": "Use the React hook for full programmatic control over the widget.",
+      "reactComponentDescription": "Drop the component into your layout for a zero-config integration.",
+      "copy": "Copy",
+      "copied": "Copied!"
+    }
+  },
+  "feedbackWidget": {
+    "title": "Send Feedback",
+    "description": "Help us improve by sharing your thoughts",
+    "triggerLabel": "Send feedback",
+    "tabLabel": "Feedback",
+    "categoryLabel": "Category",
+    "categoryPlaceholder": "Select a category",
+    "categoryBug": "Bug Report",
+    "categoryFeature": "Feature Request",
+    "categoryUiUx": "UI/UX Improvement",
+    "categoryGeneral": "General",
+    "messageLabel": "Message",
+    "messagePlaceholder": "Tell us what's on your mind...",
+    "emailLabel": "Email",
+    "emailOptional": "optional",
+    "emailPlaceholder": "your@email.com",
+    "submit": "Send Feedback",
+    "sending": "Sending...",
+    "cancel": "Cancel",
+    "successMessage": "Thank you for your feedback!",
+    "errorGeneric": "Failed to submit feedback",
+    "capturing": "Capturing screenshot..."
+  },
+  "quickFeedback": {
+    "buttonLabel": "Send feedback",
+    "placeholder": "What could be improved?",
+    "submit": "Submit",
+    "success": "Thanks!",
+    "positive": "Good",
+    "negative": "Needs work"
+  },
+  "teamSwitcher": {
+    "personal": "Personal",
+    "switchTeam": "Switch team",
+    "searchTeams": "Search teams...",
+    "noTeamsFound": "No teams found",
+    "teams": "Teams",
+    "createTeam": "Create team",
+    "loading": "Loading..."
+  },
+  "errors": {
+    "generic": "An error occurred",
+    "notFound": "Not found",
+    "unauthorized": "Unauthorized",
+    "networkError": "Connection error",
+    "tryAgain": "Try again"
+  },
+  "dates": {
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "tomorrow": "Tomorrow",
+    "dueIn": "Due in {days} days",
+    "overdue": "Overdue by {days} days"
+  },
+  "landing": {
+    "nav": {
+      "getStarted": "Get Started",
+      "goToDashboard": "Go to Dashboard",
+      "viewDemo": "View Demo",
+      "links": {
+        "features": "Features",
+        "integrations": "Integrations",
+        "pricing": "Pricing",
+        "faq": "FAQ",
+        "blog": "Blog"
+      }
+    },
+    "hero": {
+      "title": "You have more agents than clarity.",
+      "subtitle": "You already use AI to write code. But you're still the bottleneck, prompting, waiting, reviewing, re-explaining. Almirant separates the thinking from the executing, so your agents actually ship while you focus on what matters.",
+      "cta": {
+        "primary": "Start Building Now",
+        "secondary": "See How It Works",
+        "waitlist": "Join the Waitlist"
+      },
+      "badge": "Early access, building in public"
+    },
+    "pain": {
+      "title": "Sound familiar?",
+      "sessionSlave": {
+        "title": "You can't walk away",
+        "description": "Prompt, wait, review, fix, repeat. You started the evening with a clear goal. Three hours later, you're still in the terminal, babysitting an agent that keeps almost getting it right. AI was supposed to free your time. Instead, it chained you to a new kind of work."
+      },
+      "blindSupervision": {
+        "title": "You have no idea what's happening",
+        "description": "Three agents running. One might be done. One might be stuck. One might be rewriting your auth module. You won't know until you check each terminal, read each diff, and piece it all together. This isn't supervision. This is archaeology."
+      },
+      "amnesia": {
+        "title": "Monday morning, it's all gone",
+        "description": "You open a new session. The architecture decisions from Friday? Gone. The pattern you established? Forgotten. You spend 30 minutes re-explaining your own project to an AI with the memory of a goldfish. Every. Single. Session."
+      }
+    },
+    "audience": {
+      "title": "Is this for you?",
+      "subtitle": "Almirant is built for developers who already use AI agents and want to stop being the bottleneck.",
+      "soloBuilder": {
+        "title": "Solo builder",
+        "description": "You build alone. You use Claude, Cursor, or Codex daily. You manage your projects with Notion, Linear, or nothing. Your day is prompt, wait, review, repeat.",
+        "value": "Almirant lets you plan once and walk away while agents execute in parallel."
+      },
+      "freelancer": {
+        "title": "Freelancer / Contractor",
+        "description": "You juggle multiple client projects. Every context switch between projects and tools costs energy. You need your agents to work without you watching.",
+        "value": "Almirant keeps persistent context per project, so agents pick up where they left off."
+      },
+      "smallTeam": {
+        "title": "Small team / Agency",
+        "description": "2-5 people, multiple client projects. Coordination between humans was already hard. With agents in the mix, it's invisible.",
+        "value": "Almirant gives your team a shared dashboard to supervise agent work across all projects."
+      }
+    },
+    "features": {
+      "title": "What changes when agents actually know the plan",
+      "subtitle": "Each phase is built to solve a specific problem you've already felt.",
+      "shift": "What if you could do the thinking, decide what to build, shape the plan, make the calls, and then walk away? Come back to pull requests, not prompts.",
+      "ideation": {
+        "title": "Ideas that survive first contact with reality",
+        "description": "AI-assisted brainstorming that doesn't just agree with you. Challenge scope, identify risks, and validate assumptions before committing resources.",
+        "bullets1": "Structured brainstorming with AI that pushes back on weak assumptions",
+        "bullets2": "Automatic risk and dependency identification before you start building",
+        "bullets3": "From vague idea to validated scope in one session"
+      },
+      "planning": {
+        "title": "Plans agents can actually follow",
+        "description": "The gap between your intent and the agent's output is usually a planning problem. Almirant generates structured plans with enough detail that agents don't guess.",
+        "bullets1": "Auto-generated epics, stories, and tasks with definitions of done",
+        "bullets2": "Dependency mapping so agents don't step on each other",
+        "bullets3": "Priority-aware sequencing across your entire project"
+      },
+      "execution": {
+        "title": "Parallel, not sequential",
+        "description": "Stop doing one thing at a time. Distribute tasks across multiple agents, each matched to the right complexity level, all running simultaneously.",
+        "bullets1": "Multiple agents working in parallel with dependency awareness",
+        "bullets2": "Right model for the right task, not everything needs your most expensive API",
+        "bullets3": "Queue management that respects task dependencies and priorities"
+      },
+      "supervision": {
+        "title": "Control without the terminal",
+        "description": "Know what's happening without checking six terminals. A dashboard that shows status, progress, and where your attention is actually needed.",
+        "bullets1": "Real-time agent status and task progress",
+        "bullets2": "Cost tracking per task, sprint, and project",
+        "bullets3": "Step in on blocked tasks, review completed PRs, on your schedule"
+      }
+    },
+    "integrations": {
+      "title": "Works With Your Stack",
+      "subtitle": "Multi-model, multi-tool, zero lock-in. We don't compete with your AI tools. We make them work together.",
+      "comingSoon": "Coming soon",
+      "items": {
+        "claude": {
+          "name": "Claude",
+          "description": "Anthropic's Claude for deep reasoning and complex code generation"
+        },
+        "cursor": {
+          "name": "Cursor",
+          "description": "AI-native code editor for rapid development and iteration"
+        },
+        "codex": {
+          "name": "Codex CLI",
+          "description": "OpenAI's autonomous coding agent for task execution"
+        },
+        "openai": {
+          "name": "OpenAI",
+          "description": "GPT models for planning, analysis, and content generation"
+        },
+        "github": {
+          "name": "GitHub",
+          "description": "Repository sync, PR tracking, and deployment automation"
+        }
+      }
+    },
+    "social": {
+      "quote": "The tools we use to run AI agents were built for individual sessions, not for managing a project across weeks and sprints. We're building the layer that's missing.",
+      "attribution": "— The Almirant team, building in public"
+    },
+    "cta": {
+      "title": "Ready to stop babysitting?",
+      "subtitle": "Join the waitlist. We'll let you know when it's your turn.",
+      "waitlist": {
+        "placeholder": "you@company.com",
+        "button": "Join the Waitlist",
+        "success": "You're on the list! We'll be in touch soon.",
+        "description": "Free early access. No credit card."
+      },
+      "demo": {
+        "button": "Request a Demo",
+        "secondaryButton": "View Documentation"
+      }
+    },
+    "faq": {
+      "title": "Frequently Asked Questions",
+      "q1": {
+        "question": "Does Almirant replace Claude, Cursor, or Codex?",
+        "answer": "No. Almirant gives them a plan and coordinates their work. Think of it as the project manager for your AI tools, it assigns tasks, tracks progress, and maintains context across sessions. Your tools do the coding. Almirant makes sure they're coding the right thing."
+      },
+      "q2": {
+        "question": "Who is this for?",
+        "answer": "Developers who already use AI agents daily and feel the pain of coordinating them manually. Indie hackers shipping real products, small teams juggling multiple projects, technical founders who spend more time prompting than building. If you've ever had six terminals open and lost track of which agent is doing what, this is for you."
+      },
+      "q3": {
+        "question": "How does parallel execution work?",
+        "answer": "Almirant analyzes your project plan, identifies which tasks can run simultaneously (based on dependencies), assigns each to the most appropriate agent, and monitors execution. You see everything on a dashboard. You step in only when something needs a human decision."
+      },
+      "q4": {
+        "question": "What if I only use one AI tool?",
+        "answer": "Almirant still helps. Even with a single agent, the planning, context persistence, and supervision features save you hours of re-explaining and manual tracking. Parallel execution is a bonus, not a requirement."
+      },
+      "q5": {
+        "question": "Can I use it for projects that aren't code?",
+        "answer": "The planning and ideation phases work for any structured project. The execution and supervision features are currently focused on software development, but the approach generalizes."
+      },
+      "q6": {
+        "question": "How is this different from a project management tool?",
+        "answer": "Jira tracks what needs to be done. Almirant also figures out how to do it, assigns it to agents, and shows you what's happening in real time. The plan isn't just a backlog, it's an executable specification that agents follow."
+      },
+      "q7": {
+        "question": "Is my code safe?",
+        "answer": "Your code stays in your repositories. Almirant coordinates agents via API but doesn't store your source code. API keys are encrypted at rest. You maintain full ownership of everything."
+      }
+    },
+    "contact": {
+      "title": "Contact Us",
+      "subtitle": "Have questions? Write to us and we'll get back to you as soon as possible.",
+      "form": {
+        "email": {
+          "label": "Email",
+          "placeholder": "your@email.com"
+        },
+        "reason": {
+          "label": "Reason",
+          "placeholder": "Select a reason",
+          "options": {
+            "general": "General inquiry",
+            "support": "Technical support",
+            "partnership": "Partnership",
+            "feedback": "Feedback",
+            "other": "Other"
+          }
+        },
+        "message": {
+          "label": "Message",
+          "placeholder": "Tell us how we can help..."
+        },
+        "submit": "Send message",
+        "submitting": "Sending...",
+        "success": {
+          "title": "Message sent!",
+          "description": "We'll get back to you as soon as possible."
+        }
+      },
+      "validation": {
+        "emailRequired": "Email is required",
+        "emailInvalid": "Please enter a valid email",
+        "reasonRequired": "Please select a reason",
+        "messageRequired": "Message is required",
+        "messageMin": "Message must be at least 10 characters"
+      }
+    },
+    "pricing": {
+      "billingPeriods": {
+        "monthly": "Monthly",
+        "yearly": "Yearly",
+        "discount": "Save 20%"
+      },
+      "hero": {
+        "title": "AI Agents That Work for You",
+        "subtitle": "From planning to production, your agents handle every phase. Bring your own API keys.",
+        "toggle": {
+          "monthly": "Monthly",
+          "yearly": "Yearly",
+          "save": "Save 20%"
+        }
+      },
+      "title": "Simple, Transparent Pricing",
+      "subtitle": "Start free, scale as you grow. No hidden fees.",
+      "mostPopular": "Most Popular",
+      "saveBadge": "Save {percent}%",
+      "perMonth": "/month",
+      "perYear": "/year",
+      "tiers": {
+        "free": {
+          "name": "Free",
+          "description": "Everything you need to manage projects and run AI agents locally. Perfect for individual developers.",
+          "price": "$0",
+          "features": [
+            "1 user seat",
+            "Mission Control Kanban",
+            "Up to 3 projects with full planning",
+            "Sprints with automatic reports & changelog",
+            "Capture ideas & personal to-dos",
+            "AI agents for every development phase",
+            "Run agents locally from your preferred coding tool",
+            "Bring Your Own Key (BYOK)",
+            "GitHub integration",
+            "Community support"
+          ],
+          "tooltips": [
+            null,
+            "See and control all your tasks and agent sessions from a single board.",
+            null,
+            null,
+            null,
+            "Agents that help you plan features, create tasks, write code, review PRs, run tests, and ship to production, covering the entire development lifecycle.",
+            "Connect Claude Code, Codex, or any agentic coding tool. Your machine, your API keys, full control.",
+            null,
+            null,
+            null
+          ],
+          "cta": "Join the Waitlist"
+        },
+        "pro": {
+          "name": "Pro",
+          "description": "Cloud-powered agents that work while you don't. Ship faster from anywhere, even from your phone.",
+          "priceMonthly": "$35",
+          "priceYearly": "$25",
+          "includes": "Everything in Free, plus:",
+          "features": [
+            "Up to 3 team members",
+            "Unlimited projects",
+            "On cloud Agents that run autonomously (implementing, reviewing, identifying bugs or improvements, and documenting)",
+            "3 concurrent cloud sessions",
+            "Ski Mode, work from anywhere",
+            "Share AI tokens with your team",
+            "Priority email support"
+          ],
+          "tooltips": [
+            null,
+            null,
+            "So that you focus on what matters (thinking/planning and reviewing)",
+            "Agents run on our cloud infrastructure so you don't need your machine on.",
+            "Manage your entire workflow from your phone. Launch implementations, reviews, PRs, and deploys while you're away.",
+            "Most teams don't use all their AI tokens within each billing period. Token sharing lets your team pool unused tokens, so nothing goes to waste and you get more value from your AI providers.",
+            null
+          ],
+          "cta": "Join the Waitlist"
+        },
+        "business": {
+          "name": "Business",
+          "description": "Scale your team with more cloud power and full cost visibility across all AI usage.",
+          "priceMonthly": "$89",
+          "priceYearly": "$69",
+          "includes": "Everything in Pro, plus:",
+          "features": [
+            "Up to 10 team members",
+            "10 concurrent cloud sessions",
+            "Share AI tokens with your team",
+            "Advanced token & cost dashboard"
+          ],
+          "tooltips": [
+            null,
+            "Run up to 10 agents simultaneously on our cloud.",
+            "Most teams don't use all their AI tokens within each billing period. Token sharing lets your team pool unused tokens, so nothing goes to waste and you get more value from your AI providers.",
+            null
+          ],
+          "cta": "Join the Waitlist"
+        },
+        "enterprise": {
+          "name": "Enterprise",
+          "description": "Unlimited power, full customization, and dedicated support for organizations at scale.",
+          "price": "Custom",
+          "includes": "Everything in Business, plus:",
+          "features": [
+            "Unlimited users",
+            "Unlimited cloud sessions",
+            "Share AI tokens with your team",
+            "On-premise deployment",
+            "Custom integrations",
+            "SLA guarantee",
+            "Dedicated success manager"
+          ],
+          "tooltips": [
+            null,
+            null,
+            "Most teams don't use all their AI tokens within each billing period. Token sharing lets your team pool unused tokens, so nothing goes to waste and you get more value from your AI providers.",
+            null,
+            null,
+            null,
+            null
+          ],
+          "cta": "Contact Sales"
+        }
+      },
+      "table": {
+        "title": "Compare Features",
+        "featureColumn": "Feature",
+        "unlimited": "Unlimited",
+        "local": "Local",
+        "cloud": "Cloud",
+        "localCloud": "Local + Cloud",
+        "full": "Full",
+        "custom": "Custom",
+        "free": "Free",
+        "pro": "Pro",
+        "business": "Business",
+        "enterprise": "Enterprise",
+        "categories": {
+          "platform": "Platform",
+          "agentsExecution": "Agents & Execution",
+          "teamCollaboration": "Team & Collaboration",
+          "integrations": "Integrations",
+          "support": "Support"
+        },
+        "features": {
+          "unlimitedProjects": "Projects",
+          "missionControlKanban": "Mission Control Kanban",
+          "sprintsRoadmap": "Sprints",
+          "dependencies": "Dependencies tracking",
+          "ideasSeedsTodos": "Ideas, seeds & to-dos",
+          "tokenSharing": "AI token sharing",
+          "tokenDashboard": "Token & cost dashboard",
+          "advancedAnalytics": "Advanced analytics",
+          "auditTrail": "Activity history",
+          "storage": "Storage",
+          "cloudExecution": "Cloud agents sessions",
+          "localExecution": "Local agents execution",
+          "skiMode": "Ski Mode (remote control)",
+          "skillIdeate": "Ideate skill",
+          "skillCreateTasks": "Create tasks skill",
+          "skillImplement": "Implement skill",
+          "skillReview": "Review skill",
+          "skillTest": "Test skill",
+          "skillValidate": "Validate skill",
+          "skillPr": "PR creation skill",
+          "skillDocument": "Document skill",
+          "byok": "Bring Your Own Key (BYOK)",
+          "usersIncluded": "Users included",
+          "additionalUsers": "Additional users",
+          "teamCollab": "Team collaboration",
+          "sso": "SSO / SAML",
+          "github": "GitHub integration",
+          "mcpServer": "MCP Server",
+          "customIntegrations": "Custom integrations",
+          "community": "Community support",
+          "priorityEmail": "Priority email support",
+          "dedicatedOnboarding": "Dedicated onboarding",
+          "slaSuccessManager": "SLA & success manager"
+        },
+        "descriptions": {
+          "missionControlKanban": "See and control all your tasks and agent sessions from a single board.",
+          "tokenSharing": "Pool your team's AI tokens so unused capacity isn't wasted. Maximize the value of every token across your AI providers.",
+          "skillIdeate": "Brainstorm and refine ideas into structured work items with AI assistance.",
+          "skillCreateTasks": "Transform approved ideas into well-defined tasks with descriptions and acceptance criteria.",
+          "skillImplement": "AI-powered code implementation following project conventions and best practices.",
+          "skillReview": "Automated code review against project standards, checking for issues and suggesting improvements.",
+          "skillTest": "Generate and run tests automatically to verify implementation correctness.",
+          "skillValidate": "End-to-end validation including screenshots, documentation, and quality checks.",
+          "skillPr": "Create pull requests with proper descriptions, linking to tasks and documentation.",
+          "skillDocument": "Generate documentation and screenshots for completed work items automatically.",
+          "byok": "Use your own API keys from Anthropic, OpenAI, or other providers. No markup, you pay the provider directly.",
+          "localExecution": "Run agents on your machine using Claude Code, Codex, or any compatible agentic coding tool. Your infrastructure, your control.",
+          "cloudExecution": "Autonomous agents that implement, review, identify bugs or improvements, and document, running on our cloud infrastructure in parallel. No need to keep your machine on. Measured in concurrent sessions.",
+          "skiMode": "Control your entire development workflow remotely. Launch implementations, reviews, PRs, and deploys from your phone while doing your favorite activity."
+        }
+      },
+      "faq": {
+        "title": "Pricing FAQ",
+        "q1": {
+          "question": "What is BYOK and how does it work?",
+          "answer": "BYOK (Bring Your Own Key) means you use your own API keys from Anthropic, OpenAI, or other providers. Almirant does not apply any markup, you pay the provider directly. This gives you full control over your AI costs."
+        },
+        "q2": {
+          "question": "What are cloud sessions?",
+          "answer": "Cloud sessions let your AI agents run on our infrastructure instead of your local machine. Pro includes 3 concurrent sessions (180 agent-minutes/month), Business includes 10 concurrent sessions (600 agent-minutes/month). This means your agents work even when your computer is off."
+        },
+        "q3": {
+          "question": "Can I use Almirant completely free?",
+          "answer": "Yes! The Free tier includes full project management for up to 3 projects, AI agents for every development phase running locally, BYOK support, and GitHub integration. No credit card required, no time limit."
+        },
+        "q4": {
+          "question": "What's the difference between local and cloud execution?",
+          "answer": "Local execution runs AI agents on your machine through tools like Claude Code or Codex, you have full control and pay only your API provider. Cloud execution runs agents on our servers for parallel processing, remote access (Ski Mode), and hands-free automation. Both use your own API keys."
+        },
+        "q5": {
+          "question": "Can I change plans at any time?",
+          "answer": "Yes, you can upgrade or downgrade your plan at any time. Changes take effect at the next billing cycle. If you upgrade, you'll pay the prorated difference."
+        },
+        "q6": {
+          "question": "Are there discounts for startups or nonprofits?",
+          "answer": "Yes, we offer 50% off for early-stage startups (pre-seed/seed) and nonprofits. Contact us at hello@almirant.ai to apply."
+        },
+        "q7": {
+          "question": "What is Ski Mode?",
+          "answer": "Ski Mode lets you control your entire development workflow remotely, from your phone, tablet, or any device. Launch implementations, code reviews, pull requests, and production deploys while you're skiing, at the gym, or anywhere else. Your AI agents do the heavy lifting while you focus on what matters."
+        }
+      }
+    },
+    "footer": {
+      "tagline": "Orchestrate AI. Ship products.",
+      "product": {
+        "title": "Product",
+        "features": "Features",
+        "pricing": "Pricing",
+        "faq": "FAQ"
+      },
+      "company": {
+        "title": "Company",
+        "audience": "Who It's For",
+        "blog": "Blog",
+        "integrations": "Integrations"
+      },
+      "legal": {
+        "title": "Legal",
+        "privacy": "Privacy Policy",
+        "terms": "Terms of Service"
+      },
+      "social": {
+        "twitter": "X",
+        "github": "GitHub",
+        "linkedin": "LinkedIn"
+      },
+      "copyright": "Almirant. All rights reserved."
+    }
+  },
+  "teams": {
+    "title": "Teams",
+    "subtitle": "Manage your teams and members",
+    "createTeam": "Create Team",
+    "createTeamDescription": "Create a new team to collaborate with others.",
+    "editTeam": "Edit Team",
+    "editTeamDescription": "Update team name and slug.",
+    "deleteTeam": "Delete Team",
+    "back": "Back",
+    "active": "Active",
+    "members": "members",
+    "membersTitle": "Members",
+    "inviteMember": "Invite Member",
+    "removeMember": "Remove",
+    "changeRole": "Change role",
+    "actions": "Actions",
+    "you": "you",
+    "pending": "Pending",
+    "pendingInvitations": "Pending invitations",
+    "resendInvitation": "Resend",
+    "invitationResent": "Invitation resent to {email}",
+    "resendInvitationError": "Failed to resend invitation",
+    "cancelInvitation": "Cancel",
+    "cancel": "Cancel",
+    "saving": "Saving...",
+    "saveChanges": "Save Changes",
+    "roles": {
+      "owner": "Owner",
+      "admin": "Admin",
+      "member": "Member"
+    },
+    "form": {
+      "name": "Name",
+      "namePlaceholder": "Team name",
+      "slug": "Slug",
+      "slugPlaceholder": "team-slug",
+      "slugHint": "Auto-generated from name if left empty. Used in URLs."
+    },
+    "empty": {
+      "title": "No teams yet",
+      "description": "Create your first team to start collaborating."
+    },
+    "invitations": {
+      "title": "Pending Invitations",
+      "invite": "Invite",
+      "inviteTitle": "Invite Member",
+      "inviteDescription": "Send an invitation to join your team by email.",
+      "emailLabel": "Email",
+      "emailPlaceholder": "colleague@company.com",
+      "roleLabel": "Role",
+      "roleMember": "Member",
+      "roleAdmin": "Admin",
+      "roleOwner": "Owner",
+      "sendInvitation": "Send Invitation",
+      "sending": "Sending...",
+      "cancelInvitation": "Cancel invitation",
+      "cancelConfirm": "Are you sure you want to cancel this invitation?",
+      "canceled": "Invitation canceled",
+      "cancelError": "Failed to cancel invitation",
+      "noPending": "No pending invitations",
+      "statusPending": "Pending",
+      "statusExpired": "Expired",
+      "sentSuccess": "Invitation sent to {email}",
+      "sentError": "Failed to send invitation"
+    }
+  },
+  "notificationPreferences": {
+    "pageTitle": "Notification preferences",
+    "pageDescription": "Configure how and when to receive notifications",
+    "title": "Notification types",
+    "description": "Choose which notifications you want to receive and through which channel",
+    "channels": {
+      "inApp": "In-app",
+      "email": "Email"
+    },
+    "types": {
+      "assignment": {
+        "label": "Assignments",
+        "description": "When you are assigned a work item or mentioned as responsible"
+      },
+      "comment": {
+        "label": "Comments",
+        "description": "When someone comments on a work item you participate in"
+      },
+      "mention": {
+        "label": "Mentions",
+        "description": "When someone mentions you in a comment or description"
+      },
+      "status_changed": {
+        "label": "Status changes",
+        "description": "When a work item you follow changes column or status"
+      }
+    }
+  },
+  "goals": {
+    "title": "Goals",
+    "subtitle": "Manage milestones and track project objectives",
+    "createMilestone": "Create Milestone",
+    "noMilestones": "No milestones yet",
+    "noMilestonesHint": "Create your first milestone to track project objectives",
+    "progressBar": {
+      "currentProgress": "Current progress",
+      "noTargetDate": "No target date",
+      "dueToday": "Due today",
+      "daysOverdue": "{count} days overdue",
+      "daysRemaining": "{count} days remaining",
+      "motivationalMessages": {
+        "ready": "Ready for takeoff",
+        "goodStart": "Good start, let's go!",
+        "halfway": "Halfway there!",
+        "almostThere": "Almost there, don't stop!",
+        "nearlyDone": "Almost done!",
+        "complete": "Mission Complete!"
+      }
+    },
+    "metrics": {
+      "completed": "Completed",
+      "inProgress": "In progress",
+      "pending": "Pending",
+      "deadline": "Deadline",
+      "noDate": "No date",
+      "daysLate": "{count} days late",
+      "today": "Today",
+      "days": "{count} days"
+    },
+    "checklist": {
+      "title": "Execution checklist",
+      "noWorkItems": "This milestone has no linked work items yet."
+    },
+    "detail": {
+      "selectMilestone": "Select a milestone",
+      "selectMilestoneHint": "Progress details and checklist will appear here.",
+      "edit": "Edit"
+    },
+    "card": {
+      "noDate": "No date",
+      "items": "items"
+    },
+    "form": {
+      "newMilestone": "New milestone",
+      "editMilestone": "Edit milestone",
+      "newDescription": "Define the objective, its priority, and link relevant work items.",
+      "editDescription": "Update milestone data and linked work items.",
+      "title": "Title",
+      "titlePlaceholder": "E.g.: Multi-tenant authentication MVP",
+      "targetDate": "Target date",
+      "priority": "Priority",
+      "selectPriority": "Select priority",
+      "description": "Description",
+      "descriptionPlaceholder": "Describe the main objective and its scope.",
+      "linkedWorkItems": "Linked work items",
+      "noWorkItems": "No work items available for this project.",
+      "saving": "Saving...",
+      "createButton": "Create milestone",
+      "saveButton": "Save changes"
+    },
+    "status": {
+      "planned": "Planned",
+      "in_progress": "In progress",
+      "completed": "Completed",
+      "on_hold": "On hold",
+      "cancelled": "Cancelled"
+    },
+    "meeting": {
+      "start": "Start:",
+      "deadline": "Deadline:",
+      "updated": "Updated:",
+      "launchProgress": "Launch progress",
+      "expectedToday": "Expected today",
+      "delta": "Delta",
+      "daysRemaining": "Days remaining",
+      "blockersHighRisk": "Blocked / High risk",
+      "paceVsPlan": "Pace vs plan",
+      "paceVsPlanDescription": "Tracking whether we're ahead or behind schedule.",
+      "real": "Actual:",
+      "expected": "Expected:",
+      "projectedDate": "Projected date:",
+      "noProjection": "No projection",
+      "readinessByBlock": "Readiness by block",
+      "readinessByBlockDescription": "Progress of deliverables A/B/C in the plan.",
+      "weight": "weight",
+      "launchTodo": "Launch To-Do (must-have)",
+      "launchTodoDescription": "Required items to reach March 1st.",
+      "backlogPostLaunch": "Backlog post-launch",
+      "backlogPostLaunchDescription": "Differentiating work that doesn't block the MVP.",
+      "productReadiness": "Product base readiness",
+      "productReadinessDescription": "Maturity snapshot by piece from the MVP readiness document.",
+      "measurementNotes": "Measurement notes",
+      "measurementNotesDescription": "Rules for interpreting status in meetings.",
+      "health": {
+        "onTrack": "On track",
+        "attention": "Attention",
+        "highRisk": "High risk"
+      }
+    },
+    "todo": {
+      "status": {
+        "planned": "Planned",
+        "in_progress": "In progress",
+        "blocked": "Blocked",
+        "completed": "Completed"
+      }
+    }
+  },
+  "waitlist": {
+    "signup": {
+      "emailPlaceholder": "your@email.com",
+      "namePlaceholder": "Name (optional)",
+      "referralCodePlaceholder": "Referral code (optional)",
+      "processing": "Processing...",
+      "submit": "Join the waitlist",
+      "confirmationHint": "We'll send you a confirmation email. Only after confirming you enter the ranking."
+    },
+    "dashboard": {
+      "loading": "Loading dashboard...",
+      "noSession": "No active waitlist session.",
+      "title": "Thanks for joining the waitlist",
+      "subtitle": "Want to help us reach more people and move up the list?",
+      "position": "Position",
+      "confirmedUsers": "of {count} confirmed",
+      "points": "Points",
+      "tier": "Tier: {tier}",
+      "confirmedReferrals": "Confirmed referrals",
+      "referralsHint": "Only count after email confirmation",
+      "nextLevel": "Next level: {tier}",
+      "maxLevel": "Maximum",
+      "pointsRemaining": "{count} pts remaining",
+      "shareTitle": "Share your link",
+      "copyLink": "Copy link",
+      "sharing": "Sharing...",
+      "shareX": "Share on X",
+      "shareLinkedIn": "Share on LinkedIn",
+      "profileTitle": "Complete your profile (earn points)",
+      "profileRolePlaceholder": "Role (solopreneur, team 2-5, company, other)",
+      "profileAiStackPlaceholder": "Main AI stack (Claude Code, Codex, etc.)",
+      "profileAiStackOtherPlaceholder": "Other AI stack (optional)",
+      "profileVibeToolPlaceholder": "Vibe coding tool (optional)",
+      "profileSpendPlaceholder": "Monthly AI spend (USD/EUR)",
+      "saving": "Saving...",
+      "saveProfile": "Save profile",
+      "actionsTitle": "Actions and status",
+      "emailConfirmation": "Email confirmation",
+      "profileCompleted": "Profile completed",
+      "shareXAction": "Share X",
+      "shareLinkedInAction": "Share LinkedIn",
+      "completed": "Completed",
+      "pending": "Pending"
+    },
+    "dashboardV2": {
+      "confirmEmail": "Confirm your email",
+      "confirmEmailHint": "Check your inbox to see your position and unlock your dashboard.",
+      "positionText": "You're at position #{position} of {count} confirmed",
+      "pointsAndTier": "{points} pts · Tier: {tier}",
+      "valueProp": "Almirant is the project management platform designed for teams building with AI. Kanban, CRM, Claude agents, and a visual roadmap — all connected.",
+      "yourActions": "Your actions",
+      "referralLinkTitle": "Your referral link",
+      "copy": "Copy",
+      "referralsCount": "{count} confirmed referral{count, plural, one {} other {s}}",
+      "increasePosition": "Move up the list",
+      "answerAction": "Answer →",
+      "pioneerCta": {
+        "title": "Become a Pioneer",
+        "subtitle": "Join our founding supporters with a $1 contribution.",
+        "description": "Pioneers get the best spot on the list, an exclusive badge, and special pricing when we launch. You'd be one of the first.",
+        "cta": "Become a Pioneer — $1",
+        "alreadyPioneer": "You're a Pioneer!",
+        "alreadyPioneerMessage": "Thank you for being one of our earliest believers. Your Pioneer status is permanent.",
+        "points": "+500 pts"
+      },
+      "tierProgress": {
+        "title": "Your progress",
+        "unlocked": "Unlocked",
+        "locked": "Locked",
+        "current": "Current",
+        "pointsNeeded": "{points} pts needed",
+        "yourTier": "Your tier",
+        "points": "{points} points",
+        "pointsToNext": "{points} points to {tier}",
+        "maxTierReached": "You've reached the highest tier!",
+        "noTier": "No tier yet"
+      },
+      "tierPerks": {
+        "earlyAccess": {
+          "name": "Early Access",
+          "threshold": "10 pts",
+          "description": "Priority access when we launch"
+        },
+        "supporter": {
+          "name": "Supporter",
+          "threshold": "40 pts",
+          "description": "Recognized as an early supporter"
+        },
+        "pioneer": {
+          "name": "Pioneer",
+          "threshold": "500 pts",
+          "description": "Founding supporter with exclusive perks"
+        }
+      }
+    },
+    "actions": {
+      "emailConfirmed": "Email confirmed",
+      "featuresSelected": "Features selected",
+      "sharedX": "Shared on X",
+      "sharedLinkedin": "Shared on LinkedIn",
+      "pioneerPayment": "Pioneer payment",
+      "confirmedReferral": "Confirmed referral"
+    },
+    "hookMessages": {
+      "skippedSteps": {
+        "role": "How do you work? — complete your profile",
+        "aiStack": "What's your AI stack?",
+        "vibeTool": "Do you use vibe coding tools?",
+        "monthlySpend": "How much do you spend on AI monthly?",
+        "features": "What interests you about Almirant?"
+      },
+      "sessionError": "Confirm your email to access the panel.",
+      "loadError": "We couldn't load your waitlist panel.",
+      "linkCopied": "Link copied.",
+      "linkCopyError": "We couldn't copy the link.",
+      "shareText": "Just joined the Almirant.ai waitlist. If you build with AI, you'll want to check this out.",
+      "shareAwarded": "+{points} points for sharing on {platform}.",
+      "shareAlreadyCounted": "Your {platform} share was already counted.",
+      "shareError": "We couldn't register the share action.",
+      "profileCompleted": "Profile completed. +{points} points.",
+      "profileUpdated": "Profile updated.",
+      "profileSaveError": "We couldn't save your profile.",
+      "paymentError": "We couldn't start the payment."
+    },
+    "steps": {
+      "email": {
+        "title": "What's your email?",
+        "subtitle": "With this you're in. We'll send you a confirmation email.",
+        "submit": "Join the waitlist",
+        "placeholder": "your@email.com",
+        "referralToggle": "Have an invitation code?",
+        "referralPlaceholder": "Referral code (optional)"
+      },
+      "role": {
+        "title": "How do you work?",
+        "subtitle": "Helps us personalize your experience.",
+        "options": {
+          "solopreneur": "Solopreneur / freelance",
+          "team_2_5": "Team of 2-5 people",
+          "empresa": "Company (+5 people)",
+          "otro": "Other"
+        }
+      },
+      "aiStack": {
+        "title": "What's your main AI stack?",
+        "subtitle": "What AI coding tool do you use day to day?",
+        "otherPlaceholder": "Which one?",
+        "options": {
+          "claude_code": "Claude Code",
+          "codex": "OpenAI Codex CLI",
+          "cursor": "Cursor",
+          "windsurf": "Windsurf",
+          "copilot": "GitHub Copilot",
+          "otro": "Other"
+        }
+      },
+      "vibeTool": {
+        "title": "Do you use any vibe coding tool?",
+        "subtitle": "Lovable, Bolt, v0... there's life beyond the IDE.",
+        "options": {
+          "lovable": "Lovable",
+          "bolt": "Bolt",
+          "v0": "v0",
+          "replit": "Replit",
+          "ninguno": "I don't use any",
+          "otro": "Other"
+        }
+      },
+      "monthlySpend": {
+        "title": "How much do you spend monthly on AI tools?",
+        "subtitle": "Just to better understand user profiles.",
+        "options": {
+          "0": "$0 — I don't pay yet",
+          "1_50": "$1 – $50/month",
+          "50_200": "$50 – $200/month",
+          "200_500": "$200 – $500/month",
+          "500_plus": "+$500/month"
+        }
+      },
+      "features": {
+        "title": "What interests you about Almirant?",
+        "subtitle": "Select all that apply. Helps us prioritize.",
+        "kanban": "Kanban & tasks",
+        "crm": "CRM & pipeline",
+        "ai_code": "AI code agents",
+        "ai_planning": "AI planning",
+        "local_integration": "Local IDE integration",
+        "docs": "Docs & wikis",
+        "github": "Automated PRs & code review",
+        "roadmap": "Visual roadmap",
+        "idea_hub": "Idea hub",
+        "auto_code_review": "Error detection & suggestions",
+        "ski_mode": "Voice control from phone",
+        "ai_assistant": "AI personal assistant"
+      },
+      "confirmation": {
+        "title": "You're on the list!",
+        "subtitle": "Help us reach more builders and earn bonus points.",
+        "shareX": "Share on X",
+        "shareXPoints": "+5 pts",
+        "shareLinkedin": "Share on LinkedIn",
+        "shareLinkedinPoints": "+5 pts",
+        "referralLabel": "Your referral link",
+        "copy": "Copy",
+        "referralHint": "Each confirmed referral = +20 pts",
+        "confirmEmailTitle": "Confirm your email",
+        "confirmEmailDescription": "Check your inbox and click the confirmation link to unlock your full dashboard and see your position on the waitlist.",
+        "viewDashboard": "Go to my dashboard"
+      },
+      "payment": {
+        "title": "Become a Pioneer",
+        "subtitle": "You'd be one of our first Pioneers. A small gesture that means a lot to us.",
+        "description": "For just $1, you unlock Pioneer status — our way of recognizing the people who believed in Almirant from the very start.",
+        "cta": "Become a Pioneer for $1",
+        "processing": "Redirecting to checkout...",
+        "successTitle": "Welcome, Pioneer!",
+        "successSubtitle": "You're now one of our founding supporters. Thank you for believing in what we're building.",
+        "alreadyPaid": "You're already a Pioneer!",
+        "alreadyPaidHint": "Thank you for your support. You've unlocked the highest tier.",
+        "perks": {
+          "title": "What Pioneers get",
+          "freeMonths": "2 free months of Pro at launch",
+          "earlyAccess": "First in line when we launch",
+          "founderBadge": "Exclusive Pioneer badge — forever",
+          "directAccess": "Direct access to the founding team",
+          "lifetime": "Special pricing when we launch"
+        }
+      },
+      "layout": {
+        "continue": "Continue",
+        "pointsBadge": "+{count} pts",
+        "availablePoints": "🎁 +{count} pts available",
+        "profileCompletedNote": "for completing your profile",
+        "shareNote": "for sharing",
+        "back": "Back",
+        "skip": "Skip",
+        "saving": "Saving..."
+      }
+    },
+    "tiers": {
+      "none": "Base",
+      "earlyAccess": "Early Access",
+      "supporter": "Supporter",
+      "pioneer": "Pioneer"
+    },
+    "share": {
+      "xText": "Just joined the @AlmirantAI waitlist — AI-powered project management for builders. Interested?",
+      "linkedinTitle": "Almirant – AI-powered project management",
+      "linkedinSummary": "Just joined the Almirant waitlist. AI agents that plan and implement code, integrated CRM, automated code review. Check it out!"
+    },
+    "options": {
+      "role": {
+        "solopreneur": "Solopreneur / freelance",
+        "team_2_5": "Team of 2-5 people",
+        "empresa": "Company (5+ people)",
+        "otro": "Other"
+      },
+      "aiStack": {
+        "claude_code": "Claude Code",
+        "codex": "OpenAI Codex CLI",
+        "cursor": "Cursor",
+        "windsurf": "Windsurf",
+        "copilot": "GitHub Copilot",
+        "otro": "Other"
+      },
+      "vibeTool": {
+        "lovable": "Lovable",
+        "bolt": "Bolt",
+        "v0": "v0",
+        "replit": "Replit",
+        "ninguno": "I don't use any",
+        "otro": "Other"
+      },
+      "monthlySpend": {
+        "0": "$0 — not paying yet",
+        "1_50": "$1 – $50/month",
+        "50_200": "$50 – $200/month",
+        "200_500": "$200 – $500/month",
+        "500_plus": "+$500/month"
+      },
+      "features": {
+        "kanban": "Kanban boards and task management",
+        "crm": "Integrated CRM — leads, pipeline, clients",
+        "ai_code": "AI agents that plan and implement code",
+        "ai_planning": "AI-powered definition and planning",
+        "local_integration": "Integration with Claude Code or Codex locally",
+        "docs": "Complete project docs, wikis & decision history",
+        "github": "Automated pull requests and code review",
+        "roadmap": "Visual roadmap — epics, features, stories",
+        "idea_hub": "Idea hub — capture ideas before converting to tasks",
+        "auto_code_review": "Automatic error detection and improvement proposals",
+        "ski_mode": "Voice control from your phone — ship to production without touching a keyboard",
+        "ai_assistant": "Personal assistant that records everything and suggests improvements"
+      }
+    },
+    "onboarding": {
+      "motivational": "You're in! Now complete a few quick steps to climb the waitlist and get early access sooner.",
+      "progressBar": {
+        "title": "Your progress",
+        "progressLabel": "{current} of {max} points earned",
+        "milestoneLabel": "{tier} tier at {points} points{reached, select, true { (unlocked)} other { (locked)}}",
+        "currentPoints": "Points:",
+        "noTier": "No tier",
+        "nextMilestone": "{points} more points until {tier}"
+      }
+    },
+    "pointsExplainer": {
+      "title": "Earn points, level up your tier",
+      "description": "Complete your profile, share and refer friends to move up the waitlist",
+      "earlyAccess": "Early Access",
+      "supporter": "Supporter",
+      "pioneer": "Pioneer",
+      "earlyAccessPts": "10 pts",
+      "supporterPts": "40 pts",
+      "pioneerPts": "500 pts"
+    }
+  },
+  "expenses": {
+    "dashboard": {
+      "title": "Expenses",
+      "description": "Manage your team's expenses",
+      "newExpense": "New Expense",
+      "tabs": {
+        "overview": "Overview",
+        "list": "Expenses",
+        "recurring": "Subscriptions"
+      }
+    },
+    "summary": {
+      "totalExpenses": "Total Expenses",
+      "monthlyRecurring": "Monthly Recurring",
+      "activeSubscriptions": "Active Subscriptions",
+      "recentExpenses": "Recent Expenses"
+    },
+    "list": {
+      "date": "Date",
+      "titleVendor": "Title / Vendor",
+      "amount": "Amount",
+      "currency": "Currency",
+      "category": "Category",
+      "paidBy": "Paid By",
+      "status": "Status",
+      "deleteAriaLabel": "Delete expense",
+      "emptyFiltered": "No expenses match the current filters.",
+      "emptyDefault": "No expenses yet. Add your first expense to get started."
+    },
+    "filter": {
+      "searchPlaceholder": "Search expenses...",
+      "allStatuses": "All statuses",
+      "allCurrencies": "All currencies",
+      "currency": "Currency",
+      "fromDate": "From date",
+      "toDate": "To date",
+      "clearFilters": "Clear filters"
+    },
+    "charts": {
+      "byPerson": "By Person",
+      "byCategory": "By Category",
+      "monthlySpend": "Monthly Spend",
+      "noData": "No data yet",
+      "noTimeline": "No timeline data yet",
+      "people": "people",
+      "categories": "categories"
+    },
+    "detail": {
+      "title": "Expense detail",
+      "loadingDescription": "Loading expense information",
+      "detailDescription": "Expense detail: {title}",
+      "date": "Date:",
+      "vendor": "Vendor:",
+      "category": "Category:",
+      "paidBy": "Paid by:",
+      "description": "Description",
+      "invoice": "Invoice",
+      "aiConfidence": "AI: {percent}% confidence",
+      "viewInvoice": "View invoice",
+      "aiExtractedData": "AI-extracted data",
+      "tags": "Tags",
+      "createdAt": "Created: {date}",
+      "updatedAt": "Updated: {date}",
+      "edit": "Edit",
+      "delete": "Delete",
+      "changeStatus": "Change status",
+      "status": "Status:",
+      "writeDescription": "Write a description...",
+      "saveHint": "Ctrl+Enter to save",
+      "cancel": "Cancel",
+      "save": "Save",
+      "vendorPlaceholder": "Enter vendor name",
+      "addVendor": "Add vendor",
+      "addCategory": "Add category",
+      "selectCategory": "Select category",
+      "searchCategory": "Search categories...",
+      "noCategoriesFound": "No categories found",
+      "noCategory": "No category",
+      "addPaidBy": "Add payer",
+      "selectMember": "Select member",
+      "searchMember": "Search members...",
+      "noMembersFound": "No members found",
+      "noMember": "No member",
+      "searchStatus": "Search status...",
+      "noStatusFound": "No status found"
+    },
+    "status": {
+      "draft": "Draft",
+      "pending_approval": "Pending",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "paid": "Paid",
+      "void": "Void",
+      "pendingApprovalFull": "Pending approval"
+    },
+    "invoiceProcessing": {
+      "pending": "Queued",
+      "processing": "Processing...",
+      "processed": "Processed",
+      "failed": "Processing error"
+    },
+    "deleteConfirm": {
+      "title": "Delete expense",
+      "description": "Are you sure you want to delete expense \"{description}\"? This cannot be undone.",
+      "confirm": "Delete",
+      "cancel": "Cancel"
+    }
+  },
+  "planning": {
+    "setup": {
+      "title": "Planning session setup",
+      "description": "Select seeds, project and board to start an AI-assisted planning session.",
+      "project": "Project",
+      "board": "Board",
+      "model": "AI model",
+      "selectProject": "Select project",
+      "selectBoard": "Select board",
+      "noProjectFilter": "All projects",
+      "noBoardFilter": "No specific board",
+      "noBoards": "No boards found.",
+      "goal": "Session goal",
+      "goalPlaceholder": "Describe what you want to plan in this session...",
+      "seeds": "Seeds",
+      "selectAll": "Select all",
+      "deselectAll": "Deselect all",
+      "noSeeds": "No seeds marked for planning. Mark seeds as \"selected for ideation\" to see them here.",
+      "seedsSelected": "{count, plural, one {# seed selected} other {# seeds selected}}",
+      "start": "Start session",
+      "starting": "Starting...",
+      "disconnected": "Disconnected",
+      "openPlanningPanel": "Open planning",
+      "closePlanningPanel": "Hide planning",
+      "sessionPanelTitle": "Planning session",
+      "sessionPanelDescription": "Start the session to boot the remote agent and begin the live planning flow.",
+      "developmentBoardLabel": "Development board",
+      "noDevelopmentBoard": "No development board found",
+      "startSessionHint": "Click to start a new planning session.",
+      "startingSessionMessage": "Planning session is starting..."
+    },
+    "context": {
+      "title": "Session context",
+      "description": "Reference for project, board, and selected seeds in this session.",
+      "project": "Project",
+      "board": "Board",
+      "noProject": "No project",
+      "noBoard": "No board",
+      "seeds": "Session seeds",
+      "loading": "Loading seeds...",
+      "noSeeds": "No seeds are linked to this session."
+    },
+    "you": "You",
+    "assistant": "Assistant",
+    "emptyStream": "Waiting for session to start...",
+    "initializingSession": "Starting a planning session...",
+    "stepLabel": "Step {step}",
+    "stepProgress": "Step {step}: {name}",
+    "waveTitle": "Wave progress",
+    "waveProgress": "Wave progress tracker",
+    "waveCount": "{done}/{total} agents done",
+    "waveComplete": "{success}/{total} agents completed successfully",
+    "questionFromAgent": "Question from the agent",
+    "questionAnswerPlaceholder": "Type your answer...",
+    "questionFreeTextPlaceholder": "Or type a custom answer...",
+    "answerLabel": "Your answer",
+    "sendAnswer": "Send answer",
+    "livePromptLabel": "Add context while the agent is running",
+    "livePromptPlaceholder": "Type extra context, constraints, or clarifications...",
+    "sendPrompt": "Send prompt",
+    "dismissError": "Dismiss error",
+    "cancelSession": "Cancel session",
+    "generation": {
+      "title": "Generated work items",
+      "itemCount": "{count, plural, one {# item} other {# items}}",
+      "targetColumn": "Target column:",
+      "selectColumn": "Select column",
+      "cancel": "Cancel",
+      "creating": "Creating...",
+      "createAll": "Create all ({count})",
+      "successTitle": "Work items created",
+      "successDescription": "{count, plural, one {# work item was created successfully.} other {# work items were created successfully.}}",
+      "errorsTitle": "{count, plural, one {# item failed} other {# items failed}}",
+      "done": "Done"
+    },
+    "quickAdd": {
+      "placeholder": "New seed...",
+      "titleAriaLabel": "New seed title",
+      "descriptionPlaceholder": "Description (optional)",
+      "descriptionAriaLabel": "New seed description",
+      "create": "Create"
+    },
+    "seedList": {
+      "emptyTitle": "No seeds",
+      "emptyDescription": "Create your first seed to start planning. Seeds are ideas or requirements that feed planning sessions.",
+      "ariaLabel": "Seed list"
+    },
+    "seedDetail": {
+      "emptyState": "Select a seed to view details",
+      "status": {
+        "draft": "Draft",
+        "active": "Active",
+        "to_review": "In review",
+        "approved": "Approved",
+        "archived": "Archived",
+        "rejected": "Rejected"
+      },
+      "priority": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "urgent": "Urgent"
+      },
+      "relativeTime": {
+        "now": "now",
+        "minutes": "{count}m ago",
+        "hours": "{count}h ago",
+        "days": "{count}d ago"
+      },
+      "description": "Description",
+      "statusLabel": "Status",
+      "owner": "Owner",
+      "unassigned": "Unassigned",
+      "priorityLabel": "Priority",
+      "tags": "Tags",
+      "project": "Project",
+      "dates": "Dates",
+      "created": "Created:",
+      "updated": "Updated:",
+      "createdBy": "Created by",
+      "feedbackLinks": "Linked feedback",
+      "workItemLinks": "Linked work items",
+      "noComments": "No comments",
+      "commentPlaceholder": "Write a comment...",
+      "commentHint": "Cmd+Enter to send",
+      "noActivity": "No activity recorded",
+      "history": {
+        "system": "System",
+        "createdSeed": "created the seed",
+        "changedStatus": "changed status",
+        "changedOwner": "changed owner",
+        "changedPriority": "changed priority",
+        "editedTitle": "edited title",
+        "editedDescription": "edited description",
+        "updated": "updated"
+      },
+      "tabs": {
+        "info": "Info",
+        "comments": "Comments",
+        "history": "History"
+      }
+    },
+    "session": {
+      "waitingInstructions": "Waiting for instructions...",
+      "pausedActivity": "Paused - type instructions to continue",
+      "idleTimeoutToast": "Session closed due to inactivity. You can start a new session.",
+      "cancelledToast": "Session cancelled",
+      "killedToast": "Planning process finished",
+      "pausedToast": "Session paused - type instructions to continue",
+      "answerQueuedOffline": "Connection lost. We will send your reply as soon as the connection is back."
+    }
+  },
+  "seeds": {
+    "createDialog": {
+      "title": "New Seed",
+      "titlePlaceholder": "Seed title...",
+      "descriptionPlaceholder": "Optional description...",
+      "project": "Project",
+      "owner": "Owner",
+      "source": "Source",
+      "priority": "Priority",
+      "searchProject": "Search project...",
+      "searchMember": "Search member...",
+      "noResults": "No results",
+      "cancel": "Cancel",
+      "create": "Create",
+      "creating": "Creating...",
+      "sourceManual": "Manual",
+      "sourceFeedback": "Feedback",
+      "sourceAi": "AI",
+      "sourceImport": "Imported"
+    },
+    "promoteDialog": {
+      "title": "Promote Seed",
+      "promoting": "Promoting:",
+      "destinationType": "Type",
+      "priority": "Priority",
+      "workItemTitle": "Title",
+      "description": "Description",
+      "project": "Project",
+      "board": "Board",
+      "column": "Column",
+      "notes": "Notes",
+      "notesPlaceholder": "Additional notes about the promotion...",
+      "cancel": "Cancel",
+      "promote": "Promote",
+      "promotingAction": "Promoting..."
+    },
+    "detail": {
+      "promote": "Promote",
+      "description": "Description",
+      "writeDescription": "Write a description...",
+      "saving": "Saving...",
+      "cancel": "Cancel",
+      "save": "Save",
+      "saveHint": "Cmd+Enter to save, Esc to cancel",
+      "owner": "Owner",
+      "priority": "Priority",
+      "source": "Source",
+      "project": "Project",
+      "createdBy": "Created by",
+      "selected": "Selected",
+      "tags": "Tags",
+      "noTags": "No tags",
+      "created": "Created",
+      "updated": "Updated",
+      "unassigned": "Unassigned",
+      "changeOwner": "Change owner",
+      "assignOwner": "Assign owner",
+      "searchMember": "Search member...",
+      "noMembersFound": "No members found.",
+      "noPriority": "No priority",
+      "noProject": "No project",
+      "searchProject": "Search project...",
+      "noProjectsFound": "No projects found.",
+      "searchOrCreateTag": "Search or create tag...",
+      "noTagsAvailable": "No tags available.",
+      "existingTags": "Existing tags",
+      "createTag": "Create tag \"{name}\"",
+      "addTag": "Add tag",
+      "removeTag": "Remove tag {name}",
+      "maturityLevel": "Maturity",
+      "comments": "Comments",
+      "history": "History",
+      "traceability": "Traceability",
+      "promoteHint": "Complete the level 3 fields before promoting"
+    },
+    "tabs": {
+      "active": "Active",
+      "finished": "Finished"
+    },
+    "filters": {
+      "searchSeeds": "Search seeds...",
+      "searchTag": "Search tag...",
+      "allStatuses": "All statuses",
+      "allSources": "All sources",
+      "all": "All",
+      "allOwners": "All owners",
+      "allProjects": "All projects",
+      "allTags": "All tags",
+      "forIdeation": "For ideation",
+      "noIdeation": "No ideation",
+      "clearFilters": "Clear filters",
+      "noTags": "No tags",
+      "status": "Status",
+      "source": "Source",
+      "priority": "Priority",
+      "owner": "Owner",
+      "project": "Project",
+      "tag": "Tag",
+      "search": "Search",
+      "ideation": "Ideation",
+      "forIdeationLabel": "For ideation",
+      "yes": "Yes",
+      "no": "No"
+    },
+    "list": {
+      "empty": "No seeds match the current filters.",
+      "selectedForIdeation": "Selected for ideation",
+      "lastComment": "Last comment: {name}"
+    },
+    "priority": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "urgent": "Urgent"
+    },
+    "statuses": {
+      "draft": "Draft",
+      "active": "Active",
+      "to_review": "In review",
+      "approved": "Approved",
+      "archived": "Archived",
+      "rejected": "Rejected"
+    },
+    "sources": {
+      "manual": "Manual",
+      "feedback": "Feedback",
+      "ai_generated": "AI",
+      "import": "Imported"
+    },
+    "toasts": {
+      "seedDeleted": "Seed deleted",
+      "deleteError": "Error deleting",
+      "seedPromoted": "Seed promoted to work item",
+      "promoteError": "Error promoting seed",
+      "statusUpdated": "Status updated",
+      "statusError": "Error changing status",
+      "ownerError": "Error assigning owner",
+      "tagAddError": "Error adding tag",
+      "tagRemoveError": "Error removing tag",
+      "requiredFields": "Project, board, and column are required",
+      "seedApproved": "Seed approved. Moving to Finished in {seconds}s",
+      "undo": "Undo",
+      "seedCreated": "Seed created",
+      "createError": "Error creating seed",
+      "titleRequired": "Title is required",
+      "addCommentError": "Error adding comment",
+      "editCommentError": "Error editing comment",
+      "deleteCommentError": "Error deleting comment",
+      "priorityError": "Error changing priority"
+    },
+    "delete": {
+      "title": "Delete seed",
+      "description": "Are you sure you want to delete \"{title}\"?",
+      "confirm": "Delete"
+    },
+    "pageContainer": {
+      "subtitle": "Manage seed ideas and improvements for the workspace.",
+      "newSeed": "New seed"
+    },
+    "history": {
+      "title": "History",
+      "empty": "No activity recorded.",
+      "events": {
+        "created": "Seed created",
+        "feedbackLinked": "Feedback linked",
+        "feedbackUnlinked": "Feedback unlinked",
+        "workItemLinked": "Work item linked"
+      },
+      "fields": {
+        "projectId": "Project",
+        "status": "Status",
+        "title": "Title",
+        "description": "Description",
+        "ownerUserId": "Owner",
+        "priority": "Priority",
+        "source": "Source",
+        "selectedForIdeation": "Selected for ideation"
+      },
+      "emptyValue": "(empty)"
+    },
+    "maturity": {
+      "levels": {
+        "intuition": "Intuition",
+        "concept": "Concept",
+        "ready": "Ready"
+      },
+      "checklist": {
+        "level2": "Level 2",
+        "level3": "Level 3",
+        "detailedDescription": "Detailed description (>50 characters)",
+        "definitionOfDone": "Definition of Done",
+        "implementationProposal": "Implementation proposal"
+      }
+    },
+    "traceability": {
+      "title": "Traceability",
+      "empty": "No traceability links.",
+      "feedback": "Feedback",
+      "workItems": "Work Items"
+    },
+    "filtersConfig": {
+      "priority": "Priority",
+      "source": "Source",
+      "owner": "Owner",
+      "project": "Project",
+      "tag": "Tag",
+      "forIdeation": "For Ideation",
+      "searchPlaceholder": "Search seeds...",
+      "groupSeed": "Seed",
+      "groupMetadata": "Metadata",
+      "priorities": {
+        "urgent": "Urgent",
+        "high": "High",
+        "medium": "Medium",
+        "low": "Low"
+      },
+      "sources": {
+        "manual": "Manual",
+        "feedback": "Feedback",
+        "ai_generated": "AI",
+        "import": "Imported"
+      }
+    }
+  },
+  "providerUsagePanel": {
+    "title": "Provider Usage",
+    "workspace": "Workspace",
+    "noProviders": "No AI providers connected",
+    "noProvidersHint": "Connect providers in Settings → Integrations",
+    "drawerDescription": "Monitor connected AI provider usage and pacing",
+    "usageUnavailable": "Usage data unavailable",
+    "tokens": "tokens",
+    "requests": "requests",
+    "defaultKey": "Default",
+    "adminKeyRequired": "Admin API key required",
+    "loadError": "Failed to load usage",
+    "manageConnections": "Manage connections",
+    "sessionWindow": "Session (5h)",
+    "weeklyWindow": "Weekly (7d)",
+    "opusWeeklyWindow": "Opus weekly",
+    "sonnetWeeklyWindow": "Sonnet weekly",
+    "ahead": "Ahead",
+    "onTrack": "On track",
+    "behind": "Behind",
+    "abovePace": "{percent}% above pace",
+    "belowPace": "{percent}% below pace",
+    "onPace": "On pace",
+    "inReservoir": "{percent}% in reservoir",
+    "deficit": "{percent}% deficit",
+    "lastRefreshed": "Last refreshed {time} ago",
+    "refreshing": "Refreshing...",
+    "refreshAll": "Refresh all"
+  },
+  "analytics": {
+    "title": "Analytics",
+    "description": "Organization usage metrics and per-user consumption.",
+    "tabs": {
+      "overview": "Overview",
+      "byUser": "By User",
+      "usage": "Usage",
+      "system": "System & Processes"
+    },
+    "breadcrumb": {
+      "overview": "Overview",
+      "byUser": "By User"
+    },
+    "period": {
+      "showing": "Showing data for period"
+    },
+    "kpi": {
+      "totalMinutes": "Total Minutes",
+      "totalSessions": "Total Sessions",
+      "activeUsers": "Active Users",
+      "activeProjects": "Active Projects",
+      "tasksCreated": "Tasks Created",
+      "tasksCompleted": "Tasks Completed"
+    },
+    "charts": {
+      "monthlyTrend": "Monthly Usage Trend",
+      "topUsers": "Top 5 Users",
+      "viewAllUsers": "View all users",
+      "sessionDistribution": "Session Distribution",
+      "activityDistribution": "Activity Distribution"
+    },
+    "table": {
+      "sort": "Sort:",
+      "user": "User",
+      "minutes": "Minutes",
+      "billable": "Runtime",
+      "billableMin": "Runtime Min",
+      "sessions": "Sessions",
+      "breakdown": "Breakdown",
+      "noData": "No usage data found for this period.",
+      "unknown": "Unknown"
+    },
+    "userDetail": {
+      "title": "User Usage",
+      "historyMonths": "Usage history across {count} month(s)",
+      "totalMinutes": "Total Minutes",
+      "billableMin": "Runtime Min",
+      "sessions": "Sessions",
+      "noHistory": "No usage history available.",
+      "runnerMinutes": "Runner execution minutes",
+      "runnerDescription": "Total minutes per month in chronological order"
+    },
+    "yAxis": {
+      "minutes": "Minutes"
+    },
+    "breakdown": {
+      "implement": "Impl",
+      "validate": "Val",
+      "review": "Rev",
+      "planning": "Plan",
+      "chat": "Chat"
+    },
+    "system": {
+      "error": "Unable to load system monitoring data.",
+      "workers": "System monitoring",
+      "processTable": "Processes and containers",
+      "noWorkers": "No workers are sending heartbeats yet.",
+      "noProcesses": "No active processes or containers right now.",
+      "freeSlots": "free slots",
+      "processes": "processes",
+      "capacity": "capacity",
+      "cpuHeadroom": "CPU-only headroom",
+      "estimatedCpuSlots": "CPU-only extra slots",
+      "memory": {
+        "systemAvailable": "System available",
+        "reserved": "Reserved for system",
+        "runnerAvailable": "Available for runners",
+        "committed": "Committed by jobs",
+        "budget": "Runner budget",
+        "jobForecast": "Forecast"
+      },
+      "updatedAt": "Updated at",
+      "kpi": {
+        "onlineWorkers": "Runners online",
+        "avgCpu": "Average CPU",
+        "activeJobs": "Active jobs",
+        "cpuPerJob": "CPU / active job",
+        "measuredJobs": "measured jobs",
+        "ram": "RAM used",
+        "processes": "Active processes"
+      },
+      "cancelJob": "Cancel job",
+      "cancelJobTitle": "Cancel active job",
+      "cancelJobDescription": "This marks the job as cancelled and releases the linked work item. If the runner is still alive, it will detect the status change and should stop the process.",
+      "cancelSuccess": "Job cancelled",
+      "cancelError": "Unable to cancel job"
+    }
+  },
+  "ask": {
+    "title": "Ask",
+    "noProjectSelected": "No Project Selected",
+    "selectProjectPrompt": "Select a project to start asking questions about your work items, documents, and events.",
+    "emptyState": {
+      "title": "Ask anything about your project",
+      "description": "Get insights from your work items, documents, commits, and events. Your questions will be answered with cited sources."
+    },
+    "input": {
+      "placeholder": "Ask a question...",
+      "projectPlaceholder": "Ask a question about your project...",
+      "ariaLabel": "Question input",
+      "submitAriaLabel": "Submit question",
+      "submittingAriaLabel": "Submitting question"
+    },
+    "response": {
+      "answer": "Answer",
+      "unableToAnswer": "Unable to Answer",
+      "confidence": {
+        "high": "High Confidence",
+        "medium": "Medium Confidence",
+        "low": "Low Confidence"
+      },
+      "thinking": "Thinking..."
+    },
+    "feedback": {
+      "wasHelpful": "Was this helpful?",
+      "yes": "Yes",
+      "no": "No",
+      "thanks": "Thanks for your feedback!",
+      "likedPrompt": "Great! Anything specific you liked?",
+      "improvePrompt": "Sorry about that. What could be improved?",
+      "categories": {
+        "accuracy": "Accuracy",
+        "citations": "Citations",
+        "relevance": "Relevance",
+        "completeness": "Completeness",
+        "other": "Other"
+      },
+      "commentPlaceholder": "Add a comment (optional)...",
+      "skip": "Skip",
+      "submit": "Submit"
+    },
+    "citations": {
+      "title": "Sources ({count})",
+      "sourceTypes": {
+        "work_item": "Work Item",
+        "document": "Document",
+        "event": "Event",
+        "commit": "Commit",
+        "observation": "Memory"
+      },
+      "viewAriaLabel": "View {title}"
+    },
+    "history": {
+      "title": "Conversation History ({count})",
+      "clear": "Clear",
+      "you": "You",
+      "assistant": "Assistant",
+      "processing": "Processing...",
+      "errorOccurred": "An error occurred"
+    },
+    "thinking": "Thinking"
+  },
+  "integrations": {
+    "toasts": {
+      "connectionCreated": "Connection created and verified",
+      "connectionUpdated": "Connection updated",
+      "connectionFailed": "Failed to create connection",
+      "updateFailed": "Failed to update connection",
+      "apiKeyAdded": "API key added successfully",
+      "apiKeyAddFailed": "Failed to add API key",
+      "modelSettingsUpdated": "Model settings updated for all keys",
+      "modelSettingsFailed": "Failed to update model settings",
+      "nameRequired": "Name is required",
+      "apiKeyUpdated": "API key updated successfully",
+      "apiKeyUpdateFailed": "Failed to update API key",
+      "defaultConnectionUpdated": "Default connection updated",
+      "defaultConnectionFailed": "Failed to set default connection",
+      "apiKeyDeleted": "API key deleted successfully",
+      "apiKeyDeleteFailed": "Failed to delete API key",
+      "testPassed": "Connection test passed",
+      "testFailed": "Connection test failed: {error}",
+      "testError": "Failed to test connection",
+      "priorityUpdated": "Connection priority updated",
+      "priorityFailed": "Failed to update priority",
+      "orchestrationDisabled": "Orchestration disabled for this connection",
+      "orchestrationEnabled": "Orchestration enabled for this connection",
+      "orchestrationFailed": "Failed to toggle orchestration",
+      "discordAuthFailed": "Failed to start Discord authorization",
+      "discordChannelUpdated": "Default channel updated",
+      "discordChannelFailed": "Failed to update default channel",
+      "discordTestSuccess": "Test message sent successfully",
+      "discordTestFailed": "Test message failed",
+      "discordTestError": "Failed to test connection",
+      "discordDisconnected": "Discord disconnected",
+      "discordDisconnectFailed": "Failed to disconnect Discord",
+      "notificationPrefsSaved": "Notification preferences saved",
+      "notificationPrefsFailed": "Failed to save notification preferences",
+      "githubAppNotConfigured": "GitHub App not configured",
+      "githubOAuthFailed": "Failed to start GitHub OAuth flow",
+      "githubConnected": "GitHub account connected to workspace",
+      "githubConnectFailed": "Failed to connect GitHub account",
+      "githubSynced": "GitHub installations synced successfully",
+      "githubSyncFailed": "Failed to sync GitHub installations",
+      "githubDisconnected": "GitHub disconnected successfully",
+      "githubDisconnectFailed": "Failed to disconnect GitHub",
+      "disconnected": "Disconnected successfully",
+      "disconnectFailed": "Failed to disconnect",
+      "subscriptionOnlyOpenAI": "Subscriptions are only supported for OpenAI and Anthropic.",
+      "subscriptionCliConnected": "Subscription connected via CLI",
+      "openaiConnected": "OpenAI connected successfully",
+      "subscriptionConnected": "Subscription connected successfully",
+      "workspaceSwitchFailed": "Failed to switch workspace",
+      "policyUpdated": "AI key policy updated",
+      "policyFailed": "Failed to update AI key policy"
+    }
+  }
+}
