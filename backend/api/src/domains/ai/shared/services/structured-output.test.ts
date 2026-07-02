@@ -221,6 +221,48 @@ describe("generateStructuredJson", () => {
     expect(result).toEqual({ title: "fenced", count: 9 });
   });
 
+  // IMPORTANT 3 (root cause): a hung provider call must not leave the caller
+  // (the effort-estimation sweeper) blocked forever. generateStructuredJson must
+  // bound each attempt with a timeout, abort the underlying request via the
+  // AbortSignal, and reject rather than retry indefinitely.
+  it(
+    "aborts and rejects when the model call exceeds the timeout",
+    async () => {
+      let aborted = false;
+
+      const hangingInvoke = (
+        _messages: unknown,
+        options?: { signal?: AbortSignal },
+      ) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () => {
+            aborted = true;
+            reject(new Error("aborted"));
+          });
+          // Never resolves on its own — only the timeout/abort ends it.
+        });
+
+      const model = {
+        bind: () => ({ invoke: hangingInvoke }),
+        invoke: hangingInvoke,
+      } as unknown as BaseLanguageModel;
+
+      const promise = generateStructuredJson<TestPayload>({
+        model,
+        provider: "openai",
+        systemPrompt: "sys",
+        userPrompt: "user",
+        schema: testSchema,
+        maxRetries: 2,
+        timeoutMs: 50,
+      });
+
+      await expect(promise).rejects.toThrow(/timed out/i);
+      expect(aborted).toBe(true);
+    },
+    2000,
+  );
+
   it("Surfaces non-validation errors immediately without retrying", async () => {
     let calls = 0;
     const model = {

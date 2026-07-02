@@ -17,6 +17,12 @@ export interface GenerateStructuredJsonParams<T> {
   schema: ZodType<T>;
   /** Number of retries on parse/validation failures. Defaults to 2. */
   maxRetries?: number;
+  /**
+   * Per-attempt wall-clock timeout in ms. When an attempt exceeds this the
+   * underlying provider request is aborted (via AbortSignal) and the call
+   * rejects instead of hanging forever. Defaults to 60s.
+   */
+  timeoutMs?: number;
 }
 
 export interface GenerateStructuredJsonResult<T> {
@@ -174,7 +180,8 @@ const buildMessages = (
 const invokeOpenAiCompatible = async <T>(
   model: BaseLanguageModel,
   messages: Array<SystemMessage | HumanMessage>,
-  schema: ZodType<T>
+  schema: ZodType<T>,
+  signal?: AbortSignal
 ): Promise<{ parsed: T; tokensUsed: number }> => {
   const bindable = model as BaseLanguageModel & {
     bind?: (kwargs: Record<string, unknown>) => BaseLanguageModel;
@@ -185,7 +192,7 @@ const invokeOpenAiCompatible = async <T>(
       ? bindable.bind({ response_format: { type: "json_object" } })
       : model;
 
-  const response = await boundModel.invoke(messages);
+  const response = await boundModel.invoke(messages, signal ? { signal } : undefined);
   const rawContent = extractStringContent(response);
   const cleaned = stripMarkdownFences(rawContent);
 
@@ -203,20 +210,21 @@ const invokeOpenAiCompatible = async <T>(
 const invokeAnthropic = async <T>(
   model: BaseLanguageModel,
   messages: Array<SystemMessage | HumanMessage>,
-  schema: ZodType<T>
+  schema: ZodType<T>,
+  signal?: AbortSignal
 ): Promise<{ parsed: T; tokensUsed: number }> => {
   const structurable = model as BaseLanguageModel & {
     withStructuredOutput?: (
       schema: unknown,
       options?: { method?: string; name?: string }
     ) => {
-      invoke: (input: unknown) => Promise<unknown>;
+      invoke: (input: unknown, options?: unknown) => Promise<unknown>;
     };
   };
 
   if (typeof structurable.withStructuredOutput !== "function") {
     // Should never happen with ChatAnthropic, but gracefully fall back.
-    return invokeFallback(model, messages, schema);
+    return invokeFallback(model, messages, schema, signal);
   }
 
   const structured = structurable.withStructuredOutput(schema, {
@@ -224,7 +232,7 @@ const invokeAnthropic = async <T>(
     name: "structured_output",
   });
 
-  const response = await structured.invoke(messages);
+  const response = await structured.invoke(messages, signal ? { signal } : undefined);
 
   // `withStructuredOutput` returns the parsed object; re-validate defensively.
   const parsed = schema.parse(response);
@@ -240,9 +248,10 @@ const invokeAnthropic = async <T>(
 const invokeFallback = async <T>(
   model: BaseLanguageModel,
   messages: Array<SystemMessage | HumanMessage>,
-  schema: ZodType<T>
+  schema: ZodType<T>,
+  signal?: AbortSignal
 ): Promise<{ parsed: T; tokensUsed: number }> => {
-  const response = await model.invoke(messages);
+  const response = await model.invoke(messages, signal ? { signal } : undefined);
   const rawContent = extractStringContent(response);
   const cleaned = stripMarkdownFences(rawContent);
 
@@ -259,7 +268,8 @@ const invokeForProvider = async <T>(
   provider: AiProvider,
   model: BaseLanguageModel,
   messages: Array<SystemMessage | HumanMessage>,
-  schema: ZodType<T>
+  schema: ZodType<T>,
+  signal?: AbortSignal
 ): Promise<{ parsed: T; tokensUsed: number }> => {
   try {
     switch (provider) {
@@ -267,9 +277,9 @@ const invokeForProvider = async <T>(
       case "google":
       case "zai":
       case "xai":
-        return await invokeOpenAiCompatible(model, messages, schema);
+        return await invokeOpenAiCompatible(model, messages, schema, signal);
       case "anthropic":
-        return await invokeAnthropic(model, messages, schema);
+        return await invokeAnthropic(model, messages, schema, signal);
       default: {
         const _exhaustive: never = provider;
         throw new Error(`Unsupported provider: ${_exhaustive as string}`);
@@ -279,15 +289,47 @@ const invokeForProvider = async <T>(
     // If the provider-native strategy fails structurally (e.g. the model
     // refused `response_format`), try the fallback once. We only fall back on
     // non-Zod, non-parse errors — Zod/parse failures are handled by the retry
-    // loop in `generateStructuredJson`.
-    if (err instanceof z.ZodError || err instanceof SyntaxError) {
+    // loop in `generateStructuredJson`. An aborted call must NOT fall back
+    // (that would start a second hung request) — surface it immediately.
+    if (
+      err instanceof z.ZodError ||
+      err instanceof SyntaxError ||
+      signal?.aborted
+    ) {
       throw err;
     }
     logger.warn(
       { err, provider },
       "Provider-native structured output failed, using fallback"
     );
-    return invokeFallback(model, messages, schema);
+    return invokeFallback(model, messages, schema, signal);
+  }
+};
+
+/**
+ * Runs `fn` with a wall-clock timeout. On timeout the AbortController is
+ * aborted (so the underlying provider request is cancelled) and the returned
+ * promise rejects. Prevents a hung provider call from blocking the caller
+ * (e.g. the effort-estimation sweeper) indefinitely.
+ */
+const withTimeout = async <T>(
+  fn: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number
+): Promise<T> => {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`Structured output timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([fn(controller.signal), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 };
 
@@ -321,6 +363,7 @@ export const generateStructuredJson = async <T>(
     userPrompt,
     schema,
     maxRetries = 2,
+    timeoutMs = 60_000,
   } = params;
 
   const start = Date.now();
@@ -336,11 +379,9 @@ export const generateStructuredJson = async <T>(
     const messages = buildMessages(systemPrompt, userPrompt, lastValidationError);
 
     try {
-      const { parsed, tokensUsed: t } = await invokeForProvider(
-        provider,
-        model,
-        messages,
-        schema
+      const { parsed, tokensUsed: t } = await withTimeout(
+        (signal) => invokeForProvider(provider, model, messages, schema, signal),
+        timeoutMs
       );
 
       tokensUsed += t;
