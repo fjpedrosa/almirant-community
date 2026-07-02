@@ -146,6 +146,28 @@ mock.module("@almirant/database", () =>
         null;
       return current ? { ...current, ...data } : null;
     },
+    // Mirrors the real compare-and-swap merge write: only flips an active
+    // attempt to `merged`, returns null (skipped) when it already reached a
+    // terminal state. Pushes the same attemptUpdates shape as the previous
+    // updateBugFixAttempt({ status: "merged" }) call so existing assertions hold.
+    markAttemptAsMergedIfActive: async (id: string) => {
+      const current =
+        state.bugFixAttemptsByPrUrl.find((attempt) => attempt.id === id) ??
+        Object.values(state.latestAttemptByFeedbackId).find(
+          (attempt) => attempt?.id === id
+        ) ??
+        null;
+      if (!current) return null;
+      if (
+        !["analyzing", "proposed", "implementing"].includes(
+          current.status as string
+        )
+      ) {
+        return null;
+      }
+      state.attemptUpdates.push({ id, data: { status: "merged" } });
+      return { ...current, status: "merged" };
+    },
     updateFeedbackItem: async (id: string, data: Record<string, unknown>) => {
       state.feedbackUpdates.push({ id, data });
       return { id, ...data };
