@@ -15,6 +15,7 @@ if (env.SENTRY_DSN && env.NODE_ENV !== "development") {
 }
 
 import { closeConnections } from "@almirant/database";
+import { shutdownPostHog } from "./shared/services/posthog-service";
 import { errorMiddleware } from "./shared/middleware/error.middleware";
 import { loggerMiddleware } from "./shared/middleware/logger.middleware";
 import { setupPublicMcpServer } from "./mcp/setup/public";
@@ -390,6 +391,7 @@ const shutdown = async () => {
     }
 
     await closeConnections();
+    await shutdownPostHog();
   } catch (err) {
     logger.error(err, "Error during shutdown");
   }

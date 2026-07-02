@@ -48,7 +48,7 @@ export const clusterStatusHistory = pgTable(
       () => agentJobs.id,
       { onDelete: "set null" }
     ),
-    reason: varchar("reason", { length: 100 }),
+    reason: varchar("reason", { length: 2000 }),
     metadata: jsonb("metadata").default({}).$type<Record<string, unknown>>(),
     changedAt: timestamp("changed_at", { withTimezone: true })
       .defaultNow()

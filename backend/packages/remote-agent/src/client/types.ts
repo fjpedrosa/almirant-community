@@ -105,6 +105,14 @@ export type ClaimedJob = {
   aiProvider?: string | null;
   model?: string | null;
   skillName?: string | null;
+  // A-1945: effort-estimate fields surfaced by claimJobs SQL
+  // JOIN on work_item_effort_estimates. null when no estimate exists
+  // (either non-runner skills or a 10-minute escape).
+  estimatedMemoryMb?: number | null;
+  estimatedSubagents?: number | null;
+  // A-1945: count of direct child work items (parent_id = work_item_id).
+  // Used by the runner alongside estimatedSubagents for resource sizing.
+  childCount?: number;
 };
 
 export type UpdateJobStatusPayload = {

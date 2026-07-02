@@ -4,6 +4,7 @@ import { getActivityLogger } from "@almirant/shared";
 import { successResponse, errorResponse } from "../../../../shared/services/response";
 import { wsConnectionManager } from "../../../../shared/ws/ws-connection-manager";
 import { refreshResourceForecastForAffectedBlocks } from "../../../../domains/agents/services/resource-forecast";
+import { enqueueEffortEstimation } from "../../../../domains/agents/services/enqueue-effort-estimation";
 
 const VALID_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 const VALID_TYPES = ["epic", "feature", "story", "task", "idea"] as const;
@@ -143,6 +144,13 @@ const createTypedWorkItem = async (
       taskId: item.taskId ?? undefined,
     },
   });
+
+  // Fire-and-forget: enqueue effort estimation for the new item + bump the parent
+  // so its estimate accounts for the new child (child-added signal).
+  enqueueEffortEstimation(item.id, "created").catch(() => {});
+  if (item.parentId) {
+    enqueueEffortEstimation(item.parentId, "child-added").catch(() => {});
+  }
 
   set.status = 201;
   return successResponse(item);

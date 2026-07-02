@@ -1,0 +1,1 @@
+ALTER TABLE "cluster_status_history" ALTER COLUMN "reason" SET DATA TYPE varchar(2000);

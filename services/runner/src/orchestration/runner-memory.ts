@@ -26,7 +26,7 @@ export type RunnerMemorySnapshot = {
 export type JobMemoryRequirement = {
   memoryMb: number;
   label: string;
-  source: "forecast" | "tier";
+  source: "effort-estimate" | "forecast" | "child-heuristic" | "tier";
 };
 
 type ResourceEstimateLike = {
@@ -39,6 +39,15 @@ const MIN_FORECAST_MEMORY_BY_TEMPLATE: Record<string, number> = {
   "runner-implement": 3072,
   "runner-fix-dod": 3072,
 };
+
+// A-1946 (ported from enterprise): clamp bounds for claim-time effort
+// estimates sourced from `work_item_effort_estimates` via the claimJobs JOIN.
+const MIN_ESTIMATED_MEMORY_MB = 256;
+const MAX_ESTIMATED_MEMORY_MB = 8192;
+
+// A-1946: templates eligible for the childCount fallback heuristic. Only
+// parent-item runner jobs benefit from sizing by direct child count.
+const CHILD_HEURISTIC_TEMPLATES = new Set(["runner-implement", "runner-document"]);
 
 export const parseMemAvailableMb = (raw: string): number | null => {
   const totalMatch = raw.match(/^MemTotal:\s+(\d+)\s+kB$/m);
@@ -166,21 +175,52 @@ const resolveForecastMemoryMb = (
   return normalized > 0 ? normalized : null;
 };
 
+const clampEstimatedMemory = (raw: number): number =>
+  Math.min(MAX_ESTIMATED_MEMORY_MB, Math.max(MIN_ESTIMATED_MEMORY_MB, raw));
+
+/**
+ * Resolves a job's memory requirement. Priority order (A-1946 reconciliation):
+ *
+ *   1. `effort-estimate` — claim-time `estimatedMemoryMb` from the
+ *      `work_item_effort_estimates` JOIN in `claimJobs`, clamped to
+ *      [256, 8192] MB.
+ *   2. `forecast` — `config.resourceEstimate.estimatedMemoryMb` persisted by
+ *      the API's resource-forecast pipeline.
+ *   3. `child-heuristic` — for runner-implement/runner-document parents
+ *      (childCount > 0): min(4, childCount) * 500 + 1024 MB.
+ *   4. `tier` — static resource tier fallback.
+ *
+ * The community safety floors (per-template production minimums and the
+ * browser heavy minimum) apply to every estimate-derived value (1-3):
+ * estimates may size a job UP beyond the floor, but never below the
+ * empirically-derived minimums that fixed the 2026 OOM incidents.
+ */
 export const resolveJobMemoryRequirement = (
   job: ClaimedJob,
 ): JobMemoryRequirement => {
   const intent = resolveJobIntent(job);
   const label = intent.promptTemplate ?? "freeform";
-  const forecastMemoryMb = resolveForecastMemoryMb(job.config);
+  const browserMinimumMemoryMb = intent.needsBrowser
+    ? getResourcesForTier("heavy").memoryMb
+    : 0;
+  const minimumMemoryMb = Math.max(
+    MIN_FORECAST_MEMORY_BY_TEMPLATE[label] ?? 0,
+    browserMinimumMemoryMb,
+  );
 
+  // 1. Claim-time effort estimate (work_item_effort_estimates JOIN).
+  const effortMemoryMb = job.estimatedMemoryMb;
+  if (typeof effortMemoryMb === "number" && Number.isFinite(effortMemoryMb)) {
+    return {
+      memoryMb: Math.max(clampEstimatedMemory(Math.ceil(effortMemoryMb)), minimumMemoryMb),
+      label,
+      source: "effort-estimate",
+    };
+  }
+
+  // 2. Persisted resource forecast from the API.
+  const forecastMemoryMb = resolveForecastMemoryMb(job.config);
   if (forecastMemoryMb !== null) {
-    const browserMinimumMemoryMb = intent.needsBrowser
-      ? getResourcesForTier("heavy").memoryMb
-      : 0;
-    const minimumMemoryMb = Math.max(
-      MIN_FORECAST_MEMORY_BY_TEMPLATE[label] ?? 0,
-      browserMinimumMemoryMb,
-    );
     return {
       memoryMb: Math.max(forecastMemoryMb, minimumMemoryMb),
       label,
@@ -188,6 +228,24 @@ export const resolveJobMemoryRequirement = (
     };
   }
 
+  // 3. childCount fallback heuristic (10-minute escape without estimate).
+  const childCount = job.childCount;
+  if (
+    typeof childCount === "number" &&
+    Number.isFinite(childCount) &&
+    childCount > 0 &&
+    CHILD_HEURISTIC_TEMPLATES.has(label)
+  ) {
+    // childCount > 0 → parent (feature/epic); leaf tasks have 0 children.
+    const heuristicMemoryMb = Math.min(4, childCount) * 500 + 1024;
+    return {
+      memoryMb: Math.max(heuristicMemoryMb, minimumMemoryMb),
+      label,
+      source: "child-heuristic",
+    };
+  }
+
+  // 4. Static tier fallback.
   return {
     memoryMb: getResourcesForTier(resolveResourceTier(intent)).memoryMb,
     label,

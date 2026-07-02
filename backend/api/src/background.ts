@@ -11,6 +11,7 @@ import { startUsageAggregation } from "./domains/billing/quota/services/usage-ag
 import { startWsPubSubSubscriber } from "./shared/ws/ws-pubsub-subscriber";
 import { wsConnectionManager } from "./shared/ws/ws-connection-manager";
 import { startMemoryGcSweeper } from "./domains/agents/services/memory-gc-sweeper";
+import { startEffortEstimationSweeper } from "./domains/agents/services/effort-estimation-sweeper";
 
 interface BackgroundJobHandles {
   stop: () => Promise<void>;
@@ -44,6 +45,10 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
   });
   const stopUsageAggregation = startUsageAggregation({ intervalMs: 600_000 });
   const stopMemoryGcSweeper = startMemoryGcSweeper();
+  const stopEffortEstimationSweeper = startEffortEstimationSweeper({
+    intervalMs: env.EFFORT_ESTIMATION_SWEEPER_INTERVAL_MS,
+    batchSize: 5,
+  });
   const stopWsPubSub = env.REDIS_URL
     ? startWsPubSubSubscriber({
         redisUrl: env.REDIS_URL,
@@ -66,6 +71,7 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
       stopHealthCheckSweeper();
       stopUsageAggregation();
       stopMemoryGcSweeper();
+      stopEffortEstimationSweeper();
       wsConnectionManager.stopSweepInterval();
       await wsConnectionManager.stopPubSubPublisher();
       if (stopWsPubSub) await stopWsPubSub();

@@ -80,6 +80,7 @@ import { isParentType } from "@almirant/database";
 import { getActivityLogger } from "@almirant/shared";
 import { logger } from "@almirant/config";
 import { propagateProviderToParent } from "../../../../domains/connections/services/propagate-provider";
+import { enqueueEffortEstimation } from "../../../../domains/agents/services/enqueue-effort-estimation";
 import {
   notifyWorkItemAssigned,
   notifyWorkItemDone,
@@ -590,6 +591,13 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         },
       });
 
+      // Fire-and-forget: enqueue effort estimation for the new item + bump
+      // the parent (child-added) so its estimate reflects the new child.
+      enqueueEffortEstimation(item.id, "created").catch(() => {});
+      if (item.parentId) {
+        enqueueEffortEstimation(item.parentId, "child-added").catch(() => {});
+      }
+
       set.status = 201;
       return successResponse(item);
     },
@@ -749,6 +757,31 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
           changes: body as Record<string, unknown>,
         },
       });
+
+      // Fire-and-forget: re-enqueue effort estimation when content-hash-relevant
+      // fields changed. Hash inputs are: title, description, type, parentId, childIds.
+      // On parentId change we also bump both the old and new parent so their
+      // estimates reflect the added/removed child.
+      if (existing) {
+        const contentFieldChanged =
+          (body.title !== undefined && body.title !== existing.title) ||
+          (body.description !== undefined && (body.description ?? null) !== (existing.description ?? null)) ||
+          (body.type !== undefined && body.type !== existing.type) ||
+          (body.parentId !== undefined && (body.parentId ?? null) !== (existing.parentId ?? null));
+
+        if (contentFieldChanged) {
+          enqueueEffortEstimation(params.id, "updated").catch(() => {});
+        }
+
+        if (body.parentId !== undefined && (body.parentId ?? null) !== (existing.parentId ?? null)) {
+          if (existing.parentId) {
+            enqueueEffortEstimation(existing.parentId, "child-removed").catch(() => {});
+          }
+          if (body.parentId) {
+            enqueueEffortEstimation(body.parentId, "child-added").catch(() => {});
+          }
+        }
+      }
 
       return successResponse(item);
     },

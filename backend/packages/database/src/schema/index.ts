@@ -103,4 +103,7 @@ export * from "./analytics-daily-aggregates";
 export * from "./agent-observations";
 export * from "./agent-memory-telemetry";
 export * from "./incident-bundles";
+export * from "./work-item-effort-estimates";
+export * from "./effort-estimation-requests";
+export * from "./effort-estimator-configs";
 export * from "./relations";
