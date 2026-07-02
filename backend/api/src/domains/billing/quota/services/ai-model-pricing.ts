@@ -26,6 +26,24 @@ export interface AiModelPricing {
 // - Z.AI pricing page (https://docs.z.ai/guides/overview/pricing) verified on 2026-04-26
 const AI_MODEL_PRICING: AiModelPricing[] = [
   // Anthropic (Claude)
+  // NOTE: order matters for fuzzy matching — the legacy "claude-opus-4" catch-all below
+  // matches m.includes("claude-opus-4-"), so newer opus entries MUST come before it.
+  {
+    provider: "anthropic",
+    model: "claude-fable-5",
+    label: "Claude Fable 5",
+    inputUsdPerMTok: 10,
+    outputUsdPerMTok: 50,
+    matches: (m) => m.includes("claude-fable-5") || m.includes("fable-5"),
+  },
+  {
+    provider: "anthropic",
+    model: "claude-opus-4-8",
+    label: "Claude Opus 4.8",
+    inputUsdPerMTok: 5,
+    outputUsdPerMTok: 25,
+    matches: (m) => m.includes("claude-opus-4-8") || m.includes("opus-4-8"),
+  },
   {
     provider: "anthropic",
     model: "claude-opus-4-7",
@@ -57,6 +75,16 @@ const AI_MODEL_PRICING: AiModelPricing[] = [
     inputUsdPerMTok: 15,
     outputUsdPerMTok: 75,
     matches: (m) => m === "claude-opus-4" || m.includes("opus-4") || m.includes("claude-opus-4-"),
+  },
+  {
+    provider: "anthropic",
+    // List price ($3/$15). Anthropic's introductory pricing ($2/$10 through 2026-08-31)
+    // is intentionally not modeled to keep cost estimates stable.
+    model: "claude-sonnet-5",
+    label: "Claude Sonnet 5",
+    inputUsdPerMTok: 3,
+    outputUsdPerMTok: 15,
+    matches: (m) => m.includes("claude-sonnet-5") || m.includes("sonnet-5"),
   },
   {
     provider: "anthropic",

@@ -780,7 +780,7 @@ const handlePlanningPrewarm = (
         },
         codingAgent: "claude-code",
         aiProvider: "anthropic",
-        model: "claude-opus-4-6",
+        model: resolveRuntime({ provider: "claude-code" }).model,
         skillName: "ideate",
         promptTemplate: "ideate",
         triggerType: "event",

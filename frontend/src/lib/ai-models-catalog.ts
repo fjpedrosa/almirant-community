@@ -1,16 +1,37 @@
 import type { ModelDefinition, ProviderType } from "@/domains/integrations/domain/types";
 
 /**
- * Comprehensive catalog of AI models updated for April 2026.
+ * Comprehensive catalog of AI models updated for July 2026 (Anthropic Claude 5 wave).
  * Organized by provider with display names and categories for UI components.
  */
 
-// Anthropic models - April 2026
+// Anthropic models - July 2026
+// Order matters: use-model-selector picks the FIRST entry as the default selection,
+// so Opus 4.8 (the claude-code default) must stay first. Fable 5 is selectable
+// but intentionally NOT the default.
 const ANTHROPIC_MODELS: ModelDefinition[] = [
+  {
+    id: "claude-opus-4-8",
+    displayName: "Claude Opus 4.8",
+    category: "best",
+  },
+  {
+    // Mythos-class frontier model ($10/$50 MTok, 1M context, 128K output).
+    // Thinking is always on and it requires 30-day data retention — keep it
+    // opt-in (never the default selection).
+    id: "claude-fable-5",
+    displayName: "Claude Fable 5",
+    category: "best",
+  },
   {
     id: "claude-opus-4-7",
     displayName: "Claude Opus 4.7",
     category: "best",
+  },
+  {
+    id: "claude-sonnet-5",
+    displayName: "Claude Sonnet 5",
+    category: "fast",
   },
   {
     id: "claude-sonnet-4-6",

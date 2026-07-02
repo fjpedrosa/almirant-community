@@ -17,6 +17,7 @@ import {
   workItems,
 } from "@almirant/database";
 import type { AgentJobConfig } from "@almirant/database";
+import { resolveRuntime } from "@almirant/shared";
 import {
   buildSessionControlComponents,
   type DiscordActionRow,
@@ -468,6 +469,10 @@ const queueCommandJob = async (params: {
     ...(createdThreadId ? { threadId: createdThreadId } : {}),
   };
 
+  // Resolve the full runtime trio (codingAgent/aiProvider/model) from the
+  // selected provider — same pattern as agent-jobs.routes.ts and ws-message-router.ts.
+  const resolvedRuntime = resolveRuntime({ provider });
+
   const createdJob = await createJob({
     projectId: workItem.projectId,
     boardId: workItem.boardId,
@@ -477,9 +482,9 @@ const queueCommandJob = async (params: {
     priority: "medium",
     jobType: params.commandName === "plan" ? "planning" : "implementation",
     config,
-    codingAgent: "claude-code",
-    aiProvider: "anthropic",
-    model: "claude-opus-4-6",
+    codingAgent: resolvedRuntime.codingAgent,
+    aiProvider: resolvedRuntime.aiProvider,
+    model: resolvedRuntime.model,
     skillName: config.skillName ?? "implement",
   });
 

@@ -12,6 +12,7 @@ import type { AgentJobConfig } from "@almirant/database";
 
 const state = {
   createdJobInput: null as Record<string, unknown> | null,
+  createdBatchJobInputs: null as Array<Record<string, unknown>> | null,
   listJobs: [] as Array<Record<string, unknown>>,
   jobDetailsById: {} as Record<string, Record<string, unknown>>,
   accessibleProjectIds: [testWorkItem.projectId] as string[],
@@ -78,6 +79,30 @@ const dbMocks = createDatabaseMocks({
       boardId: testWorkItem.boardId,
     };
   },
+  createBatchJobs: async (inputs: Array<Record<string, unknown>>) => {
+    state.createdBatchJobInputs = inputs;
+    return inputs.map((input, index) => ({
+      id: `job-batch-${index + 1}`,
+      status: "queued",
+      ...input,
+    }));
+  },
+  getAllWorkersMetricsHistory: async () => [],
+  // Minimal drizzle chain used by POST /agent-jobs/batch to resolve work item rows.
+  db: {
+    select: () => ({
+      from: () => ({
+        where: async () => [
+          {
+            id: testWorkItem.id,
+            projectId: testWorkItem.projectId,
+            boardId: testWorkItem.boardId,
+            taskId: testWorkItem.taskId,
+          },
+        ],
+      }),
+    }),
+  },
 });
 
 mock.module("@almirant/database", () => dbMocks);
@@ -130,11 +155,106 @@ const withTestOrgRole = (role: string) => (app: Elysia) =>
 describe("agentJobsRoutes POST /agent-jobs", () => {
   beforeEach(() => {
     state.createdJobInput = null;
+    state.createdBatchJobInputs = null;
     state.listJobs = [];
     state.jobDetailsById = {};
     state.accessibleProjectIds = [testWorkItem.projectId];
     state.lastListFilters = null;
     state.clusterByJobId = new Map();
+  });
+
+  it("resolves the claude-code default model from the shared runtime when no model is provided", async () => {
+    const { agentJobsRoutes } = await import("./agent-jobs.routes");
+    const app = new Elysia().use(withTestOrg).use(agentJobsRoutes);
+
+    const res = await app.handle(
+      makeRequest("/agent-jobs", {
+        workItemId: testWorkItem.id,
+        provider: "claude-code",
+        jobType: "validation",
+        config: { repoPath: ".", baseBranch: "main" },
+      })
+    );
+
+    expect(res.status).toBe(201);
+    expect(state.createdJobInput?.model).toBe("claude-opus-4-8");
+  });
+
+  it("resolves provider-specific default models instead of an Anthropic hardcode", async () => {
+    const { agentJobsRoutes } = await import("./agent-jobs.routes");
+    const app = new Elysia().use(withTestOrg).use(agentJobsRoutes);
+
+    const res = await app.handle(
+      makeRequest("/agent-jobs", {
+        workItemId: testWorkItem.id,
+        provider: "codex",
+        jobType: "validation",
+        config: { repoPath: ".", baseBranch: "main" },
+      })
+    );
+
+    expect(res.status).toBe(201);
+    expect(state.createdJobInput?.model).toBe("gpt-5.5");
+  });
+
+  it("resolves the default model from the shared runtime for batch jobs without an explicit model", async () => {
+    const { agentJobsRoutes } = await import("./agent-jobs.routes");
+    const app = new Elysia().use(withTestOrg).use(agentJobsRoutes);
+
+    const res = await app.handle(
+      makeRequest("/agent-jobs/batch", {
+        workItemIds: [testWorkItem.id],
+        provider: "claude-code",
+        jobType: "implementation",
+      })
+    );
+
+    expect(res.status).toBe(201);
+    expect(state.createdBatchJobInputs).toHaveLength(1);
+    expect(state.createdBatchJobInputs?.[0]?.model).toBe("claude-opus-4-8");
+  });
+
+  it("falls back to the shared runtime default model when retrying a job without a stored model", async () => {
+    state.jobDetailsById["job-retry-1"] = {
+      job: {
+        id: "job-retry-1",
+        workItemId: testWorkItem.id,
+        projectId: testWorkItem.projectId,
+        boardId: testWorkItem.boardId,
+        planningSessionId: null,
+        createdByUserId: testUser.id,
+        organizationId: "org-test-1",
+        jobType: "bug-fix",
+        status: "failed",
+        provider: "claude-code",
+        priority: "medium",
+        config: {},
+        codingAgent: "claude-code",
+        aiProvider: "anthropic",
+        model: null,
+        skillName: "bug-fix",
+        prompt: null,
+        promptTemplate: "bug-fix",
+        triggerType: "event",
+        interactive: false,
+      },
+      workItem: null,
+      project: null,
+      board: null,
+      planningSession: null,
+      feedbackItem: null,
+      createdByUser: null,
+    };
+
+    const { agentJobsRoutes } = await import("./agent-jobs.routes");
+    const app = new Elysia().use(withTestOrg).use(agentJobsRoutes);
+
+    const res = await app.handle(
+      new Request("http://localhost/agent-jobs/job-retry-1/retry", { method: "POST" }),
+    );
+
+    expect(res.status).toBe(201);
+    expect(state.createdJobInput?.model).toBe("claude-opus-4-8");
   });
 
   it("rejects user-created jobs targeting an internal-only skill", async () => {

@@ -42,6 +42,63 @@ describe("calculateCostUsd", () => {
     expect(cost).toBe(210);
   });
 
+  it("calculates Anthropic Claude Fable 5 cost", () => {
+    const cost = calculateCostUsd({
+      provider: "anthropic",
+      model: "claude-fable-5",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    });
+    // 10 + 50 = 60
+    expect(cost).toBe(60);
+  });
+
+  it("calculates Anthropic Opus 4.8 cost", () => {
+    const cost = calculateCostUsd({
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    });
+    // 5 + 25 = 30
+    expect(cost).toBe(30);
+  });
+
+  it("resolves Opus 4.8 snapshot ids before the legacy Opus 4 catch-all matcher", () => {
+    // The legacy "claude-opus-4" entry matches m.includes("claude-opus-4-"), which would
+    // capture opus-4-8 snapshots at $15/$75 if it ran first. Order of matchers matters.
+    const cost = calculateCostUsd({
+      provider: "anthropic",
+      model: "claude-opus-4-8-20260601",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    });
+    // 5 + 25 = 30 (NOT 15 + 75 = 90 from the catch-all)
+    expect(cost).toBe(30);
+  });
+
+  it("keeps legacy Claude Opus 4 snapshots on the catch-all price", () => {
+    const cost = calculateCostUsd({
+      provider: "anthropic",
+      model: "claude-opus-4-20250514",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    });
+    // 15 + 75 = 90
+    expect(cost).toBe(90);
+  });
+
+  it("calculates Anthropic Claude Sonnet 5 cost at list price", () => {
+    const cost = calculateCostUsd({
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    });
+    // List price: 3 + 15 = 18 (intro pricing intentionally not modeled)
+    expect(cost).toBe(18);
+  });
+
   it("calculates Anthropic Sonnet 4.5 cost from snapshot ids", () => {
     const cost = calculateCostUsd({
       provider: "anthropic",
