@@ -6,6 +6,7 @@ import {
   CLUSTER_RETRY_BUDGET_MAX_ATTEMPTS,
   CLUSTER_TRANSITIONS,
   buildListClustersOrderBy,
+  canRecoverToResolved,
   isValidTransition,
   resolveListClustersParams,
   type ClusterStatusEnum,
@@ -224,6 +225,42 @@ describe("isValidTransition — invalid transitions", () => {
     // success, but the matrix itself does not include self-loops.
     expect(isValidTransition("open", "open")).toBe(false);
     expect(isValidTransition("resolved", "resolved")).toBe(false);
+  });
+});
+
+describe("canRecoverToResolved — drift recovery predicate", () => {
+  // Unlike `isValidTransition`, this predicate is used by the PR-merge
+  // webhook + the drift-recovery sweeper to jump straight to `resolved` when
+  // GitHub reports the bug-fix PR is merged. The matrix stays strict for the
+  // human lifecycle; this predicate is the privileged shortcut and only
+  // terminal states block it.
+
+  test("allows recovery from open (cluster never flipped to investigating)", () => {
+    expect(canRecoverToResolved("open")).toBe(true);
+  });
+
+  test("allows recovery from investigating (PR merge webhook missed fix_ready flip)", () => {
+    expect(canRecoverToResolved("investigating")).toBe(true);
+  });
+
+  test("allows recovery from fix_ready (happy path for the PR-merge webhook)", () => {
+    expect(canRecoverToResolved("fix_ready")).toBe(true);
+  });
+
+  test("allows recovery from regression (re-fix PR merged after regression signal)", () => {
+    expect(canRecoverToResolved("regression")).toBe(true);
+  });
+
+  test("is idempotent from resolved (duplicate webhook / redelivery)", () => {
+    expect(canRecoverToResolved("resolved")).toBe(true);
+  });
+
+  test("blocks recovery from dismissed (terminal, human intent)", () => {
+    expect(canRecoverToResolved("dismissed")).toBe(false);
+  });
+
+  test("blocks recovery from promoted (terminal legacy)", () => {
+    expect(canRecoverToResolved("promoted")).toBe(false);
   });
 });
 

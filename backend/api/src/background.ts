@@ -11,6 +11,7 @@ import { startUsageAggregation } from "./domains/billing/quota/services/usage-ag
 import { startWsPubSubSubscriber } from "./shared/ws/ws-pubsub-subscriber";
 import { wsConnectionManager } from "./shared/ws/ws-connection-manager";
 import { startMemoryGcSweeper } from "./domains/agents/services/memory-gc-sweeper";
+import { startBugFixAttemptPrReconciler } from "./domains/integrations/github/services/bug-fix-attempt-pr-reconciler";
 
 interface BackgroundJobHandles {
   stop: () => Promise<void>;
@@ -44,6 +45,14 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
   });
   const stopUsageAggregation = startUsageAggregation({ intervalMs: 600_000 });
   const stopMemoryGcSweeper = startMemoryGcSweeper();
+  const stopBugFixAttemptPrReconciler =
+    env.BUG_FIX_PR_RECONCILER_ENABLED === "true"
+      ? startBugFixAttemptPrReconciler({
+          intervalMs: env.BUG_FIX_PR_RECONCILER_INTERVAL_MS,
+          olderThanMinutes: env.BUG_FIX_PR_RECONCILER_OLDER_THAN_MINUTES,
+          batchSize: env.BUG_FIX_PR_RECONCILER_BATCH_SIZE,
+        })
+      : null;
   const stopWsPubSub = env.REDIS_URL
     ? startWsPubSubSubscriber({
         redisUrl: env.REDIS_URL,
@@ -66,6 +75,7 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
       stopHealthCheckSweeper();
       stopUsageAggregation();
       stopMemoryGcSweeper();
+      if (stopBugFixAttemptPrReconciler) stopBugFixAttemptPrReconciler();
       wsConnectionManager.stopSweepInterval();
       await wsConnectionManager.stopPubSubPublisher();
       if (stopWsPubSub) await stopWsPubSub();

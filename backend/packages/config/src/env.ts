@@ -22,6 +22,27 @@ const envSchema = z.object({
   AGENT_JOB_LOG_SWEEPER_BATCH_SIZE: z.coerce.number().default(1_000),
   ALMIRANT_INVESTIGATION_TIMEOUT_MINUTES: z.coerce.number().int().positive().default(30),
   ALMIRANT_INVESTIGATION_SWEEPER_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
+  // Bug-fix PR reconciler (drift backstop for missed PR-merge webhooks).
+  // Polls GitHub for attempts stuck in a pre-terminal status with a
+  // `fix_pr_number` and reconciles the cluster/attempt state. Default cadence
+  // matches `usage-reconciliation` (5 min) so we pay the external-state sync
+  // cost at the same rhythm as the other backstop sweepers.
+  BUG_FIX_PR_RECONCILER_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(60_000)
+    .default(300_000),
+  BUG_FIX_PR_RECONCILER_OLDER_THAN_MINUTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(10),
+  BUG_FIX_PR_RECONCILER_BATCH_SIZE: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(25),
+  BUG_FIX_PR_RECONCILER_ENABLED: z.enum(["true", "false"]).default("true"),
   // Telegram (optional - only required if enabling the Telegram bot integration)
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_WEBHOOK_SECRET_TOKEN: z.string().optional(),

@@ -1242,6 +1242,21 @@ export const isValidTransition = (
 };
 
 /**
+ * Privileged predicate used by the PR-merge webhook and the drift-recovery
+ * sweeper to jump straight to `resolved` when GitHub reports the bug-fix PR
+ * is merged. The human lifecycle matrix (`CLUSTER_TRANSITIONS`) stays strict
+ * on purpose so humans can't skip steps; this shortcut exists to reconcile
+ * external state (the merged PR) when the webhook path loses intermediate
+ * signals (e.g. `investigating → fix_ready` flip) or is redelivered.
+ *
+ * Only terminal statuses block the shortcut: `dismissed` is a deliberate
+ * human decision and `promoted` is a terminal legacy bucket.
+ */
+export const canRecoverToResolved = (from: ClusterStatusEnum): boolean => {
+  return from !== "dismissed" && from !== "promoted";
+};
+
+/**
  * Who / what triggered a status transition. Persisted to
  * `cluster_status_history` for audit and analytics.
  *
@@ -1388,6 +1403,141 @@ export const transitionCluster = async (
       from: fromStatus,
       to: toStatus,
       cluster: updatedCluster,
+    };
+  });
+};
+
+// --- Cluster drift recovery ---
+//
+// The strict `CLUSTER_TRANSITIONS` matrix models the human lifecycle
+// (open → investigating → fix_ready → resolved). Two production paths break
+// that happy-path assumption:
+//
+// 1. GitHub webhook delivery is lossy. If the `investigating → fix_ready`
+//    flip (emitted by the MCP `update_bug_fix_attempt` tool when the agent
+//    sets `fixPrUrl`) is missed or arrives out of order, the cluster stays
+//    on `investigating`/`open` while the PR is already merged.
+// 2. The PR-merge webhook itself can be missed (bad signature, installation
+//    not tracked, silent throw in the fire-and-forget `.then()`). A periodic
+//    sweeper polls GitHub for the affected attempts and needs to drive the
+//    cluster to `resolved` regardless of intermediate state.
+//
+// `recoverClusterToResolved` is the privileged shortcut used by both: it
+// jumps straight to `resolved` unless the cluster is in a terminal state
+// (`dismissed` is a deliberate human decision; `promoted` is terminal
+// legacy). A redelivered webhook finding the cluster already `resolved`
+// short-circuits on `alreadyResolved` without writing history.
+//
+// Preservation policy: when the cluster already has `resolvedAt` or
+// `resolvedByAttemptId` (the `regression → resolved` case) we keep the
+// first-resolution metadata so MTTR analytics stay stable. The
+// `cluster_status_history` row still records the re-resolution, so the
+// full timeline survives.
+
+export type RecoverToResolvedResult =
+  | {
+      success: true;
+      from: ClusterStatusEnum;
+      to: "resolved";
+      cluster: FeedbackCluster;
+      alreadyResolved: boolean;
+      preservedResolvedAt: boolean;
+      preservedResolvedByAttemptId: boolean;
+    }
+  | { success: false; reason: "cluster_not_found" }
+  | {
+      success: false;
+      reason: "terminal_state";
+      from: ClusterStatusEnum;
+    };
+
+export const recoverClusterToResolved = async (
+  clusterId: string,
+  event: ClusterTransitionEvent
+): Promise<RecoverToResolvedResult> => {
+  return db.transaction(async (tx) => {
+    const [cluster] = await tx
+      .select()
+      .from(feedbackClusters)
+      .where(eq(feedbackClusters.id, clusterId))
+      .for("update")
+      .limit(1);
+
+    if (!cluster) {
+      return { success: false, reason: "cluster_not_found" as const };
+    }
+
+    const fromStatus = cluster.status;
+
+    if (!canRecoverToResolved(fromStatus)) {
+      return {
+        success: false as const,
+        reason: "terminal_state" as const,
+        from: fromStatus,
+      };
+    }
+
+    // Idempotent: redelivered webhook or second sweeper pass. Do NOT write
+    // another history row — the original resolution is already audited.
+    if (fromStatus === "resolved") {
+      return {
+        success: true as const,
+        from: fromStatus,
+        to: "resolved" as const,
+        cluster,
+        alreadyResolved: true,
+        preservedResolvedAt: true,
+        preservedResolvedByAttemptId: true,
+      };
+    }
+
+    const now = new Date();
+    const preservedResolvedAt = cluster.resolvedAt != null;
+    const preservedResolvedByAttemptId = cluster.resolvedByAttemptId != null;
+
+    const updateValues: Record<string, unknown> = {
+      status: "resolved" as const,
+      updatedAt: now,
+    };
+    if (!preservedResolvedAt) {
+      updateValues.resolvedAt = now;
+    }
+    if (!preservedResolvedByAttemptId && event.triggeredByAttemptId) {
+      updateValues.resolvedByAttemptId = event.triggeredByAttemptId;
+    }
+
+    const [updatedCluster] = await tx
+      .update(feedbackClusters)
+      .set(updateValues)
+      .where(eq(feedbackClusters.id, clusterId))
+      .returning();
+
+    if (!updatedCluster) {
+      throw new Error(
+        `recoverClusterToResolved: UPDATE returned no rows for cluster ${clusterId}`
+      );
+    }
+
+    await tx.insert(clusterStatusHistory).values({
+      clusterId,
+      fromStatus,
+      toStatus: "resolved",
+      triggeredByKind: event.triggeredByKind,
+      triggeredByUserId: event.triggeredByUserId ?? null,
+      triggeredByAttemptId: event.triggeredByAttemptId ?? null,
+      triggeredByAgentJobId: event.triggeredByAgentJobId ?? null,
+      reason: event.reason ?? null,
+      metadata: event.metadata ?? {},
+    });
+
+    return {
+      success: true as const,
+      from: fromStatus,
+      to: "resolved" as const,
+      cluster: updatedCluster,
+      alreadyResolved: false,
+      preservedResolvedAt,
+      preservedResolvedByAttemptId,
     };
   });
 };
