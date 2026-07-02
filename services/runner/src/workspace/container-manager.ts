@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFileCb);
 import Docker from "dockerode";
 import type { ContainerStats, ManagedContainerInfo, RunnerContainerSpec } from "../shared/types";
+import type { ContainerDriver, DriverCapabilities } from "./container-driver";
 
 
 export type ContainerCleanupIssue = {
@@ -181,7 +182,13 @@ const toIso = (epochSeconds?: number): string | undefined => {
   return new Date(epochSeconds * 1000).toISOString();
 };
 
-export class ContainerManager {
+export class ContainerManager implements ContainerDriver {
+  /** Docker mounts host dirs into containers and uses bridge networks. */
+  public readonly capabilities: DriverCapabilities = {
+    workspace: "host-bind",
+    networking: "bridge",
+  };
+
   private readonly docker: Docker;
   /** Direct socket client for archive/exec ops that fail through the proxy. */
   private readonly directDocker: Docker;

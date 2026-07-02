@@ -1,5 +1,5 @@
 import type { AlmirantWorkerClient, ClaimedJob, WorkItemDetails } from "@almirant/remote-agent";
-import type { ContainerManager } from "../workspace/container-manager";
+import type { ContainerDriver } from "../workspace/container-driver";
 import type { RunnerJobEventLogger } from "../observability/job-event-logger";
 import {
   augmentSkillContentForRuntime,
@@ -14,7 +14,7 @@ const WORKSPACE_REPO_PATH = "/workspace/repo";
 
 export type SkillResolverDeps = {
   workerClient: AlmirantWorkerClient;
-  containerManager: ContainerManager;
+  containerManager: ContainerDriver;
   apiBaseUrl?: string;
   apiKey?: string;
 };

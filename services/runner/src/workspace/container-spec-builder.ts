@@ -44,6 +44,8 @@ export const PROVIDER_MEMORY_BUMP: Record<string, number> = {
  * Compute the container memory limit based on mount mode.
  *
  * - Bind mode (production): memoryMb only (all writable paths are on disk).
+ * - Volume mode (driver-managed storage): memoryMb only — logical volumes are
+ *   disk-backed, so they carry no tmpfs RAM tax either.
  * - Tmpfs mode (fallback): memoryMb + all three tmpfs mounts consume RAM.
  */
 export const computeMemoryLimit = (resources: SkillResources, diskBacked: boolean): number => {
@@ -86,7 +88,7 @@ export type ContainerSpecParams = {
   runtimeConfig: RuntimeConfig;
   injectedEnv: Record<string, string>;
   openCodeConfig: Awaited<ReturnType<typeof buildInjectedEnv>>["openCodeConfig"];
-  workspaceMountMode: "bind" | "tmpfs";
+  workspaceMountMode: "bind" | "tmpfs" | "volume";
   /** Host-side repos path, used for Docker volume mounts to sibling containers. */
   reposHostPath?: string;
 };
@@ -165,19 +167,27 @@ export const buildContainerSpec = (params: ContainerSpecParams): RunnerContainer
     // read-only host filesystems or Docker-for-local-dev path issues.
     // In bind mode, ALL writable paths (/workspace, /tmp, /home/opencode)
     // are on disk — no tmpfs RAM overhead.
-    volumes: workspaceMountMode === "bind" && reposHostPath
+    // In volume mode (driver-managed storage, e.g. Kubernetes), emit logical
+    // volumes without host paths — the driver resolves them to real storage.
+    volumes: workspaceMountMode === "volume"
       ? [
-          { source: `${reposHostPath}/${job.id}`, target: "/workspace" },
-          { source: `${reposHostPath}/${job.id}/.tmp`, target: "/tmp" },
-          { source: `${reposHostPath}/${job.id}/.home`, target: "/home/opencode" },
+          { source: "workspace", target: "/workspace" },
+          { source: "tmp", target: "/tmp" },
+          { source: "home", target: "/home/opencode" },
         ]
-      : undefined,
+      : workspaceMountMode === "bind" && reposHostPath
+        ? [
+            { source: `${reposHostPath}/${job.id}`, target: "/workspace" },
+            { source: `${reposHostPath}/${job.id}/.tmp`, target: "/tmp" },
+            { source: `${reposHostPath}/${job.id}/.home`, target: "/home/opencode" },
+          ]
+        : undefined,
     tmpfs: buildTmpfsOptions(resources, workspaceMountMode === "tmpfs"),
     securityOpt: ["no-new-privileges:true"],
     capDrop: ["ALL"],
     readOnlyRootFs: true,
     cpuLimit: 2,
-    memoryLimitMb: computeMemoryLimit(resources, workspaceMountMode === "bind")
+    memoryLimitMb: computeMemoryLimit(resources, workspaceMountMode !== "tmpfs")
       + (PROVIDER_MEMORY_BUMP[runtimeConfig.type] ?? 0),
     tty: true,
   };

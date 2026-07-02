@@ -54,6 +54,7 @@ import {
   getRunningJobsForWorker,
   getQueuedJobCount,
   getQueuedJobCountByAgent,
+  getExecutingJobCount,
   insertMetricsSnapshot,
   getMetricsHistory,
   getAllWorkersMetricsHistory,
@@ -2818,6 +2819,22 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       const depths = await getQueuedJobCountByAgent();
       set.status = 200;
       return successResponse({ depths });
+    }
+  )
+
+  // GET /workers/scaling-metric — returns the desired total capacity for the scaler:
+  // queued jobs + jobs currently executing + configurable spare slots
+  .get(
+    "/scaling-metric",
+    async ({ set }) => {
+      const [queueDepth, activeJobs] = await Promise.all([
+        getQueuedJobCount(),
+        getExecutingJobCount(),
+      ]);
+      set.status = 200;
+      return successResponse({
+        targetCapacity: queueDepth + activeJobs + env.SCALING_MIN_AVAILABLE_SLOTS,
+      });
     }
   )
 

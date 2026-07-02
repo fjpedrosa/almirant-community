@@ -7,7 +7,7 @@
  */
 
 import type { AlmirantWorkerClient, ClaimedJob, WorkItemDetails } from "@almirant/remote-agent";
-import type { ContainerManager } from "../workspace/container-manager";
+import type { ContainerDriver } from "../workspace/container-driver";
 import { GITHUB_BOT_EMAIL, GITHUB_BOT_NAME } from "./github-identity";
 import type { RunnerJobEventLogger } from "../observability/job-event-logger";
 import { extractRepoFullName } from "../shared/job-helpers";
@@ -41,7 +41,7 @@ const withTimeout = <T>(
 
 export type PrManagerDeps = {
   workerClient: AlmirantWorkerClient;
-  containerManager: ContainerManager;
+  containerManager: ContainerDriver;
 };
 
 export type PrApiConfig = {

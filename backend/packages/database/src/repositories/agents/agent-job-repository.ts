@@ -845,6 +845,18 @@ export const getQueuedJobCount = async (): Promise<number> => {
   return row?.count ?? 0;
 };
 
+/**
+ * Returns the count of jobs currently executing on workers (running/finalizing).
+ * Used by the scaler to compute the desired total capacity.
+ */
+export const getExecutingJobCount = async (): Promise<number> => {
+  const [row] = await db
+    .select({ count: sql<number>`COUNT(*)::int` })
+    .from(agentJobs)
+    .where(inArray(agentJobs.status, EXECUTING_AGENT_JOB_STATUSES));
+  return row?.count ?? 0;
+};
+
 export const countActiveAgentJobsForLane = async (params: {
   organizationId: string;
   projectId?: string | null;

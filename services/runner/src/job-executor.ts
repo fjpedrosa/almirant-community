@@ -27,7 +27,7 @@ import {
   type RunnableAgentWorkspace,
 } from "./workspace/agent-workspace";
 import { provisionUploadedFilesWorkspace } from "./workspace/uploaded-files-provisioner";
-import type { ContainerManager } from "./workspace/container-manager";
+import type { ContainerDriver } from "./workspace/container-driver";
 import {
   UUID_RE,
   OPENCODE_SERVE_PORT,
@@ -153,7 +153,7 @@ type JobExecutorConfig = {
 
 type JobExecutorDeps = {
   workerClient: AlmirantWorkerClient;
-  containerManager: ContainerManager;
+  containerManager: ContainerDriver;
   platformInjector?: ReturnType<typeof createPlatformInjector>;
   runtimeExecutorRegistry: RuntimeExecutorRegistry;
 };
@@ -866,9 +866,16 @@ export const createJobExecutor = (
       `[job:${job.id}] Preparing isolated ${ctx.workspace?.kind ?? "unknown"} workspace for ${repositoryName ?? "no repository"} on ${injectedEnv.REPO_BRANCH ?? "no branch"} using ${ctx.resolvedModel}`
     );
 
-    // Pre-create the runner-local side of the bind mount. Some dev Docker setups
-    // reject this path with EROFS; in that case we fall back to a tmpfs workspace.
-    if (ctx.workspaceMountMode === "bind" && config.repositoryPath && config.reposHostPath) {
+    // Pre-create the runner-local side of the bind mount. Only host-bind drivers
+    // mount host directories (driver-managed workspaces provision their own
+    // storage). Some dev Docker setups reject this path with EROFS; in that
+    // case we fall back to a tmpfs workspace.
+    if (
+      containerManager.capabilities.workspace === "host-bind" &&
+      ctx.workspaceMountMode === "bind" &&
+      config.repositoryPath &&
+      config.reposHostPath
+    ) {
       if (!UUID_RE.test(job.id)) {
         throw new Error(`Invalid job ID format: ${job.id}`);
       }

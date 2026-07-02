@@ -568,6 +568,7 @@ export const createLoggerMock = () => ({
     CONTACT_RATE_LIMIT_WINDOW_MS: 60_000,
     CONTACT_RATE_LIMIT_MAX: 5,
     CONTACT_RECIPIENTS: "",
+    SCALING_MIN_AVAILABLE_SLOTS: 1,
   },
   logger: {
     info: () => {},

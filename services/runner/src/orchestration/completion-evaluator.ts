@@ -15,7 +15,7 @@ import type {
   SessionEventRecord,
   WorkItemDetails,
 } from "@almirant/remote-agent";
-import type { ContainerManager } from "../workspace/container-manager";
+import type { ContainerDriver } from "../workspace/container-driver";
 import type { RunnerJobEventLogger } from "../observability/job-event-logger";
 import type { CreateBranchAndDraftPrResult } from "../delivery/pr-manager";
 import { closeDraftPr, createLatePr, markPrReadyForReview, updatePrSummary } from "../delivery/pr-manager";
@@ -55,7 +55,7 @@ export type SessionResult = {
 
 export type CompletionEvaluationDeps = {
   workerClient: AlmirantWorkerClient;
-  containerManager: ContainerManager;
+  containerManager: ContainerDriver;
 };
 
 export type CompletionEvaluationParams = {

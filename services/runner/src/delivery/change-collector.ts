@@ -11,7 +11,7 @@
  * falls back to the previous full-workspace archive mode for reliability.
  */
 
-import type { ContainerManager } from "../workspace/container-manager";
+import type { ContainerDriver } from "../workspace/container-driver";
 import { filterSafeRepoPaths } from "./repo-paths";
 
 export type CollectedArchiveMode = "selective" | "full";
@@ -55,7 +55,7 @@ const assertExecSuccess = (result: ExecResult, description: string): void => {
 const uniqueSafePaths = (paths: string[]): string[] => filterSafeRepoPaths(paths);
 
 const collectGitMetadata = async (
-  containerManager: ContainerManager,
+  containerManager: ContainerDriver,
   containerId: string,
   workspacePath: string,
 ): Promise<GitMetadata> => {
@@ -97,7 +97,7 @@ const makeContainerTmpRoot = (): string => {
 };
 
 const createSelectiveArchive = async (
-  containerManager: ContainerManager,
+  containerManager: ContainerDriver,
   containerId: string,
   workspacePath: string,
   repoRelativePaths: string[],
@@ -148,7 +148,7 @@ const createSelectiveArchive = async (
 };
 
 const collectFullArchiveFallback = async (
-  containerManager: ContainerManager,
+  containerManager: ContainerDriver,
   containerId: string,
   workspacePath: string,
   archiveTimeoutMs: number,
@@ -180,7 +180,7 @@ const collectFullArchiveFallback = async (
  * behavior because losing the user's work would be worse than a large tar.
  */
 export const collectChanges = async (
-  containerManager: ContainerManager,
+  containerManager: ContainerDriver,
   containerId: string,
   workspacePath = "/workspace/repo",
   archiveTimeoutMs = 60_000,

@@ -1,6 +1,6 @@
 import { Elysia } from "elysia";
 import { createAlmirantWorkerClient } from "@almirant/remote-agent";
-import { createContainerManager } from "./workspace/container-manager";
+import { createContainerDriver } from "./workspace/container-driver-factory";
 import { loadRunnerEnv } from "./shared/config";
 import { createJobExecutor } from "./job-executor";
 import { createRunnerOrchestrator } from "./orchestration/orchestrator";
@@ -26,23 +26,7 @@ const workerClient = createAlmirantWorkerClient({
   apiKey: env.ALMIRANT_API_KEY,
 });
 
-const containerManager = createContainerManager({
-  dockerSocketPath: env.DOCKER_SOCKET,
-  workerId: env.WORKER_ID,
-  // Use direct socket for archive/exec ops that fail through the Docker socket proxy
-  directSocketPath: env.DOCKER_SOCKET !== "/var/run/docker.sock"
-    ? "/var/run/docker.sock"
-    : undefined,
-  ...(env.GHCR_USERNAME && env.GHCR_TOKEN
-    ? {
-        registryAuth: {
-          username: env.GHCR_USERNAME,
-          password: env.GHCR_TOKEN,
-          serveraddress: "ghcr.io",
-        },
-      }
-    : {}),
-});
+const containerManager = createContainerDriver(env);
 
 const platformInjector = createPlatformInjector({
   platformConfigPath: env.PLATFORM_CONFIG_PATH,

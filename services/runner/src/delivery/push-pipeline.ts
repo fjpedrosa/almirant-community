@@ -13,7 +13,7 @@ import {
   type AlmirantWorkerClient,
   type OpenCodeSessionManager,
 } from "@almirant/remote-agent";
-import type { ContainerManager } from "../workspace/container-manager";
+import type { ContainerDriver } from "../workspace/container-driver";
 import type { RunnerJobEventLogger } from "../observability/job-event-logger";
 import { WORKSPACE_REPO_PATH } from "../workspace/container-spec-builder";
 import { collectAndPushChanges } from "./pr-manager";
@@ -55,7 +55,7 @@ export const buildStageUserChangesCommand = (): string =>
 // ---------------------------------------------------------------------------
 
 export type PushPipelineDeps = {
-  containerManager: ContainerManager;
+  containerManager: ContainerDriver;
   workerClient: AlmirantWorkerClient;
 };
 
@@ -147,7 +147,7 @@ export async function releasePrimarySession(
  * Returns null if both methods fail or the branch is "main".
  */
 export async function extractBranchName(
-  containerManager: ContainerManager,
+  containerManager: ContainerDriver,
   containerId: string,
 ): Promise<string | null> {
   try {
