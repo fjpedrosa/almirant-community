@@ -13,13 +13,13 @@ const hashKey = (raw: string): string => {
 // Create a service account (without an API key)
 // ---------------------------------------------------------------------------
 export const createServiceAccount = async (
-  organizationId: string,
+  workspaceId: string,
   name: string,
   type: "runner" | "integration"
 ): Promise<ServiceAccount> => {
   const [created] = await db
     .insert(serviceAccounts)
-    .values({ organizationId, name, type })
+    .values({ workspaceId, name, type })
     .returning();
 
   if (!created) throw new Error("Failed to create service account");
@@ -28,15 +28,15 @@ export const createServiceAccount = async (
 };
 
 // ---------------------------------------------------------------------------
-// List all active service accounts for an organization (with active key prefix)
+// List all active service accounts for a workspace (with active key prefix)
 // ---------------------------------------------------------------------------
 export const getServiceAccountsByOrg = async (
-  organizationId: string
+  workspaceId: string
 ): Promise<(ServiceAccount & { keyPrefix: string | null })[]> => {
   const rows = await db
     .select({
       id: serviceAccounts.id,
-      organizationId: serviceAccounts.organizationId,
+      workspaceId: serviceAccounts.workspaceId,
       name: serviceAccounts.name,
       type: serviceAccounts.type,
       isActive: serviceAccounts.isActive,
@@ -54,7 +54,7 @@ export const getServiceAccountsByOrg = async (
     )
     .where(
       and(
-        eq(serviceAccounts.organizationId, organizationId),
+        eq(serviceAccounts.workspaceId, workspaceId),
         eq(serviceAccounts.isActive, true)
       )
     )
@@ -67,7 +67,7 @@ export const getServiceAccountsByOrg = async (
 // Get a single service account by ID (with org ownership check)
 // ---------------------------------------------------------------------------
 export const getServiceAccountById = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<ServiceAccount | null> => {
   const [row] = await db
@@ -76,7 +76,7 @@ export const getServiceAccountById = async (
     .where(
       and(
         eq(serviceAccounts.id, id),
-        eq(serviceAccounts.organizationId, organizationId)
+        eq(serviceAccounts.workspaceId, workspaceId)
       )
     )
     .limit(1);
@@ -88,7 +88,7 @@ export const getServiceAccountById = async (
 // Deactivate a service account and revoke all its active API keys
 // ---------------------------------------------------------------------------
 export const deactivateServiceAccount = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<boolean> => {
   return db.transaction(async (tx) => {
@@ -99,7 +99,7 @@ export const deactivateServiceAccount = async (
       .where(
         and(
           eq(serviceAccounts.id, id),
-          eq(serviceAccounts.organizationId, organizationId)
+          eq(serviceAccounts.workspaceId, workspaceId)
         )
       )
       .returning();
@@ -126,7 +126,7 @@ export const deactivateServiceAccount = async (
 // Returns the plaintext key (shown only once)
 // ---------------------------------------------------------------------------
 export const createServiceAccountWithKey = async (
-  organizationId: string,
+  workspaceId: string,
   name: string,
   type: "runner" | "integration"
 ): Promise<{ serviceAccount: ServiceAccount; key: string }> => {
@@ -134,7 +134,7 @@ export const createServiceAccountWithKey = async (
     // Create the service account
     const [sa] = await tx
       .insert(serviceAccounts)
-      .values({ organizationId, name, type })
+      .values({ workspaceId, name, type })
       .returning();
 
     if (!sa) throw new Error("Failed to create service account");
@@ -150,7 +150,7 @@ export const createServiceAccountWithKey = async (
       name: `${name} API Key`,
       keyHash,
       keyPrefix,
-      organizationId,
+      workspaceId,
       serviceAccountId: sa.id,
     });
 
@@ -159,18 +159,18 @@ export const createServiceAccountWithKey = async (
 };
 
 // ---------------------------------------------------------------------------
-// Provision the default "runner" service account for an organization.
+// Provision the default "runner" service account for a workspace.
 // Idempotent: returns null if a runner SA already exists.
 // ---------------------------------------------------------------------------
 export const provisionDefaultServiceAccount = async (
-  organizationId: string
+  workspaceId: string
 ): Promise<{ serviceAccount: ServiceAccount; key: string } | null> => {
   const existing = await db
     .select()
     .from(serviceAccounts)
     .where(
       and(
-        eq(serviceAccounts.organizationId, organizationId),
+        eq(serviceAccounts.workspaceId, workspaceId),
         eq(serviceAccounts.type, "runner"),
         eq(serviceAccounts.isActive, true)
       )
@@ -179,7 +179,7 @@ export const provisionDefaultServiceAccount = async (
 
   if (existing.length > 0) return null; // Already provisioned
 
-  return createServiceAccountWithKey(organizationId, "Default Runner", "runner");
+  return createServiceAccountWithKey(workspaceId, "Default Runner", "runner");
 };
 
 // ---------------------------------------------------------------------------
@@ -187,11 +187,11 @@ export const provisionDefaultServiceAccount = async (
 // a new one. Returns the new plaintext key (shown only once).
 // ---------------------------------------------------------------------------
 export const rotateServiceAccountKey = async (
-  organizationId: string,
+  workspaceId: string,
   serviceAccountId: string
 ): Promise<{ key: string; keyPrefix: string }> => {
   // Verify the service account exists and belongs to the org
-  const sa = await getServiceAccountById(organizationId, serviceAccountId);
+  const sa = await getServiceAccountById(workspaceId, serviceAccountId);
   if (!sa) throw new Error("Service account not found");
   if (!sa.isActive) throw new Error("Service account is deactivated");
 
@@ -216,7 +216,7 @@ export const rotateServiceAccountKey = async (
       name: `${sa.name} API Key`,
       keyHash,
       keyPrefix,
-      organizationId,
+      workspaceId,
       serviceAccountId,
     });
 

@@ -2,7 +2,7 @@
  * Seed script for official Almirant platform skills.
  *
  * - Reads SKILL.md files from .claude/skills/<slug>/SKILL.md
- * - Upserts into the `skills` table with source='official', organizationId=NULL, projectId=NULL
+ * - Upserts into the `skills` table with source='official', workspaceId=NULL, projectId=NULL
  * - Backfills scheduled_agent_configs.skillId from skillName -> skills.slug
  * - Idempotent: safe to re-run. Updates content/hash/version on change.
  *
@@ -118,14 +118,14 @@ async function seedSkills() {
         SELECT id, content_hash, version
         FROM skills
         WHERE slug = ${slug}
-          AND organization_id IS NULL
+          AND workspace_id IS NULL
           AND project_id IS NULL
         LIMIT 1
       ),
       do_insert AS (
         INSERT INTO skills (
           name, slug, description, content, content_hash, size_bytes,
-          source, source_path, version, organization_id, project_id
+          source, source_path, version, workspace_id, project_id
         )
         SELECT
           ${name},

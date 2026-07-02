@@ -383,11 +383,11 @@ export const loadDescendantLeafColumnsByParent = async (
 };
 
 const loadAlreadyBatchedReleaseWorkItemIds = async (
-  organizationId: string,
+  workspaceId: string,
   projectId?: string,
 ): Promise<Set<string>> => {
   const conditions = [
-    eq(integrationBatches.organizationId, organizationId),
+    eq(integrationBatches.workspaceId, workspaceId),
     isNotNull(integrationBatches.releaseNumber),
     inArray(integrationBatches.status, ACTIVE_BATCH_STATUSES),
     ne(integrationBatchItems.status, "failed"),
@@ -473,7 +473,7 @@ export const getBatchByIdWithItems = async (
 };
 
 export const listActiveBatchesByProject = async (
-  organizationId: string,
+  workspaceId: string,
   projectId: string,
 ): Promise<IntegrationBatch[]> => {
   return db
@@ -481,7 +481,7 @@ export const listActiveBatchesByProject = async (
     .from(integrationBatches)
     .where(
       and(
-        eq(integrationBatches.organizationId, organizationId),
+        eq(integrationBatches.workspaceId, workspaceId),
         eq(integrationBatches.projectId, projectId),
         inArray(integrationBatches.status, ACTIVE_BATCH_STATUSES),
       ),
@@ -490,11 +490,11 @@ export const listActiveBatchesByProject = async (
 };
 
 export const countActiveBatchItemsByProject = async (
-  organizationId: string,
+  workspaceId: string,
   projectId?: string | null,
 ): Promise<number> => {
   const conditions = [
-    eq(integrationBatches.organizationId, organizationId),
+    eq(integrationBatches.workspaceId, workspaceId),
     inArray(integrationBatches.status, ACTIVE_BATCH_ITEM_LIMIT_STATUSES),
   ];
 
@@ -512,12 +512,12 @@ export const countActiveBatchItemsByProject = async (
 };
 
 export const getRecoverableReleaseBatchesWithoutActiveJob = async (
-  organizationId: string,
+  workspaceId: string,
   projectId?: string | null,
   limit?: number | null,
 ): Promise<IntegrationBatchWithItems[]> => {
   const conditions = [
-    eq(integrationBatches.organizationId, organizationId),
+    eq(integrationBatches.workspaceId, workspaceId),
     inArray(integrationBatches.status, ["queued", "running", "merging"]),
     isNull(agentJobs.id),
   ];
@@ -532,7 +532,7 @@ export const getRecoverableReleaseBatchesWithoutActiveJob = async (
     .leftJoin(
       agentJobs,
       and(
-        eq(agentJobs.organizationId, integrationBatches.organizationId),
+        eq(agentJobs.workspaceId, integrationBatches.workspaceId),
         eq(agentJobs.jobType, "integration"),
         inArray(agentJobs.status, ACTIVE_INTEGRATION_JOB_STATUSES),
         sql`${agentJobs.config} ->> 'batchId' = ${integrationBatches.id}::text`,
@@ -557,7 +557,7 @@ export const getRecoverableReleaseBatchesWithoutActiveJob = async (
 };
 
 export const getActiveBatchForRepository = async (
-  organizationId: string,
+  workspaceId: string,
   repositoryId: string,
 ): Promise<IntegrationBatch | null> => {
   const [row] = await db
@@ -565,7 +565,7 @@ export const getActiveBatchForRepository = async (
     .from(integrationBatches)
     .where(
       and(
-        eq(integrationBatches.organizationId, organizationId),
+        eq(integrationBatches.workspaceId, workspaceId),
         eq(integrationBatches.repositoryId, repositoryId),
         inArray(integrationBatches.status, ACTIVE_BATCH_STATUSES),
       ),
@@ -584,7 +584,7 @@ export const getActiveBatchForRepository = async (
  * still has an active status.
  */
 export const getOpenReleaseBatchForRepository = async (
-  organizationId: string,
+  workspaceId: string,
   repositoryId: string,
 ): Promise<IntegrationBatch | null> => {
   const [row] = await db
@@ -599,7 +599,7 @@ export const getOpenReleaseBatchForRepository = async (
     )
     .where(
       and(
-        eq(integrationBatches.organizationId, organizationId),
+        eq(integrationBatches.workspaceId, workspaceId),
         eq(integrationBatches.repositoryId, repositoryId),
         isNotNull(integrationBatches.releaseNumber),
         inArray(integrationBatches.status, ACTIVE_BATCH_STATUSES),
@@ -617,7 +617,7 @@ export const getOpenReleaseBatchForRepository = async (
  * Includes aborted/completed batches to keep the sequence monotonic (no gaps).
  */
 export const getNextReleaseNumber = async (
-  organizationId: string,
+  workspaceId: string,
   repositoryId: string,
 ): Promise<number> => {
   const [row] = await db
@@ -627,7 +627,7 @@ export const getNextReleaseNumber = async (
     .from(integrationBatches)
     .where(
       and(
-        eq(integrationBatches.organizationId, organizationId),
+        eq(integrationBatches.workspaceId, workspaceId),
         eq(integrationBatches.repositoryId, repositoryId),
       ),
     );
@@ -852,7 +852,7 @@ export const moveMergedIntegrationBatchItemsToReleaseColumn = async (
   const [batch] = await db
     .select({
       id: integrationBatches.id,
-      organizationId: integrationBatches.organizationId,
+      workspaceId: integrationBatches.workspaceId,
     })
     .from(integrationBatches)
     .where(eq(integrationBatches.id, batchId))
@@ -981,7 +981,7 @@ export const moveMergedIntegrationBatchItemsToReleaseColumn = async (
             skillName: "runner-release-integration",
           },
         },
-        batch.organizationId,
+        batch.workspaceId,
       );
       if (ok) moved += 1;
       else failed.push({ workItemId: item.id, reason: "moveWorkItem returned false" });
@@ -1019,7 +1019,7 @@ export const setBatchFinalPullRequest = async (
 };
 
 export const getValidatingReleaseCandidates = async (
-  organizationId: string,
+  workspaceId: string,
   projectId?: string,
   limit?: number,
   options?: { minAgeMinutes?: number },
@@ -1039,7 +1039,7 @@ export const getValidatingReleaseCandidates = async (
     isNotNull(workItems.boardColumnId),
     isNull(workItems.archivedAt),
     eq(boardColumns.role, "validating"),
-    eq(projects.organizationId, organizationId),
+    eq(projects.workspaceId, workspaceId),
   ];
 
   if (projectId) {
@@ -1073,7 +1073,7 @@ export const getValidatingReleaseCandidates = async (
     .where(and(...itemConditions))
     .orderBy(asc(workItems.updatedAt), asc(workItems.position), asc(workItems.createdAt));
 
-  const repoLinkConditions = [eq(projects.organizationId, organizationId)];
+  const repoLinkConditions = [eq(projects.workspaceId, workspaceId)];
   if (projectId) {
     repoLinkConditions.push(eq(projectRepositories.projectId, projectId));
   }
@@ -1116,7 +1116,7 @@ export const getValidatingReleaseCandidates = async (
   }
 
   const alreadyBatchedWorkItemIds = await loadAlreadyBatchedReleaseWorkItemIds(
-    organizationId,
+    workspaceId,
     projectId,
   );
   const skippedAlreadyBatchedIds = new Set<string>();

@@ -16,7 +16,7 @@ import {
 import { sql } from "drizzle-orm";
 import { observationTypeEnum } from "./enums";
 import { projects } from "./projects";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { agentJobs } from "./agent-jobs";
 import { user } from "./auth";
 import { workItems } from "./work-items";
@@ -44,9 +44,9 @@ export const agentObservations = pgTable(
   "agent_observations",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     projectId: uuid("project_id").references(() => projects.id, {
       onDelete: "set null",
     }),
@@ -99,7 +99,7 @@ export const agentObservations = pgTable(
       .notNull(),
   },
   (table) => [
-    index("agent_observations_organization_idx").on(table.organizationId),
+    index("agent_observations_workspace_idx").on(table.workspaceId),
     index("agent_observations_project_idx").on(table.projectId),
     index("agent_observations_agent_job_idx").on(table.agentJobId),
     index("agent_observations_owner_user_idx").on(table.ownerUserId),
@@ -114,7 +114,7 @@ export const agentObservations = pgTable(
     index("agent_observations_expires_at_idx").on(table.expiresAt),
     uniqueIndex("agent_observations_project_visibility_hash_unique_idx")
       .on(
-        table.organizationId,
+        table.workspaceId,
         table.projectId,
         table.contentHash
       )
@@ -122,10 +122,10 @@ export const agentObservations = pgTable(
         sql`${table.visibility} = 'project' AND ${table.archivedAt} IS NULL`
       ),
     uniqueIndex("agent_observations_org_visibility_hash_unique_idx")
-      .on(table.organizationId, table.contentHash)
+      .on(table.workspaceId, table.contentHash)
       .where(sql`${table.visibility} = 'org' AND ${table.archivedAt} IS NULL`),
     uniqueIndex("agent_observations_personal_visibility_hash_unique_idx")
-      .on(table.organizationId, table.ownerUserId, table.contentHash)
+      .on(table.workspaceId, table.ownerUserId, table.contentHash)
       .where(
         sql`${table.visibility} = 'personal' AND ${table.archivedAt} IS NULL`
       ),

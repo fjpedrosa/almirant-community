@@ -2,7 +2,7 @@
  * Migration script: Migrate legacy provider tables into unified provider_connections table.
  *
  * Migrates data from 3 source tables:
- *   1. github_installations  -> provider_connections (scope=organization, category=code)
+ *   1. github_installations  -> provider_connections (scope=workspace, category=code)
  *   2. provider_api_keys     -> provider_connections (scope=user, category=ai)
  *   3. vercel_connections    -> provider_connections (scope=user, category=deployment)
  *
@@ -22,7 +22,7 @@
 import crypto from "node:crypto";
 import { db, closeConnections } from "../client";
 import { providerConnections } from "../schema/provider-connections";
-import { member } from "../schema/organization";
+import { member } from "../schema/workspace";
 import { eq, sql } from "drizzle-orm";
 
 // NOTE: This migration script originally imported from legacy schema files
@@ -139,23 +139,23 @@ const main = async () => {
   // Build org -> admin userId lookup (cached across phases)
   const orgAdminCache = new Map<string, string | null>();
 
-  const findOrgAdmin = async (organizationId: string): Promise<string | null> => {
-    if (orgAdminCache.has(organizationId)) {
-      return orgAdminCache.get(organizationId)!;
+  const findOrgAdmin = async (workspaceId: string): Promise<string | null> => {
+    if (orgAdminCache.has(workspaceId)) {
+      return orgAdminCache.get(workspaceId)!;
     }
 
     // Look for owner first, then admin, then any member
     const members = await db
       .select({ userId: member.userId, role: member.role })
       .from(member)
-      .where(eq(member.organizationId, organizationId))
+      .where(eq(member.workspaceId, workspaceId))
       .orderBy(
         sql`CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END`
       )
       .limit(1);
 
     const userId = members.length > 0 ? members[0].userId : null;
-    orgAdminCache.set(organizationId, userId);
+    orgAdminCache.set(workspaceId, userId);
     return userId;
   };
 
@@ -199,7 +199,7 @@ const main = async () => {
         }
 
         // Find org admin for createdByUserId
-        const adminUserId = await findOrgAdmin(gh.organization_id);
+        const adminUserId = await findOrgAdmin(gh.workspace_id);
 
         // Build config
         const config = {
@@ -215,7 +215,7 @@ const main = async () => {
           provider: "github",
           category: "code",
           scope: "organization",
-          scopeId: gh.organization_id,
+          scopeId: gh.workspace_id,
           createdByUserId: adminUserId,
           name: gh.account_login,
           accountIdentifier: gh.account_login,

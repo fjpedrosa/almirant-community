@@ -68,7 +68,7 @@ const syncMentions = async (
 };
 
 export const getCommentsByIdeaItem = async (
-  organizationId: string,
+  workspaceId: string,
   ideaItemId: string
 ): Promise<IdeaItemCommentWithAuthor[]> => {
   const rows = await db
@@ -90,7 +90,7 @@ export const getCommentsByIdeaItem = async (
     .where(
       and(
         eq(ideaItemComments.ideaItemId, ideaItemId),
-        eq(ideaItems.organizationId, organizationId)
+        eq(ideaItems.workspaceId, workspaceId)
       )
     )
     .orderBy(desc(ideaItemComments.createdAt));
@@ -134,17 +134,17 @@ export const getCommentsByIdeaItem = async (
 };
 
 export const createIdeaItemComment = async (
-  organizationId: string,
+  workspaceId: string,
   ideaItemId: string,
   userId: string,
   content: string
 ): Promise<IdeaItemCommentWithAuthor> => {
-  // Verify the idea item belongs to the organization
+  // Verify the idea item belongs to the workspace
   const [item] = await db
     .select({ id: ideaItems.id })
     .from(ideaItems)
     .where(
-      and(eq(ideaItems.id, ideaItemId), eq(ideaItems.organizationId, organizationId))
+      and(eq(ideaItems.id, ideaItemId), eq(ideaItems.workspaceId, workspaceId))
     )
     .limit(1);
 
@@ -181,7 +181,7 @@ export const createIdeaItemComment = async (
 };
 
 export const updateIdeaItemComment = async (
-  organizationId: string,
+  workspaceId: string,
   commentId: string,
   userId: string,
   content: string
@@ -193,14 +193,14 @@ export const updateIdeaItemComment = async (
       userId: ideaItemComments.userId,
       ideaItemId: ideaItemComments.ideaItemId,
       content: ideaItemComments.content,
-      orgId: ideaItems.organizationId,
+      orgId: ideaItems.workspaceId,
     })
     .from(ideaItemComments)
     .innerJoin(ideaItems, eq(ideaItemComments.ideaItemId, ideaItems.id))
     .where(eq(ideaItemComments.id, commentId))
     .limit(1);
 
-  if (!existing || existing.orgId !== organizationId) {
+  if (!existing || existing.orgId !== workspaceId) {
     return null;
   }
   if (existing.userId !== userId) {
@@ -255,7 +255,7 @@ export const getCommentMentionUserIds = async (
 };
 
 export const getIdeaItemCommentVersions = async (
-  organizationId: string,
+  workspaceId: string,
   ideaItemId: string,
   commentId: string
 ): Promise<IdeaItemCommentVersionWithEditor[]> => {
@@ -280,7 +280,7 @@ export const getIdeaItemCommentVersions = async (
         eq(commentVersions.commentId, commentId),
         eq(commentVersions.entityType, "idea"),
         eq(ideaItemComments.ideaItemId, ideaItemId),
-        eq(ideaItems.organizationId, organizationId)
+        eq(ideaItems.workspaceId, workspaceId)
       )
     )
     .orderBy(desc(commentVersions.editedAt));
@@ -302,7 +302,7 @@ export const getIdeaItemCommentVersions = async (
 };
 
 export const deleteIdeaItemComment = async (
-  organizationId: string,
+  workspaceId: string,
   commentId: string,
   userId: string
 ): Promise<boolean> => {
@@ -311,14 +311,14 @@ export const deleteIdeaItemComment = async (
     .select({
       id: ideaItemComments.id,
       userId: ideaItemComments.userId,
-      orgId: ideaItems.organizationId,
+      orgId: ideaItems.workspaceId,
     })
     .from(ideaItemComments)
     .innerJoin(ideaItems, eq(ideaItemComments.ideaItemId, ideaItems.id))
     .where(eq(ideaItemComments.id, commentId))
     .limit(1);
 
-  if (!existing || existing.orgId !== organizationId) {
+  if (!existing || existing.orgId !== workspaceId) {
     return false;
   }
   if (existing.userId !== userId) {

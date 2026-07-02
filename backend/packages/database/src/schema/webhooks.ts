@@ -10,7 +10,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { webhookTriggerEnum, webhookStatusEnum } from "./enums";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 
 // Webhooks configuration
 export const webhooks = pgTable("webhooks", {
@@ -20,11 +20,11 @@ export const webhooks = pgTable("webhooks", {
   trigger: webhookTriggerEnum("trigger").notNull(),
   isActive: boolean("is_active").default(true),
   headers: jsonb("headers").default({}).$type<Record<string, string>>(),
-  organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull().references(() => workspace.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
-  index("webhooks_organization_id_idx").on(table.organizationId),
+  index("webhooks_workspace_id_idx").on(table.workspaceId),
 ]);
 
 // Webhook execution logs

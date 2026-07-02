@@ -226,7 +226,7 @@ export const getIngestionState = async (
     .from(askIngestionState)
     .where(
       and(
-        eq(askIngestionState.organizationId, orgId),
+        eq(askIngestionState.workspaceId, orgId),
         eq(askIngestionState.projectId, projectId),
         eq(askIngestionState.sourceType, sourceType)
       )
@@ -237,7 +237,7 @@ export const getIngestionState = async (
 
 /**
  * Update (or create) the ingestion state cursor.
- * Uses upsert on the unique (organizationId, projectId, sourceType) constraint.
+ * Uses upsert on the unique (workspaceId, projectId, sourceType) constraint.
  */
 export const updateIngestionState = async (
   orgId: string,
@@ -248,7 +248,7 @@ export const updateIngestionState = async (
   const [state] = await db
     .insert(askIngestionState)
     .values({
-      organizationId: orgId,
+      workspaceId: orgId,
       projectId,
       sourceType,
       lastProcessedAt: data.lastProcessedAt,
@@ -260,7 +260,7 @@ export const updateIngestionState = async (
     })
     .onConflictDoUpdate({
       target: [
-        askIngestionState.organizationId,
+        askIngestionState.workspaceId,
         askIngestionState.projectId,
         askIngestionState.sourceType,
       ],

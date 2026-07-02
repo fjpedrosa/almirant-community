@@ -9,16 +9,16 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { projects } from "./projects";
 
 export const discordConnections = pgTable(
   "discord_connections",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     guildId: varchar("guild_id", { length: 255 }).notNull(),
     guildName: varchar("guild_name", { length: 255 }),
     defaultChannelId: varchar("default_channel_id", { length: 255 }),
@@ -39,9 +39,9 @@ export const discordConnections = pgTable(
       .notNull(),
   },
   (table) => [
-    index("discord_connections_organization_id_idx").on(table.organizationId),
+    index("discord_connections_workspace_id_idx").on(table.workspaceId),
     uniqueIndex("discord_connections_org_guild_unique").on(
-      table.organizationId,
+      table.workspaceId,
       table.guildId,
     ),
   ]

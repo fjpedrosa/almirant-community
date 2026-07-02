@@ -6,10 +6,10 @@
  *
  * Usage:
  *   cd backend/packages/database
- *   bun run db:migrate-error-log -- <organizationId> [projectId]
+ *   bun run db:migrate-error-log -- <workspaceId> [projectId]
  *
  * Or directly:
- *   bun run --env-file .env.local src/scripts/migrate-error-log.ts <organizationId> [projectId]
+ *   bun run --env-file .env.local src/scripts/migrate-error-log.ts <workspaceId> [projectId]
  */
 
 import { readFileSync } from "fs";
@@ -313,18 +313,18 @@ const parseEntry = (block: string): ParsedEntry | null => {
 // ---------------------------------------------------------------------------
 
 const main = async () => {
-  const organizationId = process.argv[2];
+  const workspaceId = process.argv[2];
   const projectId = process.argv[3] || null;
 
-  if (!organizationId) {
+  if (!workspaceId) {
     console.error(
-      "Usage: bun run src/scripts/migrate-error-log.ts <organizationId> [projectId]"
+      "Usage: bun run src/scripts/migrate-error-log.ts <workspaceId> [projectId]"
     );
     process.exit(1);
   }
 
   console.log("=== Migrate Error Log to agent_observations ===\n");
-  console.log(`Organization: ${organizationId}`);
+  console.log(`Workspace: ${workspaceId}`);
   console.log(`Project:      ${projectId ?? "(none)"}`);
   console.log();
 
@@ -366,7 +366,7 @@ const main = async () => {
 
     try {
       const result = await createObservation({
-        organizationId,
+        workspaceId,
         projectId,
         type: "error_diagnosis",
         topicKey: entry.topicKey,

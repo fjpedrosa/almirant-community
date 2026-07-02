@@ -12,7 +12,7 @@ type DodReviewRow = {
   parentId: string | null;
   boardId: string;
   projectId: string | null;
-  organizationId: string | null;
+  workspaceId: string | null;
   columnName: string | null;
   updatedAt: Date;
   metadata: Record<string, unknown> | null;
@@ -118,7 +118,7 @@ describe("Definition of Done review candidate query", () => {
         parentId,
         boardId: "board-1",
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         columnName: "To Review",
         updatedAt: new Date("2026-05-02T10:00:00.000Z"),
         metadata: { definitionOfDone: "- Route exists" },
@@ -133,7 +133,7 @@ describe("Definition of Done review candidate query", () => {
         parentId,
         boardId: "board-1",
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         columnName: "To Review",
         updatedAt: new Date("2026-05-02T10:05:00.000Z"),
         metadata: { definitionOfDone: "- Agent exists" },
@@ -150,7 +150,7 @@ describe("Definition of Done review candidate query", () => {
         parentId: null,
         boardId: "board-1",
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         columnName: null,
         updatedAt: new Date("2026-05-02T09:00:00.000Z"),
         metadata: { definitionOfDone: "- All refinement tasks pass" },
@@ -189,7 +189,7 @@ describe("Definition of Done review candidate query", () => {
         parentId,
         boardId: "board-1",
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         columnName: "To Review",
         updatedAt: new Date("2026-05-02T10:00:00.000Z"),
         metadata: { definitionOfDone: "- Route exists" },
@@ -206,7 +206,7 @@ describe("Definition of Done review candidate query", () => {
         parentId: null,
         boardId: "board-1",
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         columnName: null,
         updatedAt: new Date("2026-05-02T09:00:00.000Z"),
         metadata: { definitionOfDone: "- All refinement tasks pass" },

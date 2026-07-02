@@ -19,7 +19,7 @@ export interface Project {
   stagingUrl: string | null;
   screenshotUrl: string | null;
   techStack: string[] | null;
-  organizationId: string | null;
+  workspaceId: string | null;
   startDate: Date | null;
   targetDate: Date | null;
   createdAt: Date;
@@ -60,7 +60,7 @@ export interface ProjectNote {
 }
 
 export interface ProjectWithRelations extends Project {
-  organizationName: string | null;
+  workspaceName: string | null;
   docLinks: ProjectDocLink[];
   repositories: ProjectRepository[];
   notes: ProjectNote[];
@@ -87,7 +87,7 @@ export interface CreateProjectRequest {
   productionUrl?: string;
   stagingUrl?: string;
   techStack?: string[];
-  organizationId?: string | null;
+  workspaceId?: string | null;
   startDate?: string;
   targetDate?: string;
 }
@@ -104,7 +104,7 @@ export interface UpdateProjectRequest {
   stagingUrl?: string | null;
   screenshotUrl?: string | null;
   techStack?: string[] | null;
-  organizationId?: string | null;
+  workspaceId?: string | null;
   startDate?: string | null;
   targetDate?: string | null;
 }
@@ -112,10 +112,10 @@ export interface UpdateProjectRequest {
 export interface ProjectFilters {
   search?: string;
   status?: ProjectStatus;
-  organizationId?: string;
-  /** When provided, return projects belonging to ANY of these organization IDs + personal projects. */
-  organizationIds?: string[];
-  /** When true, return only projects with no organization (personal projects). */
+  workspaceId?: string;
+  /** When provided, return projects belonging to ANY of these workspace IDs + personal projects. */
+  workspaceIds?: string[];
+  /** When true, return only projects with no workspace (personal projects). */
   personal?: boolean;
   /** When true, include archived projects in results even when no status filter is set. */
   includeArchived?: boolean;
@@ -206,7 +206,7 @@ export type ColumnRole = "backlog" | "todo" | "in_progress" | "review" | "testin
 
 export interface Board {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   name: string;
   description: string | null;
   area: BoardArea;

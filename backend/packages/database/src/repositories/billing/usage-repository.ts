@@ -1,6 +1,6 @@
 import { db } from "../../client";
 import { usageRecords, usageSummaries, userUsageSummaries } from "../../schema";
-import { organization, member } from "../../schema/organization";
+import { workspace, member } from "../../schema/workspace";
 import { user } from "../../schema/auth";
 import { projects } from "../../schema/projects";
 import { agentJobs } from "../../schema/agent-jobs";
@@ -42,13 +42,13 @@ const buildAdminUsageFilterConditions = (
   opts?: AdminUsageFilters & {
     startDate?: Date;
     endDate?: Date;
-    organizationId?: string;
+    workspaceId?: string;
   }
 ) => {
   const conditions: SQL<unknown>[] = [];
 
-  if (opts?.organizationId) {
-    conditions.push(eq(usageRecords.organizationId, opts.organizationId));
+  if (opts?.workspaceId) {
+    conditions.push(eq(usageRecords.workspaceId, opts.workspaceId));
   }
 
   if (opts?.startDate) {
@@ -100,9 +100,9 @@ export const createUsageRecord = async (
   return record;
 };
 
-// Get usage records for an organization within a date range
+// Get usage records for a workspace within a date range
 export const getUsageRecords = async (
-  organizationId: string,
+  workspaceId: string,
   opts?: {
     projectId?: string;
     startDate?: Date;
@@ -111,7 +111,7 @@ export const getUsageRecords = async (
   }
 ): Promise<UsageRecordDb[]> => {
   // Build conditions dynamically
-  const conditions = [eq(usageRecords.organizationId, organizationId)];
+  const conditions = [eq(usageRecords.workspaceId, workspaceId)];
   if (opts?.projectId)
     conditions.push(eq(usageRecords.projectId, opts.projectId));
   if (opts?.startDate)
@@ -129,7 +129,7 @@ export const getUsageRecords = async (
 
 // Aggregate usage records into summaries for a given month
 export const aggregateUsageForPeriod = async (
-  organizationId: string,
+  workspaceId: string,
   period: string // "2026-03" format
 ): Promise<UsageSummaryDb> => {
   // Parse period to get date range
@@ -157,7 +157,7 @@ export const aggregateUsageForPeriod = async (
     .from(usageRecords)
     .where(
       and(
-        eq(usageRecords.organizationId, organizationId),
+        eq(usageRecords.workspaceId, workspaceId),
         gte(usageRecords.startedAt, startDate),
         lt(usageRecords.startedAt, endDate)
       )
@@ -167,7 +167,7 @@ export const aggregateUsageForPeriod = async (
   const [summary] = await db
     .insert(usageSummaries)
     .values({
-      organizationId,
+      workspaceId,
       period,
       totalSeconds: agg?.totalSeconds ?? 0,
       totalJobs: agg?.totalJobs ?? 0,
@@ -178,7 +178,7 @@ export const aggregateUsageForPeriod = async (
       chatSeconds: agg?.chatSeconds ?? 0,
     })
     .onConflictDoUpdate({
-      target: [usageSummaries.organizationId, usageSummaries.period],
+      target: [usageSummaries.workspaceId, usageSummaries.period],
       set: {
         totalSeconds: agg?.totalSeconds ?? 0,
         totalJobs: agg?.totalJobs ?? 0,
@@ -198,20 +198,20 @@ export const aggregateUsageForPeriod = async (
 
 // Get usage summaries (monthly history)
 export const getUsageSummaries = async (
-  organizationId: string,
+  workspaceId: string,
   months: number = 6
 ): Promise<UsageSummaryDb[]> => {
   return db
     .select()
     .from(usageSummaries)
-    .where(eq(usageSummaries.organizationId, organizationId))
+    .where(eq(usageSummaries.workspaceId, workspaceId))
     .orderBy(desc(usageSummaries.period))
     .limit(months);
 };
 
 // Get current month summary
 export const getCurrentUsageSummary = async (
-  organizationId: string
+  workspaceId: string
 ): Promise<UsageSummaryDb | null> => {
   const now = new Date();
   const period = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -221,7 +221,7 @@ export const getCurrentUsageSummary = async (
     .from(usageSummaries)
     .where(
       and(
-        eq(usageSummaries.organizationId, organizationId),
+        eq(usageSummaries.workspaceId, workspaceId),
         eq(usageSummaries.period, period)
       )
     )
@@ -232,7 +232,7 @@ export const getCurrentUsageSummary = async (
 
 // Aggregate usage records into per-user summaries for a given month
 export const aggregateUserUsageForPeriod = async (
-  organizationId: string,
+  workspaceId: string,
   period: string // "2026-03" format
 ): Promise<UserUsageSummaryDb[]> => {
   const [year, month] = period.split("-").map(Number);
@@ -260,7 +260,7 @@ export const aggregateUserUsageForPeriod = async (
     .from(usageRecords)
     .where(
       and(
-        eq(usageRecords.organizationId, organizationId),
+        eq(usageRecords.workspaceId, workspaceId),
         isNotNull(usageRecords.userId),
         gte(usageRecords.startedAt, startDate),
         lt(usageRecords.startedAt, endDate)
@@ -276,7 +276,7 @@ export const aggregateUserUsageForPeriod = async (
     const [summary] = await db
       .insert(userUsageSummaries)
       .values({
-        organizationId,
+        workspaceId,
         userId: row.userId,
         period,
         totalSeconds: row.totalSeconds,
@@ -289,7 +289,7 @@ export const aggregateUserUsageForPeriod = async (
       })
       .onConflictDoUpdate({
         target: [
-          userUsageSummaries.organizationId,
+          userUsageSummaries.workspaceId,
           userUsageSummaries.userId,
           userUsageSummaries.period,
         ],
@@ -314,7 +314,7 @@ export const aggregateUserUsageForPeriod = async (
 
 // Get user usage summary for current or specified period
 export const getUserUsageSummary = async (
-  organizationId: string,
+  workspaceId: string,
   userId: string,
   period?: string
 ): Promise<UserUsageSummaryDb | null> => {
@@ -330,7 +330,7 @@ export const getUserUsageSummary = async (
     .from(userUsageSummaries)
     .where(
       and(
-        eq(userUsageSummaries.organizationId, organizationId),
+        eq(userUsageSummaries.workspaceId, workspaceId),
         eq(userUsageSummaries.userId, userId),
         eq(userUsageSummaries.period, targetPeriod)
       )
@@ -342,7 +342,7 @@ export const getUserUsageSummary = async (
 
 // Get user usage summaries (monthly history)
 export const getUserUsageSummaries = async (
-  organizationId: string,
+  workspaceId: string,
   userId: string,
   months: number = 6
 ): Promise<UserUsageSummaryDb[]> => {
@@ -351,7 +351,7 @@ export const getUserUsageSummaries = async (
     .from(userUsageSummaries)
     .where(
       and(
-        eq(userUsageSummaries.organizationId, organizationId),
+        eq(userUsageSummaries.workspaceId, workspaceId),
         eq(userUsageSummaries.userId, userId)
       )
     )
@@ -361,7 +361,7 @@ export const getUserUsageSummaries = async (
 
 // Get daily usage grouped by day
 export const getDailyUsage = async (
-  organizationId: string,
+  workspaceId: string,
   opts?: {
     days?: number;
     sessionType?: string;
@@ -374,7 +374,7 @@ export const getDailyUsage = async (
   startDate.setUTCHours(0, 0, 0, 0);
 
   const conditions = [
-    eq(usageRecords.organizationId, organizationId),
+    eq(usageRecords.workspaceId, workspaceId),
     gte(usageRecords.startedAt, startDate),
   ];
 
@@ -431,7 +431,7 @@ export const getDailyUsage = async (
 };
 
 export const getHourlyUsage = async (
-  organizationId: string,
+  workspaceId: string,
   opts?: {
     days?: number;
     sessionType?: string;
@@ -444,7 +444,7 @@ export const getHourlyUsage = async (
   startDate.setUTCHours(0, 0, 0, 0);
 
   const conditions = [
-    eq(usageRecords.organizationId, organizationId),
+    eq(usageRecords.workspaceId, workspaceId),
     gte(usageRecords.startedAt, startDate),
   ];
 
@@ -492,7 +492,7 @@ export const getHourlyUsage = async (
 };
 
 
-// Get daily usage grouped by day across all organizations (admin view)
+// Get daily usage grouped by day across all workspaces (admin view)
 export const getGlobalDailyUsage = async (opts?: {
   days?: number;
   sessionType?: string;
@@ -630,7 +630,7 @@ export const getGlobalMonthlyUsage = async (opts?: {
 
 // Get weekly usage grouped by ISO week
 export const getWeeklyUsage = async (
-  organizationId: string,
+  workspaceId: string,
   opts?: {
     weeks?: number;
     sessionType?: string;
@@ -643,7 +643,7 @@ export const getWeeklyUsage = async (
   startDate.setUTCHours(0, 0, 0, 0);
 
   const conditions = [
-    eq(usageRecords.organizationId, organizationId),
+    eq(usageRecords.workspaceId, workspaceId),
     gte(usageRecords.startedAt, startDate),
   ];
 
@@ -697,7 +697,7 @@ export const getWeeklyUsage = async (
   }));
 };
 
-// Get weekly usage grouped by ISO week across all organizations (admin view)
+// Get weekly usage grouped by ISO week across all workspaces (admin view)
 export const getGlobalWeeklyUsage = async (opts?: {
   weeks?: number;
   sessionType?: string;
@@ -774,7 +774,7 @@ export type UserUsageSummaryWithUser = UserUsageSummaryDb & {
 // Get all user usage summaries for a period (admin view)
 // Starts from member table so ALL org members appear, even those with zero usage.
 export const getAllUserUsageSummaries = async (
-  organizationId: string,
+  workspaceId: string,
   period: string
 ): Promise<UserUsageSummaryWithUser[]> => {
   const rows = await db
@@ -782,7 +782,7 @@ export const getAllUserUsageSummaries = async (
       id: sql<string>`coalesce(${userUsageSummaries.id}, ${member.id})`.as(
         "id"
       ),
-      organizationId: member.organizationId,
+      workspaceId: member.workspaceId,
       userId: member.userId,
       period: sql<string>`coalesce(${userUsageSummaries.period}, ${period})`.as(
         "period"
@@ -832,11 +832,11 @@ export const getAllUserUsageSummaries = async (
       userUsageSummaries,
       and(
         eq(userUsageSummaries.userId, member.userId),
-        eq(userUsageSummaries.organizationId, member.organizationId),
+        eq(userUsageSummaries.workspaceId, member.workspaceId),
         eq(userUsageSummaries.period, period)
       )
     )
-    .where(eq(member.organizationId, organizationId))
+    .where(eq(member.workspaceId, workspaceId))
     .orderBy(
       desc(
         sql`coalesce(${userUsageSummaries.totalSeconds}, 0)`
@@ -870,8 +870,8 @@ export const getGlobalUsageSummary = async (
           totalSessions: sql<number>`count(*)::int`,
           totalActiveUsers:
             sql<number>`count(distinct ${usageRecords.userId})::int`,
-          totalActiveOrganizations:
-            sql<number>`count(distinct ${usageRecords.organizationId})::int`,
+          totalActiveWorkspaces:
+            sql<number>`count(distinct ${usageRecords.workspaceId})::int`,
         })
         .from(usageRecords)
         .innerJoin(agentJobs, eq(usageRecords.jobId, agentJobs.id))
@@ -883,8 +883,8 @@ export const getGlobalUsageSummary = async (
           totalSessions: sql<number>`count(*)::int`,
           totalActiveUsers:
             sql<number>`count(distinct ${usageRecords.userId})::int`,
-          totalActiveOrganizations:
-            sql<number>`count(distinct ${usageRecords.organizationId})::int`,
+          totalActiveWorkspaces:
+            sql<number>`count(distinct ${usageRecords.workspaceId})::int`,
         })
         .from(usageRecords)
         .where(whereClause);
@@ -892,34 +892,34 @@ export const getGlobalUsageSummary = async (
   const [totalsRow] = totals;
 
   const orgSelect = {
-    orgId: organization.id,
-    orgName: organization.name,
+    orgId: workspace.id,
+    orgName: workspace.name,
     totalSeconds:
       sql<number>`coalesce(sum(${usageRecords.durationSeconds}), 0)::int`,
     totalSessions: sql<number>`count(*)::int`,
     activeUsers: sql<number>`count(distinct ${usageRecords.userId})::int`,
     projectCount:
-      sql<number>`(select count(*) from ${projects} where ${projects.organizationId} = ${organization.id})::int`,
+      sql<number>`(select count(*) from ${projects} where ${projects.workspaceId} = ${workspace.id})::int`,
   };
   const orgOrderExpr = desc(
     sql`coalesce(sum(${usageRecords.durationSeconds}), 0)`
   );
 
-  const organizationBreakdown = needsAgentJobsJoin
+  const workspaceBreakdown = needsAgentJobsJoin
     ? await db
         .select(orgSelect)
         .from(usageRecords)
-        .innerJoin(organization, eq(usageRecords.organizationId, organization.id))
+        .innerJoin(workspace, eq(usageRecords.workspaceId, workspace.id))
         .innerJoin(agentJobs, eq(usageRecords.jobId, agentJobs.id))
         .where(whereClause)
-        .groupBy(organization.id, organization.name)
+        .groupBy(workspace.id, workspace.name)
         .orderBy(orgOrderExpr)
     : await db
         .select(orgSelect)
         .from(usageRecords)
-        .innerJoin(organization, eq(usageRecords.organizationId, organization.id))
+        .innerJoin(workspace, eq(usageRecords.workspaceId, workspace.id))
         .where(whereClause)
-        .groupBy(organization.id, organization.name)
+        .groupBy(workspace.id, workspace.name)
         .orderBy(orgOrderExpr);
 
   const topUserConditions = [
@@ -933,7 +933,7 @@ export const getGlobalUsageSummary = async (
     needsAgentJobsJoin
       ? db
           .select({
-            organizationId: usageRecords.organizationId,
+            workspaceId: usageRecords.workspaceId,
             userId: usageRecords.userId,
             totalSeconds:
               sql<number>`coalesce(sum(${usageRecords.durationSeconds}), 0)::int`,
@@ -941,17 +941,17 @@ export const getGlobalUsageSummary = async (
           .from(usageRecords)
           .innerJoin(agentJobs, eq(usageRecords.jobId, agentJobs.id))
           .where(topUsersWhere)
-          .groupBy(usageRecords.organizationId, usageRecords.userId)
+          .groupBy(usageRecords.workspaceId, usageRecords.userId)
       : db
           .select({
-            organizationId: usageRecords.organizationId,
+            workspaceId: usageRecords.workspaceId,
             userId: usageRecords.userId,
             totalSeconds:
               sql<number>`coalesce(sum(${usageRecords.durationSeconds}), 0)::int`,
           })
           .from(usageRecords)
           .where(topUsersWhere)
-          .groupBy(usageRecords.organizationId, usageRecords.userId)
+          .groupBy(usageRecords.workspaceId, usageRecords.userId)
   ).as("user_usage_totals");
 
   const topUsers = await db
@@ -959,17 +959,17 @@ export const getGlobalUsageSummary = async (
       userId: user.id,
       userName: user.name,
       userEmail: user.email,
-      orgName: organization.name,
+      orgName: workspace.name,
       totalSeconds:
         sql<number>`coalesce(${userUsageTotals.totalSeconds}, 0)::int`,
     })
     .from(member)
     .innerJoin(user, eq(member.userId, user.id))
-    .innerJoin(organization, eq(member.organizationId, organization.id))
+    .innerJoin(workspace, eq(member.workspaceId, workspace.id))
     .leftJoin(
       userUsageTotals,
       and(
-        eq(userUsageTotals.organizationId, member.organizationId),
+        eq(userUsageTotals.workspaceId, member.workspaceId),
         eq(userUsageTotals.userId, member.userId)
       )
     )
@@ -983,8 +983,8 @@ export const getGlobalUsageSummary = async (
     totalSeconds: totalsRow?.totalSeconds ?? 0,
     totalSessions: totalsRow?.totalSessions ?? 0,
     totalActiveUsers: totalsRow?.totalActiveUsers ?? 0,
-    totalActiveOrganizations: totalsRow?.totalActiveOrganizations ?? 0,
-    organizationBreakdown,
+    totalActiveWorkspaces: totalsRow?.totalActiveWorkspaces ?? 0,
+    workspaceBreakdown,
     topUsers,
   };
 };

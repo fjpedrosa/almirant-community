@@ -65,8 +65,8 @@ const contentMetrics = (content: string) => ({
   sizeBytes: new TextEncoder().encode(content).length,
 });
 
-const orgProjectIds = (organizationId: string) =>
-  db.select({ id: projects.id }).from(projects).where(eq(projects.organizationId, organizationId));
+const orgProjectIds = (workspaceId: string) =>
+  db.select({ id: projects.id }).from(projects).where(eq(projects.workspaceId, workspaceId));
 
 const computeNextVersion = async (entryId: string): Promise<number> => {
   const [row] = await db
@@ -128,7 +128,7 @@ export const replaceHandbookChunks = async (
 
 const entrySelect = {
   id: handbookEntries.id,
-  organizationId: handbookEntries.organizationId,
+  workspaceId: handbookEntries.workspaceId,
   title: handbookEntries.title,
   slug: handbookEntries.slug,
   summary: handbookEntries.summary,
@@ -150,7 +150,7 @@ const entrySelect = {
 };
 
 export const listHandbookEntries = async (
-  organizationId: string,
+  workspaceId: string,
   pagination: PaginationParams,
   filters?: {
     search?: string;
@@ -159,7 +159,7 @@ export const listHandbookEntries = async (
     includeArchived?: boolean;
   },
 ) => {
-  const conditions = [eq(handbookEntries.organizationId, organizationId)];
+  const conditions = [eq(handbookEntries.workspaceId, workspaceId)];
   if (!filters?.includeArchived) conditions.push(isNull(handbookEntries.archivedAt));
   if (filters?.category) conditions.push(eq(handbookEntries.category, filters.category));
   if (filters?.status) conditions.push(eq(handbookEntries.status, filters.status));
@@ -207,27 +207,27 @@ export const listHandbookEntries = async (
   return { items, total: countRows[0]?.count ?? 0 };
 };
 
-export const getHandbookEntryById = async (organizationId: string, id: string) => {
+export const getHandbookEntryById = async (workspaceId: string, id: string) => {
   const [entry] = await db
     .select(entrySelect)
     .from(handbookEntries)
     .leftJoin(projects, eq(handbookEntries.sourceProjectId, projects.id))
-    .where(and(eq(handbookEntries.organizationId, organizationId), eq(handbookEntries.id, id)))
+    .where(and(eq(handbookEntries.workspaceId, workspaceId), eq(handbookEntries.id, id)))
     .limit(1);
   return entry ?? null;
 };
 
-export const getHandbookEntryBySlug = async (organizationId: string, slug: string) => {
+export const getHandbookEntryBySlug = async (workspaceId: string, slug: string) => {
   const [entry] = await db
     .select()
     .from(handbookEntries)
-    .where(and(eq(handbookEntries.organizationId, organizationId), eq(handbookEntries.slug, slug)))
+    .where(and(eq(handbookEntries.workspaceId, workspaceId), eq(handbookEntries.slug, slug)))
     .limit(1);
   return entry ?? null;
 };
 
 export const createHandbookEntry = async (
-  organizationId: string,
+  workspaceId: string,
   input: HandbookEntryInput,
   chunks: HandbookChunkInput[] = [],
 ) => {
@@ -235,7 +235,7 @@ export const createHandbookEntry = async (
   const [entry] = await db
     .insert(handbookEntries)
     .values({
-      organizationId,
+      workspaceId,
       title: input.title,
       slug: input.slug,
       summary: input.summary ?? null,
@@ -256,16 +256,16 @@ export const createHandbookEntry = async (
   if (!entry) throw new Error("Failed to create handbook entry");
   await createHandbookVersion({ entry, changeSummary: "Initial version" });
   await replaceHandbookChunks(entry.id, chunks);
-  return getHandbookEntryById(organizationId, entry.id);
+  return getHandbookEntryById(workspaceId, entry.id);
 };
 
 export const updateHandbookEntry = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   input: Partial<HandbookEntryInput> & { changeSummary?: string | null },
   chunks?: HandbookChunkInput[],
 ) => {
-  const existing = await getHandbookEntryById(organizationId, id);
+  const existing = await getHandbookEntryById(workspaceId, id);
   if (!existing) return null;
 
   const nextTitle = input.title ?? existing.title;
@@ -294,7 +294,7 @@ export const updateHandbookEntry = async (
   const [updated] = await db
     .update(handbookEntries)
     .set(updateData)
-    .where(and(eq(handbookEntries.organizationId, organizationId), eq(handbookEntries.id, id)))
+    .where(and(eq(handbookEntries.workspaceId, workspaceId), eq(handbookEntries.id, id)))
     .returning();
 
   if (!updated) return null;
@@ -309,17 +309,17 @@ export const updateHandbookEntry = async (
   }
 
   if (chunks) await replaceHandbookChunks(updated.id, chunks);
-  return getHandbookEntryById(organizationId, updated.id);
+  return getHandbookEntryById(workspaceId, updated.id);
 };
 
 export const upsertImportedHandbookEntry = async (
-  organizationId: string,
+  workspaceId: string,
   input: HandbookEntryInput,
   chunks: HandbookChunkInput[] = [],
 ) => {
-  const existing = await getHandbookEntryBySlug(organizationId, input.slug);
+  const existing = await getHandbookEntryBySlug(workspaceId, input.slug);
   if (!existing) {
-    const created = await createHandbookEntry(organizationId, {
+    const created = await createHandbookEntry(workspaceId, {
       ...input,
       sourceType: "import",
       status: input.status ?? "verified",
@@ -329,11 +329,11 @@ export const upsertImportedHandbookEntry = async (
 
   const nextHash = hashHandbookEntryContent(input.content);
   if (existing.contentHash === nextHash) {
-    return { entry: await getHandbookEntryById(organizationId, existing.id), action: "skipped" as const };
+    return { entry: await getHandbookEntryById(workspaceId, existing.id), action: "skipped" as const };
   }
 
   const updated = await updateHandbookEntry(
-    organizationId,
+    workspaceId,
     existing.id,
     {
       ...input,
@@ -345,17 +345,17 @@ export const upsertImportedHandbookEntry = async (
   return { entry: updated, action: "updated" as const };
 };
 
-export const archiveHandbookEntry = async (organizationId: string, id: string) => {
+export const archiveHandbookEntry = async (workspaceId: string, id: string) => {
   const [archived] = await db
     .update(handbookEntries)
     .set({ archivedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(handbookEntries.organizationId, organizationId), eq(handbookEntries.id, id)))
+    .where(and(eq(handbookEntries.workspaceId, workspaceId), eq(handbookEntries.id, id)))
     .returning();
   return archived ?? null;
 };
 
-export const getHandbookEntryChunks = async (organizationId: string, entryId: string) => {
-  const entry = await getHandbookEntryById(organizationId, entryId);
+export const getHandbookEntryChunks = async (workspaceId: string, entryId: string) => {
+  const entry = await getHandbookEntryById(workspaceId, entryId);
   if (!entry) return [];
   return db
     .select()
@@ -365,14 +365,14 @@ export const getHandbookEntryChunks = async (organizationId: string, entryId: st
 };
 
 export const searchHandbookChunks = async (
-  organizationId: string,
+  workspaceId: string,
   query: string,
   options?: { limit?: number; status?: HandbookEntryStatus; category?: string },
 ) => {
   const limit = Math.min(options?.limit ?? 8, 30);
   const tsqueryExpr = sql`(plainto_tsquery('spanish', ${query}) || plainto_tsquery('english', ${query}))`;
   const conditions = [
-    eq(handbookEntries.organizationId, organizationId),
+    eq(handbookEntries.workspaceId, workspaceId),
     isNull(handbookEntries.archivedAt),
     sql`${handbookChunks.searchVector} @@ ${tsqueryExpr}`,
   ];
@@ -398,26 +398,26 @@ export const searchHandbookChunks = async (
     .limit(limit);
 };
 
-export const listHandbookCategories = async (organizationId: string) => {
+export const listHandbookCategories = async (workspaceId: string) => {
   return db
     .select({
       category: handbookEntries.category,
       count: sql<number>`count(*)::int`,
     })
     .from(handbookEntries)
-    .where(and(eq(handbookEntries.organizationId, organizationId), isNull(handbookEntries.archivedAt)))
+    .where(and(eq(handbookEntries.workspaceId, workspaceId), isNull(handbookEntries.archivedAt)))
     .groupBy(handbookEntries.category)
     .orderBy(asc(handbookEntries.category));
 };
 
 export const createHandbookCaptureProposal = async (
-  organizationId: string,
+  workspaceId: string,
   input: HandbookCaptureProposalInput,
 ) => {
   const [created] = await db
     .insert(handbookCaptureProposals)
     .values({
-      organizationId,
+      workspaceId,
       title: input.title,
       slug: input.slug,
       summary: input.summary ?? null,
@@ -437,10 +437,10 @@ export const createHandbookCaptureProposal = async (
 };
 
 export const listHandbookCaptureProposals = async (
-  organizationId: string,
+  workspaceId: string,
   status?: HandbookCaptureProposalStatus,
 ) => {
-  const conditions = [eq(handbookCaptureProposals.organizationId, organizationId)];
+  const conditions = [eq(handbookCaptureProposals.workspaceId, workspaceId)];
   if (status) conditions.push(eq(handbookCaptureProposals.status, status));
 
   return db
@@ -450,22 +450,22 @@ export const listHandbookCaptureProposals = async (
     .orderBy(desc(handbookCaptureProposals.createdAt));
 };
 
-export const getHandbookCaptureProposalById = async (organizationId: string, id: string) => {
+export const getHandbookCaptureProposalById = async (workspaceId: string, id: string) => {
   const [proposal] = await db
     .select()
     .from(handbookCaptureProposals)
-    .where(and(eq(handbookCaptureProposals.organizationId, organizationId), eq(handbookCaptureProposals.id, id)))
+    .where(and(eq(handbookCaptureProposals.workspaceId, workspaceId), eq(handbookCaptureProposals.id, id)))
     .limit(1);
   return proposal ?? null;
 };
 
 export const approveHandbookCaptureProposal = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   reviewerUserId?: string | null,
   chunks: HandbookChunkInput[] = [],
 ) => {
-  const proposal = await getHandbookCaptureProposalById(organizationId, id);
+  const proposal = await getHandbookCaptureProposalById(workspaceId, id);
   if (!proposal || proposal.status !== "pending") return null;
 
   const entryInput: HandbookEntryInput = {
@@ -491,7 +491,7 @@ export const approveHandbookCaptureProposal = async (
         tokenCount: Math.ceil(proposal.proposedContent.trim().split(/\s+/).filter(Boolean).length * 1.35),
       }];
 
-  const created = await createHandbookEntry(organizationId, entryInput, proposalChunks);
+  const created = await createHandbookEntry(workspaceId, entryInput, proposalChunks);
   if (!created) return null;
 
   await db
@@ -509,7 +509,7 @@ export const approveHandbookCaptureProposal = async (
 };
 
 export const rejectHandbookCaptureProposal = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   reviewerUserId?: string | null,
 ) => {
@@ -521,28 +521,28 @@ export const rejectHandbookCaptureProposal = async (
       reviewedAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(and(eq(handbookCaptureProposals.organizationId, organizationId), eq(handbookCaptureProposals.id, id)))
+    .where(and(eq(handbookCaptureProposals.workspaceId, workspaceId), eq(handbookCaptureProposals.id, id)))
     .returning();
   return updated ?? null;
 };
 
-export const ensureHandbookSourceProjectVisible = async (organizationId: string, sourceProjectId?: string | null) => {
+export const ensureHandbookSourceProjectVisible = async (workspaceId: string, sourceProjectId?: string | null) => {
   if (!sourceProjectId) return true;
-  const rows = await orgProjectIds(organizationId);
+  const rows = await orgProjectIds(workspaceId);
   return rows.some((row) => row.id === sourceProjectId);
 };
 
 const vectorToSqlString = (embedding: number[]): string => `[${embedding.join(",")}]`;
 
 export const searchHandbookChunksByEmbedding = async (
-  organizationId: string,
+  workspaceId: string,
   embedding: number[],
   options?: { limit?: number; status?: HandbookEntryStatus; category?: string },
 ) => {
   const limit = Math.min(options?.limit ?? 8, 30);
   const vector = vectorToSqlString(embedding);
   const conditions = [
-    eq(handbookEntries.organizationId, organizationId),
+    eq(handbookEntries.workspaceId, workspaceId),
     isNull(handbookEntries.archivedAt),
     sql`${handbookChunks.embedding} IS NOT NULL`,
   ];

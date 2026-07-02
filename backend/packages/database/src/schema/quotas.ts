@@ -11,7 +11,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { aiProviderEnum, quotaTypeEnum, quotaAlertTypeEnum } from "./enums";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 
 // Provider quotas - configurable limits per AI provider
 export const providerQuotas = pgTable(
@@ -24,13 +24,13 @@ export const providerQuotas = pgTable(
     maxCostUsd: numeric("max_cost_usd", { precision: 10, scale: 6 }),
     maxRequests: integer("max_requests"),
     isActive: boolean("is_active").default(true).notNull(),
-    organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id").notNull().references(() => workspace.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index("provider_quotas_provider_idx").on(table.provider),
-    index("provider_quotas_organization_id_idx").on(table.organizationId),
+    index("provider_quotas_workspace_id_idx").on(table.workspaceId),
   ]
 );
 

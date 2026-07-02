@@ -63,7 +63,7 @@ export interface UpdateTodoItemRequest {
 
 export interface TodoItemWithRelations {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string | null;
   title: string;
   description: string | null;
@@ -111,8 +111,8 @@ const parseDueDateFilter = (raw?: string): { start: Date; end: Date } | null => 
   return { start, end };
 };
 
-const ensureOwnerBelongsToOrganization = async (
-  organizationId: string,
+const ensureOwnerBelongsToWorkspace = async (
+  workspaceId: string,
   ownerUserId: string
 ): Promise<void> => {
   const [ownerMembership] = await db
@@ -120,7 +120,7 @@ const ensureOwnerBelongsToOrganization = async (
     .from(member)
     .where(
       and(
-        eq(member.organizationId, organizationId),
+        eq(member.workspaceId, workspaceId),
         eq(member.userId, ownerUserId)
       )
     )
@@ -131,8 +131,8 @@ const ensureOwnerBelongsToOrganization = async (
   }
 };
 
-const ensureProjectBelongsToOrganization = async (
-  organizationId: string,
+const ensureProjectBelongsToWorkspace = async (
+  workspaceId: string,
   projectId: string
 ): Promise<void> => {
   const [projectRow] = await db
@@ -141,13 +141,13 @@ const ensureProjectBelongsToOrganization = async (
     .where(
       and(
         eq(projects.id, projectId),
-        eq(projects.organizationId, organizationId)
+        eq(projects.workspaceId, workspaceId)
       )
     )
     .limit(1);
 
   if (!projectRow) {
-    throw new Error("PROJECT_NOT_IN_ORGANIZATION");
+    throw new Error("PROJECT_NOT_IN_WORKSPACE");
   }
 };
 
@@ -211,13 +211,13 @@ const hydrateTodoItemRelations = async (
 // ── CRUD ────────────────────────────────────────────────────────────────
 
 export const getTodoItems = async (
-  organizationId: string,
+  workspaceId: string,
   pagination: PaginationParams,
   filters?: TodoItemFilters
 ): Promise<{ items: TodoItemWithRelations[]; total: number }> => {
   const conditions = [
-    eq(todoItems.organizationId, organizationId),
-    sql`(${todoItems.projectId} IS NULL OR ${todoItems.projectId} IN (SELECT id FROM projects WHERE organization_id = ${organizationId} AND status != 'archived'))`,
+    eq(todoItems.workspaceId, workspaceId),
+    sql`(${todoItems.projectId} IS NULL OR ${todoItems.projectId} IN (SELECT id FROM projects WHERE workspace_id = ${workspaceId} AND status != 'archived'))`,
   ];
 
   if (filters?.status) {
@@ -328,13 +328,13 @@ export const getTodoItems = async (
 };
 
 export const getTodoItemById = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<TodoItemWithRelations | null> => {
   const [item] = await db
     .select()
     .from(todoItems)
-    .where(and(eq(todoItems.id, id), eq(todoItems.organizationId, organizationId)))
+    .where(and(eq(todoItems.id, id), eq(todoItems.workspaceId, workspaceId)))
     .limit(1);
 
   if (!item) return null;
@@ -342,7 +342,7 @@ export const getTodoItemById = async (
 };
 
 export const createTodoItem = async (
-  organizationId: string,
+  workspaceId: string,
   data: CreateTodoItemRequest,
   context: TodoItemEventContext = defaultEventContext
 ): Promise<TodoItemWithRelations> => {
@@ -350,16 +350,16 @@ export const createTodoItem = async (
   const eventContext = resolveEventContext(context);
 
   if (data.ownerUserId) {
-    await ensureOwnerBelongsToOrganization(organizationId, data.ownerUserId);
+    await ensureOwnerBelongsToWorkspace(workspaceId, data.ownerUserId);
   }
   if (data.projectId) {
-    await ensureProjectBelongsToOrganization(organizationId, data.projectId);
+    await ensureProjectBelongsToWorkspace(workspaceId, data.projectId);
   }
 
   const [created] = await db
     .insert(todoItems)
     .values({
-      organizationId,
+      workspaceId,
       projectId: data.projectId ?? null,
       title: data.title.trim(),
       description: data.description ?? null,
@@ -392,11 +392,11 @@ export const createTodoItem = async (
     },
   ]);
 
-  return getTodoItemById(organizationId, created.id) as Promise<TodoItemWithRelations>;
+  return getTodoItemById(workspaceId, created.id) as Promise<TodoItemWithRelations>;
 };
 
 export const updateTodoItem = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: UpdateTodoItemRequest,
   context: TodoItemEventContext = defaultEventContext
@@ -405,7 +405,7 @@ export const updateTodoItem = async (
   const [current] = await db
     .select()
     .from(todoItems)
-    .where(and(eq(todoItems.id, id), eq(todoItems.organizationId, organizationId)))
+    .where(and(eq(todoItems.id, id), eq(todoItems.workspaceId, workspaceId)))
     .limit(1);
 
   if (!current) return null;
@@ -413,10 +413,10 @@ export const updateTodoItem = async (
   const nextStatus = data.status ?? current.status;
 
   if (data.ownerUserId) {
-    await ensureOwnerBelongsToOrganization(organizationId, data.ownerUserId);
+    await ensureOwnerBelongsToWorkspace(workspaceId, data.ownerUserId);
   }
   if (data.projectId !== undefined && data.projectId !== null) {
-    await ensureProjectBelongsToOrganization(organizationId, data.projectId);
+    await ensureProjectBelongsToWorkspace(workspaceId, data.projectId);
   }
 
   const updateValues: Partial<typeof todoItems.$inferInsert> = {
@@ -446,7 +446,7 @@ export const updateTodoItem = async (
   const [updated] = await db
     .update(todoItems)
     .set(updateValues)
-    .where(and(eq(todoItems.id, id), eq(todoItems.organizationId, organizationId)))
+    .where(and(eq(todoItems.id, id), eq(todoItems.workspaceId, workspaceId)))
     .returning();
 
   if (!updated) return null;
@@ -482,44 +482,44 @@ export const updateTodoItem = async (
 
   await insertEntityEvents(fieldEvents);
 
-  return getTodoItemById(organizationId, id);
+  return getTodoItemById(workspaceId, id);
 };
 
 export const deleteTodoItem = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<boolean> => {
   const deleted = await db
     .delete(todoItems)
-    .where(and(eq(todoItems.id, id), eq(todoItems.organizationId, organizationId)))
+    .where(and(eq(todoItems.id, id), eq(todoItems.workspaceId, workspaceId)))
     .returning({ id: todoItems.id });
 
   return deleted.length > 0;
 };
 
 export const setTodoItemStatus = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   status: TodoItemStatus,
   context: TodoItemEventContext = defaultEventContext
 ): Promise<TodoItemWithRelations | null> =>
-  updateTodoItem(organizationId, id, { status }, context);
+  updateTodoItem(workspaceId, id, { status }, context);
 
 export const assignTodoItemOwner = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   ownerUserId: string | null,
   context: TodoItemEventContext = defaultEventContext
 ): Promise<TodoItemWithRelations | null> =>
-  updateTodoItem(organizationId, id, { ownerUserId }, context);
+  updateTodoItem(workspaceId, id, { ownerUserId }, context);
 
 export const setTodoItemDueDate = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   dueDate: string | null,
   context: TodoItemEventContext = defaultEventContext
 ): Promise<TodoItemWithRelations | null> =>
-  updateTodoItem(organizationId, id, { dueDate }, context);
+  updateTodoItem(workspaceId, id, { dueDate }, context);
 
 // ── Tags ────────────────────────────────────────────────────────────────
 

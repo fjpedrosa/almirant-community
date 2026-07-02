@@ -34,8 +34,8 @@ export type ScheduledAgentConfigFilters = {
 // CRUD
 // ---------------------------------------------------------------------------
 
-export const listScheduledAgentConfigsByOrganization = async (
-  organizationId: string,
+export const listScheduledAgentConfigsByWorkspace = async (
+  workspaceId: string,
   filters?: ScheduledAgentConfigFilters,
 ): Promise<
   (ScheduledAgentConfigDb & {
@@ -43,7 +43,7 @@ export const listScheduledAgentConfigsByOrganization = async (
     skillName: string | null;
   })[]
 > => {
-  const conditions = [eq(scheduledAgentConfigs.organizationId, organizationId)];
+  const conditions = [eq(scheduledAgentConfigs.workspaceId, workspaceId)];
 
   if (filters?.projectId) {
     conditions.push(eq(scheduledAgentConfigs.projectId, filters.projectId));
@@ -70,12 +70,12 @@ export const listScheduledAgentConfigsByOrganization = async (
 
 export const getScheduledAgentConfigById = async (
   id: string,
-  organizationId: string,
+  workspaceId: string,
 ): Promise<ScheduledAgentConfigDb | undefined> => {
   const [row] = await db
     .select()
     .from(scheduledAgentConfigs)
-    .where(and(eq(scheduledAgentConfigs.id, id), eq(scheduledAgentConfigs.organizationId, organizationId)))
+    .where(and(eq(scheduledAgentConfigs.id, id), eq(scheduledAgentConfigs.workspaceId, workspaceId)))
     .limit(1);
 
   return row ? normalizeScheduledAgentConfig(row) : row;
@@ -93,13 +93,13 @@ export const createScheduledAgentConfig = async (
 
 export const updateScheduledAgentConfig = async (
   id: string,
-  organizationId: string,
-  data: Partial<Omit<NewScheduledAgentConfig, "id" | "organizationId" | "createdAt">>,
+  workspaceId: string,
+  data: Partial<Omit<NewScheduledAgentConfig, "id" | "workspaceId" | "createdAt">>,
 ): Promise<ScheduledAgentConfigDb | undefined> => {
   const [updated] = await db
     .update(scheduledAgentConfigs)
     .set({ ...ensureWebhookToken(normalizeScheduledAgentConfigInput(data)), updatedAt: new Date() })
-    .where(and(eq(scheduledAgentConfigs.id, id), eq(scheduledAgentConfigs.organizationId, organizationId)))
+    .where(and(eq(scheduledAgentConfigs.id, id), eq(scheduledAgentConfigs.workspaceId, workspaceId)))
     .returning();
   return updated ? normalizeScheduledAgentConfig(updated) : updated;
 };
@@ -132,10 +132,10 @@ export const getScheduledAgentConfigByIdAndToken = async (
   };
 };
 
-export const deleteScheduledAgentConfig = async (id: string, organizationId: string): Promise<boolean> => {
+export const deleteScheduledAgentConfig = async (id: string, workspaceId: string): Promise<boolean> => {
   const result = await db
     .delete(scheduledAgentConfigs)
-    .where(and(eq(scheduledAgentConfigs.id, id), eq(scheduledAgentConfigs.organizationId, organizationId)))
+    .where(and(eq(scheduledAgentConfigs.id, id), eq(scheduledAgentConfigs.workspaceId, workspaceId)))
     .returning({ id: scheduledAgentConfigs.id });
   return result.length > 0;
 };
@@ -187,13 +187,13 @@ export const updateScheduledAgentConfigLastRunAt = async (
 
 export const pauseScheduledAgentConfig = async (
   id: string,
-  organizationId: string,
+  workspaceId: string,
   until: Date | null,
 ): Promise<ScheduledAgentConfigDb | undefined> => {
   const [updated] = await db
     .update(scheduledAgentConfigs)
     .set({ pausedUntil: until, updatedAt: new Date() })
-    .where(and(eq(scheduledAgentConfigs.id, id), eq(scheduledAgentConfigs.organizationId, organizationId)))
+    .where(and(eq(scheduledAgentConfigs.id, id), eq(scheduledAgentConfigs.workspaceId, workspaceId)))
     .returning();
   return updated;
 };
@@ -204,16 +204,16 @@ export const pauseScheduledAgentConfig = async (
 
 export const triggerScheduledAgentConfig = async (
   id: string,
-  organizationId: string,
+  workspaceId: string,
 ): Promise<ScheduledAgentConfigDb | undefined> => {
-  const config = await getScheduledAgentConfigById(id, organizationId);
+  const config = await getScheduledAgentConfigById(id, workspaceId);
   if (!config) return undefined;
 
   // Update lastRunAt to reflect the manual trigger
   await db
     .update(scheduledAgentConfigs)
     .set({ lastRunAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(scheduledAgentConfigs.id, id), eq(scheduledAgentConfigs.organizationId, organizationId)));
+    .where(and(eq(scheduledAgentConfigs.id, id), eq(scheduledAgentConfigs.workspaceId, workspaceId)));
 
   return config ? normalizeScheduledAgentConfig(config) : config;
 };

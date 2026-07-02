@@ -8,23 +8,23 @@ type WebhookLog = typeof webhookLogs.$inferSelect;
 type WebhookTrigger = Webhook["trigger"];
 
 // Get all webhooks
-export const getWebhooks = async (organizationId: string): Promise<Webhook[]> => {
+export const getWebhooks = async (workspaceId: string): Promise<Webhook[]> => {
   return db
     .select()
     .from(webhooks)
-    .where(eq(webhooks.organizationId, organizationId))
+    .where(eq(webhooks.workspaceId, workspaceId))
     .orderBy(desc(webhooks.createdAt));
 };
 
 // Get webhook by ID
 export const getWebhookById = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<Webhook | null> => {
   const [webhook] = await db
     .select()
     .from(webhooks)
-    .where(and(eq(webhooks.id, id), eq(webhooks.organizationId, organizationId)))
+    .where(and(eq(webhooks.id, id), eq(webhooks.workspaceId, workspaceId)))
     .limit(1);
 
   return webhook || null;
@@ -32,7 +32,7 @@ export const getWebhookById = async (
 
 // Get webhooks by trigger
 export const getWebhooksByTrigger = async (
-  organizationId: string,
+  workspaceId: string,
   trigger: WebhookTrigger
 ): Promise<Webhook[]> => {
   return db
@@ -42,14 +42,14 @@ export const getWebhooksByTrigger = async (
       and(
         eq(webhooks.trigger, trigger),
         eq(webhooks.isActive, true),
-        eq(webhooks.organizationId, organizationId)
+        eq(webhooks.workspaceId, workspaceId)
       )
     );
 };
 
 // Create webhook
 export const createWebhook = async (
-  organizationId: string,
+  workspaceId: string,
   data: {
     name: string;
     url: string;
@@ -66,7 +66,7 @@ export const createWebhook = async (
       trigger: data.trigger,
       isActive: data.isActive ?? true,
       headers: data.headers || {},
-      organizationId,
+      workspaceId,
     })
     .returning();
 
@@ -76,7 +76,7 @@ export const createWebhook = async (
 
 // Update webhook
 export const updateWebhook = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: {
     name?: string;
@@ -92,29 +92,29 @@ export const updateWebhook = async (
       ...data,
       updatedAt: new Date(),
     })
-    .where(and(eq(webhooks.id, id), eq(webhooks.organizationId, organizationId)))
+    .where(and(eq(webhooks.id, id), eq(webhooks.workspaceId, workspaceId)))
     .returning();
 
   return updated || null;
 };
 
 // Delete webhook
-export const deleteWebhook = async (organizationId: string, id: string): Promise<boolean> => {
-  const result = await db.delete(webhooks).where(and(eq(webhooks.id, id), eq(webhooks.organizationId, organizationId))).returning();
+export const deleteWebhook = async (workspaceId: string, id: string): Promise<boolean> => {
+  const result = await db.delete(webhooks).where(and(eq(webhooks.id, id), eq(webhooks.workspaceId, workspaceId))).returning();
   return result.length > 0;
 };
 
 // Get webhook logs
 export const getWebhookLogs = async (
-  organizationId: string,
+  workspaceId: string,
   webhookId: string,
   limit = 50
 ): Promise<WebhookLog[]> => {
-  // Verify webhook belongs to organization
+  // Verify webhook belongs to workspace
   const [webhook] = await db
     .select({ id: webhooks.id })
     .from(webhooks)
-    .where(and(eq(webhooks.id, webhookId), eq(webhooks.organizationId, organizationId)))
+    .where(and(eq(webhooks.id, webhookId), eq(webhooks.workspaceId, workspaceId)))
     .limit(1);
 
   if (!webhook) return [];

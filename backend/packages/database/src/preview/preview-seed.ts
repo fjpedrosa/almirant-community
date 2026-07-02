@@ -74,11 +74,11 @@ export async function seedPreviewData(connectionString: string) {
 
     const infraApiKeyConfig = resolveInfraApiKeyConfig();
 
-    // 1. Optional infrastructure organization for embedded runner/automation use
+    // 1. Optional infrastructure workspace for embedded runner/automation use
     if (infraApiKeyConfig) {
-      console.log("[preview-seed] Creating local infrastructure organization...");
+      console.log("[preview-seed] Creating local infrastructure workspace...");
       await db
-        .insert(schema.organization)
+        .insert(schema.workspace)
         .values({
           id: LOCAL_INFRA_ORG_ID,
           name: "Local Infrastructure",
@@ -93,7 +93,7 @@ export async function seedPreviewData(connectionString: string) {
         .insert(schema.serviceAccounts)
         .values({
           id: LOCAL_INFRA_SERVICE_ACCOUNT_ID,
-          organizationId: LOCAL_INFRA_ORG_ID,
+          workspaceId: LOCAL_INFRA_ORG_ID,
           name: "Dev Runner",
           type: "runner",
           isActive: true,
@@ -101,7 +101,7 @@ export async function seedPreviewData(connectionString: string) {
         .onConflictDoUpdate({
           target: schema.serviceAccounts.id,
           set: {
-            organizationId: LOCAL_INFRA_ORG_ID,
+            workspaceId: LOCAL_INFRA_ORG_ID,
             name: "Dev Runner",
             type: "runner",
             isActive: true,
@@ -117,7 +117,7 @@ export async function seedPreviewData(connectionString: string) {
           keyPrefix: infraApiKeyConfig.keyPrefix,
           isActive: true,
           serviceAccountId: LOCAL_INFRA_SERVICE_ACCOUNT_ID,
-          organizationId: LOCAL_INFRA_ORG_ID,
+          workspaceId: LOCAL_INFRA_ORG_ID,
           allowedIssuedPermissions: ["mcp:read", "mcp:write"],
         })
         .onConflictDoUpdate({
@@ -128,7 +128,7 @@ export async function seedPreviewData(connectionString: string) {
             keyPrefix: infraApiKeyConfig.keyPrefix,
             isActive: true,
             serviceAccountId: LOCAL_INFRA_SERVICE_ACCOUNT_ID,
-            organizationId: LOCAL_INFRA_ORG_ID,
+            workspaceId: LOCAL_INFRA_ORG_ID,
             allowedIssuedPermissions: ["mcp:read", "mcp:write"],
           },
         });
@@ -250,8 +250,8 @@ export async function seedPreviewData(connectionString: string) {
 
     console.log("[preview-seed] Local platform seed completed successfully.");
     const infraSummary = infraApiKeyConfig
-      ? "  - 1 infrastructure organization\n  - 1 runner service account + API key"
-      : "  - infrastructure organization/API key skipped";
+      ? "  - 1 infrastructure workspace\n  - 1 runner service account + API key"
+      : "  - infrastructure workspace/API key skipped";
     console.log(`[preview-seed] Created:\n${infraSummary}\n  - 3 board templates\n  - 1 system settings row`);
   } finally {
     await client.end();

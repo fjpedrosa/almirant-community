@@ -22,7 +22,7 @@ import { eq } from "drizzle-orm";
 // ---------------------------------------------------------------------------
 
 export const seedBugAnalysisConfig = async (
-  organizationId: string,
+  workspaceId: string,
   projectId?: string,
 ) => {
   // Check if config already exists. The old agent-config model had a
@@ -44,7 +44,7 @@ export const seedBugAnalysisConfig = async (
   const [config] = await db
     .insert(scheduledAgentConfigs)
     .values({
-      organizationId,
+      workspaceId,
       projectId: projectId ?? null,
       name: "Bug Auto-Fix Pipeline",
       jobType: "bug-analysis",
@@ -72,19 +72,19 @@ export const seedBugAnalysisConfig = async (
 // ---------------------------------------------------------------------------
 
 const main = async () => {
-  const organizationId = process.env.ORGANIZATION_ID;
+  const workspaceId = process.env.WORKSPACE_ID;
   const projectId = process.env.PROJECT_ID;
 
-  if (!organizationId) {
+  if (!workspaceId) {
     console.error(
-      "Error: ORGANIZATION_ID environment variable is required.\n" +
-        "Usage: ORGANIZATION_ID=<uuid> [PROJECT_ID=<uuid>] bun run db:seed:bug-analysis",
+      "Error: WORKSPACE_ID environment variable is required.\n" +
+        "Usage: WORKSPACE_ID=<uuid> [PROJECT_ID=<uuid>] bun run db:seed:bug-analysis",
     );
     process.exit(1);
   }
 
   try {
-    await seedBugAnalysisConfig(organizationId, projectId);
+    await seedBugAnalysisConfig(workspaceId, projectId);
   } catch (error) {
     console.error("Failed to seed bug analysis config:", error);
     process.exit(1);

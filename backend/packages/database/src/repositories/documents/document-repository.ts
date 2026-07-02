@@ -5,15 +5,15 @@ import type { PaginationParams } from "../../domain/types";
 
 // Find document by file path within a project
 export const getDocumentByFilePath = async (
-  organizationId: string,
+  workspaceId: string,
   filePath: string,
   projectId: string
 ) => {
-  // Defense-in-depth: verify project belongs to organization
+  // Defense-in-depth: verify project belongs to workspace
   const [project] = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
+    .where(and(eq(projects.id, projectId), eq(projects.workspaceId, workspaceId)))
     .limit(1);
 
   if (!project) return null;
@@ -29,14 +29,14 @@ export const getDocumentByFilePath = async (
 // Legacy lookup for environments where file_path is not available yet.
 // Falls back to title + project matching, taking the most recently updated row.
 export const getDocumentByTitleAndProject = async (
-  organizationId: string,
+  workspaceId: string,
   title: string,
   projectId: string
 ) => {
   const [project] = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
+    .where(and(eq(projects.id, projectId), eq(projects.workspaceId, workspaceId)))
     .limit(1);
 
   if (!project) return null;
@@ -59,7 +59,7 @@ export const getDocumentByTitleAndProject = async (
 };
 
 // Create document with sync fields (filePath, contentHash, s3Key)
-export const createSyncedDocument = async (organizationId: string, data: {
+export const createSyncedDocument = async (workspaceId: string, data: {
   title: string;
   content: string;
   projectId: string;
@@ -89,7 +89,7 @@ export const createSyncedDocument = async (organizationId: string, data: {
 
 // Update document with sync fields (contentHash, s3Key, filePath, content, title)
 export const updateSyncedDocument = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: {
     title: string;
@@ -114,17 +114,17 @@ export const updateSyncedDocument = async (
       sizeBytes: metrics.sizeBytes,
       updatedAt: new Date(),
     })
-    .where(and(eq(documents.id, id), inArray(documents.projectId, orgProjectIds(organizationId))))
+    .where(and(eq(documents.id, id), inArray(documents.projectId, orgProjectIds(workspaceId))))
     .returning();
   return updated || null;
 };
 
 // Update only the category assignment of a document (used when content hasn't changed but category mapping has)
-export const updateDocumentCategoryAssignment = async (organizationId: string, id: string, categoryId: string) => {
+export const updateDocumentCategoryAssignment = async (workspaceId: string, id: string, categoryId: string) => {
   const [updated] = await db
     .update(documents)
     .set({ categoryId, updatedAt: new Date() })
-    .where(and(eq(documents.id, id), inArray(documents.projectId, orgProjectIds(organizationId))))
+    .where(and(eq(documents.id, id), inArray(documents.projectId, orgProjectIds(workspaceId))))
     .returning();
   return updated || null;
 };
@@ -145,11 +145,11 @@ export const getUncategorizedSyncedDocuments = async (
     ) as unknown as Promise<Array<{ id: string; filePath: string }>>;
 };
 
-// Build a subquery that returns project IDs belonging to a given organization.
-// Used to scope document operations to the correct organization when the
-// documents table lacks a direct organizationId column.
-const orgProjectIds = (organizationId: string) =>
-  db.select({ id: projects.id }).from(projects).where(eq(projects.organizationId, organizationId));
+// Build a subquery that returns project IDs belonging to a given workspace.
+// Used to scope document operations to the correct workspace when the
+// documents table lacks a direct workspaceId column.
+const orgProjectIds = (workspaceId: string) =>
+  db.select({ id: projects.id }).from(projects).where(eq(projects.workspaceId, workspaceId));
 
 // Calculate word count and size from content
 const computeContentMetrics = (content: string | null | undefined) => {
@@ -161,7 +161,7 @@ const computeContentMetrics = (content: string | null | undefined) => {
 
 // Get documents with pagination and filters
 export const getDocuments = async (
-  organizationId: string,
+  workspaceId: string,
   pagination: PaginationParams,
   filters?: {
     search?: string;
@@ -178,9 +178,9 @@ export const getDocuments = async (
     conditions.push(isNull(documents.archivedAt));
   }
 
-  // Defense-in-depth: filter by organization through project
+  // Defense-in-depth: filter by workspace through project
   conditions.push(
-    sql`(${documents.projectId} IS NULL OR ${documents.projectId} IN (SELECT id FROM projects WHERE organization_id = ${organizationId} AND status != 'archived'))`
+    sql`(${documents.projectId} IS NULL OR ${documents.projectId} IN (SELECT id FROM projects WHERE workspace_id = ${workspaceId} AND status != 'archived'))`
   );
 
   if (filters?.search) {
@@ -255,7 +255,7 @@ export const getDocuments = async (
 };
 
 // Get document by ID with category and project
-export const getDocumentById = async (organizationId: string, id: string) => {
+export const getDocumentById = async (workspaceId: string, id: string) => {
   const [result] = await db
     .select({
       id: documents.id,
@@ -280,7 +280,7 @@ export const getDocumentById = async (organizationId: string, id: string) => {
     .leftJoin(projects, eq(documents.projectId, projects.id))
     .where(and(
       eq(documents.id, id),
-      sql`(${documents.projectId} IS NULL OR ${projects.organizationId} = ${organizationId})`
+      sql`(${documents.projectId} IS NULL OR ${projects.workspaceId} = ${workspaceId})`
     ))
     .limit(1);
 
@@ -288,7 +288,7 @@ export const getDocumentById = async (organizationId: string, id: string) => {
 };
 
 // Create document
-export const createDocument = async (organizationId: string, data: {
+export const createDocument = async (workspaceId: string, data: {
   title: string;
   content?: string;
   categoryId?: string;
@@ -309,12 +309,12 @@ export const createDocument = async (organizationId: string, data: {
     .returning();
 
   if (!doc) throw new Error("Failed to create document");
-  return getDocumentById(organizationId, doc.id);
+  return getDocumentById(workspaceId, doc.id);
 };
 
 // Update document
 export const updateDocument = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: {
     title?: string;
@@ -345,17 +345,17 @@ export const updateDocument = async (
     .set(updateData)
     .where(and(
       eq(documents.id, id),
-      sql`(${documents.projectId} IS NULL OR ${documents.projectId} IN (SELECT id FROM projects WHERE organization_id = ${organizationId}))`
+      sql`(${documents.projectId} IS NULL OR ${documents.projectId} IN (SELECT id FROM projects WHERE workspace_id = ${workspaceId}))`
     ))
     .returning();
 
   if (!updated) return null;
 
-  return getDocumentById(organizationId, id);
+  return getDocumentById(workspaceId, id);
 };
 
 // Archive document (soft delete - sets archivedAt timestamp)
-export const archiveDocument = async (organizationId: string, id: string) => {
+export const archiveDocument = async (workspaceId: string, id: string) => {
   const [archived] = await db
     .update(documents)
     .set({
@@ -364,14 +364,14 @@ export const archiveDocument = async (organizationId: string, id: string) => {
     })
     .where(and(
       eq(documents.id, id),
-      sql`(${documents.projectId} IS NULL OR ${documents.projectId} IN (SELECT id FROM projects WHERE organization_id = ${organizationId}))`
+      sql`(${documents.projectId} IS NULL OR ${documents.projectId} IN (SELECT id FROM projects WHERE workspace_id = ${workspaceId}))`
     ))
     .returning();
   return archived || null;
 };
 
 // Unarchive document (restore from archive)
-export const unarchiveDocument = async (organizationId: string, id: string) => {
+export const unarchiveDocument = async (workspaceId: string, id: string) => {
   const [restored] = await db
     .update(documents)
     .set({
@@ -380,26 +380,26 @@ export const unarchiveDocument = async (organizationId: string, id: string) => {
     })
     .where(and(
       eq(documents.id, id),
-      sql`(${documents.projectId} IS NULL OR ${documents.projectId} IN (SELECT id FROM projects WHERE organization_id = ${organizationId}))`
+      sql`(${documents.projectId} IS NULL OR ${documents.projectId} IN (SELECT id FROM projects WHERE workspace_id = ${workspaceId}))`
     ))
     .returning();
   return restored || null;
 };
 
 // Delete document
-export const deleteDocument = async (organizationId: string, id: string): Promise<boolean> => {
+export const deleteDocument = async (workspaceId: string, id: string): Promise<boolean> => {
   const result = await db
     .delete(documents)
     .where(and(
       eq(documents.id, id),
-      sql`(${documents.projectId} IS NULL OR ${documents.projectId} IN (SELECT id FROM projects WHERE organization_id = ${organizationId}))`
+      sql`(${documents.projectId} IS NULL OR ${documents.projectId} IN (SELECT id FROM projects WHERE workspace_id = ${workspaceId}))`
     ))
     .returning();
   return result.length > 0;
 };
 
 // Get documents grouped by project for cross-project navigation
-export const getDocumentsCrossProject = async (organizationId: string, filters?: {
+export const getDocumentsCrossProject = async (workspaceId: string, filters?: {
   search?: string;
   categoryId?: string;
   includeArchived?: boolean;
@@ -428,9 +428,9 @@ export const getDocumentsCrossProject = async (organizationId: string, filters?:
     conditions.push(isNull(documents.archivedAt));
   }
 
-  // Defense-in-depth: filter by organization through project
+  // Defense-in-depth: filter by workspace through project
   conditions.push(
-    sql`(${documents.projectId} IS NULL OR ${documents.projectId} IN (SELECT id FROM projects WHERE organization_id = ${organizationId} AND status != 'archived'))`
+    sql`(${documents.projectId} IS NULL OR ${documents.projectId} IN (SELECT id FROM projects WHERE workspace_id = ${workspaceId} AND status != 'archived'))`
   );
 
   if (filters?.search) {
@@ -533,7 +533,7 @@ export const getDocumentsCrossProject = async (organizationId: string, filters?:
 
 // Full-text search across all documents with filters and content snippets
 export const searchDocumentsFullText = async (
-  organizationId: string,
+  workspaceId: string,
   query: string,
   filters?: {
     projectId?: string;
@@ -570,8 +570,8 @@ export const searchDocumentsFullText = async (
   const conditions = [
     // Exclude archived documents
     isNull(documents.archivedAt),
-    // Defense-in-depth: filter by organization through project
-    sql`(${documents.projectId} IS NULL OR ${documents.projectId} IN (SELECT id FROM projects WHERE organization_id = ${organizationId} AND status != 'archived'))`,
+    // Defense-in-depth: filter by workspace through project
+    sql`(${documents.projectId} IS NULL OR ${documents.projectId} IN (SELECT id FROM projects WHERE workspace_id = ${workspaceId} AND status != 'archived'))`,
   ];
 
   // Search condition: tsvector for 2+ chars, ILIKE fallback for single char

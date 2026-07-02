@@ -9,7 +9,7 @@ import {
   check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { user } from "./auth";
 import { serviceAccounts } from "./service-accounts";
 
@@ -22,7 +22,7 @@ export const apiKeys = pgTable("api_keys", {
   isActive: boolean("is_active").default(true).notNull(),
   userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
   serviceAccountId: uuid("service_account_id").references(() => serviceAccounts.id, { onDelete: "cascade" }),
-  organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull().references(() => workspace.id, { onDelete: "cascade" }),
   /**
    * MCP permission scopes this key is authorized to issue in session tokens.
    * Default: read/write only. Staff/runner keys can be upgraded to include
@@ -35,7 +35,7 @@ export const apiKeys = pgTable("api_keys", {
   lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
-  index("api_keys_organization_id_idx").on(table.organizationId),
+  index("api_keys_workspace_id_idx").on(table.workspaceId),
   index("api_keys_user_id_idx").on(table.userId),
   index("api_keys_service_account_id_idx").on(table.serviceAccountId),
   check("api_keys_owner_check", sql`"user_id" IS NOT NULL OR "service_account_id" IS NOT NULL`),

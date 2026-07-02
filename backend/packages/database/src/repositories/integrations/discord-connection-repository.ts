@@ -19,17 +19,17 @@ import type {
 // ---------------------------------------------------------------------------
 
 /**
- * Get the active Discord connection for an organization.
+ * Get the active Discord connection for a workspace.
  */
-export const getDiscordConnectionByOrganization = async (
-  organizationId: string,
+export const getDiscordConnectionByWorkspace = async (
+  workspaceId: string,
 ): Promise<DiscordConnection | null> => {
   const [row] = await db
     .select()
     .from(discordConnections)
     .where(
       and(
-        eq(discordConnections.organizationId, organizationId),
+        eq(discordConnections.workspaceId, workspaceId),
         eq(discordConnections.isActive, true),
       ),
     )
@@ -39,11 +39,11 @@ export const getDiscordConnectionByOrganization = async (
 };
 
 /**
- * Get a Discord connection by ID, scoped to an organization.
+ * Get a Discord connection by ID, scoped to a workspace.
  */
 export const getDiscordConnectionById = async (
   id: string,
-  organizationId: string,
+  workspaceId: string,
 ): Promise<DiscordConnection | null> => {
   const [row] = await db
     .select()
@@ -51,7 +51,7 @@ export const getDiscordConnectionById = async (
     .where(
       and(
         eq(discordConnections.id, id),
-        eq(discordConnections.organizationId, organizationId),
+        eq(discordConnections.workspaceId, workspaceId),
       ),
     )
     .limit(1);
@@ -75,13 +75,13 @@ export const createDiscordConnection = async (
 };
 
 /**
- * Update a Discord connection (partial update), scoped to an organization.
+ * Update a Discord connection (partial update), scoped to a workspace.
  */
 export const updateDiscordConnection = async (
   id: string,
-  organizationId: string,
+  workspaceId: string,
   data: Partial<
-    Omit<NewDiscordConnection, "id" | "createdAt" | "organizationId">
+    Omit<NewDiscordConnection, "id" | "createdAt" | "workspaceId">
   >,
 ): Promise<DiscordConnection | null> => {
   const [updated] = await db
@@ -90,7 +90,7 @@ export const updateDiscordConnection = async (
     .where(
       and(
         eq(discordConnections.id, id),
-        eq(discordConnections.organizationId, organizationId),
+        eq(discordConnections.workspaceId, workspaceId),
       ),
     )
     .returning();
@@ -99,19 +99,19 @@ export const updateDiscordConnection = async (
 };
 
 /**
- * Hard delete a Discord connection, scoped to an organization.
+ * Hard delete a Discord connection, scoped to a workspace.
  * Project channels are cascaded automatically by the FK constraint.
  */
 export const deleteDiscordConnection = async (
   id: string,
-  organizationId: string,
+  workspaceId: string,
 ): Promise<boolean> => {
   const deleted = await db
     .delete(discordConnections)
     .where(
       and(
         eq(discordConnections.id, id),
-        eq(discordConnections.organizationId, organizationId),
+        eq(discordConnections.workspaceId, workspaceId),
       ),
     )
     .returning({ id: discordConnections.id });

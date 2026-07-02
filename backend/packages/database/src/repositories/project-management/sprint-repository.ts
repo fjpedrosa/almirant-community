@@ -12,15 +12,15 @@ import {
 } from "../../schema";
 import { eq, and, sql, desc, isNull, inArray, gte, lte, exists } from "drizzle-orm";
 
-// Verify that a board belongs to the given organization. Returns the board id if valid, null otherwise.
+// Verify that a board belongs to the given workspace. Returns the board id if valid, null otherwise.
 const verifyBoardOrg = async (
   boardId: string,
-  organizationId: string
+  workspaceId: string
 ): Promise<string | null> => {
   const [board] = await db
     .select({ id: boards.id })
     .from(boards)
-    .where(and(eq(boards.id, boardId), eq(boards.organizationId, organizationId)))
+    .where(and(eq(boards.id, boardId), eq(boards.workspaceId, workspaceId)))
     .limit(1);
   return board?.id ?? null;
 };
@@ -90,10 +90,10 @@ const resolveAncestors = async (
 
 // List sprints for a board, open sprint on top (closedAt NULL first), then by closedAt DESC
 export const getSprintsByBoard = async (
-  organizationId: string,
+  workspaceId: string,
   boardId: string
 ): Promise<SprintWithCount[]> => {
-  const validBoard = await verifyBoardOrg(boardId, organizationId);
+  const validBoard = await verifyBoardOrg(boardId, workspaceId);
   if (!validBoard) return [];
   const result = await db
     .select({
@@ -124,10 +124,10 @@ export const getSprintsByBoard = async (
 
 // Get the active (open) sprint for a board, null if none
 export const getActiveSprint = async (
-  organizationId: string,
+  workspaceId: string,
   boardId: string
 ): Promise<SprintWithCount | null> => {
-  const validBoard = await verifyBoardOrg(boardId, organizationId);
+  const validBoard = await verifyBoardOrg(boardId, workspaceId);
   if (!validBoard) return null;
   const [result] = await db
     .select({
@@ -154,7 +154,7 @@ export const getActiveSprint = async (
 
 // Get sprint by id
 export const getSprintById = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<SprintWithCount | null> => {
   const [result] = await db
@@ -175,7 +175,7 @@ export const getSprintById = async (
     })
     .from(sprints)
     .innerJoin(boards, eq(sprints.boardId, boards.id))
-    .where(and(eq(sprints.id, id), eq(boards.organizationId, organizationId)))
+    .where(and(eq(sprints.id, id), eq(boards.workspaceId, workspaceId)))
     .limit(1);
 
   return (result as SprintWithCount) ?? null;
@@ -183,13 +183,13 @@ export const getSprintById = async (
 
 // Create a new sprint, validating no other open sprint exists for the board
 export const createSprint = async (
-  organizationId: string,
+  workspaceId: string,
   data: CreateSprintRequest
 ): Promise<SprintWithCount> => {
   // Verify board belongs to org
-  const validBoard = await verifyBoardOrg(data.boardId, organizationId);
+  const validBoard = await verifyBoardOrg(data.boardId, workspaceId);
   if (!validBoard) {
-    throw new Error("Board not found or does not belong to the organization");
+    throw new Error("Board not found or does not belong to the workspace");
   }
 
   // Validate no open sprint exists for this board
@@ -213,7 +213,7 @@ export const createSprint = async (
     })
     .returning();
 
-  return getSprintById(organizationId, newSprint!.id) as Promise<SprintWithCount>;
+  return getSprintById(workspaceId, newSprint!.id) as Promise<SprintWithCount>;
 };
 
 // Helper: filter done items by optional date range based on metadata.finishedAt
@@ -288,14 +288,14 @@ const cascadeArchiveParents = async (
 // Close a sprint: archive done items, record them as sprint work items, mark sprint as closed
 // When startDate/endDate are provided, only items whose finishedAt falls within that range are included
 export const closeSprint = async (
-  organizationId: string,
+  workspaceId: string,
   sprintId: string,
   boardId: string,
   options?: { startDate?: string; endDate?: string }
 ): Promise<SprintWithCount> => {
-  const validBoard = await verifyBoardOrg(boardId, organizationId);
+  const validBoard = await verifyBoardOrg(boardId, workspaceId);
   if (!validBoard) {
-    throw new Error("Board not found or does not belong to the organization");
+    throw new Error("Board not found or does not belong to the workspace");
   }
   const filterStart = options?.startDate
     ? new Date(options.startDate)
@@ -404,15 +404,15 @@ export const closeSprint = async (
 // Close a sprint by date: create + close immediately with explicit start/end dates
 // Filters done items to only include those with finishedAt within the date range
 export const closeSprintByDate = async (
-  organizationId: string,
+  workspaceId: string,
   boardId: string,
   name: string,
   startDate: string,
   endDate: string
 ): Promise<SprintWithCount> => {
-  const validBoard = await verifyBoardOrg(boardId, organizationId);
+  const validBoard = await verifyBoardOrg(boardId, workspaceId);
   if (!validBoard) {
-    throw new Error("Board not found or does not belong to the organization");
+    throw new Error("Board not found or does not belong to the workspace");
   }
   const filterStart = new Date(startDate);
   const filterEnd = new Date(endDate);
@@ -532,14 +532,14 @@ export const closeSprintByDate = async (
 // Close a sprint ad-hoc: create + close immediately in a single transaction
 // When startDate/endDate are provided, only items whose finishedAt falls within that range are included
 export const closeSprintAdHoc = async (
-  organizationId: string,
+  workspaceId: string,
   boardId: string,
   name: string,
   options?: { startDate?: string; endDate?: string }
 ): Promise<SprintWithCount> => {
-  const validBoard = await verifyBoardOrg(boardId, organizationId);
+  const validBoard = await verifyBoardOrg(boardId, workspaceId);
   if (!validBoard) {
-    throw new Error("Board not found or does not belong to the organization");
+    throw new Error("Board not found or does not belong to the workspace");
   }
   const filterStart = options?.startDate
     ? new Date(options.startDate)
@@ -656,7 +656,7 @@ export const closeSprintAdHoc = async (
 
 // Get work items for a sprint via join sprintWorkItems + workItems
 export const getSprintWorkItems = async (
-  organizationId: string,
+  workspaceId: string,
   sprintId: string
 ): Promise<SprintWorkItemDetail[]> => {
   const result = await db
@@ -674,7 +674,7 @@ export const getSprintWorkItems = async (
     .innerJoin(workItems, eq(sprintWorkItems.workItemId, workItems.id))
     .innerJoin(sprints, eq(sprintWorkItems.sprintId, sprints.id))
     .innerJoin(boards, eq(sprints.boardId, boards.id))
-    .where(and(eq(sprintWorkItems.sprintId, sprintId), eq(boards.organizationId, organizationId)))
+    .where(and(eq(sprintWorkItems.sprintId, sprintId), eq(boards.workspaceId, workspaceId)))
     .orderBy(desc(sprintWorkItems.completedAt));
 
   return result as SprintWorkItemDetail[];
@@ -682,10 +682,10 @@ export const getSprintWorkItems = async (
 
 // Get the next sprint number: count of closed sprints + 1
 export const getNextSprintNumber = async (
-  organizationId: string,
+  workspaceId: string,
   boardId: string
 ): Promise<number> => {
-  const validBoard = await verifyBoardOrg(boardId, organizationId);
+  const validBoard = await verifyBoardOrg(boardId, workspaceId);
   if (!validBoard) return 1;
   const [result] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -699,10 +699,10 @@ export const getNextSprintNumber = async (
 
 // Get work items in isDone columns that are NOT archived (preview before closing)
 export const getDoneItemsPreview = async (
-  organizationId: string,
+  workspaceId: string,
   boardId: string
 ): Promise<DoneItemPreview[]> => {
-  const validBoard = await verifyBoardOrg(boardId, organizationId);
+  const validBoard = await verifyBoardOrg(boardId, workspaceId);
   if (!validBoard) return [];
   // Get done columns
   const doneColumns = await db
@@ -763,12 +763,12 @@ export const getDoneItemsPreview = async (
 // 2. Fallback: work items currently in done columns filtered by updatedAt (for items without events)
 // Both sources are merged and deduplicated to get the complete picture.
 export const getCompletedWorkItemsByDateRange = async (
-  organizationId: string,
+  workspaceId: string,
   boardId: string,
   startDate: Date,
   endDate: Date
 ): Promise<CompletedWorkItemByDate[]> => {
-  const validBoard = await verifyBoardOrg(boardId, organizationId);
+  const validBoard = await verifyBoardOrg(boardId, workspaceId);
   if (!validBoard) return [];
   // Step 1: Get all isDone column IDs for this board
   const doneColumns = await db
@@ -875,7 +875,7 @@ export const getCompletedWorkItemsByDateRange = async (
 
 // Get work items for a sprint with projectId included (for report filtering)
 export const getSprintWorkItemsExtended = async (
-  organizationId: string,
+  workspaceId: string,
   sprintId: string
 ): Promise<SprintWorkItemDetailExtended[]> => {
   const result = await db
@@ -894,7 +894,7 @@ export const getSprintWorkItemsExtended = async (
     .innerJoin(workItems, eq(sprintWorkItems.workItemId, workItems.id))
     .innerJoin(sprints, eq(sprintWorkItems.sprintId, sprints.id))
     .innerJoin(boards, eq(sprints.boardId, boards.id))
-    .where(and(eq(sprintWorkItems.sprintId, sprintId), eq(boards.organizationId, organizationId)))
+    .where(and(eq(sprintWorkItems.sprintId, sprintId), eq(boards.workspaceId, workspaceId)))
     .orderBy(desc(sprintWorkItems.completedAt));
 
   return result as SprintWorkItemDetailExtended[];
@@ -903,7 +903,7 @@ export const getSprintWorkItemsExtended = async (
 // Get the most common projectId among a sprint's work items (majority project).
 // Returns null only when the sprint has zero items.
 export const getSprintMajorityProjectId = async (
-  organizationId: string,
+  workspaceId: string,
   sprintId: string
 ): Promise<string | null> => {
   const [row] = await db
@@ -915,7 +915,7 @@ export const getSprintMajorityProjectId = async (
     .innerJoin(workItems, eq(sprintWorkItems.workItemId, workItems.id))
     .innerJoin(sprints, eq(sprintWorkItems.sprintId, sprints.id))
     .innerJoin(boards, eq(sprints.boardId, boards.id))
-    .where(and(eq(sprintWorkItems.sprintId, sprintId), eq(boards.organizationId, organizationId)))
+    .where(and(eq(sprintWorkItems.sprintId, sprintId), eq(boards.workspaceId, workspaceId)))
     .groupBy(workItems.projectId)
     .orderBy(sql`cnt DESC`)
     .limit(1);
@@ -925,7 +925,7 @@ export const getSprintMajorityProjectId = async (
 
 // Get user contribution stats for a sprint (created/assigned/completed per user)
 export const getSprintUserContributionStats = async (
-  organizationId: string,
+  workspaceId: string,
   sprintId: string
 ): Promise<UserSprintStats[]> => {
   // 1) Get sprint items (work item ids + createdBy + boardId), verified against org
@@ -939,7 +939,7 @@ export const getSprintUserContributionStats = async (
     .innerJoin(workItems, eq(sprintWorkItems.workItemId, workItems.id))
     .innerJoin(sprints, eq(sprintWorkItems.sprintId, sprints.id))
     .innerJoin(boards, eq(sprints.boardId, boards.id))
-    .where(and(eq(sprintWorkItems.sprintId, sprintId), eq(boards.organizationId, organizationId)));
+    .where(and(eq(sprintWorkItems.sprintId, sprintId), eq(boards.workspaceId, workspaceId)));
 
   if (items.length === 0) return [];
 
@@ -1079,12 +1079,12 @@ export const getAiCostForWorkItems = async (
 
 // Get summary metrics for the N most recent closed sprints on the same board (excluding a given sprint)
 export const getPreviousSprintsSummary = async (
-  organizationId: string,
+  workspaceId: string,
   boardId: string,
   excludeSprintId: string,
   limit: number = 5
 ): Promise<SprintComparison[]> => {
-  const validBoard = await verifyBoardOrg(boardId, organizationId);
+  const validBoard = await verifyBoardOrg(boardId, workspaceId);
   if (!validBoard) return [];
   // 1. Get the N most recent closed sprints for this board, excluding the current one
   const previousSprints = await db

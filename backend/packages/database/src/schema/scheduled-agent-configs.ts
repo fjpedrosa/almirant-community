@@ -12,7 +12,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { agentJobTypeEnum, agentProviderEnum } from "./enums";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { projects } from "./projects";
 import { skills } from "./skills";
 import type { BacklogDrainConfig } from "../repositories/agents/backlog-drain-selection";
@@ -46,7 +46,7 @@ export interface CronConfig {
 export type ScheduleConfig = TimeWindowConfig | CronConfig;
 
 export interface TargetConfig {
-  // Optional project scope for built-in automations. Empty/undefined means organization-wide.
+  // Optional project scope for built-in automations. Empty/undefined means workspace-wide.
   projectIds?: string[];
   // Column-based targeting (e.g., Backlog drain or In Progress corrective work)
   columnIds?: string[];
@@ -85,9 +85,9 @@ export const scheduledAgentConfigs = pgTable(
   "scheduled_agent_configs",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     name: varchar("name", { length: 255 }).notNull(),
     prompt: text("prompt"),
@@ -114,7 +114,7 @@ export const scheduledAgentConfigs = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    index("scheduled_agent_configs_organization_id_idx").on(table.organizationId),
+    index("scheduled_agent_configs_workspace_id_idx").on(table.workspaceId),
     index("scheduled_agent_configs_enabled_idx").on(table.enabled),
     index("scheduled_agent_configs_project_id_idx").on(table.projectId),
     index("scheduled_agent_configs_skill_id_idx").on(table.skillId),

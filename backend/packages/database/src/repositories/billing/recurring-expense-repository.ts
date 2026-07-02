@@ -28,10 +28,10 @@ export type UpdateRecurringExpenseRequest = Partial<CreateRecurringExpenseReques
 };
 
 export const getRecurringExpenses = async (
-  organizationId: string,
+  workspaceId: string,
   filters?: RecurringExpenseFilters
 ): Promise<RecurringExpense[]> => {
-  const conditions = [eq(recurringExpenses.organizationId, organizationId)];
+  const conditions = [eq(recurringExpenses.workspaceId, workspaceId)];
 
   if (filters?.isActive !== undefined) {
     conditions.push(eq(recurringExpenses.isActive, filters.isActive));
@@ -48,7 +48,7 @@ export const getRecurringExpenses = async (
 };
 
 export const getRecurringExpenseById = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<RecurringExpense | null> => {
   const [item] = await db
@@ -57,7 +57,7 @@ export const getRecurringExpenseById = async (
     .where(
       and(
         eq(recurringExpenses.id, id),
-        eq(recurringExpenses.organizationId, organizationId)
+        eq(recurringExpenses.workspaceId, workspaceId)
       )
     )
     .limit(1);
@@ -66,13 +66,13 @@ export const getRecurringExpenseById = async (
 };
 
 export const createRecurringExpense = async (
-  organizationId: string,
+  workspaceId: string,
   data: CreateRecurringExpenseRequest
 ): Promise<RecurringExpense> => {
   const [created] = await db
     .insert(recurringExpenses)
     .values({
-      organizationId,
+      workspaceId,
       title: data.title.trim(),
       vendor: data.vendor ?? null,
       amount: data.amount,
@@ -100,7 +100,7 @@ export const createRecurringExpense = async (
 };
 
 export const updateRecurringExpense = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: UpdateRecurringExpenseRequest
 ): Promise<RecurringExpense | null> => {
@@ -139,7 +139,7 @@ export const updateRecurringExpense = async (
     .where(
       and(
         eq(recurringExpenses.id, id),
-        eq(recurringExpenses.organizationId, organizationId)
+        eq(recurringExpenses.workspaceId, workspaceId)
       )
     )
     .returning();
@@ -148,7 +148,7 @@ export const updateRecurringExpense = async (
 };
 
 export const deleteRecurringExpense = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<boolean> => {
   const deleted = await db
@@ -156,7 +156,7 @@ export const deleteRecurringExpense = async (
     .where(
       and(
         eq(recurringExpenses.id, id),
-        eq(recurringExpenses.organizationId, organizationId)
+        eq(recurringExpenses.workspaceId, workspaceId)
       )
     )
     .returning({ id: recurringExpenses.id });
@@ -165,7 +165,7 @@ export const deleteRecurringExpense = async (
 };
 
 export const getUpcomingRenewals = async (
-  organizationId: string,
+  workspaceId: string,
   daysAhead = 30
 ): Promise<RecurringExpense[]> => {
   const cutoff = new Date();
@@ -176,7 +176,7 @@ export const getUpcomingRenewals = async (
     .from(recurringExpenses)
     .where(
       and(
-        eq(recurringExpenses.organizationId, organizationId),
+        eq(recurringExpenses.workspaceId, workspaceId),
         eq(recurringExpenses.isActive, true),
         lte(recurringExpenses.nextRenewalDate, cutoff)
       )
@@ -185,14 +185,14 @@ export const getUpcomingRenewals = async (
 };
 
 export const getRecurringSummary = async (
-  organizationId: string
+  workspaceId: string
 ): Promise<{ totalMonthlyAmount: string; activeCount: number }> => {
   const active = await db
     .select()
     .from(recurringExpenses)
     .where(
       and(
-        eq(recurringExpenses.organizationId, organizationId),
+        eq(recurringExpenses.workspaceId, workspaceId),
         eq(recurringExpenses.isActive, true)
       )
     );

@@ -6,7 +6,7 @@
  *
  * Safety checks:
  * - source and target board must exist
- * - source and target board must belong to the same organization
+ * - source and target board must belong to the same workspace
  * - source board must end with 0 non-archived items before delete
  *
  * Usage:
@@ -69,13 +69,13 @@ const mappings: Mapping[] = parseMappingsFromEnv();
 const summarizeBoards = async () => {
   return db.execute(sql`
     select
-      o.name as organization_name,
+      o.name as workspace_name,
       b.id as board_id,
       b.name as board_name,
       b.area,
       count(wi.id)::int as work_items_count
     from boards b
-    inner join organization o on o.id = b.organization_id
+    inner join workspace o on o.id = b.workspace_id
     left join work_items wi on wi.board_id = b.id and wi.archived_at is null
     group by o.name, b.id, b.name, b.area
     order by o.name, b.name, b.id
@@ -91,7 +91,7 @@ const main = async () => {
 
     for (const mapping of mappings) {
       const boards = await tx.execute(sql`
-        select id, organization_id, name, area
+        select id, workspace_id, name, area
         from boards
         where id in (${mapping.sourceBoardId}, ${mapping.targetBoardId})
         order by id
@@ -106,7 +106,7 @@ const main = async () => {
       const source = boards.find((b) => b.id === mapping.sourceBoardId)!;
       const target = boards.find((b) => b.id === mapping.targetBoardId)!;
 
-      if (source.organization_id !== target.organization_id) {
+      if (source.workspace_id !== target.workspace_id) {
         throw new Error(
           `Cross-org mapping blocked (${mapping.sourceBoardId} -> ${mapping.targetBoardId})`
         );

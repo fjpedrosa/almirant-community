@@ -9,7 +9,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { skillSourceEnum } from "./enums";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { projects } from "./projects";
 import { user } from "./auth";
 
@@ -17,7 +17,7 @@ export const skills = pgTable(
   "skills",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id").references(() => organization.id, {
+    workspaceId: text("workspace_id").references(() => workspace.id, {
       onDelete: "cascade",
     }),
     projectId: uuid("project_id").references(() => projects.id, {
@@ -46,10 +46,10 @@ export const skills = pgTable(
   (table) => [
     uniqueIndex("skills_slug_org_project_idx").on(
       table.slug,
-      table.organizationId,
+      table.workspaceId,
       table.projectId
     ),
-    index("skills_organization_id_idx").on(table.organizationId),
+    index("skills_workspace_id_idx").on(table.workspaceId),
     index("skills_project_id_idx").on(table.projectId),
     index("skills_source_idx").on(table.source),
     index("skills_content_hash_idx").on(table.contentHash),

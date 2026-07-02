@@ -14,7 +14,7 @@ export const notificationQueue = pgTable(
   "notification_queue",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
     recipientUserId: text("recipient_user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),

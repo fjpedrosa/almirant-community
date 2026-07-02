@@ -1,6 +1,6 @@
 import { db } from "../../client";
 import { user } from "../../schema/auth";
-import { member } from "../../schema/organization";
+import { member } from "../../schema/workspace";
 import { eq, ilike, or, sql } from "drizzle-orm";
 
 export const getUserById = async (id: string) => {
@@ -40,7 +40,7 @@ export const updateUserLocale = async (userId: string, locale: string) => {
   return result ?? null;
 };
 
-export const getMembersByOrganizationId = async (organizationId: string) => {
+export const getMembersByWorkspaceId = async (workspaceId: string) => {
   const rows = await db
     .select({
       memberId: member.id,
@@ -53,7 +53,7 @@ export const getMembersByOrganizationId = async (organizationId: string) => {
     })
     .from(member)
     .innerJoin(user, eq(member.userId, user.id))
-    .where(eq(member.organizationId, organizationId))
+    .where(eq(member.workspaceId, workspaceId))
     .orderBy(member.createdAt);
 
   return rows;

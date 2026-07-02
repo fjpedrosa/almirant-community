@@ -3,7 +3,7 @@ import { documentCategories, documents } from "../../schema";
 import { eq, and, asc, sql, isNull } from "drizzle-orm";
 
 // Get all document categories with document count
-export const getDocumentCategories = async (organizationId: string) => {
+export const getDocumentCategories = async (workspaceId: string) => {
   // Count non-archived documents per category in a single query
   const countsByCategory = await db
     .select({
@@ -21,7 +21,7 @@ export const getDocumentCategories = async (organizationId: string) => {
   const categories = await db
     .select()
     .from(documentCategories)
-    .where(eq(documentCategories.organizationId, organizationId))
+    .where(eq(documentCategories.workspaceId, workspaceId))
     .orderBy(asc(documentCategories.order));
 
   return categories.map((category) => ({
@@ -31,11 +31,11 @@ export const getDocumentCategories = async (organizationId: string) => {
 };
 
 // Get document category by ID
-export const getDocumentCategoryById = async (organizationId: string, id: string) => {
+export const getDocumentCategoryById = async (workspaceId: string, id: string) => {
   const [category] = await db
     .select()
     .from(documentCategories)
-    .where(and(eq(documentCategories.id, id), eq(documentCategories.organizationId, organizationId)))
+    .where(and(eq(documentCategories.id, id), eq(documentCategories.workspaceId, workspaceId)))
     .limit(1);
 
   return category || null;
@@ -43,13 +43,13 @@ export const getDocumentCategoryById = async (organizationId: string, id: string
 
 // Get document category by name and parentId (for idempotent upserts)
 export const getDocumentCategoryByNameAndParent = async (
-  organizationId: string,
+  workspaceId: string,
   name: string,
   parentId?: string | null
 ) => {
   const conditions = [
     sql`lower(${documentCategories.name}) = lower(${name.trim()})`,
-    eq(documentCategories.organizationId, organizationId),
+    eq(documentCategories.workspaceId, workspaceId),
   ];
 
   if (parentId) {
@@ -68,17 +68,17 @@ export const getDocumentCategoryByNameAndParent = async (
 };
 
 // Create document category
-export const createDocumentCategory = async (organizationId: string, data: {
+export const createDocumentCategory = async (workspaceId: string, data: {
   name: string;
   color?: string;
   icon?: string;
   parentId?: string;
 }) => {
-  // Get max order within the organization
+  // Get max order within the workspace
   const [maxOrder] = await db
     .select({ maxOrder: sql<number>`coalesce(max(${documentCategories.order}), -1)` })
     .from(documentCategories)
-    .where(eq(documentCategories.organizationId, organizationId));
+    .where(eq(documentCategories.workspaceId, workspaceId));
 
   const [category] = await db
     .insert(documentCategories)
@@ -88,7 +88,7 @@ export const createDocumentCategory = async (organizationId: string, data: {
       icon: data.icon,
       parentId: data.parentId,
       order: (maxOrder?.maxOrder ?? -1) + 1,
-      organizationId,
+      workspaceId,
     })
     .returning();
 
@@ -97,7 +97,7 @@ export const createDocumentCategory = async (organizationId: string, data: {
 
 // Update document category
 export const updateDocumentCategory = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: { name?: string; color?: string; icon?: string; parentId?: string | null; status?: "active" | "archived" }
 ) => {
@@ -107,17 +107,17 @@ export const updateDocumentCategory = async (
       ...data,
       updatedAt: new Date(),
     })
-    .where(and(eq(documentCategories.id, id), eq(documentCategories.organizationId, organizationId)))
+    .where(and(eq(documentCategories.id, id), eq(documentCategories.workspaceId, workspaceId)))
     .returning();
 
   return updated || null;
 };
 
 // Delete document category
-export const deleteDocumentCategory = async (organizationId: string, id: string): Promise<boolean> => {
+export const deleteDocumentCategory = async (workspaceId: string, id: string): Promise<boolean> => {
   const result = await db
     .delete(documentCategories)
-    .where(and(eq(documentCategories.id, id), eq(documentCategories.organizationId, organizationId)))
+    .where(and(eq(documentCategories.id, id), eq(documentCategories.workspaceId, workspaceId)))
     .returning();
   return result.length > 0;
 };

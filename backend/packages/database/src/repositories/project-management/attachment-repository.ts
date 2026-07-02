@@ -4,7 +4,7 @@ import { eq, and, desc } from "drizzle-orm";
 import type { WorkItemAttachment, CreateAttachmentRequest } from "../../domain/types";
 
 export const getAttachmentsByWorkItem = async (
-  organizationId: string,
+  workspaceId: string,
   workItemId: string
 ): Promise<WorkItemAttachment[]> => {
   // Verify work item belongs to org via project
@@ -12,7 +12,7 @@ export const getAttachmentsByWorkItem = async (
     .select({ id: workItems.id })
     .from(workItems)
     .innerJoin(projects, eq(workItems.projectId, projects.id))
-    .where(and(eq(workItems.id, workItemId), eq(projects.organizationId, organizationId)))
+    .where(and(eq(workItems.id, workItemId), eq(projects.workspaceId, workspaceId)))
     .limit(1);
   if (!wi) return [];
 
@@ -24,7 +24,7 @@ export const getAttachmentsByWorkItem = async (
 };
 
 export const getAttachment = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<WorkItemAttachment | null> => {
   const [result] = await db
@@ -42,13 +42,13 @@ export const getAttachment = async (
     .from(workItemAttachments)
     .innerJoin(workItems, eq(workItemAttachments.workItemId, workItems.id))
     .innerJoin(projects, eq(workItems.projectId, projects.id))
-    .where(and(eq(workItemAttachments.id, id), eq(projects.organizationId, organizationId)))
+    .where(and(eq(workItemAttachments.id, id), eq(projects.workspaceId, workspaceId)))
     .limit(1);
   return (result as WorkItemAttachment) || null;
 };
 
 export const createAttachment = async (
-  organizationId: string,
+  workspaceId: string,
   data: CreateAttachmentRequest
 ): Promise<WorkItemAttachment> => {
   // Verify work item belongs to org via project
@@ -56,9 +56,9 @@ export const createAttachment = async (
     .select({ id: workItems.id })
     .from(workItems)
     .innerJoin(projects, eq(workItems.projectId, projects.id))
-    .where(and(eq(workItems.id, data.workItemId), eq(projects.organizationId, organizationId)))
+    .where(and(eq(workItems.id, data.workItemId), eq(projects.workspaceId, workspaceId)))
     .limit(1);
-  if (!wi) throw new Error("Work item not found or does not belong to organization");
+  if (!wi) throw new Error("Work item not found or does not belong to workspace");
 
   const [result] = await db
     .insert(workItemAttachments)
@@ -68,11 +68,11 @@ export const createAttachment = async (
 };
 
 export const deleteAttachment = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<boolean> => {
   // Verify attachment belongs to org via work item -> project
-  const attachment = await getAttachment(organizationId, id);
+  const attachment = await getAttachment(workspaceId, id);
   if (!attachment) return false;
 
   const result = await db

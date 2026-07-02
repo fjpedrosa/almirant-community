@@ -1,9 +1,9 @@
 import { pgTable, text, timestamp, index } from "drizzle-orm/pg-core";
 import { user } from "./auth";
 
-// Organization tables for Better-Auth organization plugin
+// Workspace tables for the Better-Auth "organization" plugin (DB table renamed: "organization" -> "workspace")
 
-export const organization = pgTable("organization", {
+export const workspace = pgTable("workspace", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").unique().notNull(),
@@ -14,24 +14,24 @@ export const organization = pgTable("organization", {
 
 export const member = pgTable("member", {
   id: text("id").primaryKey(),
-  organizationId: text("organization_id")
+  workspaceId: text("workspace_id")
     .notNull()
-    .references(() => organization.id, { onDelete: "cascade" }),
+    .references(() => workspace.id, { onDelete: "cascade" }),
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
   role: text("role").notNull().default("member"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
-  index("member_organization_id_idx").on(table.organizationId),
+  index("member_workspace_id_idx").on(table.workspaceId),
   index("member_user_id_idx").on(table.userId),
 ]);
 
 export const invitation = pgTable("invitation", {
   id: text("id").primaryKey(),
-  organizationId: text("organization_id")
+  workspaceId: text("workspace_id")
     .notNull()
-    .references(() => organization.id, { onDelete: "cascade" }),
+    .references(() => workspace.id, { onDelete: "cascade" }),
   email: text("email").notNull(),
   role: text("role"),
   status: text("status").notNull().default("pending"),
@@ -41,12 +41,12 @@ export const invitation = pgTable("invitation", {
     onDelete: "set null",
   }),
 }, (table) => [
-  index("invitation_organization_id_idx").on(table.organizationId),
+  index("invitation_workspace_id_idx").on(table.workspaceId),
 ]);
 
 // Type exports
-export type Organization = typeof organization.$inferSelect;
-export type NewOrganization = typeof organization.$inferInsert;
+export type Workspace = typeof workspace.$inferSelect;
+export type NewWorkspace = typeof workspace.$inferInsert;
 export type Member = typeof member.$inferSelect;
 export type NewMember = typeof member.$inferInsert;
 export type Invitation = typeof invitation.$inferSelect;

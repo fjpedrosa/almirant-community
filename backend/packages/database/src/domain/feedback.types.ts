@@ -45,7 +45,7 @@ export interface PromoteFeedbackResponse {
 
 export interface PromoteClusterRequest {
   clusterId: string;
-  organizationId: string;
+  workspaceId: string;
   boardId: string;
   boardColumnId?: string | null;
   workItemType?: WorkItemType;

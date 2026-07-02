@@ -11,7 +11,7 @@ import {
 import { planningSessionStatusEnum } from "./enums";
 import { projects } from "./projects";
 import { boards } from "./boards";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { user } from "./auth";
 
 export interface PlanningSessionConfig {
@@ -44,9 +44,9 @@ export const planningSessions = pgTable(
   "planning_sessions",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     projectId: uuid("project_id")
       .references(() => projects.id, { onDelete: "set null" }),
     boardId: uuid("board_id")
@@ -66,7 +66,7 @@ export const planningSessions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    index("planning_sessions_organization_idx").on(table.organizationId),
+    index("planning_sessions_workspace_idx").on(table.workspaceId),
     index("planning_sessions_project_idx").on(table.projectId),
     index("planning_sessions_board_idx").on(table.boardId),
     index("planning_sessions_status_idx").on(table.status),

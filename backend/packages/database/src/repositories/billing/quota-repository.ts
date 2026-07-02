@@ -79,21 +79,21 @@ export const computePeriodBounds = (
 // Provider Quotas CRUD
 // ---------------------------------------------------------------------------
 
-export const listProviderQuotas = async (organizationId: string): Promise<ProviderQuotaDb[]> => {
+export const listProviderQuotas = async (workspaceId: string): Promise<ProviderQuotaDb[]> => {
   return db
     .select()
     .from(providerQuotas)
-    .where(eq(providerQuotas.organizationId, organizationId))
+    .where(eq(providerQuotas.workspaceId, workspaceId))
     .orderBy(desc(providerQuotas.createdAt));
 };
 
 export const createProviderQuota = async (
-  organizationId: string,
-  data: Omit<NewProviderQuota, "id" | "createdAt" | "updatedAt" | "organizationId">
+  workspaceId: string,
+  data: Omit<NewProviderQuota, "id" | "createdAt" | "updatedAt" | "workspaceId">
 ): Promise<ProviderQuotaDb> => {
   const [quota] = await db
     .insert(providerQuotas)
-    .values({ ...data, organizationId })
+    .values({ ...data, workspaceId })
     .returning();
 
   if (!quota) throw new Error("Failed to create provider quota");
@@ -101,7 +101,7 @@ export const createProviderQuota = async (
 };
 
 export const updateProviderQuota = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: Partial<
     Pick<NewProviderQuota, "maxTokens" | "maxCostUsd" | "maxRequests" | "isActive">
@@ -110,7 +110,7 @@ export const updateProviderQuota = async (
   const [updated] = await db
     .update(providerQuotas)
     .set({ ...data, updatedAt: new Date() })
-    .where(and(eq(providerQuotas.id, id), eq(providerQuotas.organizationId, organizationId)))
+    .where(and(eq(providerQuotas.id, id), eq(providerQuotas.workspaceId, workspaceId)))
     .returning();
 
   if (!updated) throw new Error("Provider quota not found");
@@ -122,7 +122,7 @@ export const updateProviderQuota = async (
 // ---------------------------------------------------------------------------
 
 export const getActiveQuotaByProvider = async (
-  organizationId: string,
+  workspaceId: string,
   provider: ProviderQuotaDb["provider"]
 ): Promise<ProviderQuotaDb[]> => {
   return db
@@ -132,7 +132,7 @@ export const getActiveQuotaByProvider = async (
       and(
         eq(providerQuotas.provider, provider),
         eq(providerQuotas.isActive, true),
-        eq(providerQuotas.organizationId, organizationId)
+        eq(providerQuotas.workspaceId, workspaceId)
       )
     );
 };
@@ -225,11 +225,11 @@ export const incrementUsage = async (
 // ---------------------------------------------------------------------------
 
 export const getCurrentUsage = async (
-  organizationId: string,
+  workspaceId: string,
   provider: ProviderQuotaDb["provider"],
   periodType?: "daily" | "weekly" | "monthly"
 ): Promise<CurrentUsage[]> => {
-  const quotas = await getActiveQuotaByProvider(organizationId, provider);
+  const quotas = await getActiveQuotaByProvider(workspaceId, provider);
   const results: CurrentUsage[] = [];
 
   for (const quota of quotas) {
@@ -261,10 +261,10 @@ export const getCurrentUsage = async (
 // ---------------------------------------------------------------------------
 
 export const checkQuotaAvailable = async (
-  organizationId: string,
+  workspaceId: string,
   provider: ProviderQuotaDb["provider"]
 ): Promise<QuotaAvailability> => {
-  const quotas = await getActiveQuotaByProvider(organizationId, provider);
+  const quotas = await getActiveQuotaByProvider(workspaceId, provider);
 
   // No quotas configured = unrestricted
   if (quotas.length === 0) {
@@ -409,8 +409,8 @@ export const createQuotaAlert = async (
   return alert;
 };
 
-export const getUnacknowledgedAlerts = async (organizationId: string): Promise<QuotaAlertDb[]> => {
-  // Join through providerQuotas to filter by organization
+export const getUnacknowledgedAlerts = async (workspaceId: string): Promise<QuotaAlertDb[]> => {
+  // Join through providerQuotas to filter by workspace
   const results = await db
     .select({
       alert: quotaAlerts,
@@ -420,7 +420,7 @@ export const getUnacknowledgedAlerts = async (organizationId: string): Promise<Q
     .where(
       and(
         isNull(quotaAlerts.acknowledgedAt),
-        eq(providerQuotas.organizationId, organizationId)
+        eq(providerQuotas.workspaceId, workspaceId)
       )
     )
     .orderBy(desc(quotaAlerts.createdAt));
@@ -428,8 +428,8 @@ export const getUnacknowledgedAlerts = async (organizationId: string): Promise<Q
   return results.map((r) => r.alert);
 };
 
-export const acknowledgeAlert = async (organizationId: string, alertId: string): Promise<QuotaAlertDb> => {
-  // Verify alert belongs to organization via providerQuota
+export const acknowledgeAlert = async (workspaceId: string, alertId: string): Promise<QuotaAlertDb> => {
+  // Verify alert belongs to workspace via providerQuota
   const [alertRow] = await db
     .select({ alert: quotaAlerts })
     .from(quotaAlerts)
@@ -437,7 +437,7 @@ export const acknowledgeAlert = async (organizationId: string, alertId: string):
     .where(
       and(
         eq(quotaAlerts.id, alertId),
-        eq(providerQuotas.organizationId, organizationId)
+        eq(providerQuotas.workspaceId, workspaceId)
       )
     )
     .limit(1);
@@ -454,12 +454,12 @@ export const acknowledgeAlert = async (organizationId: string, alertId: string):
   return updated;
 };
 
-// Get distinct organization IDs that have active quotas for a given provider
-export const getOrganizationIdsWithActiveQuotas = async (
+// Get distinct workspace IDs that have active quotas for a given provider
+export const getWorkspaceIdsWithActiveQuotas = async (
   provider: ProviderQuotaDb["provider"]
 ): Promise<string[]> => {
   const rows = await db
-    .selectDistinct({ organizationId: providerQuotas.organizationId })
+    .selectDistinct({ workspaceId: providerQuotas.workspaceId })
     .from(providerQuotas)
     .where(
       and(
@@ -467,5 +467,5 @@ export const getOrganizationIdsWithActiveQuotas = async (
         eq(providerQuotas.isActive, true)
       )
     );
-  return rows.map((r) => r.organizationId);
+  return rows.map((r) => r.workspaceId);
 };

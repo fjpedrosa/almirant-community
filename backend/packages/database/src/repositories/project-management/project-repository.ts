@@ -7,7 +7,7 @@ import {
   boards,
   workItems,
   boardColumns,
-  organization,
+  workspace,
   member,
   ideaItems,
   milestones,
@@ -34,7 +34,7 @@ const PROJECT_BASE_SELECT = {
   stagingUrl: projects.stagingUrl,
   screenshotUrl: projects.screenshotUrl,
   techStack: projects.techStack,
-  organizationId: projects.organizationId,
+  workspaceId: projects.workspaceId,
   startDate: projects.startDate,
   targetDate: projects.targetDate,
   createdAt: projects.createdAt,
@@ -135,48 +135,48 @@ const getWorkItemCountsByType = async (projectId: string) => {
 
 // Get all projects with pagination and filters
 export const getProjects = async (
-  organizationIdOrPagination: string | PaginationParams,
+  workspaceIdOrPagination: string | PaginationParams,
   paginationOrFilters?: PaginationParams | ProjectFilters,
   maybeFilters?: ProjectFilters
 ): Promise<{ projects: ProjectWithRelations[]; total: number }> => {
   // Support two calling conventions:
-  //   getProjects(organizationId, pagination, filters?)  -- route handler (3-arg)
+  //   getProjects(workspaceId, pagination, filters?)  -- route handler (3-arg)
   //   getProjects(pagination, filters?)                  -- webhook handler (2-arg, no org scope)
-  let organizationId: string | undefined;
+  let workspaceId: string | undefined;
   let pagination: PaginationParams;
   let filters: ProjectFilters | undefined;
 
-  if (typeof organizationIdOrPagination === "string") {
-    organizationId = organizationIdOrPagination;
+  if (typeof workspaceIdOrPagination === "string") {
+    workspaceId = workspaceIdOrPagination;
     pagination = paginationOrFilters as PaginationParams;
     filters = maybeFilters;
   } else {
-    organizationId = undefined;
-    pagination = organizationIdOrPagination;
+    workspaceId = undefined;
+    pagination = workspaceIdOrPagination;
     filters = paginationOrFilters as ProjectFilters | undefined;
   }
 
-  // Build organization condition based on filter priority:
-  // 1. filters.organizationIds (multi-org): projects in ANY of those orgs + personal (null org)
-  // 2. filters.personal (alone): only projects with no organization
-  // 3. filters.organizationId (single org from filter): that specific org
-  // 4. Fallback: use the organizationId function parameter (backward-compatible default)
+  // Build workspace condition based on filter priority:
+  // 1. filters.workspaceIds (multi-org): projects in ANY of those orgs + personal (null org)
+  // 2. filters.personal (alone): only projects with no workspace
+  // 3. filters.workspaceId (single org from filter): that specific org
+  // 4. Fallback: use the workspaceId function parameter (backward-compatible default)
   // 5. No org constraint at all (webhook handler scenario)
   const conditions: ReturnType<typeof eq>[] = [];
 
-  if (filters?.organizationIds && filters.organizationIds.length > 0) {
+  if (filters?.workspaceIds && filters.workspaceIds.length > 0) {
     conditions.push(
       or(
-        inArray(projects.organizationId, filters.organizationIds),
-        isNull(projects.organizationId)
+        inArray(projects.workspaceId, filters.workspaceIds),
+        isNull(projects.workspaceId)
       )!
     );
   } else if (filters?.personal) {
-    conditions.push(isNull(projects.organizationId));
-  } else if (filters?.organizationId) {
-    conditions.push(eq(projects.organizationId, filters.organizationId));
-  } else if (organizationId) {
-    conditions.push(eq(projects.organizationId, organizationId));
+    conditions.push(isNull(projects.workspaceId));
+  } else if (filters?.workspaceId) {
+    conditions.push(eq(projects.workspaceId, filters.workspaceId));
+  } else if (workspaceId) {
+    conditions.push(eq(projects.workspaceId, workspaceId));
   }
   // else: no org condition -- return projects from all orgs (webhook use case)
 
@@ -197,7 +197,7 @@ export const getProjects = async (
   }
 
   // IMPORTANT:
-  // Project listing is scoped by workspace/organization, not by explicit
+  // Project listing is scoped by workspace/workspace, not by explicit
   // project_members rows. A user who belongs to the active workspace should
   // see the workspace's projects even if older projects are missing
   // backfilled project_members entries. This keeps `/projects` and `/plan`
@@ -209,10 +209,10 @@ export const getProjects = async (
     db
       .select({
         ...PROJECT_BASE_SELECT,
-        organizationName: organization.name,
+        workspaceName: workspace.name,
       })
       .from(projects)
-      .leftJoin(organization, eq(projects.organizationId, organization.id))
+      .leftJoin(workspace, eq(projects.workspaceId, workspace.id))
       .where(whereClause)
       .orderBy(desc(projects.createdAt))
       .limit(pagination.limit)
@@ -225,7 +225,7 @@ export const getProjects = async (
 
   // Get related data for each project
   const projectsWithRelations = await Promise.all(
-    projectsResult.map(async ({ organizationName, ...project }) => {
+    projectsResult.map(async ({ workspaceName, ...project }) => {
       const [docLinksResult, repositoriesResult, notesResult, typeCounts] =
         await Promise.all([
           db
@@ -248,7 +248,7 @@ export const getProjects = async (
 
       return {
         ...project,
-        organizationName: organizationName ?? null,
+        workspaceName: workspaceName ?? null,
         docLinks: docLinksResult,
         repositories: repositoriesResult,
         notes: notesResult,
@@ -265,21 +265,21 @@ export const getProjects = async (
 
 // Get project by ID with relations
 export const getProjectById = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<ProjectWithRelations | null> => {
   const [result] = await db
     .select({
       ...PROJECT_BASE_SELECT,
-      organizationName: organization.name,
+      workspaceName: workspace.name,
     })
     .from(projects)
-    .leftJoin(organization, eq(projects.organizationId, organization.id))
-    .where(and(eq(projects.id, id), eq(projects.organizationId, organizationId)))
+    .leftJoin(workspace, eq(projects.workspaceId, workspace.id))
+    .where(and(eq(projects.id, id), eq(projects.workspaceId, workspaceId)))
     .limit(1);
 
   if (!result) return null;
-  const { organizationName, ...project } = result;
+  const { workspaceName, ...project } = result;
 
   const [docLinksResult, repositoriesResult, notesResult, typeCounts] =
     await Promise.all([
@@ -303,7 +303,7 @@ export const getProjectById = async (
 
   return {
     ...project,
-    organizationName: organizationName ?? null,
+    workspaceName: workspaceName ?? null,
     docLinks: docLinksResult,
     repositories: repositoriesResult,
     notes: notesResult,
@@ -313,7 +313,7 @@ export const getProjectById = async (
 
 // Create project
 export const createProject = async (
-  organizationId: string,
+  workspaceId: string,
   data: CreateProjectRequest
 ): Promise<ProjectWithRelations> => {
   const [newProject] = await db
@@ -329,19 +329,19 @@ export const createProject = async (
       productionUrl: data.productionUrl,
       stagingUrl: data.stagingUrl,
       techStack: data.techStack,
-      organizationId,
+      workspaceId,
       startDate: data.startDate ? new Date(data.startDate) : undefined,
       targetDate: data.targetDate ? new Date(data.targetDate) : undefined,
     })
     .returning({ id: projects.id });
 
   if (!newProject) throw new Error("Failed to create project");
-  return getProjectById(organizationId, newProject.id) as Promise<ProjectWithRelations>;
+  return getProjectById(workspaceId, newProject.id) as Promise<ProjectWithRelations>;
 };
 
 // Update project
 export const updateProject = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: UpdateProjectRequest
 ): Promise<ProjectWithRelations | null> => {
@@ -359,20 +359,20 @@ export const updateProject = async (
       }),
       updatedAt: new Date(),
     })
-    .where(and(eq(projects.id, id), eq(projects.organizationId, organizationId)))
+    .where(and(eq(projects.id, id), eq(projects.workspaceId, workspaceId)))
     .returning({
       id: projects.id,
-      organizationId: projects.organizationId,
+      workspaceId: projects.workspaceId,
     });
 
   if (!updated) return null;
 
-  return getProjectById(updated.organizationId ?? organizationId, id);
+  return getProjectById(updated.workspaceId ?? workspaceId, id);
 };
 
 // Archive project (logical delete via status)
 export const archiveProject = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<Awaited<ReturnType<typeof getProjectById>> | null> => {
   const [updated] = await db
@@ -381,23 +381,23 @@ export const archiveProject = async (
       status: "archived" as const,
       updatedAt: new Date(),
     })
-    .where(and(eq(projects.id, id), eq(projects.organizationId, organizationId)))
+    .where(and(eq(projects.id, id), eq(projects.workspaceId, workspaceId)))
     .returning({ id: projects.id });
 
   if (!updated) return null;
-  return getProjectById(organizationId, id);
+  return getProjectById(workspaceId, id);
 };
 
 // Delete project
-export const deleteProject = async (organizationId: string, id: string): Promise<boolean> => {
+export const deleteProject = async (workspaceId: string, id: string): Promise<boolean> => {
   const result = await db
     .delete(projects)
-    .where(and(eq(projects.id, id), eq(projects.organizationId, organizationId)))
+    .where(and(eq(projects.id, id), eq(projects.workspaceId, workspaceId)))
     .returning({ id: projects.id });
   return result.length > 0;
 };
 
-// Transfer project to a different organization, moving related entities atomically.
+// Transfer project to a different workspace, moving related entities atomically.
 // Boards are org-scoped, so we remap work items to equivalent boards in the
 // destination org (matched by area) and equivalent columns (matched by name).
 export const transferProject = async (
@@ -406,11 +406,11 @@ export const transferProject = async (
   targetOrgId: string
 ): Promise<ProjectWithRelations | null> => {
   return db.transaction(async (tx) => {
-    // 1. Update the project's organizationId
+    // 1. Update the project's workspaceId
     const [updated] = await tx
       .update(projects)
-      .set({ organizationId: targetOrgId, updatedAt: new Date() })
-      .where(and(eq(projects.id, projectId), eq(projects.organizationId, currentOrgId)))
+      .set({ workspaceId: targetOrgId, updatedAt: new Date() })
+      .where(and(eq(projects.id, projectId), eq(projects.workspaceId, currentOrgId)))
       .returning({ id: projects.id });
 
     if (!updated) return null;
@@ -418,17 +418,17 @@ export const transferProject = async (
     // 2. Move ideaItems linked to this project
     await tx
       .update(ideaItems)
-      .set({ organizationId: targetOrgId, updatedAt: new Date() })
-      .where(and(eq(ideaItems.projectId, projectId), eq(ideaItems.organizationId, currentOrgId)));
+      .set({ workspaceId: targetOrgId, updatedAt: new Date() })
+      .where(and(eq(ideaItems.projectId, projectId), eq(ideaItems.workspaceId, currentOrgId)));
 
     // 3. Move milestones linked to this project
     await tx
       .update(milestones)
-      .set({ organizationId: targetOrgId, updatedAt: new Date() })
-      .where(and(eq(milestones.projectId, projectId), eq(milestones.organizationId, currentOrgId)));
+      .set({ workspaceId: targetOrgId, updatedAt: new Date() })
+      .where(and(eq(milestones.projectId, projectId), eq(milestones.workspaceId, currentOrgId)));
 
-    // 4. Remap work items to boards in the destination organization.
-    // Boards belong to organizations (not projects), so work items need their
+    // 4. Remap work items to boards in the destination workspace.
+    // Boards belong to workspaces (not projects), so work items need their
     // boardId/boardColumnId updated to point at equivalent boards in the target org.
 
     // 4a. Get the project's work items that have a board assignment
@@ -448,12 +448,12 @@ export const transferProject = async (
     if (workItemBoardIds.length === 0) return null;
 
     const sourceBoardRows = await tx
-      .select({ id: boards.id, area: boards.area, organizationId: boards.organizationId })
+      .select({ id: boards.id, area: boards.area, workspaceId: boards.workspaceId })
       .from(boards)
       .where(
         and(
           inArray(boards.id, workItemBoardIds),
-          eq(boards.organizationId, currentOrgId)
+          eq(boards.workspaceId, currentOrgId)
         )
       );
 
@@ -478,7 +478,7 @@ export const transferProject = async (
     const destBoardRows = await tx
       .select({ id: boards.id, area: boards.area })
       .from(boards)
-      .where(eq(boards.organizationId, targetOrgId));
+      .where(eq(boards.workspaceId, targetOrgId));
 
     // Build lookup: area -> { boardId, columnsByName, backlogColumnId }
     const destByArea = new Map<string, { boardId: string; columnsByName: Map<string, string>; backlogColId: string | null }>();
@@ -533,45 +533,45 @@ export const transferProject = async (
 };
 
 /**
- * Given a projectId, resolve the organizationId directly from the projects table.
+ * Given a projectId, resolve the workspaceId directly from the projects table.
  * Used by API-key authenticated routes (no user session) that need org context.
- * Returns null if the project is not found or has no organizationId.
+ * Returns null if the project is not found or has no workspaceId.
  */
-export const getOrganizationIdByProjectId = async (
+export const getWorkspaceIdByProjectId = async (
   projectId: string
 ): Promise<string | null> => {
   const [row] = await db
-    .select({ organizationId: projects.organizationId })
+    .select({ workspaceId: projects.workspaceId })
     .from(projects)
     .where(eq(projects.id, projectId))
     .limit(1);
-  return row?.organizationId ?? null;
+  return row?.workspaceId ?? null;
 };
 
 /**
- * Resolves the organizationId for a project, verifying that the given user
- * is a member of that organization. Used by MCP auth to support multi-org
- * API keys: the project determines the active organization context.
+ * Resolves the workspaceId for a project, verifying that the given user
+ * is a member of that workspace. Used by MCP auth to support multi-org
+ * API keys: the project determines the active workspace context.
  *
- * Returns the organizationId if valid, null otherwise.
+ * Returns the workspaceId if valid, null otherwise.
  */
-export const resolveProjectOrganization = async (
+export const resolveProjectWorkspace = async (
   projectId: string,
   userId: string
 ): Promise<string | null> => {
   const [row] = await db
-    .select({ organizationId: projects.organizationId })
+    .select({ workspaceId: projects.workspaceId })
     .from(projects)
     .where(eq(projects.id, projectId))
     .limit(1);
 
-  const orgId = row?.organizationId;
+  const orgId = row?.workspaceId;
   if (!orgId) return null;
 
   const [membership] = await db
     .select({ id: member.id })
     .from(member)
-    .where(and(eq(member.organizationId, orgId), eq(member.userId, userId)))
+    .where(and(eq(member.workspaceId, orgId), eq(member.userId, userId)))
     .limit(1);
 
   return membership ? orgId : null;
@@ -798,7 +798,7 @@ export const getProjectsWithNightlyValidationEnabled = async (): Promise<
   Array<{
     projectId: string;
     projectName: string;
-    organizationId: string;
+    workspaceId: string;
     nightlyValidation: NightlyValidationSettings;
   }>
 > => {
@@ -807,7 +807,7 @@ export const getProjectsWithNightlyValidationEnabled = async (): Promise<
       .select({
         projectId: projects.id,
         projectName: projects.name,
-        organizationId: projects.organizationId,
+        workspaceId: projects.workspaceId,
         nightlyValidation: projects.nightlyValidation,
       })
       .from(projects)
@@ -816,7 +816,7 @@ export const getProjectsWithNightlyValidationEnabled = async (): Promise<
     return rows.map((r) => ({
       projectId: r.projectId,
       projectName: r.projectName,
-      organizationId: r.organizationId ?? "",
+      workspaceId: r.workspaceId ?? "",
       nightlyValidation: normalizeNightlyValidationSettings(r.nightlyValidation),
     }));
   } catch (error) {

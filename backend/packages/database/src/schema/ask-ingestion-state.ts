@@ -9,19 +9,19 @@ import {
 } from "drizzle-orm/pg-core";
 import { askIngestionStatusEnum } from "./enums";
 import { projects } from "./projects";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 
 /**
- * Tracks incremental ingestion cursors per (organization, project, sourceType).
+ * Tracks incremental ingestion cursors per (workspace, project, sourceType).
  * Allows the ingestion pipeline to resume from where it left off.
  */
 export const askIngestionState = pgTable(
   "ask_ingestion_state",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     projectId: uuid("project_id").references(() => projects.id, {
       onDelete: "set null",
     }),
@@ -41,7 +41,7 @@ export const askIngestionState = pgTable(
   },
   (table) => [
     uniqueIndex("ask_ingestion_state_org_project_source_idx").on(
-      table.organizationId,
+      table.workspaceId,
       table.projectId,
       table.sourceType
     ),

@@ -15,7 +15,7 @@ const getOrgWorkerNames = (orgId: string) =>
       agentJobs,
       and(
         eq(workerRegistrations.workerId, agentJobs.workerId),
-        eq(agentJobs.organizationId, orgId)
+        eq(agentJobs.workspaceId, orgId)
       )
     );
 
@@ -33,7 +33,7 @@ const verifyWorkerBelongsToOrg = async (
       agentJobs,
       and(
         eq(workerRegistrations.workerId, agentJobs.workerId),
-        eq(agentJobs.organizationId, orgId)
+        eq(agentJobs.workspaceId, orgId)
       )
     )
     .where(eq(workerRegistrations.hostname, workerName))

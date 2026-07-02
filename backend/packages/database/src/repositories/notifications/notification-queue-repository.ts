@@ -3,7 +3,7 @@ import { notificationQueue } from "../../schema";
 import { and, eq, isNull, lte, sql, asc } from "drizzle-orm";
 
 export const enqueueNotification = async (
-  organizationId: string,
+  workspaceId: string,
   recipientUserId: string,
   type: "assignment" | "comment" | "mention" | "status_changed",
   debounceKey: string,
@@ -33,7 +33,7 @@ export const enqueueNotification = async (
   } else {
     // Insert new notification
     await db.insert(notificationQueue).values({
-      organizationId,
+      workspaceId,
       recipientUserId,
       type,
       debounceKey,

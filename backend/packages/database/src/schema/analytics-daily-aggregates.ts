@@ -11,15 +11,15 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 
 export const analyticsDailyAggregates = pgTable(
   "analytics_daily_aggregates",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     date: timestamp("date").notNull(),
     totalJobs: integer("total_jobs").notNull().default(0),
     completedJobs: integer("completed_jobs").notNull().default(0),
@@ -44,10 +44,10 @@ export const analyticsDailyAggregates = pgTable(
   },
   (table) => [
     uniqueIndex("analytics_daily_aggregates_org_date_idx").on(
-      table.organizationId,
+      table.workspaceId,
       table.date
     ),
-    index("analytics_daily_aggregates_org_idx").on(table.organizationId),
+    index("analytics_daily_aggregates_org_idx").on(table.workspaceId),
     index("analytics_daily_aggregates_date_idx").on(table.date),
   ]
 );
@@ -56,9 +56,9 @@ export const analyticsDailyUserAggregates = pgTable(
   "analytics_daily_user_aggregates",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -86,11 +86,11 @@ export const analyticsDailyUserAggregates = pgTable(
   },
   (table) => [
     uniqueIndex("analytics_daily_user_aggregates_org_user_date_idx").on(
-      table.organizationId,
+      table.workspaceId,
       table.userId,
       table.date
     ),
-    index("analytics_daily_user_aggregates_org_idx").on(table.organizationId),
+    index("analytics_daily_user_aggregates_org_idx").on(table.workspaceId),
     index("analytics_daily_user_aggregates_user_idx").on(table.userId),
     index("analytics_daily_user_aggregates_date_idx").on(table.date),
   ]

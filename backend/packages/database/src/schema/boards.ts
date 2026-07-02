@@ -9,14 +9,14 @@ import {
   boolean,
 } from "drizzle-orm/pg-core";
 import { boardAreaEnum, columnRoleEnum } from "./enums";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 
 // Boards
 export const boards = pgTable("boards", {
   id: uuid("id").defaultRandom().primaryKey(),
-  organizationId: text("organization_id")
+  workspaceId: text("workspace_id")
     .notNull()
-    .references(() => organization.id, { onDelete: "cascade" }),
+    .references(() => workspace.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   area: boardAreaEnum("area").notNull().default("general"),

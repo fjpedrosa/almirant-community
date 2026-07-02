@@ -5,7 +5,7 @@ import {
 } from "../../schema";
 
 export interface CreateMemoryTelemetryInput {
-  organizationId: string;
+  workspaceId: string;
   agentJobId?: string | null;
   event: "search" | "context" | "save" | "inject";
   query?: string | null;
@@ -27,7 +27,7 @@ export const createMemoryTelemetry = async (
     const [telemetry] = await tx
       .insert(agentMemoryTelemetry)
       .values({
-        organizationId: input.organizationId,
+        workspaceId: input.workspaceId,
         agentJobId: input.agentJobId ?? null,
         event: input.event,
         query: input.query ?? null,

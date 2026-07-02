@@ -11,7 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { projectStatusEnum, docLinkTypeEnum, repositoryProviderEnum } from "./enums";
 import type { ProjectAgentDefaults } from "../repositories/agents/backlog-drain-selection";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 
 // Projects table
 export const projects = pgTable("projects", {
@@ -27,7 +27,7 @@ export const projects = pgTable("projects", {
   stagingUrl: text("staging_url"),
   screenshotUrl: text("screenshot_url"),
   techStack: text("tech_stack").array(),
-  organizationId: text("organization_id").references(() => organization.id, { onDelete: "set null" }),
+  workspaceId: text("workspace_id").references(() => workspace.id, { onDelete: "set null" }),
   skillConfig: jsonb("skill_config").$type<{
     skillSet: "platform" | "custom";
     customSkillsUrl: string | null;
@@ -48,7 +48,7 @@ export const projects = pgTable("projects", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
-  index("projects_organization_id_idx").on(table.organizationId),
+  index("projects_workspace_id_idx").on(table.workspaceId),
 ]);
 
 // Project doc links

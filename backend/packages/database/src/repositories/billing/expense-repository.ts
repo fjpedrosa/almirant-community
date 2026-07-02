@@ -97,11 +97,11 @@ const hydrateExpenseRelations = async (item: ExpenseRow): Promise<ExpenseWithRel
 // ── CRUD ────────────────────────────────────────────────────────────────
 
 export const getExpenses = async (
-  organizationId: string,
+  workspaceId: string,
   pagination: PaginationParams,
   filters?: ExpenseFilters
 ): Promise<{ items: ExpenseWithRelations[]; total: number }> => {
-  const conditions = [eq(expenses.organizationId, organizationId)];
+  const conditions = [eq(expenses.workspaceId, workspaceId)];
 
   if (filters?.status) {
     conditions.push(eq(expenses.status, filters.status as "draft" | "pending_approval" | "approved" | "rejected" | "paid" | "void"));
@@ -163,13 +163,13 @@ export const getExpenses = async (
 };
 
 export const getExpenseById = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<ExpenseWithRelations | null> => {
   const [item] = await db
     .select()
     .from(expenses)
-    .where(and(eq(expenses.id, id), eq(expenses.organizationId, organizationId)))
+    .where(and(eq(expenses.id, id), eq(expenses.workspaceId, workspaceId)))
     .limit(1);
 
   if (!item) return null;
@@ -177,14 +177,14 @@ export const getExpenseById = async (
 };
 
 export const createExpense = async (
-  organizationId: string,
+  workspaceId: string,
   data: CreateExpenseRequest,
   createdByUserId?: string
 ): Promise<ExpenseWithRelations> => {
   const [created] = await db
     .insert(expenses)
     .values({
-      organizationId,
+      workspaceId,
       title: data.title.trim(),
       description: data.description ?? null,
       vendor: data.vendor ?? null,
@@ -209,7 +209,7 @@ export const createExpense = async (
 };
 
 export const updateExpense = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: UpdateExpenseRequest
 ): Promise<ExpenseWithRelations | null> => {
@@ -243,7 +243,7 @@ export const updateExpense = async (
   const [updated] = await db
     .update(expenses)
     .set(updateValues)
-    .where(and(eq(expenses.id, id), eq(expenses.organizationId, organizationId)))
+    .where(and(eq(expenses.id, id), eq(expenses.workspaceId, workspaceId)))
     .returning();
 
   if (!updated) return null;
@@ -251,12 +251,12 @@ export const updateExpense = async (
 };
 
 export const deleteExpense = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<boolean> => {
   const deleted = await db
     .delete(expenses)
-    .where(and(eq(expenses.id, id), eq(expenses.organizationId, organizationId)))
+    .where(and(eq(expenses.id, id), eq(expenses.workspaceId, workspaceId)))
     .returning({ id: expenses.id });
 
   return deleted.length > 0;
@@ -273,10 +273,10 @@ export interface ExpenseAggregations {
 }
 
 export const getExpenseAggregations = async (
-  organizationId: string,
+  workspaceId: string,
   filters?: ExpenseFilters
 ): Promise<ExpenseAggregations> => {
-  const conditions = [eq(expenses.organizationId, organizationId)];
+  const conditions = [eq(expenses.workspaceId, workspaceId)];
 
   if (filters?.status) {
     conditions.push(eq(expenses.status, filters.status as "draft" | "pending_approval" | "approved" | "rejected" | "paid" | "void"));

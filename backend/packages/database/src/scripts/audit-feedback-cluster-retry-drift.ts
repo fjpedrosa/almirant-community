@@ -88,7 +88,7 @@ interface AuditRow {
   clusterStatus: string;
   clusterTitle: string;
   projectId: string | null;
-  organizationId: string | null;
+  workspaceId: string | null;
   primaryFeedbackItemId: string | null;
   primaryFeedbackItemCreatedAt: string | null;
   attemptsByCluster: number;
@@ -310,7 +310,7 @@ const runAudit = async (options: CliOptions): Promise<AuditRow[]> => {
         )::int                                             AS active_attempts_by_cluster,
         COUNT(DISTINCT bfa."feedback_item_id")::int        AS distinct_feedback_items_with_attempts,
         MIN(bfa."project_id"::text)                        AS project_id,
-        MIN(bfa."organization_id")                         AS organization_id
+        MIN(bfa."workspace_id")                         AS workspace_id
       FROM "bug_fix_attempts" bfa
       WHERE bfa."cluster_id" IS NOT NULL
         ${narrowByProjectId}
@@ -361,7 +361,7 @@ const runAudit = async (options: CliOptions): Promise<AuditRow[]> => {
       pi.primary_feedback_item_id::text                                AS "primaryFeedbackItemId",
       pi.primary_feedback_item_created_at                              AS "primaryFeedbackItemCreatedAt",
       pca.project_id                                                   AS "projectId",
-      pca.organization_id                                              AS "organizationId",
+      pca.workspace_id                                              AS "workspaceId",
       COALESCE(pca.attempts_by_cluster, 0)                             AS "attemptsByCluster",
       COALESCE(ppa.attempts_by_primary_item, 0)                        AS "attemptsByPrimaryItem",
       COALESCE(pca.active_attempts_by_cluster, 0)                      AS "activeAttemptsByCluster",
@@ -420,7 +420,7 @@ const runAudit = async (options: CliOptions): Promise<AuditRow[]> => {
       clusterStatus: toStringOrNull(row.clusterStatus) ?? "",
       clusterTitle: clusterTitleRaw,
       projectId: toStringOrNull(row.projectId),
-      organizationId: toStringOrNull(row.organizationId),
+      workspaceId: toStringOrNull(row.workspaceId),
       primaryFeedbackItemId: toStringOrNull(row.primaryFeedbackItemId),
       primaryFeedbackItemCreatedAt: toStringOrNull(row.primaryFeedbackItemCreatedAt),
       attemptsByCluster,
@@ -518,7 +518,7 @@ const printHumanReport = (
       : `CLEAN`;
     log(`[${header}] cluster=${row.clusterId} status=${row.clusterStatus}`);
     log(`  title: ${row.clusterTitle}`);
-    log(`  project=${row.projectId ?? "-"} organization=${row.organizationId ?? "-"}`);
+    log(`  project=${row.projectId ?? "-"} workspace=${row.workspaceId ?? "-"}`);
     log(
       `  primaryFeedbackItemId=${row.primaryFeedbackItemId ?? "-"} (createdAt=${
         row.primaryFeedbackItemCreatedAt ?? "-"

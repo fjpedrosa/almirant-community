@@ -7,25 +7,25 @@ import type {
   UpdateNoteRequest,
 } from "../../domain/types";
 
-// Verify project belongs to organization
+// Verify project belongs to workspace
 const verifyProjectOrg = async (
-  organizationId: string,
+  workspaceId: string,
   projectId: string
 ): Promise<boolean> => {
   const [proj] = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
+    .where(and(eq(projects.id, projectId), eq(projects.workspaceId, workspaceId)))
     .limit(1);
   return !!proj;
 };
 
 // Get all notes for a project
 export const getNotes = async (
-  organizationId: string,
+  workspaceId: string,
   projectId: string
 ): Promise<ProjectNote[]> => {
-  if (!(await verifyProjectOrg(organizationId, projectId))) return [];
+  if (!(await verifyProjectOrg(workspaceId, projectId))) return [];
 
   const result = await db
     .select()
@@ -38,7 +38,7 @@ export const getNotes = async (
 
 // Get a single note by ID
 export const getNoteById = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<ProjectNote | null> => {
   const [note] = await db
@@ -53,7 +53,7 @@ export const getNoteById = async (
     })
     .from(projectNotes)
     .innerJoin(projects, eq(projectNotes.projectId, projects.id))
-    .where(and(eq(projectNotes.id, id), eq(projects.organizationId, organizationId)))
+    .where(and(eq(projectNotes.id, id), eq(projects.workspaceId, workspaceId)))
     .limit(1);
 
   if (!note) return null;
@@ -63,12 +63,12 @@ export const getNoteById = async (
 
 // Create a note
 export const createNote = async (
-  organizationId: string,
+  workspaceId: string,
   projectId: string,
   data: CreateNoteRequest
 ): Promise<ProjectNote> => {
-  if (!(await verifyProjectOrg(organizationId, projectId))) {
-    throw new Error("Project not found or does not belong to organization");
+  if (!(await verifyProjectOrg(workspaceId, projectId))) {
+    throw new Error("Project not found or does not belong to workspace");
   }
 
   const [newNote] = await db
@@ -86,7 +86,7 @@ export const createNote = async (
 
 // Update a note
 export const updateNote = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: UpdateNoteRequest
 ): Promise<ProjectNote | null> => {
@@ -95,7 +95,7 @@ export const updateNote = async (
     .select({ id: projectNotes.id })
     .from(projectNotes)
     .innerJoin(projects, eq(projectNotes.projectId, projects.id))
-    .where(and(eq(projectNotes.id, id), eq(projects.organizationId, organizationId)))
+    .where(and(eq(projectNotes.id, id), eq(projects.workspaceId, workspaceId)))
     .limit(1);
   if (!existing) return null;
 
@@ -115,7 +115,7 @@ export const updateNote = async (
 
 // Delete a note
 export const deleteNote = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<boolean> => {
   // Verify note belongs to org via project
@@ -123,7 +123,7 @@ export const deleteNote = async (
     .select({ id: projectNotes.id })
     .from(projectNotes)
     .innerJoin(projects, eq(projectNotes.projectId, projects.id))
-    .where(and(eq(projectNotes.id, id), eq(projects.organizationId, organizationId)))
+    .where(and(eq(projectNotes.id, id), eq(projects.workspaceId, workspaceId)))
     .limit(1);
   if (!existing) return false;
 
@@ -136,11 +136,11 @@ export const deleteNote = async (
 
 // Reorder notes for a project
 export const reorderNotes = async (
-  organizationId: string,
+  workspaceId: string,
   projectId: string,
   noteIds: string[]
 ): Promise<void> => {
-  if (!(await verifyProjectOrg(organizationId, projectId))) return;
+  if (!(await verifyProjectOrg(workspaceId, projectId))) return;
 
   await Promise.all(
     noteIds.map((noteId, index) =>

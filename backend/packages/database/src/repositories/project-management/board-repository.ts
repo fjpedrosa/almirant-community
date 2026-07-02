@@ -65,7 +65,7 @@ const DEFAULT_BOARD_COLUMNS: Array<{
 
 // Provision a default "Desarrollo" board with the canonical 6-column workflow (idempotent)
 export const provisionDefaultBoard = async (
-  organizationId: string
+  workspaceId: string
 ): Promise<{ provisioned: true; board: BoardWithStats } | { provisioned: false }> => {
   // Check if a default desarrollo board already exists
   const [existing] = await db
@@ -73,7 +73,7 @@ export const provisionDefaultBoard = async (
     .from(boards)
     .where(
       and(
-        eq(boards.organizationId, organizationId),
+        eq(boards.workspaceId, workspaceId),
         eq(boards.isDefault, true),
         eq(boards.area, "desarrollo")
       )
@@ -88,7 +88,7 @@ export const provisionDefaultBoard = async (
   const [newBoard] = await db
     .insert(boards)
     .values({
-      organizationId,
+      workspaceId,
       name: "Desarrollo",
       description: null,
       area: "desarrollo",
@@ -110,18 +110,18 @@ export const provisionDefaultBoard = async (
     }))
   );
 
-  const board = await getBoardById(newBoard.id, organizationId);
+  const board = await getBoardById(newBoard.id, workspaceId);
   if (!board) throw new Error("Failed to retrieve provisioned board");
 
   return { provisioned: true, board };
 };
 
 // Get all boards (global) with columns and work item count
-export const getAllBoards = async (organizationId: string): Promise<BoardWithStats[]> => {
+export const getAllBoards = async (workspaceId: string): Promise<BoardWithStats[]> => {
   const boardsResult = await db
     .select()
     .from(boards)
-    .where(eq(boards.organizationId, organizationId))
+    .where(eq(boards.workspaceId, workspaceId))
     .orderBy(asc(boards.createdAt));
 
   return Promise.all(boardsResult.map((board) => enrichBoard(board)));
@@ -130,12 +130,12 @@ export const getAllBoards = async (organizationId: string): Promise<BoardWithSta
 // Get single board by ID with columns and total items (org-scoped, for user-facing routes)
 export const getBoardById = async (
   id: string,
-  organizationId: string
+  workspaceId: string
 ): Promise<BoardWithStats | null> => {
   const [board] = await db
     .select()
     .from(boards)
-    .where(and(eq(boards.id, id), eq(boards.organizationId, organizationId)))
+    .where(and(eq(boards.id, id), eq(boards.workspaceId, workspaceId)))
     .limit(1);
 
   if (!board) return null;
@@ -158,15 +158,15 @@ export const getBoardByIdInternal = async (
   return enrichBoard(board);
 };
 
-// Create a new board for an organization
+// Create a new board for a workspace
 export const createBoard = async (
-  organizationId: string,
+  workspaceId: string,
   data: CreateBoardRequest
 ): Promise<BoardWithStats> => {
   const [newBoard] = await db
     .insert(boards)
     .values({
-      organizationId,
+      workspaceId,
       name: data.name,
       description: data.description,
       area: data.area || "general",
@@ -176,23 +176,23 @@ export const createBoard = async (
     .returning();
 
   if (!newBoard) throw new Error("Failed to create board");
-  return getBoardById(newBoard.id, organizationId) as Promise<BoardWithStats>;
+  return getBoardById(newBoard.id, workspaceId) as Promise<BoardWithStats>;
 };
 
 // Update board
 export const updateBoard = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: UpdateBoardRequest
 ): Promise<BoardWithStats | null> => {
-  // Verify board belongs to organization
+  // Verify board belongs to workspace
   const [boardRow] = await db
     .select({ id: boards.id })
     .from(boards)
     .where(
       and(
         eq(boards.id, id),
-        eq(boards.organizationId, organizationId)
+        eq(boards.workspaceId, workspaceId)
       )
     )
     .limit(1);
@@ -210,19 +210,19 @@ export const updateBoard = async (
 
   if (!updated) return null;
 
-  return getBoardById(id, organizationId);
+  return getBoardById(id, workspaceId);
 };
 
 // Delete board
-export const deleteBoard = async (organizationId: string, id: string): Promise<boolean> => {
-  // Verify board belongs to organization
+export const deleteBoard = async (workspaceId: string, id: string): Promise<boolean> => {
+  // Verify board belongs to workspace
   const [boardRow] = await db
     .select({ id: boards.id })
     .from(boards)
     .where(
       and(
         eq(boards.id, id),
-        eq(boards.organizationId, organizationId)
+        eq(boards.workspaceId, workspaceId)
       )
     )
     .limit(1);
@@ -238,7 +238,7 @@ export const deleteBoard = async (organizationId: string, id: string): Promise<b
 
 // Create board from a template
 export const createBoardFromTemplate = async (
-  organizationId: string,
+  workspaceId: string,
   templateId: string,
   name?: string
 ): Promise<BoardWithStats | null> => {
@@ -255,7 +255,7 @@ export const createBoardFromTemplate = async (
   const [newBoard] = await db
     .insert(boards)
     .values({
-      organizationId,
+      workspaceId,
       name: name || template.name,
       description: template.description,
       area: template.area,
@@ -286,26 +286,26 @@ export const createBoardFromTemplate = async (
     );
   }
 
-  return getBoardById(newBoard.id, organizationId);
+  return getBoardById(newBoard.id, workspaceId);
 };
 
-// Verify board belongs to organization (shared helper for column functions)
+// Verify board belongs to workspace (shared helper for column functions)
 const verifyBoardOwnership = async (
   boardId: string,
-  organizationId: string
+  workspaceId: string
 ): Promise<boolean> => {
   const [board] = await db
     .select({ id: boards.id })
     .from(boards)
-    .where(and(eq(boards.id, boardId), eq(boards.organizationId, organizationId)))
+    .where(and(eq(boards.id, boardId), eq(boards.workspaceId, workspaceId)))
     .limit(1);
   return !!board;
 };
 
-// Verify column's board belongs to organization (shared helper)
+// Verify column's board belongs to workspace (shared helper)
 const verifyColumnOwnership = async (
   columnId: string,
-  organizationId: string
+  workspaceId: string
 ): Promise<{ boardId: string } | null> => {
   const [result] = await db
     .select({ boardId: boardColumns.boardId })
@@ -314,7 +314,7 @@ const verifyColumnOwnership = async (
     .where(
       and(
         eq(boardColumns.id, columnId),
-        eq(boards.organizationId, organizationId)
+        eq(boards.workspaceId, workspaceId)
       )
     )
     .limit(1);
@@ -322,8 +322,8 @@ const verifyColumnOwnership = async (
 };
 
 // Get columns for a board ordered by order
-export const getBoardColumns = async (boardId: string, organizationId: string) => {
-  const owned = await verifyBoardOwnership(boardId, organizationId);
+export const getBoardColumns = async (boardId: string, workspaceId: string) => {
+  const owned = await verifyBoardOwnership(boardId, workspaceId);
   if (!owned) return null;
 
   const columns = await db
@@ -354,10 +354,10 @@ export const getBoardColumnsByIds = async (columnIds: string[]) => {
 // Create a new column for a board
 export const createColumn = async (
   boardId: string,
-  organizationId: string,
+  workspaceId: string,
   data: CreateColumnRequest
 ) => {
-  const owned = await verifyBoardOwnership(boardId, organizationId);
+  const owned = await verifyBoardOwnership(boardId, workspaceId);
   if (!owned) return null;
 
   let order = data.order;
@@ -394,10 +394,10 @@ export const createColumn = async (
 // Update a column
 export const updateColumn = async (
   id: string,
-  organizationId: string,
+  workspaceId: string,
   data: UpdateColumnRequest
 ) => {
-  const ownership = await verifyColumnOwnership(id, organizationId);
+  const ownership = await verifyColumnOwnership(id, workspaceId);
   if (!ownership) return null;
 
   const nextIsDone = syncIsDoneWithRole(data.role, data.isDone);
@@ -420,8 +420,8 @@ export const updateColumn = async (
 };
 
 // Delete a column
-export const deleteColumn = async (id: string, organizationId: string): Promise<boolean> => {
-  const ownership = await verifyColumnOwnership(id, organizationId);
+export const deleteColumn = async (id: string, workspaceId: string): Promise<boolean> => {
+  const ownership = await verifyColumnOwnership(id, workspaceId);
   if (!ownership) return false;
 
   const result = await db
@@ -434,10 +434,10 @@ export const deleteColumn = async (id: string, organizationId: string): Promise<
 // Reorder columns by updating order based on array index
 export const reorderColumns = async (
   boardId: string,
-  organizationId: string,
+  workspaceId: string,
   columnIds: string[]
 ) => {
-  const owned = await verifyBoardOwnership(boardId, organizationId);
+  const owned = await verifyBoardOwnership(boardId, workspaceId);
   if (!owned) return null;
 
   await Promise.all(
@@ -449,7 +449,7 @@ export const reorderColumns = async (
     )
   );
 
-  return getBoardColumns(boardId, organizationId);
+  return getBoardColumns(boardId, workspaceId);
 };
 
 // Get all board templates
@@ -468,7 +468,7 @@ export const getBoardTemplates = async (): Promise<BoardTemplate[]> => {
 
 // Get all boards for a given area with columns and totalItems
 export const getBoardsByArea = async (
-  organizationId: string,
+  workspaceId: string,
   area: BoardArea
 ): Promise<BoardWithStats[]> => {
   const boardsResult = await db
@@ -477,7 +477,7 @@ export const getBoardsByArea = async (
     .where(
       and(
         eq(boards.area, area),
-        eq(boards.organizationId, organizationId)
+        eq(boards.workspaceId, workspaceId)
       )
     )
     .orderBy(asc(boards.createdAt));

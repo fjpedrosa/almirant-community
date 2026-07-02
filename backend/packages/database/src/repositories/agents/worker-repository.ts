@@ -247,7 +247,7 @@ export const getWorkersWithJobs = async (orgId?: string) => {
       .from(agentJobs)
       .where(
         and(
-          eq(agentJobs.organizationId, orgId),
+          eq(agentJobs.workspaceId, orgId),
           sql`${agentJobs.workerId} IS NOT NULL`
         )
       );
@@ -279,7 +279,7 @@ export const getWorkersWithJobs = async (orgId?: string) => {
   ];
   // Only show this org's jobs
   if (orgId) {
-    jobConditions.push(eq(agentJobs.organizationId, orgId));
+    jobConditions.push(eq(agentJobs.workspaceId, orgId));
   }
 
   const activeJobRows = await db
@@ -324,7 +324,7 @@ export const deleteWorker = async (workerId: string, orgId?: string): Promise<bo
       .where(
         and(
           eq(agentJobs.workerId, workerId),
-          eq(agentJobs.organizationId, orgId)
+          eq(agentJobs.workspaceId, orgId)
         )
       )
       .limit(1);

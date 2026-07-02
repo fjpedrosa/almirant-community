@@ -11,16 +11,16 @@ import {
 } from "drizzle-orm/pg-core";
 import { seedStatusEnum, seedSourceEnum, priorityEnum } from "./enums";
 import { projects } from "./projects";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { user } from "./auth";
 
 export const seeds = pgTable(
   "seeds",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     status: seedStatusEnum("status").notNull().default("draft"),
     title: varchar("title", { length: 500 }).notNull(),
@@ -36,7 +36,7 @@ export const seeds = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    index("seeds_organization_idx").on(table.organizationId),
+    index("seeds_workspace_idx").on(table.workspaceId),
     index("seeds_project_idx").on(table.projectId),
     index("seeds_status_idx").on(table.status),
     index("seeds_owner_user_idx").on(table.ownerUserId),
