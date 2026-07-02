@@ -255,12 +255,14 @@ export const mapCanonicalEventToPlanningWsMessage = (
         type: "planning:question",
         payload: sequencedPayload({
           sessionId: ctx.sessionId,
-          questionId: `question-${ctx.sequenceNumber}`,
+          questionId: event.questionId ?? `question-${ctx.sequenceNumber}`,
           questionText: event.questionText,
           options: event.options ?? [],
           ...(event.questions ? { questions: event.questions } : {}),
           ...(event.questionType ? { questionType: event.questionType } : {}),
-          expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+          expiresAt:
+            event.expiresAt ??
+            new Date(Date.now() + 15 * 60 * 1000).toISOString(),
         }),
       };
 

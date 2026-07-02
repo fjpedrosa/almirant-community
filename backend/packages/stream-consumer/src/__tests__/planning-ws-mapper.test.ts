@@ -38,6 +38,41 @@ describe("mapCanonicalEventToPlanningWsMessage", () => {
     });
   });
 
+  test("preserva identidad y expiración de preguntas canónicas v2", () => {
+    const message = mapCanonicalEventToPlanningWsMessage(
+      {
+        kind: "agent.question",
+        questionId: "q-turn-123",
+        questionText: "¿Qué opción prefieres?",
+        options: ["A", "B"],
+        expiresAt: "2026-04-28T01:30:00.000Z",
+      },
+      {
+        sessionId: "session-1",
+        sequenceNumber: 43,
+      },
+    );
+
+    expect(message?.payload.questionId).toBe("q-turn-123");
+    expect(message?.payload.expiresAt).toBe("2026-04-28T01:30:00.000Z");
+  });
+
+  test("silencia eventos de turno canónico v2 en el mapper legacy", () => {
+    const message = mapCanonicalEventToPlanningWsMessage(
+      {
+        kind: "turn.awaiting_user",
+        turnId: "turn-123",
+        interactionId: "q-turn-123",
+      },
+      {
+        sessionId: "session-1",
+        sequenceNumber: 44,
+      },
+    );
+
+    expect(message).toBeNull();
+  });
+
   test("normaliza mcp_tool cuando el preview incluye servidor y accion MCP", () => {
     const message = mapCanonicalEventToPlanningWsMessage(
       {
