@@ -89,6 +89,9 @@ interface DeferredQuestion extends PendingQuestion {
 const ANSWERED_QUESTIONS_STORAGE_KEY_PREFIX =
   "almirant:planning:answered-questions:";
 
+const ANSWERED_QUESTION_SIGNATURES_STORAGE_KEY_PREFIX =
+  "almirant:planning:answered-question-signatures:";
+
 const appendUniqueQuestionId = (
   questionIds: string[],
   questionId: string,
@@ -302,6 +305,53 @@ const persistAnsweredQuestionId = (
   }
 };
 
+const getAnsweredQuestionSignaturesStorageKey = (sessionId: string): string =>
+  `${ANSWERED_QUESTION_SIGNATURES_STORAGE_KEY_PREFIX}${sessionId}`;
+
+const readPersistedAnsweredQuestionSignatures = (
+  sessionId: string,
+): string[] => {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = window.sessionStorage.getItem(
+      getAnsweredQuestionSignaturesStorageKey(sessionId),
+    );
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.filter(
+      (signature): signature is string =>
+        typeof signature === "string" && signature.length > 0,
+    );
+  } catch {
+    return [];
+  }
+};
+
+const persistAnsweredQuestionSignature = (
+  sessionId: string,
+  signature: string | null | undefined,
+): void => {
+  if (typeof window === "undefined" || !signature) return;
+
+  const answeredQuestionSignatures = appendUniqueQuestionSignature(
+    readPersistedAnsweredQuestionSignatures(sessionId),
+    signature,
+  );
+
+  try {
+    window.sessionStorage.setItem(
+      getAnsweredQuestionSignaturesStorageKey(sessionId),
+      JSON.stringify(answeredQuestionSignatures),
+    );
+  } catch {
+    // Best effort only — the in-memory reducer state still handles the happy path.
+  }
+};
+
 // Re-export for backward compatibility
 export type { StreamingBlock } from "@/domains/shared/domain/streaming-block-types";
 import type { StreamingBlock } from "@/domains/shared/domain/streaming-block-types";
@@ -462,6 +512,7 @@ type PlanningAction =
       activeJobStatus?: AgentJobStatus;
       activeJobStartedAt?: string | null;
       answeredQuestionIds?: string[];
+      answeredQuestionSignatures?: string[];
     }
   | {
       type: "RESUME_SESSION";
@@ -477,6 +528,7 @@ type PlanningAction =
       };
       pendingInteraction?: PlanningPendingInteraction | null;
       answeredQuestionIds?: string[];
+      answeredQuestionSignatures?: string[];
     }
   | {
       type: "RECOVER_SESSION";
@@ -2063,6 +2115,15 @@ export const planningReducer = (
         action.messages,
       );
       const restoredAnsweredQuestionIds = action.answeredQuestionIds ?? [];
+      const restoredAnsweredQuestionSignatures =
+        action.answeredQuestionSignatures ?? [];
+      const mergedAnsweredQuestionSignatures =
+        state.sessionId === action.session.id
+          ? restoredAnsweredQuestionSignatures.reduce(
+              appendUniqueQuestionSignature,
+              state.answeredQuestionSignatures,
+            )
+          : restoredAnsweredQuestionSignatures;
       let restoredExpiresAt: string | null = null;
 
       // Use pending question from loadMessagesFromLogs (detected from AskUserQuestion tool_use
@@ -2077,6 +2138,9 @@ export const planningReducer = (
         hasRestoredQuestionAlreadyBeenAnswered(
           answeredQuestionTexts,
           restoredQuestion,
+        ) ||
+        mergedAnsweredQuestionSignatures.includes(
+          buildQuestionSignature(restoredQuestion) ?? "",
         )
       ) {
         restoredQuestion = null;
@@ -2122,6 +2186,9 @@ export const planningReducer = (
             !hasRestoredQuestionAlreadyBeenAnswered(
               answeredQuestionTexts,
               candidateQuestion,
+            ) &&
+            !mergedAnsweredQuestionSignatures.includes(
+              buildQuestionSignature(candidateQuestion) ?? "",
             )
           ) {
             restoredQuestion = candidateQuestion;
@@ -2195,10 +2262,7 @@ export const planningReducer = (
             ? restoredProcessingStartedAt
             : null,
         answeredQuestionIds: restoredAnsweredQuestionIds,
-        answeredQuestionSignatures:
-          state.sessionId === action.session.id
-            ? state.answeredQuestionSignatures
-            : [],
+        answeredQuestionSignatures: mergedAnsweredQuestionSignatures,
         resumeStep: null,
         interruptionReason: isInterrupted
           ? ((action.session.result as Record<string, unknown> | null)?.interruptionContext as Record<string, unknown> | undefined)?.reason as string ?? "unknown"
@@ -2260,6 +2324,15 @@ export const planningReducer = (
       let resumedFollowUpPrompt: string | null = null;
       let resumedExpiresAt: string | null = null;
       const resumedAnsweredQuestionIds = action.answeredQuestionIds ?? [];
+      const resumedAnsweredQuestionSignatures =
+        action.answeredQuestionSignatures ?? [];
+      const mergedResumedAnsweredQuestionSignatures =
+        state.sessionId === action.session.id
+          ? resumedAnsweredQuestionSignatures.reduce(
+              appendUniqueQuestionSignature,
+              state.answeredQuestionSignatures,
+            )
+          : resumedAnsweredQuestionSignatures;
       const answeredQuestionTexts = extractAnsweredQuestionTexts(
         action.messages,
       );
@@ -2272,6 +2345,9 @@ export const planningReducer = (
         hasRestoredQuestionAlreadyBeenAnswered(
           answeredQuestionTexts,
           resumedQuestion,
+        ) ||
+        mergedResumedAnsweredQuestionSignatures.includes(
+          buildQuestionSignature(resumedQuestion) ?? "",
         )
       ) {
         resumedQuestion = null;
@@ -2312,6 +2388,9 @@ export const planningReducer = (
             !hasRestoredQuestionAlreadyBeenAnswered(
               answeredQuestionTexts,
               candidateQuestion,
+            ) &&
+            !mergedResumedAnsweredQuestionSignatures.includes(
+              buildQuestionSignature(candidateQuestion) ?? "",
             )
           ) {
             resumedQuestion = candidateQuestion;
@@ -2360,10 +2439,7 @@ export const planningReducer = (
         followUpPrompt: resumedFollowUpPrompt,
         processingStartedAt: null,
         answeredQuestionIds: resumedAnsweredQuestionIds,
-        answeredQuestionSignatures:
-          state.sessionId === action.session.id
-            ? state.answeredQuestionSignatures
-            : [],
+        answeredQuestionSignatures: mergedResumedAnsweredQuestionSignatures,
       };
     }
 
@@ -3321,6 +3397,10 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
       if (!wsContext || !state.sessionId) return;
 
       persistAnsweredQuestionId(state.sessionId, questionId);
+      persistAnsweredQuestionSignature(
+        state.sessionId,
+        buildQuestionSignature(state.pendingQuestion ?? state.deferredQuestion),
+      );
 
       // Turn boundary: stale reconnect baselines must not leak into the new turn.
       replayDedupeRef.current = resetStreamingReplayDedupe();
@@ -3348,7 +3428,7 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         },
       });
     },
-    [wsContext, state.sessionId, t]
+    [wsContext, state.sessionId, state.pendingQuestion, state.deferredQuestion, t]
   );
 
   const sendPrompt = useCallback(
@@ -3363,6 +3443,10 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         persistAnsweredQuestionId(
           state.sessionId,
           state.pendingQuestion.questionId,
+        );
+        persistAnsweredQuestionSignature(
+          state.sessionId,
+          buildQuestionSignature(state.pendingQuestion),
         );
         // Answer via chat input: ANSWER_QUESTION handles graduating blocks + user answer
         dispatch({
@@ -3474,6 +3558,8 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         activeJobStatus: logResult.activeJobStatus,
         activeJobStartedAt: logResult.activeJobStartedAt,
         answeredQuestionIds: readPersistedAnsweredQuestionIds(sessionId),
+        answeredQuestionSignatures:
+          readPersistedAnsweredQuestionSignatures(sessionId),
       });
     },
     [primeReplayDedupWindow]
@@ -3498,6 +3584,8 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         pendingQuestion: logResult.pendingQuestion,
         pendingInteraction: pendingInteraction ?? null,
         answeredQuestionIds: readPersistedAnsweredQuestionIds(sessionId),
+        answeredQuestionSignatures:
+          readPersistedAnsweredQuestionSignatures(sessionId),
       });
       return resumed;
     },

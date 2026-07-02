@@ -210,6 +210,9 @@ describe("mapClaudeEventToSse", () => {
       const questionEvents = stop.events.filter((event) => event.type === "question.asked");
       expect(questionEvents).toHaveLength(1);
       expect((questionEvents[0].properties as Record<string, unknown>).text).toBe("Which approach?");
+      expect((questionEvents[0].properties as Record<string, unknown>).toolCallId).toBe(
+        "ask-stream-1",
+      );
       expect((questionEvents[0].properties as Record<string, unknown>).options).toEqual([
         "Option A",
         "Option B",
@@ -241,6 +244,9 @@ describe("mapClaudeEventToSse", () => {
         (event) => event.type === "question.asked",
       );
       expect(questionEvents).toHaveLength(1);
+      expect((questionEvents[0].properties as Record<string, unknown>).toolCallId).toBe(
+        "ask-grouped-1",
+      );
       expect((questionEvents[0].properties as Record<string, unknown>).questions).toEqual([
         { text: "Pregunta 1", options: ["A", "B"] },
         { text: "Pregunta 2", options: ["C"] },

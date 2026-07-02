@@ -1509,6 +1509,45 @@ describe("LOAD_SESSION", () => {
     expect(next.expiresAt).toBe("2026-01-01T00:15:00Z");
   });
 
+  it("restores answered question signatures from persistence so a re-emitted question is ignored after reload", () => {
+    // A question was answered during a previous page-load — its signature is
+    // captured in-memory but would be lost across a reload.
+    const answered = planningReducer(
+      buildStreamingDoneState({
+        phase: "waiting_for_answer",
+        pendingQuestion: {
+          questionId: "q-1",
+          questionText: "Which approach?",
+          options: ["A", "B"],
+        },
+      }),
+      { type: "ANSWER_QUESTION", questionId: "q-1", answer: "Option A" },
+    );
+    expect(answered.answeredQuestionSignatures).toContain("Which approach?");
+
+    // Reload: the reducer restarts from INITIAL_STATE (in-memory signatures
+    // gone), but the persisted signatures are threaded back through LOAD_SESSION.
+    const session = buildStreamingDoneState().session!;
+    const reloaded = planningReducer(INITIAL_STATE, {
+      type: "LOAD_SESSION",
+      session,
+      messages: [],
+      answeredQuestionSignatures: ["Which approach?"],
+    });
+    expect(reloaded.answeredQuestionSignatures).toContain("Which approach?");
+
+    // The same question, re-emitted with a fresh interaction id, is ignored.
+    const afterReemission = planningReducer(reloaded, {
+      type: "RECEIVE_QUESTION",
+      questionId: "q-2",
+      questionText: "Which approach?",
+      options: ["A", "B"],
+      questionType: "single_choice",
+    });
+    expect(afterReemission).toEqual(reloaded);
+    expect(afterReemission.deferredQuestion).toBeNull();
+  });
+
   it("restores explicit free_text questions as pendingQuestion", () => {
     const session = buildStreamingDoneState().session!;
 
