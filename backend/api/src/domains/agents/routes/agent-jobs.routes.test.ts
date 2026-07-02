@@ -223,7 +223,7 @@ describe("agentJobsRoutes POST /agent-jobs", () => {
         boardId: testWorkItem.boardId,
         planningSessionId: null,
         createdByUserId: testUser.id,
-        organizationId: "org-test-1",
+        workspaceId: "org-test-1",
         jobType: "bug-fix",
         status: "failed",
         provider: "claude-code",

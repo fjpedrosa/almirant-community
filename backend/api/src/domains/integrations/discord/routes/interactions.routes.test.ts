@@ -25,7 +25,7 @@ const dbMocks = createDatabaseMocks({
   getWorkItemByTaskIdExact: async (taskId: string) =>
     taskId === testWorkItem.taskId ? testWorkItem : null,
   // No Discord connection configured -> resolveDiscordChannel falls through to env (undefined).
-  getDiscordConnectionByOrganization: async () => null,
+  getDiscordConnectionByWorkspace: async () => null,
   createJob: async (input: Record<string, unknown>) => {
     state.createdJobInput = input;
     return {
@@ -33,19 +33,19 @@ const dbMocks = createDatabaseMocks({
       status: "queued",
       workItemId: testWorkItem.id,
       planningSessionId: null,
-      organizationId: "org-test-1",
+      workspaceId: "org-test-1",
       provider: input.provider,
       jobType: input.jobType ?? "implementation",
     };
   },
-  // Minimal drizzle chain used by resolveOrganizationIdForWorkItem:
+  // Minimal drizzle chain used by resolveWorkspaceIdForWorkItem:
   // db.select().from().innerJoin().where().limit()
   db: {
     select: () => ({
       from: () => ({
         innerJoin: () => ({
           where: () => ({
-            limit: async () => [{ organizationId: "org-test-1" }],
+            limit: async () => [{ workspaceId: "org-test-1" }],
           }),
         }),
       }),

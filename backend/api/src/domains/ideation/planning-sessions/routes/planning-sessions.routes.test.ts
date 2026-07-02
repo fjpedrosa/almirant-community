@@ -7,7 +7,7 @@ import {
   restoreRealModules,
   withTestOrg,
 } from "../../../../test/mocks";
-import { testOrganization, testUser } from "../../../../test/fixtures";
+import { testWorkspace, testUser } from "../../../../test/fixtures";
 // Real module snapshot — restored in afterAll (mock.restore() does NOT clear mock.module()).
 import * as modelFactoryExports from "../../../ai/shared/services/model-factory";
 
@@ -19,7 +19,7 @@ const __realModelFactory = { ...modelFactoryExports };
 
 const testPlanningSession = {
   id: "ps-test-1",
-  organizationId: testOrganization.id,
+  workspaceId: testWorkspace.id,
   projectId: "proj-test-1",
   boardId: "board-test-1",
   title: "Test planning session",

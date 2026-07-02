@@ -113,7 +113,7 @@ export const publishJobStarted = async (
   params: {
     jobId: string;
     sessionId: string;
-    organizationId: string;
+    workspaceId: string;
     threadId: string;
     model?: string;
     branch?: string;
@@ -122,7 +122,7 @@ export const publishJobStarted = async (
   await publishCanonicalEvent(publisher, {
     jobId: params.jobId,
     sessionId: params.sessionId,
-    organizationId: params.organizationId,
+    workspaceId: params.workspaceId,
     threadId: params.threadId,
     timestamp: Date.now(),
     sequenceNumber: nextSequence(),

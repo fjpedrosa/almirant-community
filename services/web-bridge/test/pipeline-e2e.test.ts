@@ -89,7 +89,7 @@ const ORG_ID = `e2e-org-${RUN_ID}`;
 // ---------------------------------------------------------------------------
 
 type ReceivedMessage = {
-  organizationId: string;
+  workspaceId: string;
   message: { type: string; payload: Record<string, unknown> };
 };
 
@@ -99,7 +99,7 @@ const envelope = (
 ): CanonicalEventEnvelope => ({
   jobId: JOB_ID,
   sessionId: SESSION_ID,
-  organizationId: ORG_ID,
+  workspaceId: ORG_ID,
   threadId: JOB_ID,
   timestamp: 1_700_000_000_000 + producerSeq * 100,
   sequenceNumber: producerSeq,
@@ -302,7 +302,7 @@ describe.skipIf(!redisAvailable)("Pipeline e2e: stream → real consumer → pub
 
       // -- 4. Envelope routing metadata survives the pipeline ---------------
       for (const m of received) {
-        expect(m.organizationId).toBe(ORG_ID);
+        expect(m.workspaceId).toBe(ORG_ID);
         expect(m.message.payload.sessionId).toBe(SESSION_ID);
       }
     },
@@ -327,7 +327,7 @@ describe.skipIf(!redisAvailable)("Pipeline e2e: stream → real consumer → pub
       ): CanonicalEventEnvelope => ({
         jobId: JOB_B,
         sessionId: SESSION_B,
-        organizationId: ORG_ID,
+        workspaceId: ORG_ID,
         threadId: JOB_B,
         timestamp: 1_700_000_000_000 + producerSeq * 100,
         sequenceNumber: producerSeq,
@@ -392,7 +392,7 @@ describe.skipIf(!redisAvailable)("Pipeline e2e: stream → real consumer → pub
           JOB_C,
           "sessionId",
           SESSION_C,
-          "organizationId",
+          "workspaceId",
           ORG_ID,
           "threadId",
           JOB_C,

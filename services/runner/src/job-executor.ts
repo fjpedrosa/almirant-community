@@ -559,7 +559,7 @@ export const createJobExecutor = (
     await publishJobStarted(ctx.streamPublisher, {
       jobId: job.id,
       sessionId: ctx.webSessionId ?? "",
-      organizationId: ctx.webOrganizationId ?? "",
+      workspaceId: ctx.webWorkspaceId ?? "",
       threadId: ctx.threadId ?? "",
     });
 

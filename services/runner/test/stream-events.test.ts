@@ -35,7 +35,7 @@ describe("publishJobStarted", () => {
     await publishJobStarted(publisher, {
       jobId: "job-42",
       sessionId: "session-42",
-      organizationId: "org-42",
+      workspaceId: "org-42",
       threadId: "thread-42",
     });
 
@@ -44,7 +44,7 @@ describe("publishJobStarted", () => {
     expect(env.event.kind).toBe("job.started");
     expect(env.jobId).toBe("job-42");
     expect(env.sessionId).toBe("session-42");
-    expect(env.organizationId).toBe("org-42");
+    expect(env.workspaceId).toBe("org-42");
     expect(env.threadId).toBe("thread-42");
     expect(typeof env.sequenceNumber).toBe("number");
   });
@@ -55,7 +55,7 @@ describe("publishJobStarted", () => {
     await publishJobStarted(publisher, {
       jobId: "job-1",
       sessionId: "session-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       threadId: "thread-1",
       model: "claude-opus",
       branch: "feature/foo",
@@ -72,7 +72,7 @@ describe("publishJobStarted", () => {
     await publishJobStarted(undefined, {
       jobId: "job-1",
       sessionId: "session-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       threadId: "thread-1",
     });
     expect(typeof nextSequence()).toBe("number");
