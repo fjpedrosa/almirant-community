@@ -792,6 +792,47 @@ curl -s -X POST "$MCP_URL" \\
     ]);
   });
 
+  it("deduplica spawns con el mismo subagentId y enriquece el bloque existente", () => {
+    const blocks = parseChunksToStreamingBlocks(
+      [
+        // Fallback spawn with minimal data (enrichment never arrived early)
+        makeChunk({
+          id: "sa-dup-spawn-1",
+          seq: 1,
+          phase: "transcript",
+          eventType: "subagent.spawn",
+          message: "Agent",
+          payload: { subagentId: "agent-dup-1", isBackground: false },
+          timestamp: "2026-04-28T17:40:00.000Z",
+        }),
+        // Idempotent re-emission with enriched metadata — same subagentId
+        makeChunk({
+          id: "sa-dup-spawn-2",
+          seq: 2,
+          phase: "transcript",
+          eventType: "subagent.spawn",
+          message: "Explorar el runner",
+          payload: {
+            subagentId: "agent-dup-1",
+            isBackground: false,
+            subagentType: "backend-architect",
+          },
+          timestamp: "2026-04-28T17:40:01.000Z",
+        }),
+      ],
+      false,
+    );
+
+    const subagentBlocks = blocks.filter((block) => block.type === "subagent");
+    expect(subagentBlocks).toHaveLength(1);
+    expect(subagentBlocks[0]).toMatchObject({
+      type: "subagent",
+      subagentId: "agent-dup-1",
+      description: "Explorar el runner",
+      subagentType: "backend-architect",
+    });
+  });
+
   it("marks background subagents as done from orchestrator progress text while the session is live", () => {
     const chunks: AgentLogChunk[] = [
       makeChunk({

@@ -2545,6 +2545,53 @@ describe("Sequence dedup in reducer", () => {
     expect(state.lastSeenSequenceNum).toBe(5);
   });
 
+  it("RECEIVE_SUBAGENT_SPAWN deduplica por subagentId y enriquece el bloque existente", () => {
+    let state: PlanningSessionState = {
+      ...INITIAL_STATE,
+      phase: "streaming",
+      sessionId: "sess-subagent-dedup",
+    };
+
+    // Fallback spawn with minimal data (e.g. enrichment never arrived)
+    state = planningReducer(state, {
+      type: "RECEIVE_SUBAGENT_SPAWN",
+      subagentId: "sa-1",
+      description: "Agent",
+      isBackground: false,
+      sequenceNum: 0,
+    });
+    expect(state.streamingBlocks).toHaveLength(1);
+
+    // Idempotent re-emission with the same subagentId (enriched data) —
+    // must UPDATE the existing block, never create a duplicate.
+    state = planningReducer(state, {
+      type: "RECEIVE_SUBAGENT_SPAWN",
+      subagentId: "sa-1",
+      description: "Explorar el runner",
+      isBackground: false,
+      subagentType: "backend-architect",
+      sequenceNum: 1,
+    });
+    expect(state.streamingBlocks).toHaveLength(1);
+    const block = state.streamingBlocks[0];
+    expect(block.type).toBe("subagent");
+    if (block.type === "subagent") {
+      expect(block.subagentId).toBe("sa-1");
+      expect(block.description).toBe("Explorar el runner");
+      expect(block.subagentType).toBe("backend-architect");
+    }
+
+    // A different subagentId does create a second block
+    state = planningReducer(state, {
+      type: "RECEIVE_SUBAGENT_SPAWN",
+      subagentId: "sa-2",
+      description: "Otro agente",
+      isBackground: true,
+      sequenceNum: 2,
+    });
+    expect(state.streamingBlocks).toHaveLength(2);
+  });
+
   it("dedup works across mixed event types sharing the same sequence space", () => {
     let state: PlanningSessionState = {
       ...INITIAL_STATE,
