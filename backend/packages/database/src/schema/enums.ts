@@ -143,6 +143,8 @@ export const workItemEventTypeEnum = pgEnum("work_item_event_type", [
   "attachment_removed",
   "ai_session",
   "comment",
+  "cancelled",
+  "reopened",
 ]);
 
 export const eventTriggeredByEnum = pgEnum("event_triggered_by", [
