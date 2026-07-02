@@ -227,7 +227,7 @@ const buildAbstentionResponse = (
  */
 export const orchestrateAsk = async (
   request: AskRequest,
-  organizationId: string,
+  workspaceId: string,
 ): Promise<AskResponse> => {
   const timer = createAskTimer();
   timer.start("total");
@@ -236,15 +236,15 @@ export const orchestrateAsk = async (
     {
       projectId: request.projectId,
       questionLength: request.question.length,
-      organizationId,
+      workspaceId,
       hasFeatureId: !!request.featureId,
       hasTimeRange: !!request.timeRange,
     },
     "ask: orchestration started",
   );
 
-  // Step 0a: Validate project belongs to the organization (tenancy check)
-  await validateProjectAccess(organizationId, request.projectId);
+  // Step 0a: Validate project belongs to the workspace (tenancy check)
+  await validateProjectAccess(workspaceId, request.projectId);
 
   // Step 0b: Sanitize the question (prompt injection guardrails)
   const sanitizedQuestion = sanitizeQuestion(request.question);
@@ -257,7 +257,7 @@ export const orchestrateAsk = async (
 
   // Step 2: Retrieve evidence
   timer.start("retrieval");
-  const evidence = await retrieveEvidence(sanitizedRequest.projectId, plan, organizationId);
+  const evidence = await retrieveEvidence(sanitizedRequest.projectId, plan, workspaceId);
   timer.end("retrieval");
 
   // Step 3: Rerank evidence

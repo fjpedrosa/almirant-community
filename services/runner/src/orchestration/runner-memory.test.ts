@@ -16,7 +16,7 @@ const createJob = (
   projectId: null,
   boardId: null,
   createdByUserId: null,
-  organizationId: null,
+  workspaceId: null,
   provider: "zipu",
   priority: "medium",
   status: "queued",

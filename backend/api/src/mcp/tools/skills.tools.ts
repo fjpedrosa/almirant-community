@@ -18,7 +18,7 @@ export const registerSkillsTools = (server: McpServer) => {
   // -------------------------------------------------------
   server.tool(
     "list_skills",
-    "List agent skills available to the active organization. Returns official, workspace and project-scoped skills (when a projectId is configured). Supports search and source filters.",
+    "List agent skills available to the active workspace. Returns official, workspace and project-scoped skills (when a projectId is configured). Supports search and source filters.",
     {
       page: z.number().int().min(1).optional().describe("Page number (default: 1)"),
       limit: z.number().int().min(1).max(100).optional().describe("Items per page (default: 50)"),
@@ -31,7 +31,7 @@ export const registerSkillsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
         const page = params.page ?? 1;
         const limit = params.limit ?? 50;
@@ -40,7 +40,7 @@ export const registerSkillsTools = (server: McpServer) => {
         const projectId = params.projectId ?? getProjectIdFromExtra(extra) ?? undefined;
 
         const { items, total } = await getSkills(
-          organizationId,
+          workspaceId,
           { page, limit, offset },
           {
             projectId,
@@ -92,7 +92,7 @@ export const registerSkillsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
         if (!params.id && !params.slug) {
           return {
@@ -102,9 +102,9 @@ export const registerSkillsTools = (server: McpServer) => {
         }
 
         const skill = params.id
-          ? await getSkillById(organizationId, params.id)
+          ? await getSkillById(workspaceId, params.id)
           : await getSkillBySlug(
-              organizationId,
+              workspaceId,
               params.slug!,
               params.projectId ?? getProjectIdFromExtra(extra) ?? undefined,
             );
@@ -138,7 +138,7 @@ export const registerSkillsTools = (server: McpServer) => {
   // -------------------------------------------------------
   server.tool(
     "create_skill",
-    "Create a new agent skill. The slug must be unique within the (organization, project) scope. Content stores the SKILL.md body verbatim.",
+    "Create a new agent skill. The slug must be unique within the (workspace, project) scope. Content stores the SKILL.md body verbatim.",
     {
       name: z.string().min(1).describe("Display name"),
       slug: z.string().min(1).describe("Unique slug within the scope"),
@@ -152,9 +152,9 @@ export const registerSkillsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const skill = await createSkill(organizationId, {
+        const skill = await createSkill(workspaceId, {
           name: params.name,
           slug: params.slug,
           description: params.description ?? null,
@@ -187,7 +187,7 @@ export const registerSkillsTools = (server: McpServer) => {
   // -------------------------------------------------------
   server.tool(
     "update_skill",
-    "Update an existing skill. Official skills (organizationId IS NULL) cannot be edited via this tool. Bumps the version when content changes.",
+    "Update an existing skill. Official skills (workspaceId IS NULL) cannot be edited via this tool. Bumps the version when content changes.",
     {
       id: z.string().uuid().describe("Skill ID"),
       name: z.string().min(1).optional().describe("Updated display name"),
@@ -202,10 +202,10 @@ export const registerSkillsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
         const { id, ...rest } = params;
-        const skill = await updateSkill(organizationId, id, rest);
+        const skill = await updateSkill(workspaceId, id, rest);
 
         if (!skill) {
           return {
@@ -244,9 +244,9 @@ export const registerSkillsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const archived = await deleteSkill(organizationId, params.id);
+        const archived = await deleteSkill(workspaceId, params.id);
         if (!archived) {
           return {
             content: [{ type: "text" as const, text: `Error: skill ${params.id} not found` }],

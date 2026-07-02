@@ -314,36 +314,36 @@ export const calculateResourceForecast = (
 };
 
 const resolveLeafTasks = async (
-  organizationId: string,
+  workspaceId: string,
   item: NonNullable<Awaited<ReturnType<typeof getWorkItemById>>>,
   seen: Set<string>,
 ): Promise<WorkItemLike[]> => {
   if (seen.has(item.id)) return [];
   seen.add(item.id);
 
-  const children = await getWorkItemHierarchy(organizationId, item.id);
+  const children = await getWorkItemHierarchy(workspaceId, item.id);
   if (item.type === "task" && children.length === 0) {
     return [item as WorkItemLike];
   }
 
   const leaves: WorkItemLike[] = [];
   for (const child of children) {
-    const hydrated = await getWorkItemById(child.id, organizationId);
+    const hydrated = await getWorkItemById(child.id, workspaceId);
     if (!hydrated) continue;
-    leaves.push(...await resolveLeafTasks(organizationId, hydrated, seen));
+    leaves.push(...await resolveLeafTasks(workspaceId, hydrated, seen));
   }
   return leaves;
 };
 
 export const buildWorkItemResourceForecast = async (
-  organizationId: string,
+  workspaceId: string,
   workItemId: string,
   options: { profiles?: SubagentMemoryProfileInput[]; persist?: boolean } = {},
 ): Promise<ResourceForecast | null> => {
-  const root = await getWorkItemById(workItemId, organizationId);
+  const root = await getWorkItemById(workItemId, workspaceId);
   if (!root) return null;
 
-  const tasks = await resolveLeafTasks(organizationId, root, new Set<string>());
+  const tasks = await resolveLeafTasks(workspaceId, root, new Set<string>());
   const leafTasks = tasks.length > 0 ? tasks : [root as WorkItemLike];
   const dependencies = await getDependenciesBatch(leafTasks.map((task) => task.id));
   const forecast = calculateResourceForecast({
@@ -361,7 +361,7 @@ export const buildWorkItemResourceForecast = async (
       ...((root.metadata as Record<string, unknown> | null) ?? {}),
       resourceForecast: forecast,
     };
-    await updateWorkItem(organizationId, workItemId, { metadata });
+    await updateWorkItem(workspaceId, workItemId, { metadata });
   }
 
   return forecast;
@@ -380,7 +380,7 @@ const uniqueStrings = (values: Array<string | null | undefined>): string[] =>
   Array.from(new Set(values.filter((value): value is string => typeof value === "string" && value.trim().length > 0)));
 
 const resolveWorkItemAndAncestors = async (
-  organizationId: string,
+  workspaceId: string,
   workItemId: string,
 ): Promise<string[]> => {
   const ids: string[] = [];
@@ -389,7 +389,7 @@ const resolveWorkItemAndAncestors = async (
 
   while (currentId && !seen.has(currentId)) {
     seen.add(currentId);
-    const item = await getWorkItemById(currentId, organizationId);
+    const item = await getWorkItemById(currentId, workspaceId);
     if (!item) break;
 
     ids.push(item.id);
@@ -406,13 +406,13 @@ const resolveWorkItemAndAncestors = async (
  * or epic level.
  */
 export const resolveAffectedResourceForecastBlockIds = async (
-  organizationId: string,
+  workspaceId: string,
   workItemIds: string[],
 ): Promise<string[]> => {
   const affectedIds = new Set<string>();
 
   for (const workItemId of uniqueStrings(workItemIds)) {
-    const ancestors = await resolveWorkItemAndAncestors(organizationId, workItemId);
+    const ancestors = await resolveWorkItemAndAncestors(workspaceId, workItemId);
     for (const id of ancestors) {
       affectedIds.add(id);
     }
@@ -430,7 +430,7 @@ export const resolveAffectedResourceForecastBlockIds = async (
  * is a freshness optimization for scheduler preflight and runner reservation.
  */
 export const refreshResourceForecastForAffectedBlocks = async (
-  organizationId: string,
+  workspaceId: string,
   workItemIds: string[],
 ): Promise<ResourceForecastRefreshResult> => {
   const requestedWorkItemIds = uniqueStrings(workItemIds);
@@ -441,7 +441,7 @@ export const refreshResourceForecastForAffectedBlocks = async (
 
   try {
     affectedBlockIds = await resolveAffectedResourceForecastBlockIds(
-      organizationId,
+      workspaceId,
       requestedWorkItemIds,
     );
   } catch (error) {
@@ -457,7 +457,7 @@ export const refreshResourceForecastForAffectedBlocks = async (
 
   for (const blockId of affectedBlockIds) {
     try {
-      const forecast = await buildWorkItemResourceForecast(organizationId, blockId, { persist: true });
+      const forecast = await buildWorkItemResourceForecast(workspaceId, blockId, { persist: true });
       if (forecast) {
         refreshed.push(forecast);
       } else {

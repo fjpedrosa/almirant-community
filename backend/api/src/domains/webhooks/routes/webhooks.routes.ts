@@ -30,9 +30,9 @@ export const webhooksRoutes = new Elysia({ prefix: "/webhooks" })
   // -------------------------------------------------------
   // GET /webhooks - List all webhooks
   // -------------------------------------------------------
-  .get("/", async ({ activeOrganization }) => {
+  .get("/", async ({ activeWorkspace }) => {
     try {
-      const orgId = activeOrganization!.id;
+      const orgId = activeWorkspace!.id;
       const webhooks = await getWebhooks(orgId);
       return successResponse(webhooks);
     } catch (error) {
@@ -48,9 +48,9 @@ export const webhooksRoutes = new Elysia({ prefix: "/webhooks" })
   // -------------------------------------------------------
   .post(
     "/",
-    async ({ body, set, activeOrganization }) => {
+    async ({ body, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
 
         if (!body.name || body.name.trim() === "") {
           set.status = 400;
@@ -109,9 +109,9 @@ export const webhooksRoutes = new Elysia({ prefix: "/webhooks" })
   // -------------------------------------------------------
   .get(
     "/:id",
-    async ({ params, query, set, activeOrganization }) => {
+    async ({ params, query, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const webhook = await getWebhookById(orgId, params.id);
 
         if (!webhook) {
@@ -148,9 +148,9 @@ export const webhooksRoutes = new Elysia({ prefix: "/webhooks" })
   // -------------------------------------------------------
   .patch(
     "/:id",
-    async ({ params, body, set, activeOrganization }) => {
+    async ({ params, body, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
 
         // Validate URL format if provided
         if (body.url) {
@@ -203,9 +203,9 @@ export const webhooksRoutes = new Elysia({ prefix: "/webhooks" })
   // -------------------------------------------------------
   .delete(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
+    async ({ params, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const deleted = await deleteWebhook(orgId, params.id);
 
         if (!deleted) {
@@ -234,9 +234,9 @@ export const webhooksRoutes = new Elysia({ prefix: "/webhooks" })
   // -------------------------------------------------------
   .post(
     "/:id/test",
-    async ({ params, set, activeOrganization }) => {
+    async ({ params, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const webhook = await getWebhookById(orgId, params.id);
 
         if (!webhook) {

@@ -146,7 +146,7 @@ const areWorkItemDependenciesMet = async (
     // listAgentJobs orders by createdAt DESC, so the first result is the latest.
     const { jobs: blockerJobs } = await listAgentJobs(
       { limit: 1, offset: 0 },
-      { organizationId: job.organizationId!, workItemId: dep.blockedByWorkItemId },
+      { workspaceId: job.workspaceId!, workItemId: dep.blockedByWorkItemId },
     );
 
     const latestJob = blockerJobs[0];
@@ -347,7 +347,7 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
 
   const reevaluatePostponedDependents = async (
     completedWorkItemId: string,
-    organizationId: string,
+    workspaceId: string,
   ): Promise<void> => {
     const dependentItems = await getDependents(completedWorkItemId);
     if (dependentItems.length === 0) return;
@@ -364,7 +364,7 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
     // Fetch all currently queued jobs in a single query.
     const { jobs: queuedJobs } = await listAgentJobs(
       { limit: 200, offset: 0 },
-      { organizationId, status: "queued" },
+      { workspaceId, status: "queued" },
     );
 
     // Build a quick lookup of queued jobs that we have tracked as postponed.
@@ -492,7 +492,7 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
 
     if (workItemId) {
       completedJobWorkItemIds.add(workItemId);
-      const orgId = jobRecord?.job.organizationId;
+      const orgId = jobRecord?.job.workspaceId;
       if (orgId) {
         await reevaluatePostponedDependents(workItemId, orgId);
       }

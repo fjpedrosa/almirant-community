@@ -105,10 +105,10 @@ const createTypedWorkItem = async (
     if (
       msg.startsWith("BOARD_COLUMN_NOT_FOUND:")
       || msg.startsWith("BOARD_COLUMN_NOT_IN_BOARD:")
-      || msg.startsWith("BOARD_COLUMN_NOT_IN_ORGANIZATION:")
+      || msg.startsWith("BOARD_COLUMN_NOT_IN_WORKSPACE:")
       || msg.startsWith("BOARD_COLUMN_ROLE_NOT_FOUND:")
-      || msg.startsWith("BOARD_NOT_IN_ORGANIZATION:")
-      || msg.startsWith("PROJECT_NOT_IN_ORGANIZATION:")
+      || msg.startsWith("BOARD_NOT_IN_WORKSPACE:")
+      || msg.startsWith("PROJECT_NOT_IN_WORKSPACE:")
     ) {
       set.status = 400;
       return errorResponse(msg.replace(/^[A-Z_]+:\\s*/, ""));
@@ -120,7 +120,7 @@ const createTypedWorkItem = async (
 
   getActivityLogger().log({
     actorUserId: (createdByUserId ?? null) as string,
-    organizationId: orgId,
+    workspaceId: orgId,
     action: "created",
     resourceType: "work_item",
     resourceId: item.id,
@@ -134,7 +134,7 @@ const createTypedWorkItem = async (
     },
   });
 
-  wsConnectionManager.broadcastToOrganization(orgId, {
+  wsConnectionManager.broadcastToWorkspace(orgId, {
     type: "work-item:created",
     payload: {
       workItemId: item.id,
@@ -149,18 +149,18 @@ const createTypedWorkItem = async (
 };
 
 /**
- * Resolve the default board and its backlog column for a given organization + area.
+ * Resolve the default board and its backlog column for a given workspace + area.
  * Returns { boardId, boardColumnId } or null if no default board is found.
  */
 const resolveDefaultBoardAndBacklogColumn = async (
-  organizationId: string,
+  workspaceId: string,
   area: "desarrollo" | "ventas" | "prospeccion" | "marketing" | "general" = "general"
 ): Promise<{ boardId: string; boardColumnId: string } | null> => {
-  // Find the default board for the organization in the given area
+  // Find the default board for the workspace in the given area
   const [defaultBoard] = await db
     .select({ id: boards.id })
     .from(boards)
-    .where(and(eq(boards.organizationId, organizationId), eq(boards.area, area), eq(boards.isDefault, true)))
+    .where(and(eq(boards.workspaceId, workspaceId), eq(boards.area, area), eq(boards.isDefault, true)))
     .limit(1);
 
   if (!defaultBoard) return null;
@@ -195,7 +195,7 @@ export const workItemsTypedCreateRoutes = new Elysia()
     "/tasks",
     async (ctx) => {
       const user = (ctx as { user?: { id?: string } }).user;
-      const orgId = (ctx as { activeOrganization?: { id: string } }).activeOrganization!.id;
+      const orgId = (ctx as { activeWorkspace?: { id: string } }).activeWorkspace!.id;
       return createTypedWorkItem(orgId, { ...ctx.body, forcedType: "task", createdByUserId: user?.id }, ctx.set);
     },
     {
@@ -223,7 +223,7 @@ export const workItemsTypedCreateRoutes = new Elysia()
     "/stories",
     async (ctx) => {
       const user = (ctx as { user?: { id?: string } }).user;
-      const orgId = (ctx as { activeOrganization?: { id: string } }).activeOrganization!.id;
+      const orgId = (ctx as { activeWorkspace?: { id: string } }).activeWorkspace!.id;
       return createTypedWorkItem(orgId, { ...ctx.body, boardColumnId: ctx.body.boardColumnId ?? null, forcedType: "story", createdByUserId: user?.id }, ctx.set);
     },
     {
@@ -250,7 +250,7 @@ export const workItemsTypedCreateRoutes = new Elysia()
     "/features",
     async (ctx) => {
       const user = (ctx as { user?: { id?: string } }).user;
-      const orgId = (ctx as { activeOrganization?: { id: string } }).activeOrganization!.id;
+      const orgId = (ctx as { activeWorkspace?: { id: string } }).activeWorkspace!.id;
       return createTypedWorkItem(orgId, { ...ctx.body, boardColumnId: ctx.body.boardColumnId ?? null, forcedType: "feature", createdByUserId: user?.id }, ctx.set);
     },
     {
@@ -277,7 +277,7 @@ export const workItemsTypedCreateRoutes = new Elysia()
     "/epics",
     async (ctx) => {
       const user = (ctx as { user?: { id?: string } }).user;
-      const orgId = (ctx as { activeOrganization?: { id: string } }).activeOrganization!.id;
+      const orgId = (ctx as { activeWorkspace?: { id: string } }).activeWorkspace!.id;
       return createTypedWorkItem(orgId, { ...ctx.body, boardColumnId: ctx.body.boardColumnId ?? null, forcedType: "epic", createdByUserId: user?.id }, ctx.set);
     },
     {
@@ -304,14 +304,14 @@ export const workItemsTypedCreateRoutes = new Elysia()
     "/ideas",
     async (ctx) => {
       const user = (ctx as { user?: { id?: string } }).user;
-      const orgId = (ctx as { activeOrganization?: { id: string } }).activeOrganization!.id;
+      const orgId = (ctx as { activeWorkspace?: { id: string } }).activeWorkspace!.id;
       const { title, projectId, description, tagIds, assignee } = ctx.body;
 
-      // Auto-resolve default board and backlog column for the organization
+      // Auto-resolve default board and backlog column for the workspace
       const resolved = await resolveDefaultBoardAndBacklogColumn(orgId, "general");
       if (!resolved) {
         ctx.set.status = 400;
-        return errorResponse("No default board found for this organization. Create a board and mark it as default.");
+        return errorResponse("No default board found for this workspace. Create a board and mark it as default.");
       }
 
       return createTypedWorkItem(

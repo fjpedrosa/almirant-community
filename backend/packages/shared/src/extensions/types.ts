@@ -22,7 +22,7 @@ export interface AuthProviderRegistry {
 
 export interface ActivityLogEntry {
   actorUserId: string;
-  organizationId: string | null;
+  workspaceId: string | null;
   action: string;
   resourceType: string;
   resourceId: string;
@@ -41,7 +41,7 @@ export interface ActivityLogger {
 
 export interface PermissionSubject {
   userId: string;
-  organizationId: string | null;
+  workspaceId: string | null;
   role: string | null;
 }
 
@@ -88,7 +88,7 @@ export interface RunnerOrchestrator {
 // ---------------------------------------------------------------------
 
 export interface FeedbackIngestInput {
-  organizationId: string;
+  workspaceId: string;
   projectId: string | null;
   title: string;
   body: string;

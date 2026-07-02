@@ -13,14 +13,14 @@ const state = {
     job: {
       id: "job-1",
       status: "running",
-      organizationId: "org-test-1",
+      workspaceId: "org-test-1",
     },
     workItem: null,
     project: null,
     board: null,
     planningSession: null,
   } as {
-    job: { id: string; status: string; organizationId: string };
+    job: { id: string; status: string; workspaceId: string };
     workItem: null;
     project: null;
     board: null;
@@ -64,7 +64,7 @@ describe("agentJobsRoutes /:id/logs", () => {
       job: {
         id: "job-1",
         status: "running",
-        organizationId: "org-test-1",
+        workspaceId: "org-test-1",
       },
       workItem: null,
       project: null,

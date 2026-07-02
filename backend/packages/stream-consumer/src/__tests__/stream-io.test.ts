@@ -10,7 +10,7 @@ import type { AgentOutputEvent } from "../types";
 const envelope: CanonicalEventEnvelope = {
   jobId: "job-1",
   sessionId: "session-1",
-  organizationId: "org-1",
+  workspaceId: "org-1",
   threadId: "thread-1",
   timestamp: 1_710_000_000_000,
   sequenceNumber: 7,
@@ -39,7 +39,7 @@ describe("stream-io", () => {
     const nativeEnvelope: NativeEventEnvelope = {
       jobId: "job-1",
       sessionId: "session-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       threadId: "thread-1",
       timestamp: 1_710_000_000_001,
       sequenceNumber: 8,
@@ -66,7 +66,7 @@ describe("stream-io", () => {
     const legacyEvent: AgentOutputEvent = {
       jobId: "job-legacy",
       sessionId: "session-legacy",
-      organizationId: "org-legacy",
+      workspaceId: "org-legacy",
       threadId: "thread-legacy",
       timestamp: 123,
       sequenceNumber: 1,

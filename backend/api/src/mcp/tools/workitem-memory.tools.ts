@@ -80,10 +80,10 @@ export const registerWorkItemMemoryTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
         const results = await searchObservations(
-          organizationId,
+          workspaceId,
           assertSafeMemoryText(params.query, "query"),
           {
             projectId: params.projectId,
@@ -217,7 +217,7 @@ export const registerWorkItemMemoryTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
 
@@ -256,7 +256,7 @@ export const registerWorkItemMemoryTools = (server: McpServer) => {
           .digest("hex");
 
         const observation = await createObservation({
-          organizationId,
+          workspaceId,
           projectId,
           type: "work_item",
           topicKey: normalizedTopicKey,

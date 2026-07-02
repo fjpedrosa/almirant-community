@@ -1,5 +1,5 @@
 import {
-  getDiscordConnectionByOrganization,
+  getDiscordConnectionByWorkspace,
   getDiscordProjectChannel,
   isDiscordEventEnabled,
 } from "@almirant/database";
@@ -16,19 +16,19 @@ export interface ResolvedDiscordChannel {
  *
  * Resolution chain:
  * 1. Project-specific channel override (if org connection + projectId exist)
- * 2. Organization default channel (from the active Discord connection)
+ * 2. Workspace default channel (from the active Discord connection)
  * 3. Legacy env var fallback (DISCORD_CHANNEL_ID)
  * 4. null — no channel configured
  */
 export const resolveDiscordChannel = async (params: {
   projectId: string | null;
-  organizationId: string | null;
+  workspaceId: string | null;
 }): Promise<ResolvedDiscordChannel | null> => {
-  // Step 1 & 2: Try organization connection
-  if (params.organizationId) {
+  // Step 1 & 2: Try workspace connection
+  if (params.workspaceId) {
     try {
-      const connection = await getDiscordConnectionByOrganization(
-        params.organizationId,
+      const connection = await getDiscordConnectionByWorkspace(
+        params.workspaceId,
       );
 
       if (connection) {
@@ -44,7 +44,7 @@ export const resolveDiscordChannel = async (params: {
           }
         }
 
-        // Step 2: Organization default channel
+        // Step 2: Workspace default channel
         if (connection.defaultChannelId) {
           return {
             channelId: connection.defaultChannelId,
@@ -56,7 +56,7 @@ export const resolveDiscordChannel = async (params: {
       logger.warn(
         {
           error: error instanceof Error ? error.message : String(error),
-          organizationId: params.organizationId,
+          workspaceId: params.workspaceId,
         },
         "Failed to resolve Discord channel from database, falling back to env",
       );
@@ -92,7 +92,7 @@ export interface ResolvedDiscordNotification {
  *
  * Returns null when:
  * - No channel is configured
- * - No connection exists for the organization
+ * - No connection exists for the workspace
  * - The event is disabled in notification preferences
  *
  * For env-sourced channels (legacy mode), preference checks are skipped
@@ -100,13 +100,13 @@ export interface ResolvedDiscordNotification {
  */
 export const resolveDiscordNotification = async (params: {
   projectId: string | null;
-  organizationId: string | null;
+  workspaceId: string | null;
   event: DiscordNotificationEvent;
 }): Promise<ResolvedDiscordNotification | null> => {
   // 1. Resolve the channel first (reuse existing resolveDiscordChannel)
   const channel = await resolveDiscordChannel({
     projectId: params.projectId,
-    organizationId: params.organizationId,
+    workspaceId: params.workspaceId,
   });
 
   if (!channel) return null;
@@ -117,10 +117,10 @@ export const resolveDiscordNotification = async (params: {
   }
 
   // 3. For org/project-sourced channels, check notification preferences
-  if (params.organizationId) {
+  if (params.workspaceId) {
     try {
-      const connection = await getDiscordConnectionByOrganization(
-        params.organizationId,
+      const connection = await getDiscordConnectionByWorkspace(
+        params.workspaceId,
       );
 
       if (connection) {
@@ -136,7 +136,7 @@ export const resolveDiscordNotification = async (params: {
       logger.warn(
         {
           error: error instanceof Error ? error.message : String(error),
-          organizationId: params.organizationId,
+          workspaceId: params.workspaceId,
           event: params.event,
         },
         "Failed to check Discord notification preferences, allowing notification",

@@ -15,23 +15,23 @@ import {
 } from "../../../shared/services/response";
 
 export const serviceAccountsRoutes = new Elysia({
-  prefix: "/organizations/:orgId/service-accounts",
+  prefix: "/workspaces/:orgId/service-accounts",
 })
   .use(sessionContextTypes)
 
   // -------------------------------------------------------
-  // POST /organizations/:orgId/service-accounts
+  // POST /workspaces/:orgId/service-accounts
   // Create a new service account + initial API key
   // -------------------------------------------------------
   .post(
     "/",
-    async ({ params, body, set, activeOrganization }) => {
+    async ({ params, body, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
 
         if (params.orgId !== orgId) {
           set.status = 403;
-          return errorResponse("Organization mismatch");
+          return errorResponse("Workspace mismatch");
         }
 
         if (!body.name || body.name.trim() === "") {
@@ -56,7 +56,7 @@ export const serviceAccountsRoutes = new Elysia({
           error instanceof Error ? error.message : "Failed to create service account";
         if (message.includes("unique") || message.includes("duplicate")) {
           set.status = 409;
-          return errorResponse("A service account with that name already exists in this organization");
+          return errorResponse("A service account with that name already exists in this workspace");
         }
         set.status = 500;
         return errorResponse(message, 500);
@@ -74,18 +74,18 @@ export const serviceAccountsRoutes = new Elysia({
   )
 
   // -------------------------------------------------------
-  // GET /organizations/:orgId/service-accounts
-  // List all active service accounts for the organization
+  // GET /workspaces/:orgId/service-accounts
+  // List all active service accounts for the workspace
   // -------------------------------------------------------
   .get(
     "/",
-    async ({ params, activeOrganization, set }) => {
+    async ({ params, activeWorkspace, set }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
 
         if (params.orgId !== orgId) {
           set.status = 403;
-          return errorResponse("Organization mismatch");
+          return errorResponse("Workspace mismatch");
         }
 
         const accounts = await getServiceAccountsByOrg(orgId);
@@ -106,18 +106,18 @@ export const serviceAccountsRoutes = new Elysia({
   )
 
   // -------------------------------------------------------
-  // POST /organizations/:orgId/service-accounts/provision
+  // POST /workspaces/:orgId/service-accounts/provision
   // Idempotent: provision a default "runner" SA if none exists
   // -------------------------------------------------------
   .post(
     "/provision",
-    async ({ params, set, activeOrganization }) => {
+    async ({ params, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
 
         if (params.orgId !== orgId) {
           set.status = 403;
-          return errorResponse("Organization mismatch");
+          return errorResponse("Workspace mismatch");
         }
 
         const result = await provisionDefaultServiceAccount(orgId);
@@ -152,18 +152,18 @@ export const serviceAccountsRoutes = new Elysia({
   )
 
   // -------------------------------------------------------
-  // DELETE /organizations/:orgId/service-accounts/:id
+  // DELETE /workspaces/:orgId/service-accounts/:id
   // Deactivate a service account and revoke its API keys
   // -------------------------------------------------------
   .delete(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
+    async ({ params, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
 
         if (params.orgId !== orgId) {
           set.status = 403;
-          return errorResponse("Organization mismatch");
+          return errorResponse("Workspace mismatch");
         }
 
         const account = await getServiceAccountById(orgId, params.id);
@@ -205,18 +205,18 @@ export const serviceAccountsRoutes = new Elysia({
   )
 
   // -------------------------------------------------------
-  // POST /organizations/:orgId/service-accounts/:id/rotate-key
+  // POST /workspaces/:orgId/service-accounts/:id/rotate-key
   // Rotate the API key for a service account
   // -------------------------------------------------------
   .post(
     "/:id/rotate-key",
-    async ({ params, set, activeOrganization }) => {
+    async ({ params, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
 
         if (params.orgId !== orgId) {
           set.status = 403;
-          return errorResponse("Organization mismatch");
+          return errorResponse("Workspace mismatch");
         }
 
         const result = await rotateServiceAccountKey(orgId, params.id);

@@ -13,7 +13,7 @@ export interface WsMessage {
 
 export interface WebSocketPort {
   sendToUser(userId: string, message: WsMessage): void;
-  broadcastToOrganization(organizationId: string, message: WsMessage): void;
+  broadcastToWorkspace(workspaceId: string, message: WsMessage): void;
   getConnectionCount(): number;
   getUserCount(): number;
 }

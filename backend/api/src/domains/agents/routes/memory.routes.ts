@@ -23,9 +23,9 @@ export const memoryRoutes = new Elysia({ prefix: "/memory" })
   .use(sessionContextTypes)
   .get(
     "/",
-    async ({ query, activeOrganization }) => {
+    async ({ query, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const pagination = parsePaginationParams(query);
         const filters = {
           projectId: query.projectId || undefined,
@@ -98,13 +98,13 @@ export const memoryRoutes = new Elysia({ prefix: "/memory" })
   )
   .get(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const observation = await getObservationById(params.id, {
         includeArchived: true,
         includeExpired: true,
       });
-      if (!observation || observation.organizationId !== orgId) {
+      if (!observation || observation.workspaceId !== orgId) {
         set.status = 404;
         return notFoundResponse("Memory observation");
       }
@@ -116,7 +116,7 @@ export const memoryRoutes = new Elysia({ prefix: "/memory" })
   )
   .post(
     "/:id/verify",
-    async ({ params, body, set, user, activeOrganization }) => {
+    async ({ params, body, set, user, activeWorkspace }) => {
       if (!user?.id) {
         set.status = 401;
         return errorResponse("Unauthorized", 401);
@@ -126,7 +126,7 @@ export const memoryRoutes = new Elysia({ prefix: "/memory" })
         includeArchived: true,
         includeExpired: true,
       });
-      if (!existing || existing.organizationId !== activeOrganization!.id) {
+      if (!existing || existing.workspaceId !== activeWorkspace!.id) {
         set.status = 404;
         return notFoundResponse("Memory observation");
       }
@@ -151,12 +151,12 @@ export const memoryRoutes = new Elysia({ prefix: "/memory" })
   )
   .post(
     "/:id/archive",
-    async ({ params, set, activeOrganization }) => {
+    async ({ params, set, activeWorkspace }) => {
       const existing = await getObservationById(params.id, {
         includeArchived: true,
         includeExpired: true,
       });
-      if (!existing || existing.organizationId !== activeOrganization!.id) {
+      if (!existing || existing.workspaceId !== activeWorkspace!.id) {
         set.status = 404;
         return notFoundResponse("Memory observation");
       }
@@ -174,12 +174,12 @@ export const memoryRoutes = new Elysia({ prefix: "/memory" })
   )
   .delete(
     "/:id",
-    async ({ params, query, set, user, activeOrganization }) => {
+    async ({ params, query, set, user, activeWorkspace }) => {
       const existing = await getObservationById(params.id, {
         includeArchived: true,
         includeExpired: true,
       });
-      if (!existing || existing.organizationId !== activeOrganization!.id) {
+      if (!existing || existing.workspaceId !== activeWorkspace!.id) {
         set.status = 404;
         return notFoundResponse("Memory observation");
       }

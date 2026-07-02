@@ -15,7 +15,7 @@ import {
 import { wsConnectionManager } from "../../shared/ws/ws-connection-manager";
 import {
   getManagedByAgentFromExtra,
-  getOrganizationIdFromExtra,
+  getWorkspaceIdFromExtra,
   getProjectIdFromExtra,
   getUserIdFromExtra,
 } from "../setup";
@@ -27,10 +27,10 @@ const mapErrorMessage = (error: unknown): string => {
   const message = error instanceof Error ? error.message : String(error);
 
   if (message === "OWNER_NOT_MEMBER") {
-    return "Selected owner does not belong to active organization";
+    return "Selected owner does not belong to active workspace";
   }
-  if (message === "PROJECT_NOT_IN_ORGANIZATION") {
-    return "Selected project does not belong to active organization";
+  if (message === "PROJECT_NOT_IN_WORKSPACE") {
+    return "Selected project does not belong to active workspace";
   }
   if (message === "FAILED_TO_CREATE_TODO_ITEM") {
     return "Failed to create todo item";
@@ -62,10 +62,10 @@ export const registerTodosTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
@@ -76,7 +76,7 @@ export const registerTodosTools = (server: McpServer) => {
         const defaultProjectId = getProjectIdFromExtra(extra);
 
         const { items, total } = await getTodoItems(
-          organizationId,
+          workspaceId,
           { page, limit, offset },
           {
             status: params.status,
@@ -124,15 +124,15 @@ export const registerTodosTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
-        const item = await getTodoItemById(organizationId, params.id);
+        const item = await getTodoItemById(workspaceId, params.id);
 
         if (!item) {
           return {
@@ -167,10 +167,10 @@ export const registerTodosTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
@@ -178,7 +178,7 @@ export const registerTodosTools = (server: McpServer) => {
         const eventContext = getEventContextFromExtra(extra);
 
         const item = await createTodoItem(
-          organizationId,
+          workspaceId,
           {
             title: params.title,
             description: params.description,
@@ -191,7 +191,7 @@ export const registerTodosTools = (server: McpServer) => {
           eventContext
         );
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "todo-item:created" as any,
           payload: {
             todoItemId: item.id,
@@ -221,10 +221,10 @@ export const registerTodosTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
@@ -232,7 +232,7 @@ export const registerTodosTools = (server: McpServer) => {
         const eventContext = getEventContextFromExtra(extra);
 
         const item = await updateTodoItem(
-          organizationId,
+          workspaceId,
           params.id,
           {
             title: params.title,
@@ -249,7 +249,7 @@ export const registerTodosTools = (server: McpServer) => {
           };
         }
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "todo-item:updated" as any,
           payload: {
             todoItemId: item.id,
@@ -276,15 +276,15 @@ export const registerTodosTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
-        const result = await deleteTodoItem(organizationId, params.id);
+        const result = await deleteTodoItem(workspaceId, params.id);
 
         if (!result) {
           return {
@@ -293,7 +293,7 @@ export const registerTodosTools = (server: McpServer) => {
           };
         }
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "todo-item:deleted" as any,
           payload: {
             todoItemId: params.id,
@@ -321,17 +321,17 @@ export const registerTodosTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
         const eventContext = getEventContextFromExtra(extra);
 
-        const item = await setTodoItemStatus(organizationId, params.id, params.status, eventContext);
+        const item = await setTodoItemStatus(workspaceId, params.id, params.status, eventContext);
 
         if (!item) {
           return {
@@ -340,7 +340,7 @@ export const registerTodosTools = (server: McpServer) => {
           };
         }
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "todo-item:updated" as any,
           payload: {
             todoItemId: item.id,
@@ -368,17 +368,17 @@ export const registerTodosTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
         const eventContext = getEventContextFromExtra(extra);
 
-        const item = await assignTodoItemOwner(organizationId, params.id, params.ownerUserId ?? null, eventContext);
+        const item = await assignTodoItemOwner(workspaceId, params.id, params.ownerUserId ?? null, eventContext);
 
         if (!item) {
           return {
@@ -387,7 +387,7 @@ export const registerTodosTools = (server: McpServer) => {
           };
         }
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "todo-item:updated" as any,
           payload: {
             todoItemId: item.id,
@@ -415,10 +415,10 @@ export const registerTodosTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
@@ -426,7 +426,7 @@ export const registerTodosTools = (server: McpServer) => {
         const eventContext = getEventContextFromExtra(extra);
 
         const item = await setTodoItemDueDate(
-          organizationId,
+          workspaceId,
           params.id,
           params.dueDate ?? null,
           eventContext
@@ -439,7 +439,7 @@ export const registerTodosTools = (server: McpServer) => {
           };
         }
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "todo-item:updated" as any,
           payload: {
             todoItemId: item.id,
@@ -468,15 +468,15 @@ export const registerTodosTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
-        const todo = await getTodoItemById(organizationId, params.todoItemId);
+        const todo = await getTodoItemById(workspaceId, params.todoItemId);
         if (!todo) {
           return {
             content: [{ type: "text" as const, text: "Error: Todo item not found" }],
@@ -504,15 +504,15 @@ export const registerTodosTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
-        const todo = await getTodoItemById(organizationId, params.todoItemId);
+        const todo = await getTodoItemById(workspaceId, params.todoItemId);
         if (!todo) {
           return {
             content: [{ type: "text" as const, text: "Error: Todo item not found" }],
@@ -530,7 +530,7 @@ export const registerTodosTools = (server: McpServer) => {
 
         const comment = await createEntityComment("todo", params.todoItemId, userId, params.content);
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "todo-item:comment-added" as any,
           payload: {
             todoItemId: params.todoItemId,

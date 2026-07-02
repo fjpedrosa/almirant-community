@@ -17,7 +17,7 @@ const mapProviderForQuota = (provider: string): string => {
 };
 
 /**
- * Check whether the organization's quota allows executing a job for the given provider.
+ * Check whether the workspace's quota allows executing a job for the given provider.
  *
  * This is a **fail-open** check: if the quota service is unreachable or returns an error,
  * the job is allowed to proceed. Only an explicit `allowed: false` response will block execution.

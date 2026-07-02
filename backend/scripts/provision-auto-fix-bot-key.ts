@@ -5,7 +5,7 @@
  *   1. Migration 0167_auto_fix_bot_user.sql has been applied (creates the bot user).
  *   2. ORG_IDS env var contains the comma-separated UUIDs of the orgs where the bot
  *      must operate. IDs vary per environment — get them with:
- *        SELECT id, slug, name FROM organization;
+ *        SELECT id, slug, name FROM workspace;
  *
  * What this script does:
  *   (a) Creates bot membership in each org — idempotent (SELECT + conditional INSERT,
@@ -44,14 +44,14 @@ console.log(`Bot user: ${BOT_USER_ID}`);
 console.log(`Target orgs: ${orgIds.join(", ")}\n`);
 
 // ─── (a) Memberships ────────────────────────────────────────────────────────
-// The `member` table has no unique constraint on (userId, organizationId) —
+// The `member` table has no unique constraint on (userId, workspaceId) —
 // confirmed in backfill-organization.ts:98-113. We check manually per row.
 
 for (const orgId of orgIds) {
   const [existing] = await db
     .select({ id: member.id })
     .from(member)
-    .where(and(eq(member.userId, BOT_USER_ID), eq(member.organizationId, orgId)))
+    .where(and(eq(member.userId, BOT_USER_ID), eq(member.workspaceId, orgId)))
     .limit(1);
 
   if (existing) {
@@ -60,7 +60,7 @@ for (const orgId of orgIds) {
     const memberId = crypto.randomUUID().replace(/-/g, "").slice(0, 24);
     await db.insert(member).values({
       id: memberId,
-      organizationId: orgId,
+      workspaceId: orgId,
       userId: BOT_USER_ID,
       role: "member",
       createdAt: new Date(),
@@ -71,7 +71,7 @@ for (const orgId of orgIds) {
 
 // ─── (b) API key ─────────────────────────────────────────────────────────────
 // One key is enough — the bot uses projectId in the MCP URL, and
-// resolveProjectOrganization() resolves the org from the projectId because
+// resolveProjectWorkspace() resolves the org from the projectId because
 // the bot is now a member of all target orgs (see step a above).
 
 const primaryOrgId = orgIds[0]!;

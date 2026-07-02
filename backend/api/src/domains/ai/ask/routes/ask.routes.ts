@@ -14,12 +14,12 @@ import { logger } from "@almirant/config";
 const normalizeErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Unexpected error";
 
-const getOrganizationIdFromContext = (ctx: unknown): string => {
-  const activeOrganization = (ctx as { activeOrganization?: { id?: string } }).activeOrganization;
-  if (!activeOrganization?.id) {
-    throw new Error("ACTIVE_ORGANIZATION_NOT_FOUND");
+const getWorkspaceIdFromContext = (ctx: unknown): string => {
+  const activeWorkspace = (ctx as { activeWorkspace?: { id?: string } }).activeWorkspace;
+  if (!activeWorkspace?.id) {
+    throw new Error("ACTIVE_WORKSPACE_NOT_FOUND");
   }
-  return activeOrganization.id;
+  return activeWorkspace.id;
 };
 
 // ---------------------------------------------------------------------------
@@ -59,10 +59,10 @@ export const askRoutes = new Elysia({ prefix: "/ask" })
     async (ctx) => {
       try {
         const { body, set } = ctx;
-        const organizationId = getOrganizationIdFromContext(ctx);
+        const workspaceId = getWorkspaceIdFromContext(ctx);
 
-        // Rate limit check (in-memory, per organization)
-        const rateCheck = checkRateLimit(organizationId);
+        // Rate limit check (in-memory, per workspace)
+        const rateCheck = checkRateLimit(workspaceId);
         if (!rateCheck.allowed) {
           set.status = 429;
           set.headers["Retry-After"] = String(
@@ -84,7 +84,7 @@ export const askRoutes = new Elysia({ prefix: "/ask" })
               timeRange: body.timeRange,
               followUpSessionId: body.followUpSessionId,
             },
-            organizationId,
+            workspaceId,
           );
 
           set.status = 200;
@@ -96,9 +96,9 @@ export const askRoutes = new Elysia({ prefix: "/ask" })
         const message = normalizeErrorMessage(error);
 
         // Domain-specific error mapping
-        if (message === "ACTIVE_ORGANIZATION_NOT_FOUND") {
+        if (message === "ACTIVE_WORKSPACE_NOT_FOUND") {
           ctx.set.status = 403;
-          return errorResponse("No active organization in session", 403);
+          return errorResponse("No active workspace in session", 403);
         }
 
         if (error instanceof AskError) {

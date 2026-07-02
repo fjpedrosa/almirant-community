@@ -27,7 +27,7 @@ const todoColumn = {
 const board = makeBoard({
   id: "board-1",
   projectId: "proj-test-1",
-  organizationId: "org-test-1",
+  workspaceId: "org-test-1",
   columns: [backlogColumn, todoColumn],
 });
 
@@ -193,7 +193,7 @@ type ToolHandler = (
 const withOrg = {
   authInfo: {
     extra: {
-      organizationId: "org-test-1",
+      workspaceId: "org-test-1",
       projectId: "proj-test-1",
       userId: "user-test-1",
     },

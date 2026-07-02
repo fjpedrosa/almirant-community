@@ -92,7 +92,7 @@ mock.module("@almirant/config", () => ({
 
 mock.module("../../../../shared/ws/ws-connection-manager", () => ({
   wsConnectionManager: {
-    broadcastToOrganization: () => {},
+    broadcastToWorkspace: () => {},
     sendToUser: () => {},
   },
 }));
@@ -120,7 +120,7 @@ describe("POST /github/installations/:installationId/repos", () => {
     createRepositoryWithUserTokenSpy.mockClear();
   });
 
-  it("uses installation token for organization accounts", async () => {
+  it("uses installation token for workspace accounts", async () => {
     const app = await makeApp();
     const res = await app.handle(
       postJson("/github/installations/111/repos", {

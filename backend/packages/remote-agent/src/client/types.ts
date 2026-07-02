@@ -86,7 +86,7 @@ export type ClaimedJob = {
   projectId: string | null;
   boardId: string | null;
   createdByUserId: string | null;
-  organizationId: string | null;
+  workspaceId: string | null;
   jobType?: "implementation" | "planning" | "review" | "validation" | "bug-fix" | "prewarm" | "scheduled" | "integration";
   provider: WorkerProvider;
   priority: AgentJobPriority;
@@ -335,7 +335,7 @@ export interface ValidationCandidate {
   parentType?: string;
   boardId: string;
   projectId: string;
-  organizationId: string;
+  workspaceId: string;
   childIds: string[];
 }
 
@@ -347,7 +347,7 @@ export interface FixCandidate {
   parentId: string | null;
   boardId: string;
   projectId: string;
-  organizationId: string | undefined;
+  workspaceId: string | undefined;
   fixAttempts: number;
 }
 
@@ -361,7 +361,7 @@ export interface DefinitionOfDoneReviewCandidate {
   parentId: string | null;
   boardId: string;
   projectId: string | null;
-  organizationId: string | null;
+  workspaceId: string | null;
   columnName: string;
   definitionOfDone: string | null;
   dodReport: string | null;
@@ -404,13 +404,13 @@ export interface NightlyValidationConfig {
 export interface NightlyProjectValidationConfig {
   projectId: string;
   projectName: string;
-  organizationId: string;
+  workspaceId: string;
   nightlyValidation: NightlyValidationConfig;
 }
 
 export interface CreateWorkerJobPayload {
   workItemId?: string;
-  organizationId?: string;
+  workspaceId?: string;
   prompt?: string;
   provider: WorkerProvider;
   jobType?: "implementation" | "planning" | "review" | "validation" | "bug-fix" | "prewarm" | "scheduled" | "integration";
@@ -537,7 +537,7 @@ export interface BacklogDrainCandidatesResponse {
 
 export interface ScheduledAgentConfig {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string | null;
   projectName: string | null;
   name: string;
@@ -601,7 +601,7 @@ export interface IntegrationBatchItemDto {
 
 export interface IntegrationBatchDto {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string;
   repositoryId: string;
   boardId: string | null;
@@ -656,7 +656,7 @@ export type AlmirantWorkerClient = {
     context?: {
       jobId?: string;
       createdByUserId?: string;
-      organizationId?: string;
+      workspaceId?: string;
       /**
        * Admin-pinned connection UUID. When provided, the backend skips the
        * org's default resolution order and uses this specific connection's
@@ -667,7 +667,7 @@ export type AlmirantWorkerClient = {
   ) => Promise<ProviderKeysResponse>;
   getGithubToken: (repositoryId: string) => Promise<InstallationTokenResponse>;
   getRepoConfig: (projectId: string) => Promise<RepoConfigResponse>;
-  checkQuota: (provider: string, organizationId?: string) => Promise<QuotaCheckResponse>;
+  checkQuota: (provider: string, workspaceId?: string) => Promise<QuotaCheckResponse>;
   createInteraction: (jobId: string, payload: CreateInteractionPayload) => Promise<WorkerInteraction>;
   pollInteraction: (jobId: string, interactionId: string) => Promise<WorkerInteraction>;
   streamJobOutput: (
@@ -680,23 +680,23 @@ export type AlmirantWorkerClient = {
   getWorkspaceFile: (jobId: string, fileId: string) => Promise<WorkspaceFileDownloadResponse>;
   getWorkItem: (workItemId: string) => Promise<WorkItemDetails>;
   getValidationCandidates: (params?: {
-    organizationId?: string;
+    workspaceId?: string;
     projectId?: string;
     limit?: number;
     requireDodApproved?: boolean;
   }) => Promise<ValidationCandidate[]>;
   getDodReviewCandidates: (params?: {
-    organizationId?: string;
+    workspaceId?: string;
     projectId?: string;
     limit?: number;
     maxActiveJobs?: number;
     minAgeMinutes?: number;
   }) => Promise<DefinitionOfDoneReviewCandidate[]>;
-  getFixCandidates: (params?: { organizationId?: string; projectId?: string }) => Promise<FixCandidate[]>;
+  getFixCandidates: (params?: { workspaceId?: string; projectId?: string }) => Promise<FixCandidate[]>;
   getBacklogDrainCandidates: (params: { configId: string }) => Promise<BacklogDrainCandidatesResponse>;
   getDodRemediationCandidates: (params: { configId: string }) => Promise<BacklogDrainCandidatesResponse>;
   queueReleaseIntegration: (params?: {
-    organizationId?: string;
+    workspaceId?: string;
     projectId?: string;
     limit?: number;
     maxActiveItems?: number;

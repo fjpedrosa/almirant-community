@@ -288,7 +288,7 @@ export async function logTmpfsUsage(
   eventLogger: { info: (phase: string, eventType: string, message: string, payload: Record<string, unknown>) => void },
   jobContext?: {
     skillName: string;
-    organizationId: string;
+    workspaceId: string;
     workerId: string;
     workspaceMountMode: "bind" | "tmpfs";
   },
@@ -354,7 +354,7 @@ export async function logTmpfsUsage(
       emitResourceUsage({
         jobId,
         skillName: jobContext.skillName,
-        organizationId: jobContext.organizationId,
+        workspaceId: jobContext.workspaceId,
         workerId: jobContext.workerId,
         workspaceMountMode: jobContext.workspaceMountMode,
         memoryLimitMb: computeMemoryLimit(resources, jobContext.workspaceMountMode === "bind"),

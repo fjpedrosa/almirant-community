@@ -69,7 +69,7 @@ export interface EngramImportOptions {
   engramDbPath: string;
   sourceProject: string;
   sourceDirectory?: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string;
   ownerUserId?: string;
   apply?: boolean;
@@ -80,7 +80,7 @@ export interface EngramImportOptions {
 export interface EngramImportReport {
   sourceProject: string;
   sourceDirectory?: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string;
   apply: boolean;
   scanned: number;
@@ -285,7 +285,7 @@ const buildImportMetadata = (observation: EngramObservationRow) => ({
 });
 
 const getExistingImportedObservationRefs = async (
-  organizationId: string,
+  workspaceId: string,
   sourceProject: string,
   sourceDirectory?: string,
   filters?: {
@@ -325,7 +325,7 @@ const getExistingImportedObservationRefs = async (
     .from(agentObservations)
     .where(
       and(
-        eq(agentObservations.organizationId, organizationId),
+        eq(agentObservations.workspaceId, workspaceId),
         sql`${agentObservations.metadata}->>'sourceSystem' = 'engram'`,
         sql`${agentObservations.metadata}->'engramImport'->>'sourceProject' = ${sourceProject}`,
         visibilityFilters.length > 0 ? or(...visibilityFilters) : undefined,
@@ -357,14 +357,14 @@ const buildScopedContentKey = ({
   ].join("::");
 
 const getExistingActiveContentKeys = async ({
-  organizationId,
+  workspaceId,
   projectId,
   ownerUserId,
   includeProjectVisibility,
   includePersonalVisibility,
   includeOrgVisibility,
 }: {
-  organizationId: string;
+  workspaceId: string;
   projectId: string;
   ownerUserId?: string;
   includeProjectVisibility: boolean;
@@ -402,7 +402,7 @@ const getExistingActiveContentKeys = async ({
     .from(agentObservations)
     .where(
       and(
-        eq(agentObservations.organizationId, organizationId),
+        eq(agentObservations.workspaceId, workspaceId),
         isNull(agentObservations.archivedAt),
         sql`(${agentObservations.expiresAt} IS NULL OR ${agentObservations.expiresAt} > now())`,
         visibilityFilters.length > 0 ? or(...visibilityFilters) : undefined
@@ -469,18 +469,18 @@ const loadEngramObservations = (options: EngramImportOptions) => {
 };
 
 const assertTargetProjectOwnership = async (
-  organizationId: string,
+  workspaceId: string,
   projectId: string
 ) => {
   const [project] = await db
-    .select({ id: projects.id, name: projects.name, organizationId: projects.organizationId })
+    .select({ id: projects.id, name: projects.name, workspaceId: projects.workspaceId })
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
+    .where(and(eq(projects.id, projectId), eq(projects.workspaceId, workspaceId)))
     .limit(1);
 
   if (!project) {
     throw new Error(
-      `Project ${projectId} does not exist or does not belong to organization ${organizationId}`
+      `Project ${projectId} does not exist or does not belong to workspace ${workspaceId}`
     );
   }
 
@@ -490,13 +490,13 @@ const assertTargetProjectOwnership = async (
 export const importEngramProjectMemory = async (
   options: EngramImportOptions
 ): Promise<EngramImportReport> => {
-  await assertTargetProjectOwnership(options.organizationId, options.projectId);
+  await assertTargetProjectOwnership(options.workspaceId, options.projectId);
 
   const rows = loadEngramObservations(options);
   const scopes = new Set(rows.map((row) => row.scope));
 
   const existingImportedRefs = await getExistingImportedObservationRefs(
-    options.organizationId,
+    options.workspaceId,
     options.sourceProject,
     options.sourceDirectory,
     {
@@ -509,7 +509,7 @@ export const importEngramProjectMemory = async (
   );
   const existingActiveContentKeys = await getExistingActiveContentKeys(
     {
-      organizationId: options.organizationId,
+      workspaceId: options.workspaceId,
       projectId: options.projectId,
       ownerUserId: options.ownerUserId,
       includeProjectVisibility: scopes.has("project"),
@@ -521,7 +521,7 @@ export const importEngramProjectMemory = async (
   const report: EngramImportReport = {
     sourceProject: options.sourceProject,
     sourceDirectory: options.sourceDirectory,
-    organizationId: options.organizationId,
+    workspaceId: options.workspaceId,
     projectId: options.projectId,
     apply: options.apply === true,
     scanned: 0,
@@ -622,7 +622,7 @@ export const importEngramProjectMemory = async (
 
       const observation = await createObservation(
         {
-          organizationId: options.organizationId,
+          workspaceId: options.workspaceId,
           projectId:
             visibility.visibility === "project" ? options.projectId : null,
           ownerUserId: visibility.ownerUserId,

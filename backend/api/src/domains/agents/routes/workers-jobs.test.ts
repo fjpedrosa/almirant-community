@@ -7,21 +7,21 @@ import {
   createGithubServiceMock,
   restoreRealModules,
 } from "../../../test/mocks";
-import { testOrganization, testWorkItem } from "../../../test/fixtures";
+import { testWorkspace, testWorkItem } from "../../../test/fixtures";
 
 // ── Save real modules BEFORE mocking (prevents cross-file contamination) ──
 const __real_resolveAiKey = { ...(await import("../../ai/shared/services/resolve-ai-key")) };
 
 const state = {
   createdJobInput: null as Record<string, unknown> | null,
-  forecastCalls: [] as Array<{ organizationId: string; workItemId: string }>,
+  forecastCalls: [] as Array<{ workspaceId: string; workItemId: string }>,
 };
 
 const orgLookupChain = {
   from: () => orgLookupChain,
   innerJoin: () => orgLookupChain,
   where: () => orgLookupChain,
-  limit: async () => [{ organizationId: testOrganization.id }],
+  limit: async () => [{ workspaceId: testWorkspace.id }],
 };
 
 const dbMocks = createDatabaseMocks({
@@ -57,8 +57,8 @@ mock.module("../services/resource-forecast", () => ({
     confidence: "low",
     reason: "Default estimate calculated at enqueue time",
   }),
-  buildWorkItemResourceForecast: async (organizationId: string, workItemId: string) => {
-    state.forecastCalls.push({ organizationId, workItemId });
+  buildWorkItemResourceForecast: async (workspaceId: string, workItemId: string) => {
+    state.forecastCalls.push({ workspaceId, workItemId });
     return {
       estimatedPeakMemoryMb: 3584,
       confidence: "low",
@@ -136,7 +136,7 @@ describe("workersRoutes POST /workers/jobs", () => {
       projectId: testWorkItem.projectId,
       boardId: testWorkItem.boardId,
       workItemId: testWorkItem.id,
-      organizationId: testOrganization.id,
+      workspaceId: testWorkspace.id,
       provider: "codex",
       jobType: "validation",
       priority: "medium",
@@ -176,7 +176,7 @@ describe("workersRoutes POST /workers/jobs", () => {
     expect(res.status).toBe(201);
     expect(state.forecastCalls).toEqual([
       {
-        organizationId: testOrganization.id,
+        workspaceId: testWorkspace.id,
         workItemId: testWorkItem.id,
       },
     ]);

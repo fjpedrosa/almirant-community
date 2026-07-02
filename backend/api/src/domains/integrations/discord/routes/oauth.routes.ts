@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { sessionContextTypes } from "../../../../shared/middleware/session-context-types.plugin";
 import {
-  getDiscordConnectionByOrganization,
+  getDiscordConnectionByWorkspace,
   getDiscordConnectionById,
   createDiscordConnection,
   updateDiscordConnection,
@@ -32,7 +32,7 @@ const DISCORD_BOT_PERMISSIONS = "2048"; // Send Messages (for slash commands)
 
 const oauthStates = new Map<
   string,
-  { organizationId: string; expiresAt: number }
+  { workspaceId: string; expiresAt: number }
 >();
 
 /** Clean up expired states. */
@@ -105,7 +105,7 @@ export const discordOauthRoutes = new Elysia({
   // -------------------------------------------------------
   // GET /authorize - Generate Discord OAuth2 URL
   // -------------------------------------------------------
-  .get("/authorize", async ({ activeOrganization, set }) => {
+  .get("/authorize", async ({ activeWorkspace, set }) => {
     try {
       const clientId = env.DISCORD_CLIENT_ID;
       const redirectUri = env.DISCORD_OAUTH_REDIRECT_URI;
@@ -118,12 +118,12 @@ export const discordOauthRoutes = new Elysia({
         );
       }
 
-      const orgId = (activeOrganization as { id: string }).id;
+      const orgId = (activeWorkspace as { id: string }).id;
 
       // Generate state token
       const state = crypto.randomUUID();
       oauthStates.set(state, {
-        organizationId: orgId,
+        workspaceId: orgId,
         expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
       });
 
@@ -178,7 +178,7 @@ export const discordOauthRoutes = new Elysia({
           );
         }
 
-        const { organizationId } = storedState;
+        const { workspaceId } = storedState;
         oauthStates.delete(state);
 
         const clientId = env.DISCORD_CLIENT_ID;
@@ -262,7 +262,7 @@ export const discordOauthRoutes = new Elysia({
 
         // Create connection record
         const connection = await createDiscordConnection({
-          organizationId,
+          workspaceId,
           guildId: guild.id,
           guildName: guild.name,
           encryptedAccessToken: encryptedAccess?.encrypted ?? null,
@@ -287,7 +287,7 @@ export const discordOauthRoutes = new Elysia({
 
         logger.info(
           {
-            organizationId,
+            workspaceId,
             guildId: guild.id,
             guildName: guild.name,
             connectionId: connection.id,
@@ -324,11 +324,11 @@ export const discordOauthRoutes = new Elysia({
   // -------------------------------------------------------
   // GET /connection - Get current org's Discord connection
   // -------------------------------------------------------
-  .get("/connection", async ({ activeOrganization, set }) => {
+  .get("/connection", async ({ activeWorkspace, set }) => {
     try {
-      const orgId = (activeOrganization as { id: string }).id;
+      const orgId = (activeWorkspace as { id: string }).id;
 
-      const connection = await getDiscordConnectionByOrganization(orgId);
+      const connection = await getDiscordConnectionByWorkspace(orgId);
 
       if (!connection) {
         return successResponse(null);
@@ -337,7 +337,7 @@ export const discordOauthRoutes = new Elysia({
       // Return connection without decrypted tokens
       return successResponse({
         id: connection.id,
-        organizationId: connection.organizationId,
+        workspaceId: connection.workspaceId,
         guildId: connection.guildId,
         guildName: connection.guildName,
         defaultChannelId: connection.defaultChannelId,
@@ -362,9 +362,9 @@ export const discordOauthRoutes = new Elysia({
   // -------------------------------------------------------
   // GET /channels - List channels from connected guild
   // -------------------------------------------------------
-  .get("/channels", async ({ activeOrganization, set }) => {
+  .get("/channels", async ({ activeWorkspace, set }) => {
     try {
-      const orgId = (activeOrganization as { id: string }).id;
+      const orgId = (activeWorkspace as { id: string }).id;
       const botToken = env.DISCORD_BOT_TOKEN;
 
       if (!botToken) {
@@ -375,7 +375,7 @@ export const discordOauthRoutes = new Elysia({
         );
       }
 
-      const connection = await getDiscordConnectionByOrganization(orgId);
+      const connection = await getDiscordConnectionByWorkspace(orgId);
 
       if (!connection) {
         set.status = 404;
@@ -446,9 +446,9 @@ export const discordOauthRoutes = new Elysia({
   // -------------------------------------------------------
   .patch(
     "/:connectionId",
-    async ({ params, body, activeOrganization, set }) => {
+    async ({ params, body, activeWorkspace, set }) => {
       try {
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         const connection = await getDiscordConnectionById(params.connectionId, orgId);
 
@@ -502,9 +502,9 @@ export const discordOauthRoutes = new Elysia({
   // -------------------------------------------------------
   .delete(
     "/:connectionId",
-    async ({ params, activeOrganization, set }) => {
+    async ({ params, activeWorkspace, set }) => {
       try {
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         const connection = await getDiscordConnectionById(params.connectionId, orgId);
 
@@ -522,7 +522,7 @@ export const discordOauthRoutes = new Elysia({
 
         logger.info(
           {
-            organizationId: orgId,
+            workspaceId: orgId,
             guildId: connection.guildId,
             connectionId: params.connectionId,
           },
@@ -553,9 +553,9 @@ export const discordOauthRoutes = new Elysia({
   // -------------------------------------------------------
   .post(
     "/:connectionId/test",
-    async ({ params, body, activeOrganization, set }) => {
+    async ({ params, body, activeWorkspace, set }) => {
       try {
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         const connection = await getDiscordConnectionById(params.connectionId, orgId);
 
@@ -669,9 +669,9 @@ export const discordOauthRoutes = new Elysia({
   // -------------------------------------------------------
   .get(
     "/:connectionId/notifications",
-    async ({ params, activeOrganization, set }) => {
+    async ({ params, activeWorkspace, set }) => {
       try {
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         const connection = await getDiscordConnectionById(params.connectionId, orgId);
         if (!connection) {
@@ -730,9 +730,9 @@ export const discordOauthRoutes = new Elysia({
   // -------------------------------------------------------
   .patch(
     "/:connectionId/notifications",
-    async ({ params, body, activeOrganization, set }) => {
+    async ({ params, body, activeWorkspace, set }) => {
       try {
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         const connection = await getDiscordConnectionById(params.connectionId, orgId);
         if (!connection) {

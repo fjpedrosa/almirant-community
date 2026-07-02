@@ -27,7 +27,7 @@ const createMockJob = (overrides?: Partial<ClaimedJob>): ClaimedJob => ({
   projectId: "project-001",
   boardId: "board-001",
   createdByUserId: "user-001",
-  organizationId: "org-001",
+  workspaceId: "org-001",
   jobType: "implementation",
   provider: "codex",
   priority: "medium",

@@ -78,7 +78,7 @@ export async function runServeSession(
     resolvedModel?: string;
     completedTaskIds?: string[];
     webSessionId?: string;
-    webOrganizationId?: string;
+    webWorkspaceId?: string;
     runtimeConfig: RuntimeConfig;
     runtimeExecutor: RuntimeExecutor;
   },
@@ -96,7 +96,7 @@ export async function runServeSession(
   tokensUsed?: number;
   pausedForQuota?: QuotaPauseRequest;
 }> {
-  const { baseUrl, containerId, job, workItem, eventLogger, streamPublisher, threadId, resolvedModel, completedTaskIds, webSessionId, webOrganizationId, runtimeConfig, runtimeExecutor } = params;
+  const { baseUrl, containerId, job, workItem, eventLogger, streamPublisher, threadId, resolvedModel, completedTaskIds, webSessionId, webWorkspaceId, runtimeConfig, runtimeExecutor } = params;
 
   const sessionManager = createOpenCodeSessionManager({
     baseUrl,
@@ -199,7 +199,7 @@ export async function runServeSession(
           skillId: jobSkillId,
           skillSlug: skillName,
           projectId: jobProjectId,
-          organizationId: job.organizationId ?? undefined,
+          workspaceId: job.workspaceId ?? undefined,
           containerId,
           runtimeType: runtimeConfig.type,
           eventLogger,
@@ -349,7 +349,7 @@ export async function runServeSession(
       jobId: job.id,
       threadId,
       sessionId: webSessionId ?? "",
-      organizationId: webOrganizationId ?? "",
+      workspaceId: webWorkspaceId ?? "",
     });
 
     relay = createBidirectionalRelay({
@@ -382,7 +382,7 @@ export async function runServeSession(
         jobId: job.id,
         threadId,
         webSessionId,
-        webOrganizationId,
+        webWorkspaceId,
         skillName,
         nextSequence,
       })) {
@@ -419,7 +419,7 @@ export async function runServeSession(
     threadId,
     estimatedHours: workItem?.estimatedHours,
     webSessionId,
-    webOrganizationId,
+    webWorkspaceId,
     tmpfsWatcher,
     onStreamReady: async () => {
       // Send the initial prompt once the SSE stream is connected
@@ -433,7 +433,7 @@ export async function runServeSession(
       await publishCanonicalEvent(streamPublisher, {
         jobId: job.id,
         sessionId: webSessionId ?? "",
-        organizationId: webOrganizationId ?? "",
+        workspaceId: webWorkspaceId ?? "",
         threadId: threadId ?? "",
         timestamp: Date.now(),
         sequenceNumber: nextSequence(),

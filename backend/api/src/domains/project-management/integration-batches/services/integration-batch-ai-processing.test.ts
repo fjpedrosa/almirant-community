@@ -87,15 +87,15 @@ describe("release integration AI processing state", () => {
   });
 
   it("sets and broadcasts true for processing item statuses", async () => {
-    const broadcasts: Array<{ organizationId: string; message: Record<string, unknown> }> = [];
+    const broadcasts: Array<{ workspaceId: string; message: Record<string, unknown> }> = [];
     const setAiSpy = track(
       spyOn(database, "setWorkItemAiProcessing").mockImplementation(async () => true as never),
     );
     track(
-      spyOn(wsConnectionManager, "broadcastToOrganization").mockImplementation(
-        (organizationId: string, message) => {
+      spyOn(wsConnectionManager, "broadcastToWorkspace").mockImplementation(
+        (workspaceId: string, message) => {
           broadcasts.push({
-            organizationId,
+            workspaceId,
             message: message as unknown as Record<string, unknown>,
           });
         },
@@ -104,7 +104,7 @@ describe("release integration AI processing state", () => {
     mockNoDescendants();
 
     await syncReleaseIntegrationItemAiProcessing({
-      organizationId: "org-1",
+      workspaceId: "org-1",
       workItemId: "wi-1",
       status: "rebasing",
     });
@@ -112,7 +112,7 @@ describe("release integration AI processing state", () => {
     expect(setAiSpy).toHaveBeenCalledWith("org-1", "wi-1", true);
     expect(broadcasts).toEqual([
       {
-        organizationId: "org-1",
+        workspaceId: "org-1",
         message: {
           type: "work-item:updated",
           payload: {
@@ -125,15 +125,15 @@ describe("release integration AI processing state", () => {
   });
 
   it("sets and broadcasts false for non-processing item statuses", async () => {
-    const broadcasts: Array<{ organizationId: string; message: Record<string, unknown> }> = [];
+    const broadcasts: Array<{ workspaceId: string; message: Record<string, unknown> }> = [];
     const setAiSpy = track(
       spyOn(database, "setWorkItemAiProcessing").mockImplementation(async () => true as never),
     );
     track(
-      spyOn(wsConnectionManager, "broadcastToOrganization").mockImplementation(
-        (organizationId: string, message) => {
+      spyOn(wsConnectionManager, "broadcastToWorkspace").mockImplementation(
+        (workspaceId: string, message) => {
           broadcasts.push({
-            organizationId,
+            workspaceId,
             message: message as unknown as Record<string, unknown>,
           });
         },
@@ -142,7 +142,7 @@ describe("release integration AI processing state", () => {
     mockNoDescendants();
 
     await syncReleaseIntegrationItemAiProcessing({
-      organizationId: "org-1",
+      workspaceId: "org-1",
       workItemId: "wi-1",
       status: "merged",
     });
@@ -162,12 +162,12 @@ describe("release integration AI processing state", () => {
       spyOn(database, "setWorkItemAiProcessing").mockImplementation(async () => true as never),
     );
     track(
-      spyOn(wsConnectionManager, "broadcastToOrganization").mockImplementation(() => undefined),
+      spyOn(wsConnectionManager, "broadcastToWorkspace").mockImplementation(() => undefined),
     );
     mockNoDescendants();
 
     await clearReleaseIntegrationBatchItemsAiProcessing({
-      organizationId: "org-1",
+      workspaceId: "org-1",
       items: [
         { workItemId: "wi-1" },
         { workItemId: "wi-1" },
@@ -188,8 +188,8 @@ describe("release integration AI processing state", () => {
       spyOn(database, "setWorkItemAiProcessing").mockImplementation(async () => true as never),
     );
     track(
-      spyOn(wsConnectionManager, "broadcastToOrganization").mockImplementation(
-        (_organizationId: string, message) => {
+      spyOn(wsConnectionManager, "broadcastToWorkspace").mockImplementation(
+        (_workspaceId: string, message) => {
           broadcasts.push(message as unknown as Record<string, unknown>);
         },
       ),
@@ -199,7 +199,7 @@ describe("release integration AI processing state", () => {
     });
 
     const updated = await setReleaseIntegrationWorkItemAiProcessing({
-      organizationId: "org-1",
+      workspaceId: "org-1",
       workItemId: "feature-1",
       isAiProcessing: true,
     });
@@ -232,7 +232,7 @@ describe("release integration AI processing state", () => {
       spyOn(database, "setWorkItemAiProcessing").mockImplementation(async () => true as never),
     );
     track(
-      spyOn(wsConnectionManager, "broadcastToOrganization").mockImplementation(() => undefined),
+      spyOn(wsConnectionManager, "broadcastToWorkspace").mockImplementation(() => undefined),
     );
     mockDescendants({
       "feature-1": ["task-a", "task-b"],
@@ -240,7 +240,7 @@ describe("release integration AI processing state", () => {
     });
 
     await clearReleaseIntegrationBatchItemsAiProcessing({
-      organizationId: "org-1",
+      workspaceId: "org-1",
       items: [{ workItemId: "feature-1" }, { workItemId: "feature-2" }],
     });
 
@@ -258,12 +258,12 @@ describe("release integration AI processing state", () => {
       spyOn(database, "setWorkItemAiProcessing").mockImplementation(async () => true as never),
     );
     track(
-      spyOn(wsConnectionManager, "broadcastToOrganization").mockImplementation(() => undefined),
+      spyOn(wsConnectionManager, "broadcastToWorkspace").mockImplementation(() => undefined),
     );
     mockDescendants({ "leaf-only": [] });
 
     const updated = await setReleaseIntegrationWorkItemAiProcessing({
-      organizationId: "org-1",
+      workspaceId: "org-1",
       workItemId: "leaf-only",
       isAiProcessing: true,
     });

@@ -9,7 +9,7 @@ import {
 const envelope: CanonicalEventEnvelope = {
   jobId: "job-1",
   sessionId: "session-1",
-  organizationId: "org-1",
+  workspaceId: "org-1",
   threadId: "thread-1",
   timestamp: 1_710_000_000_000,
   sequenceNumber: 42,

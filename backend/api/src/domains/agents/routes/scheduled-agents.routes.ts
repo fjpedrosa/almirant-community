@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { sessionContextTypes } from "../../../shared/middleware/session-context-types.plugin";
 import {
-  listScheduledAgentConfigsByOrganization,
+  listScheduledAgentConfigsByWorkspace,
   getScheduledAgentConfigById,
   createScheduledAgentConfig,
   updateScheduledAgentConfig,
@@ -255,13 +255,13 @@ const buildWebhookProposal = async (
 export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
   .use(sessionContextTypes)
 
-  // GET /scheduled-agents - List configs for the active organization
+  // GET /scheduled-agents - List configs for the active workspace
   .get(
     "/",
-    async ({ activeOrganization, query }) => {
+    async ({ activeWorkspace, query }) => {
       try {
-        const orgId = activeOrganization!.id;
-        const configs = await listScheduledAgentConfigsByOrganization(orgId, {
+        const orgId = activeWorkspace!.id;
+        const configs = await listScheduledAgentConfigsByWorkspace(orgId, {
           projectId: query.projectId,
         });
         return successResponse(configs);
@@ -280,11 +280,11 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
   // POST /scheduled-agents/backlog-drain/preview - Preview deterministic backlog-drain candidates before saving/enabling
   .post(
     "/backlog-drain/preview",
-    async ({ body, activeOrganization }) => {
+    async ({ body, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const preview = await previewBacklogDrainCandidates({
-          organizationId: orgId,
+          workspaceId: orgId,
           projectId: body.projectId ?? null,
           targetConfig: body.targetConfig,
           codingAgent: body.codingAgent ?? null,
@@ -340,9 +340,9 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
   // GET /scheduled-agents/backlog-drain/work-items?projectIds=a,b - Tree data for guided exclusions
   .get(
     "/backlog-drain/work-items",
-    async ({ query, activeOrganization }) => {
+    async ({ query, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const projectIds = query.projectIds
           .split(",")
           .map((id) => id.trim())
@@ -366,9 +366,9 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
   // GET /scheduled-agents/:id - Get a single config
   .get(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
+    async ({ params, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const config = await getScheduledAgentConfigById(params.id, orgId);
 
         if (!config) {
@@ -392,9 +392,9 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
   // POST /scheduled-agents - Create a new config
   .post(
     "/",
-    async ({ body, set, activeOrganization }) => {
+    async ({ body, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         // Defense in depth: even though `feedback-triage`, `bug-analysis` and
         // `bug-fix` are not in VALID_JOB_TYPES, guard against any future
         // addition or prompt-based smuggling that would route to an internal
@@ -430,7 +430,7 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
 
         const config = await createScheduledAgentConfig({
           id: isWebhook ? body.id : undefined,
-          organizationId: orgId,
+          workspaceId: orgId,
           name: body.name,
           prompt: body.prompt ?? null,
           jobType: body.jobType,
@@ -478,9 +478,9 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
   // PATCH /scheduled-agents/:id - Update a config
   .patch(
     "/:id",
-    async ({ params, body, set, activeOrganization }) => {
+    async ({ params, body, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const { mcpServers: bodyMcpServers, ...bodyWithoutMcpServers } = body;
 
         const existing = await getScheduledAgentConfigById(params.id, orgId);
@@ -555,9 +555,9 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
   // DELETE /scheduled-agents/:id - Delete a config
   .delete(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
+    async ({ params, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
 
         // Verify ownership
         const existing = await getScheduledAgentConfigById(params.id, orgId);
@@ -583,9 +583,9 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
   // POST /scheduled-agents/:id/pause - Pause or resume a config
   .post(
     "/:id/pause",
-    async ({ params, body, set, activeOrganization }) => {
+    async ({ params, body, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
 
         // Verify ownership
         const existing = await getScheduledAgentConfigById(params.id, orgId);
@@ -621,9 +621,9 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
   // POST /scheduled-agents/:id/trigger - Manually trigger a scheduled agent
   .post(
     "/:id/trigger",
-    async ({ params, set, activeOrganization, user }) => {
+    async ({ params, set, activeWorkspace, user }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
 
         const config = await getScheduledAgentConfigById(params.id, orgId);
         if (!config) {

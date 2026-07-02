@@ -25,21 +25,21 @@ const orchestrationStrategyValues = t.Union([
 // Routes
 // ---------------------------------------------------------------------------
 
-export const organizationSettingsRoutes = new Elysia({
-  prefix: "/organization-settings",
+export const workspaceSettingsRoutes = new Elysia({
+  prefix: "/workspace-settings",
 })
   .use(sessionContextTypes)
 
   // -------------------------------------------------------
-  // GET /organization-settings - Get settings for the active org
+  // GET /workspace-settings - Get settings for the active org
   // Returns default values if no settings row exists yet.
   // -------------------------------------------------------
-  .get("/", async ({ activeOrganization, set }) => {
+  .get("/", async ({ activeWorkspace, set }) => {
     try {
-      const org = activeOrganization as { id: string } | null;
+      const org = activeWorkspace as { id: string } | null;
       if (!org?.id) {
         set.status = 403;
-        return errorResponse("No active organization", 403);
+        return errorResponse("No active workspace", 403);
       }
       const settings = await getOrgSettings(org.id);
       return successResponse(settings);
@@ -48,23 +48,23 @@ export const organizationSettingsRoutes = new Elysia({
       return errorResponse(
         error instanceof Error
           ? error.message
-          : "Failed to get organization settings",
+          : "Failed to get workspace settings",
         500,
       );
     }
   })
 
   // -------------------------------------------------------
-  // PATCH /organization-settings - Update (upsert) settings
+  // PATCH /workspace-settings - Update (upsert) settings
   // -------------------------------------------------------
   .patch(
     "/",
-    async ({ body, activeOrganization, set }) => {
+    async ({ body, activeWorkspace, set }) => {
       try {
-        const org = activeOrganization as { id: string } | null;
+        const org = activeWorkspace as { id: string } | null;
         if (!org?.id) {
           set.status = 403;
-          return errorResponse("No active organization", 403);
+          return errorResponse("No active workspace", 403);
         }
         const settings = await upsertOrgSettings(org.id, {
           aiKeyPolicy: body.aiKeyPolicy,
@@ -78,7 +78,7 @@ export const organizationSettingsRoutes = new Elysia({
         return errorResponse(
           error instanceof Error
             ? error.message
-            : "Failed to update organization settings",
+            : "Failed to update workspace settings",
           500,
         );
       }

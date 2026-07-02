@@ -15,7 +15,7 @@ import { createSequenceGuard } from "../src/sequence-guard";
 type PublishedMessage = {
   channel: string;
   payload: {
-    organizationId: string;
+    workspaceId: string;
     message: { type: string; payload: Record<string, unknown> };
   };
 };
@@ -48,7 +48,7 @@ const wrapInEnvelope = (
 ): CanonicalEventEnvelope => ({
   jobId: "job-001",
   sessionId: "session-001",
-  organizationId: "org-001",
+  workspaceId: "org-001",
   threadId: "thread-001",
   timestamp: 1700000000000 + seq * 100,
   sequenceNumber: seq,
@@ -77,7 +77,7 @@ describe("Web Bridge: Canonical → WS message mapping", () => {
 
     expect(published.length).toBe(1);
     expect(published[0].channel).toBe(TEST_CHANNEL);
-    expect(published[0].payload.organizationId).toBe("org-001");
+    expect(published[0].payload.workspaceId).toBe("org-001");
     expect(published[0].payload.message.type).toBe("planning:text");
     expect(published[0].payload.message.payload.content).toBe("Hello world");
     expect(published[0].payload.message.payload.sessionId).toBe("session-001");

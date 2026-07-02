@@ -23,7 +23,7 @@ type MemoryCandidate = {
 };
 
 type PersistJobMemoryArgs = {
-  organizationId: string;
+  workspaceId: string;
   projectId?: string | null;
   agentJobId: string;
   workItemId?: string | null;
@@ -145,7 +145,7 @@ export const persistJobMemoryFromTerminalState = async (
       const topicKey = normalizeTopicKey(candidate.type, candidate.topicKey);
 
       const observation = await createObservation({
-        organizationId: args.organizationId,
+        workspaceId: args.workspaceId,
         projectId: args.projectId ?? null,
         agentJobId: args.agentJobId,
         workItemId: args.workItemId ?? null,
@@ -184,7 +184,7 @@ export const persistJobMemoryFromTerminalState = async (
 
   if (savedIds.length > 0) {
     await createMemoryTelemetry({
-      organizationId: args.organizationId,
+      workspaceId: args.workspaceId,
       agentJobId: args.agentJobId,
       event: "save",
       resultCount: savedIds.length,

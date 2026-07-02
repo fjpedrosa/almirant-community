@@ -7,7 +7,7 @@ import {
   createWsMock,
   restoreRealModules,
 } from "../../../test/mocks";
-import { testOrganization } from "../../../test/fixtures";
+import { testWorkspace } from "../../../test/fixtures";
 
 // ── Save real modules BEFORE mocking (prevents cross-file contamination) ──
 const __real_resolveAiKey = { ...(await import("../../ai/shared/services/resolve-ai-key")) };
@@ -28,7 +28,7 @@ const existingJob = {
   planningSessionId: null,
   jobType: "planning" as const,
   createdByUserId: null,
-  organizationId: testOrganization.id,
+  workspaceId: testWorkspace.id,
   cumulativeDurationMs: 0,
   startedAt: new Date("2026-04-04T12:00:00.000Z"),
   result: null,
@@ -36,7 +36,7 @@ const existingJob = {
 };
 
 const dbMocks = createDatabaseMocks({
-  validateApiKey: async () => ({ id: "worker-api-key", organizationId: testOrganization.id }),
+  validateApiKey: async () => ({ id: "worker-api-key", workspaceId: testWorkspace.id }),
   getJobById: async (id: string) => {
     if (id !== existingJob.id) return null;
     return {

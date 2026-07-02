@@ -49,7 +49,7 @@ function buildToolsRegistry() {
 const withoutUser = {
   authInfo: {
     extra: {
-      organizationId: "org-test-1",
+      workspaceId: "org-test-1",
       projectId: "proj-test-1",
     },
   },
@@ -58,7 +58,7 @@ const withoutUser = {
 const withUser = {
   authInfo: {
     extra: {
-      organizationId: "org-test-1",
+      workspaceId: "org-test-1",
       projectId: "proj-test-1",
       userId: "user-test-1",
     },

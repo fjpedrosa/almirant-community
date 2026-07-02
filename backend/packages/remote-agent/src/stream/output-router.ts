@@ -67,11 +67,11 @@ const toStreamEvent = (
   jobId: string,
   threadId: string,
   sessionId: string,
-  organizationId: string,
+  workspaceId: string,
 ): AgentOutputEvent => ({
   jobId,
   sessionId,
-  organizationId,
+  workspaceId,
   threadId,
   timestamp: Date.now(),
   sequenceNumber: nextSequence(sessionId),
@@ -173,7 +173,7 @@ class RemoteOutputStreamRouter implements OutputStreamRouter {
         options.jobId,
         options.threadId,
         options.sessionId ?? "",
-        options.organizationId ?? "",
+        options.workspaceId ?? "",
       );
       await this.streamPublisher.publish(streamEvent);
     };

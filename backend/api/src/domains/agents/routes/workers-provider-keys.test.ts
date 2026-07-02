@@ -33,14 +33,14 @@ const state = {
     job: {
       id: "job-1",
       createdByUserId: "user-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
     },
     workItem: null,
     project: null,
     board: null,
     planningSession: null,
   } as {
-    job: { id: string; createdByUserId: string | null; organizationId: string | null };
+    job: { id: string; createdByUserId: string | null; workspaceId: string | null };
     workItem: null;
     project: null;
     board: null;
@@ -56,7 +56,7 @@ const emptyChain = {
 };
 
 const dbMocks = createDatabaseMocks({
-  validateApiKey: async () => ({ id: "worker-api-key", organizationId: "org-1" }),
+  validateApiKey: async () => ({ id: "worker-api-key", workspaceId: "org-1" }),
   upsertWorker: async () => ({}),
   updateHeartbeat: async () => ({}),
   claimJobs: async () => [],
@@ -133,7 +133,7 @@ describe("workersRoutes /provider-keys", () => {
       job: {
         id: "job-1",
         createdByUserId: "user-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
       },
       workItem: null,
       project: null,
@@ -182,7 +182,7 @@ describe("workersRoutes /provider-keys", () => {
     expect(state.resolveAiKeyCalls[0]).toMatchObject({
       provider: "zai",
       userId: "user-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
     });
     expect(state.latestProviderCalls).toHaveLength(0);
   });
@@ -226,7 +226,7 @@ describe("workersRoutes /provider-keys", () => {
     expect(state.resolveAiKeyCalls[0]).toMatchObject({
       provider: "xai",
       userId: "user-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
     });
   });
 
@@ -235,7 +235,7 @@ describe("workersRoutes /provider-keys", () => {
       job: {
         id: "job-legacy",
         createdByUserId: null,
-        organizationId: null,
+        workspaceId: null,
       },
       workItem: null,
       project: null,
@@ -271,16 +271,16 @@ describe("workersRoutes /provider-keys", () => {
     expect(state.latestProviderCalls).toHaveLength(0);
     // resolveAiKey was called with the API key's org, not null
     expect(state.resolveAiKeyCalls).toContainEqual(
-      expect.objectContaining({ organizationId: "org-1" }),
+      expect.objectContaining({ workspaceId: "org-1" }),
     );
   });
 
-  it("resolves organization provider key when nightly job has org but no user", async () => {
+  it("resolves workspace provider key when nightly job has org but no user", async () => {
     state.job = {
       job: {
         id: "job-nightly",
         createdByUserId: null,
-        organizationId: "org-1",
+        workspaceId: "org-1",
       },
       workItem: null,
       project: null,
@@ -320,7 +320,7 @@ describe("workersRoutes /provider-keys", () => {
       expect.objectContaining({
         provider: "openai",
         userId: null,
-        organizationId: "org-1",
+        workspaceId: "org-1",
         encryptionKey: "test-encryption-key",
       }),
     );
@@ -360,7 +360,7 @@ describe("workersRoutes /provider-keys", () => {
     expect(state.latestProviderCalls).toHaveLength(0);
   });
 
-  it("never uses cross-org fallback when organizationId is present", async () => {
+  it("never uses cross-org fallback when workspaceId is present", async () => {
     // Both orchestration and non-orchestration return null for this org
     state.resolveAiKeyResult = null;
     state.resolveAiKeyNonOrchResult = null;

@@ -211,8 +211,8 @@ const buildOfflineTimelines = (
 export const workersDashboardRoutes = new Elysia({ prefix: "/workers" })
   .use(sessionContextTypes)
   // GET /api/workers
-  .get("/", async ({ activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/", async ({ activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const workers = await getWorkersWithJobs(orgId);
     return successResponse(workers);
   })
@@ -220,8 +220,8 @@ export const workersDashboardRoutes = new Elysia({ prefix: "/workers" })
   // GET /api/workers/metrics-history
   .get(
     "/metrics-history",
-    async ({ query, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ query, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const range = (query.range as string) ?? "1h";
       const workerId = query.workerId as string | undefined;
 
@@ -310,8 +310,8 @@ export const workersDashboardRoutes = new Elysia({ prefix: "/workers" })
   // GET /api/workers/offline-timeline
   .get(
     "/offline-timeline",
-    async ({ query, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ query, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const range = (query.range as string) ?? "24h";
 
       const rangeMs: Record<string, number> = {
@@ -350,8 +350,8 @@ export const workersDashboardRoutes = new Elysia({ prefix: "/workers" })
   // GET /api/workers/:name/lifecycle
   .get(
     "/:name/lifecycle",
-    async ({ params, query, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, query, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const limit = query.limit ? parseInt(query.limit, 10) : 100;
       const offset = query.offset ? parseInt(query.offset, 10) : 0;
       const events = await getLifecycleEvents(params.name, { limit, offset, orgId });
@@ -371,8 +371,8 @@ export const workersDashboardRoutes = new Elysia({ prefix: "/workers" })
   // GET /api/workers/:name/audit
   .get(
     "/:name/audit",
-    async ({ params, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const summary = await getWorkerAuditSummary(params.name, orgId);
       return successResponse(summary);
     },
@@ -386,11 +386,11 @@ export const workersDashboardRoutes = new Elysia({ prefix: "/workers" })
   // DELETE /api/workers/:workerId
   .delete(
     "/:workerId",
-    async ({ params, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const deleted = await deleteWorker(params.workerId, orgId);
       if (!deleted) {
-        return errorResponse("Worker not found or does not belong to this organization", 404);
+        return errorResponse("Worker not found or does not belong to this workspace", 404);
       }
       return successResponse({ deleted: true });
     },

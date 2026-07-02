@@ -7,7 +7,7 @@ import {
   deleteInstallationByGithubId,
   getInstallationByGithubId,
   getRepoIdByGithubFullName,
-  getOrganizationIdByRepoId,
+  getWorkspaceIdByRepoId,
   getProjectIdByRepoId,
   updatePullRequestReviewStatus,
   updatePullRequestCiStatus,
@@ -15,8 +15,8 @@ import {
   updateWorkItem,
   moveWorkItem,
   linkCommitToWorkItem,
-  getMembersByOrganizationId,
-  getOrganizationMemberUserIdByGithubLogin,
+  getMembersByWorkspaceId,
+  getWorkspaceMemberUserIdByGithubLogin,
   getBoardColumns,
   getBugFixAttemptsByFixPrUrl,
   getLatestBugFixAttemptByFeedbackItemId,
@@ -40,7 +40,7 @@ import { wsConnectionManager } from "../../../../shared/ws/ws-connection-manager
 import { upsertNotificationBySource } from "../../../../shared/services/notification-service";
 import {
   broadcastFeedbackItemUpdated,
-  resolveFeedbackOrganizationId,
+  resolveFeedbackWorkspaceId,
 } from "../../../../shared/ws/feedback-events";
 
 
@@ -227,7 +227,7 @@ export const extractTaskIds = (text: string): string[] => {
  * Updates the work item metadata with pullRequest reference (fire-and-forget).
  */
 export const autoLinkPrToWorkItems = async (
-  organizationId: string,
+  workspaceId: string,
   pr: {
     title: string;
     head: { ref: string } | null;
@@ -242,7 +242,7 @@ export const autoLinkPrToWorkItems = async (
   const taskIds = extractTaskIds(sources);
   if (taskIds.length === 0) return;
 
-  const workItems = await getWorkItemsByTaskIds(organizationId, taskIds);
+  const workItems = await getWorkItemsByTaskIds(workspaceId, taskIds);
   if (workItems.length === 0) return;
 
   const state = resolvePrState(pr);
@@ -258,7 +258,7 @@ export const autoLinkPrToWorkItems = async (
     workItems.map((wi) => {
       const existingMetadata = (wi.metadata ?? {}) as Record<string, unknown>;
       const merged = { ...existingMetadata, pullRequest: pullRequestRef };
-      return updateWorkItem(organizationId, wi.id, { metadata: merged });
+      return updateWorkItem(workspaceId, wi.id, { metadata: merged });
     })
   );
 
@@ -266,7 +266,7 @@ export const autoLinkPrToWorkItems = async (
     const result = results[i];
     const wi = workItems[i];
     if (result && wi && result.status === "fulfilled") {
-      wsConnectionManager.broadcastToOrganization(organizationId, {
+      wsConnectionManager.broadcastToWorkspace(workspaceId, {
         type: "work-item:updated",
         payload: {
           workItemId: wi.id,
@@ -298,7 +298,7 @@ export const autoLinkPrToWorkItems = async (
  *   4. Marks the integration batch as `completed` after reconciliation.
  */
 export const handleReleasePrMerged = async (
-  organizationId: string,
+  workspaceId: string,
   batch: Awaited<ReturnType<typeof getBatchByFinalPrNumber>>,
   pr: { number: number; html_url: string },
 ): Promise<void> => {
@@ -371,7 +371,7 @@ export const handleReleasePrMerged = async (
   >();
   const getColumns = async (boardId: string) => {
     if (boardColumnsCache.has(boardId)) return boardColumnsCache.get(boardId)!;
-    const cols = await getBoardColumns(boardId, organizationId);
+    const cols = await getBoardColumns(boardId, workspaceId);
     boardColumnsCache.set(boardId, cols);
     return cols;
   };
@@ -411,7 +411,7 @@ export const handleReleasePrMerged = async (
         pr,
       );
       if (reconciledMetadata) {
-        await updateWorkItem(organizationId, wi.id, {
+        await updateWorkItem(workspaceId, wi.id, {
           metadata: reconciledMetadata,
         });
       }
@@ -421,7 +421,7 @@ export const handleReleasePrMerged = async (
         doneColumn.id,
         0,
         { triggeredBy: "websocket", triggeredByUserId: undefined },
-        organizationId,
+        workspaceId,
       );
       movedCount += 1;
     } catch (e) {
@@ -456,7 +456,7 @@ export const handleReleasePrMerged = async (
 };
 
 export const moveWorkItemsOnPrMerge = async (
-  organizationId: string,
+  workspaceId: string,
   pr: {
     title: string;
     head: { ref: string } | null;
@@ -469,7 +469,7 @@ export const moveWorkItemsOnPrMerge = async (
   const taskIds = extractTaskIds(sources);
   if (taskIds.length === 0) return;
 
-  const workItems = await getWorkItemsByTaskIds(organizationId, taskIds);
+  const workItems = await getWorkItemsByTaskIds(workspaceId, taskIds);
   if (workItems.length === 0) return;
 
   // Cache board columns per board to avoid redundant queries
@@ -480,7 +480,7 @@ export const moveWorkItemsOnPrMerge = async (
 
   const getColumns = async (boardId: string) => {
     if (boardColumnsCache.has(boardId)) return boardColumnsCache.get(boardId)!;
-    const columns = await getBoardColumns(boardId, organizationId);
+    const columns = await getBoardColumns(boardId, workspaceId);
     boardColumnsCache.set(boardId, columns);
     return columns;
   };
@@ -534,17 +534,17 @@ export const moveWorkItemsOnPrMerge = async (
         reviewColumn.id,
         0,
         { triggeredBy: "websocket", triggeredByUserId: undefined },
-        organizationId
+        workspaceId
       );
 
       // 2. Update metadata separately (pullRequest.state = "merged")
-      await updateWorkItem(organizationId, wi.id, {
+      await updateWorkItem(workspaceId, wi.id, {
         metadata: mergedMetadata,
       });
 
       getActivityLogger().log({
         actorUserId: null as unknown as string,
-        organizationId,
+        workspaceId,
         action: "moved",
         resourceType: "work_item",
         resourceId: wi.id,
@@ -559,7 +559,7 @@ export const moveWorkItemsOnPrMerge = async (
         },
       });
 
-      wsConnectionManager.broadcastToOrganization(organizationId, {
+      wsConnectionManager.broadcastToWorkspace(workspaceId, {
         type: "work-item:updated",
         payload: {
           workItemId: wi.id,
@@ -698,9 +698,9 @@ export const moveFeedbackBugsToPendingValidationOnPrMerge = async (pr: {
 
       broadcastFeedbackItemUpdated({
         item: updatedFeedback,
-        organizationId: resolveFeedbackOrganizationId(
+        workspaceId: resolveFeedbackWorkspaceId(
           updatedFeedback,
-          resolveFeedbackOrganizationId(feedbackItem)
+          resolveFeedbackWorkspaceId(feedbackItem)
         ),
         changes: { status: "pending_validation" },
       });
@@ -895,9 +895,9 @@ export const autoLinkCommitsToWorkItems = async (
 ): Promise<void> => {
   if (upsertedCommits.length === 0) return;
 
-  const organizationId = await getOrganizationIdByRepoId(repoId);
-  if (!organizationId) {
-    logger.warn(`[github-webhook] No organizationId found for repo ${repoId}, skipping commit auto-link`);
+  const workspaceId = await getWorkspaceIdByRepoId(repoId);
+  if (!workspaceId) {
+    logger.warn(`[github-webhook] No workspaceId found for repo ${repoId}, skipping commit auto-link`);
     return;
   }
 
@@ -921,7 +921,7 @@ export const autoLinkCommitsToWorkItems = async (
   const allTaskIds = Array.from(taskIdToCommitIds.keys());
   if (allTaskIds.length === 0) return;
 
-  const workItems = await getWorkItemsByTaskIds(organizationId, allTaskIds);
+  const workItems = await getWorkItemsByTaskIds(workspaceId, allTaskIds);
   if (workItems.length === 0) return;
 
   // Build a lookup from taskId -> workItemId
@@ -983,22 +983,22 @@ const buildPullRequestReviewSourceType = (prNumber: number): string =>
   `github_prr:${prNumber}`;
 
 const getGithubNotificationContext = async (repoId: string): Promise<{
-  organizationId: string;
+  workspaceId: string;
   projectId: string;
   recipientUserIds: string[];
 } | null> => {
-  const [organizationId, projectId] = await Promise.all([
-    getOrganizationIdByRepoId(repoId),
+  const [workspaceId, projectId] = await Promise.all([
+    getWorkspaceIdByRepoId(repoId),
     getProjectIdByRepoId(repoId),
   ]);
 
-  if (!organizationId || !projectId) return null;
+  if (!workspaceId || !projectId) return null;
 
-  const members = await getMembersByOrganizationId(organizationId);
+  const members = await getMembersByWorkspaceId(workspaceId);
   const recipientUserIds = members.map((m) => m.userId);
   if (recipientUserIds.length === 0) return null;
 
-  return { organizationId, projectId, recipientUserIds };
+  return { workspaceId, projectId, recipientUserIds };
 };
 
 /**
@@ -1006,13 +1006,13 @@ const getGithubNotificationContext = async (repoId: string): Promise<{
  * label like `A-F-289: "Mi feature"`. Returns null when no tasks are found.
  */
 const resolveTaskLabel = async (
-  organizationId: string,
+  workspaceId: string,
   ...sources: string[]
 ): Promise<string | null> => {
   const taskIds = extractTaskIds(sources.join(" "));
   if (taskIds.length === 0) return null;
 
-  const workItems = await getWorkItemsByTaskIds(organizationId, taskIds);
+  const workItems = await getWorkItemsByTaskIds(workspaceId, taskIds);
   if (workItems.length === 0) return null;
 
   return workItems
@@ -1079,7 +1079,7 @@ const notifyPullRequestLifecycle = async (args: {
     ctx.recipientUserIds.map((recipientUserId) =>
       upsertNotificationBySource({
         recipientUserId,
-        organizationId: ctx.organizationId,
+        workspaceId: ctx.workspaceId,
         type: "status_changed",
         title,
         body,
@@ -1123,7 +1123,7 @@ const notifyWorkflowRunResult = async (args: {
 
   const workflowName = args.workflowRun.name || "Workflow";
   const branch = args.workflowRun.head_branch || "unknown";
-  const taskLabel = await resolveTaskLabel(ctx.organizationId, branch);
+  const taskLabel = await resolveTaskLabel(ctx.workspaceId, branch);
   const title = `Workflow fallido: ${workflowName}`;
   const body = taskLabel
     ? `${args.repoFullName} · ${branch} · ${taskLabel}`
@@ -1144,7 +1144,7 @@ const notifyWorkflowRunResult = async (args: {
     ctx.recipientUserIds.map((recipientUserId) =>
       upsertNotificationBySource({
         recipientUserId,
-        organizationId: ctx.organizationId,
+        workspaceId: ctx.workspaceId,
         type: "status_changed",
         title,
         body,
@@ -1183,8 +1183,8 @@ const notifyPullRequestReview = async (args: {
   const prAuthorLogin = args.pr.user?.login?.trim();
   if (!prAuthorLogin) return;
 
-  const recipientUserId = await getOrganizationMemberUserIdByGithubLogin(
-    ctx.organizationId,
+  const recipientUserId = await getWorkspaceMemberUserIdByGithubLogin(
+    ctx.workspaceId,
     prAuthorLogin
   );
   if (!recipientUserId) {
@@ -1207,7 +1207,7 @@ const notifyPullRequestReview = async (args: {
       : reviewState === "changes_requested"
         ? "github_pr_review_changes_requested"
         : "github_pr_review_commented";
-  const taskLabel = await resolveTaskLabel(ctx.organizationId, args.pr.title, args.pr.head?.ref ?? "");
+  const taskLabel = await resolveTaskLabel(ctx.workspaceId, args.pr.title, args.pr.head?.ref ?? "");
   const body = taskLabel
     ? `${taskLabel} · ${reviewer}`
     : `${args.pr.title} · ${reviewer}`;
@@ -1226,7 +1226,7 @@ const notifyPullRequestReview = async (args: {
 
   await upsertNotificationBySource({
     recipientUserId,
-    organizationId: ctx.organizationId,
+    workspaceId: ctx.workspaceId,
     type: "status_changed",
     title,
     body,
@@ -1264,7 +1264,7 @@ const notifyCheckRunFailure = async (args: {
 
   const branch = args.checkRun.check_suite?.head_branch || "unknown";
   const checkName = args.checkRun.name || "Check run";
-  const taskLabel = await resolveTaskLabel(ctx.organizationId, branch);
+  const taskLabel = await resolveTaskLabel(ctx.workspaceId, branch);
   const title = `Check fallido: ${checkName}`;
   const body = taskLabel
     ? `${args.repoFullName} · ${branch} · ${taskLabel}`
@@ -1288,7 +1288,7 @@ const notifyCheckRunFailure = async (args: {
     ctx.recipientUserIds.map((recipientUserId) =>
       upsertNotificationBySource({
         recipientUserId,
-        organizationId: ctx.organizationId,
+        workspaceId: ctx.workspaceId,
         type: "status_changed",
         title,
         body,
@@ -1317,13 +1317,13 @@ const propagateCiStatusToWorkItems = async (
     workflowName: string | null;
   }
 ): Promise<void> => {
-  const organizationId = await getOrganizationIdByRepoId(repoId);
-  if (!organizationId) return;
+  const workspaceId = await getWorkspaceIdByRepoId(repoId);
+  if (!workspaceId) return;
 
   const taskIds = extractTaskIds(branch);
   if (taskIds.length === 0) return;
 
-  const workItems = await getWorkItemsByTaskIds(organizationId, taskIds);
+  const workItems = await getWorkItemsByTaskIds(workspaceId, taskIds);
   if (workItems.length === 0) return;
 
   const ciStatus = {
@@ -1338,7 +1338,7 @@ const propagateCiStatusToWorkItems = async (
     workItems.map((wi) => {
       const existingMetadata = (wi.metadata ?? {}) as Record<string, unknown>;
       const merged = { ...existingMetadata, ciStatus };
-      return updateWorkItem(organizationId, wi.id, { metadata: merged });
+      return updateWorkItem(workspaceId, wi.id, { metadata: merged });
     })
   );
 
@@ -1346,7 +1346,7 @@ const propagateCiStatusToWorkItems = async (
     const result = results[i];
     const wi = workItems[i];
     if (result && wi && result.status === "fulfilled") {
-      wsConnectionManager.broadcastToOrganization(organizationId, {
+      wsConnectionManager.broadcastToWorkspace(workspaceId, {
         type: "work-item:updated",
         payload: {
           workItemId: wi.id,
@@ -1525,9 +1525,9 @@ export const handlePullRequestEvent = async (
     );
 
     // Auto-link PR to work items and handle merge transition (fire-and-forget, single org lookup)
-    getOrganizationIdByRepoId(repoId).then(async (orgId) => {
+    getWorkspaceIdByRepoId(repoId).then(async (orgId) => {
       if (!orgId) {
-        logger.warn(`[github-webhook] No organizationId found for repo ${repoId}, skipping PR auto-link`);
+        logger.warn(`[github-webhook] No workspaceId found for repo ${repoId}, skipping PR auto-link`);
         return;
       }
       await autoLinkPrToWorkItems(orgId, pr);
@@ -1825,7 +1825,7 @@ export const handleInstallationEvent = async (
       });
 
       if (upserted?.scopeId && upserted.scopeId !== "pending") {
-        wsConnectionManager.broadcastToOrganization(upserted.scopeId, {
+        wsConnectionManager.broadcastToWorkspace(upserted.scopeId, {
           type: "connection:updated",
           payload: {
             provider: "github",
@@ -1845,7 +1845,7 @@ export const handleInstallationEvent = async (
       await deleteInstallationByGithubId(installation.id);
 
       if (existing?.scopeId && existing.scopeId !== "pending") {
-        wsConnectionManager.broadcastToOrganization(existing.scopeId, {
+        wsConnectionManager.broadcastToWorkspace(existing.scopeId, {
           type: "connection:updated",
           payload: {
             provider: "github",
@@ -1871,7 +1871,7 @@ export const handleInstallationEvent = async (
       });
 
       if (upserted?.scopeId && upserted.scopeId !== "pending") {
-        wsConnectionManager.broadcastToOrganization(upserted.scopeId, {
+        wsConnectionManager.broadcastToWorkspace(upserted.scopeId, {
           type: "connection:updated",
           payload: {
             provider: "github",

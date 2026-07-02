@@ -25,7 +25,7 @@ const DEFAULT_AGENT_PERMISSIONS = [
  *
  * POST /workers/session-token
  *   Authenticated with the worker API key (same as other /workers/* endpoints).
- *   Returns a short-lived JWT scoped to a specific project/organization.
+ *   Returns a short-lived JWT scoped to a specific project/workspace.
  *   The runner injects this token into the agent container instead of the global API key.
  */
 export const workerSessionTokenRoutes = new Elysia({ prefix: "/workers" })
@@ -47,7 +47,7 @@ export const workerSessionTokenRoutes = new Elysia({ prefix: "/workers" })
     "/session-token",
     async ({ body, set, workerApiKey }) => {
       // Shared/dynamic runners may have an API key from a different org than the
-      // job they are processing.  Validate that the requested organization and
+      // job they are processing.  Validate that the requested workspace and
       // project are consistent with each other (the project must belong to the
       // requested org), but do NOT require the API key's org to match — that
       // would break the multi-tenant runner model.
@@ -57,13 +57,13 @@ export const workerSessionTokenRoutes = new Elysia({ prefix: "/workers" })
         .where(
           and(
             eq(projects.id, body.projectId),
-            eq(projects.organizationId, body.organizationId)
+            eq(projects.workspaceId, body.workspaceId)
           )
         )
         .limit(1);
       if (!project) {
         set.status = 403;
-        return errorResponse("Project does not belong to the specified organization");
+        return errorResponse("Project does not belong to the specified workspace");
       }
 
       // Signing secret: reuse ENCRYPTION_KEY or fall back to a dedicated env var.
@@ -101,11 +101,11 @@ export const workerSessionTokenRoutes = new Elysia({ prefix: "/workers" })
         }
 
         if (
-          jobDetail.job.organizationId !== body.organizationId ||
+          jobDetail.job.workspaceId !== body.workspaceId ||
           jobDetail.job.projectId !== body.projectId
         ) {
           set.status = 403;
-          return errorResponse("Job does not belong to the specified project/organization");
+          return errorResponse("Job does not belong to the specified project/workspace");
         }
 
         actorUserId = resolveSessionActorUserId(jobDetail.job);
@@ -140,7 +140,7 @@ export const workerSessionTokenRoutes = new Elysia({ prefix: "/workers" })
 
       const token = generateSessionToken({
         projectId: body.projectId,
-        organizationId: body.organizationId,
+        workspaceId: body.workspaceId,
         ...(actorUserId ? { userId: actorUserId } : {}),
         ...(body.jobId ? { jobId: body.jobId } : {}),
         permissions,
@@ -155,14 +155,14 @@ export const workerSessionTokenRoutes = new Elysia({ prefix: "/workers" })
         token,
         expiresAt: expiresAt.toISOString(),
         projectId: body.projectId,
-        organizationId: body.organizationId,
+        workspaceId: body.workspaceId,
         ...(actorUserId ? { userId: actorUserId } : {}),
       });
     },
     {
       body: t.Object({
         projectId: t.String({ minLength: 1 }),
-        organizationId: t.String({ minLength: 1 }),
+        workspaceId: t.String({ minLength: 1 }),
         jobId: t.Optional(t.String({ minLength: 1 })),
         ttlSeconds: t.Optional(t.Number({ minimum: 60, maximum: 86400 })),
         permissions: t.Optional(

@@ -87,7 +87,7 @@ export async function consumeSseEvents(
     onStreamReady?: () => Promise<void>;
     estimatedHours?: number | null;
     webSessionId?: string;
-    webOrganizationId?: string;
+    webWorkspaceId?: string;
     tmpfsWatcher?: { cleanup: () => void; isCritical: () => boolean } | null;
   },
 ): Promise<{
@@ -116,7 +116,7 @@ export async function consumeSseEvents(
     onStreamReady,
     estimatedHours,
     webSessionId,
-    webOrganizationId,
+    webWorkspaceId,
     tmpfsWatcher,
   } = params;
 
@@ -182,7 +182,7 @@ export async function consumeSseEvents(
     await publishCanonicalEvent(streamPublisher, {
       jobId,
       sessionId: webSessionId ?? "",
-      organizationId: webOrganizationId ?? "",
+      workspaceId: webWorkspaceId ?? "",
       threadId: threadId ?? "",
       timestamp: Date.now(),
       sequenceNumber: nextSequence(),
@@ -243,7 +243,7 @@ export async function consumeSseEvents(
           await publishCanonicalEvent(streamPublisher, {
             jobId,
             sessionId: webSessionId ?? "",
-            organizationId: webOrganizationId ?? "",
+            workspaceId: webWorkspaceId ?? "",
             threadId: threadId ?? "",
             timestamp: Date.now(),
             sequenceNumber: nextSequence(),
@@ -421,7 +421,7 @@ export async function consumeSseEvents(
       await publishNativeEvent(streamPublisher, {
         jobId,
         sessionId: webSessionId ?? "",
-        organizationId: webOrganizationId ?? "",
+        workspaceId: webWorkspaceId ?? "",
         threadId: threadId ?? "",
         timestamp: Date.now(),
         sequenceNumber: nextSequence(),
@@ -439,7 +439,7 @@ export async function consumeSseEvents(
     await publishNativeEvent(streamPublisher, {
       jobId,
       sessionId: webSessionId ?? "",
-      organizationId: webOrganizationId ?? "",
+      workspaceId: webWorkspaceId ?? "",
       threadId: threadId ?? "",
       timestamp: Date.now(),
       sequenceNumber: nextSequence(),
@@ -664,7 +664,7 @@ export async function consumeSseEvents(
       jobId,
       isInteractiveJob: isPlanningJob,
       webSessionId: webSessionId ?? "",
-      webOrganizationId: webOrganizationId ?? "",
+      webWorkspaceId: webWorkspaceId ?? "",
       threadId: threadId ?? "",
       eventLogger,
       streamPublisher,

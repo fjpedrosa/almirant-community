@@ -43,7 +43,7 @@ const logger = {
   debug: mock(() => {}),
 };
 
-const broadcastLocallyToOrganization = mock(() => {});
+const broadcastLocallyToWorkspace = mock(() => {});
 const getInstanceId = mock(() => "instance-a");
 
 mock.module("ioredis", () => ({
@@ -56,7 +56,7 @@ mock.module("@almirant/config", () => ({
 
 mock.module("./ws-connection-manager", () => ({
   wsConnectionManager: {
-    broadcastLocallyToOrganization,
+    broadcastLocallyToWorkspace,
     getInstanceId,
   },
 }));
@@ -78,7 +78,7 @@ afterEach(() => {
   logger.info.mockClear();
   logger.warn.mockClear();
   logger.debug.mockClear();
-  broadcastLocallyToOrganization.mockClear();
+  broadcastLocallyToWorkspace.mockClear();
   getInstanceId.mockClear();
 });
 
@@ -95,14 +95,14 @@ describe("startWsPubSubSubscriber", () => {
     redisState.messageHandler?.(
       "ws:broadcast",
       JSON.stringify({
-        organizationId: "org-1",
+        workspaceId: "org-1",
         message: { type: "agent-job:status-changed", payload: { jobId: "job-1" } },
         originInstanceId: "instance-b",
       })
     );
 
-    expect(broadcastLocallyToOrganization).toHaveBeenCalledTimes(1);
-    expect(broadcastLocallyToOrganization).toHaveBeenCalledWith("org-1", {
+    expect(broadcastLocallyToWorkspace).toHaveBeenCalledTimes(1);
+    expect(broadcastLocallyToWorkspace).toHaveBeenCalledWith("org-1", {
       type: "agent-job:status-changed",
       payload: { jobId: "job-1" },
     });
@@ -110,13 +110,13 @@ describe("startWsPubSubSubscriber", () => {
     redisState.messageHandler?.(
       "ws:broadcast",
       JSON.stringify({
-        organizationId: "org-1",
+        workspaceId: "org-1",
         message: { type: "agent-job:status-changed", payload: { jobId: "job-2" } },
         originInstanceId: "instance-a",
       })
     );
 
-    expect(broadcastLocallyToOrganization).toHaveBeenCalledTimes(1);
+    expect(broadcastLocallyToWorkspace).toHaveBeenCalledTimes(1);
 
     await stop();
 

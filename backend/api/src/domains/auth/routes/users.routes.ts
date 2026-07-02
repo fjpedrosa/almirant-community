@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { updateUserLocale, getMembersByOrganizationId } from "@almirant/database";
+import { updateUserLocale, getMembersByWorkspaceId } from "@almirant/database";
 import { successResponse, errorResponse } from "../../../shared/services/response";
 
 const SUPPORTED_LOCALES = ["es", "en"];
@@ -19,16 +19,16 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
   })
 
   // -------------------------------------------------------
-  // GET /users/members - List members of active organization
+  // GET /users/members - List members of active workspace
   // -------------------------------------------------------
   .get("/members", async (ctx) => {
-    const activeOrganization = (ctx as unknown as Record<string, unknown>).activeOrganization as { id: string } | null;
-    if (!activeOrganization) {
+    const activeWorkspace = (ctx as unknown as Record<string, unknown>).activeWorkspace as { id: string } | null;
+    if (!activeWorkspace) {
       ctx.set.status = 403;
-      return errorResponse("No active organization", 403);
+      return errorResponse("No active workspace", 403);
     }
     try {
-      const members = await getMembersByOrganizationId(activeOrganization.id);
+      const members = await getMembersByWorkspaceId(activeWorkspace.id);
       return successResponse(members);
     } catch (error) {
       ctx.set.status = 500;

@@ -33,10 +33,10 @@ const prefRepo: ViewPreferenceRepository = {
 
 const useCases = createSavedViewUseCases({ repo, boardRepo, prefRepo });
 
-// Board saved views (org-scoped, mounted under /api with requireOrganization)
+// Board saved views (org-scoped, mounted under /api with requireWorkspace)
 export const savedViewsModule = () =>
   new Elysia().use(boardViewRoutes(useCases));
 
-// User view preferences (auth-only, mounted under /api before requireOrganization)
+// User view preferences (auth-only, mounted under /api before requireWorkspace)
 export const userViewPreferencesModule = () =>
   new Elysia().use(userPreferenceRoutes(useCases));

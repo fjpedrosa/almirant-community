@@ -10,7 +10,7 @@ import { env } from "@almirant/config";
  * - GitHub OAuth (if GITHUB_CLIENT_ID + GITHUB_CLIENT_SECRET are set)
  *
  * Enterprise Edition can inject a richer registry that includes SAML/OIDC
- * providers configured per-organization.
+ * providers configured per-workspace.
  */
 function buildDescriptors(): AuthProviderDescriptor[] {
   const list: AuthProviderDescriptor[] = [

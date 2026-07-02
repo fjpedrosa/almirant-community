@@ -18,12 +18,12 @@ interface ConnectionQuotaInfo {
 }
 
 /**
- * A function that checks quota availability for a provider in an organization.
+ * A function that checks quota availability for a provider in a workspace.
  * This matches the QuotaService.checkQuotaForProvider signature so we can
  * reuse the cached quota data without extra DB queries.
  */
 type CheckQuotaFn = (
-  organizationId: string,
+  workspaceId: string,
   provider: string,
 ) => Promise<QuotaAvailability>;
 
@@ -40,13 +40,13 @@ interface AccountStrategy {
    * Select the optimal connection from the given candidates.
    *
    * @param connections - Active, orchestration-enabled connections (pre-filtered)
-   * @param organizationId - The organization ID for quota lookups
+   * @param workspaceId - The workspace ID for quota lookups
    * @param checkQuota - Quota checker function (uses cached data from QuotaService)
    * @returns The selected connection, or null if none are usable
    */
   selectAccount(
     connections: ProviderConnection[],
-    organizationId: string,
+    workspaceId: string,
     checkQuota: CheckQuotaFn,
   ): Promise<ProviderConnection | null>;
 }
@@ -65,14 +65,14 @@ interface AccountStrategy {
 const roundRobinStrategy: AccountStrategy = {
   async selectAccount(
     connections: ProviderConnection[],
-    organizationId: string,
+    workspaceId: string,
     checkQuota: CheckQuotaFn,
   ): Promise<ProviderConnection | null> {
     if (connections.length === 0) return null;
     if (connections.length === 1) {
       // Single connection: just check if it's allowed
       const quota = await checkQuota(
-        organizationId,
+        workspaceId,
         mapConnectionProviderToAiProvider(connections[0]!.provider),
       );
       return quota.allowed ? connections[0]! : null;
@@ -82,7 +82,7 @@ const roundRobinStrategy: AccountStrategy = {
     const infos: ConnectionQuotaInfo[] = [];
     for (const connection of connections) {
       const aiProvider = mapConnectionProviderToAiProvider(connection.provider);
-      const quota = await checkQuota(organizationId, aiProvider);
+      const quota = await checkQuota(workspaceId, aiProvider);
 
       if (!quota.allowed) {
         logger.debug(
@@ -97,7 +97,7 @@ const roundRobinStrategy: AccountStrategy = {
 
     if (infos.length === 0) {
       logger.warn(
-        { organizationId, connectionCount: connections.length },
+        { workspaceId, connectionCount: connections.length },
         "account-orchestrator: all connections exhausted, no usable account",
       );
       return null;
@@ -149,7 +149,7 @@ const roundRobinStrategy: AccountStrategy = {
 const sequentialStrategy: AccountStrategy = {
   async selectAccount(
     connections: ProviderConnection[],
-    organizationId: string,
+    workspaceId: string,
     checkQuota: CheckQuotaFn,
   ): Promise<ProviderConnection | null> {
     if (connections.length === 0) return null;
@@ -161,7 +161,7 @@ const sequentialStrategy: AccountStrategy = {
 
     for (const connection of sorted) {
       const aiProvider = mapConnectionProviderToAiProvider(connection.provider);
-      const quota = await checkQuota(organizationId, aiProvider);
+      const quota = await checkQuota(workspaceId, aiProvider);
 
       if (quota.allowed) {
         logger.debug(
@@ -189,7 +189,7 @@ const sequentialStrategy: AccountStrategy = {
     }
 
     logger.warn(
-      { organizationId, connectionCount: sorted.length },
+      { workspaceId, connectionCount: sorted.length },
       "account-orchestrator: sequential strategy exhausted all connections, no usable account",
     );
     return null;
@@ -219,7 +219,7 @@ const sequentialStrategy: AccountStrategy = {
 const resetFirstStrategy: AccountStrategy = {
   async selectAccount(
     connections: ProviderConnection[],
-    organizationId: string,
+    workspaceId: string,
     checkQuota: CheckQuotaFn,
   ): Promise<ProviderConnection | null> {
     if (connections.length === 0) return null;
@@ -228,7 +228,7 @@ const resetFirstStrategy: AccountStrategy = {
     const infos: ConnectionQuotaInfo[] = [];
     for (const connection of connections) {
       const aiProvider = mapConnectionProviderToAiProvider(connection.provider);
-      const quota = await checkQuota(organizationId, aiProvider);
+      const quota = await checkQuota(workspaceId, aiProvider);
 
       if (!quota.allowed) {
         logger.debug(
@@ -243,7 +243,7 @@ const resetFirstStrategy: AccountStrategy = {
 
     if (infos.length === 0) {
       logger.warn(
-        { organizationId, connectionCount: connections.length },
+        { workspaceId, connectionCount: connections.length },
         "account-orchestrator: reset-first all connections exhausted, no usable account",
       );
       return null;
@@ -352,12 +352,12 @@ interface AccountOrchestrator {
    * Select the optimal connection using the configured strategy.
    *
    * @param connections - Pre-filtered connections (orchestrationEnabled=true, isActive=true)
-   * @param organizationId - Organization ID for quota lookups
+   * @param workspaceId - Workspace ID for quota lookups
    * @returns The selected connection, or null if none are usable
    */
   selectConnection(
     connections: ProviderConnection[],
-    organizationId: string,
+    workspaceId: string,
   ): Promise<ProviderConnection | null>;
 
   /**
@@ -365,13 +365,13 @@ interface AccountOrchestrator {
    * (e.g. one that was just rate-limited). Used for mid-session hot-swap.
    *
    * @param connections - Pre-filtered connections (orchestrationEnabled=true, isActive=true)
-   * @param organizationId - Organization ID for quota lookups
+   * @param workspaceId - Workspace ID for quota lookups
    * @param excludeConnectionId - The connection ID to exclude from selection
    * @returns The next available connection, or null if none remain
    */
   getNextAvailable(
     connections: ProviderConnection[],
-    organizationId: string,
+    workspaceId: string,
     excludeConnectionId: string,
   ): Promise<ProviderConnection | null>;
 }
@@ -397,14 +397,14 @@ export const createAccountOrchestrator = (
   const activeStrategy = strategy ?? roundRobinStrategy;
 
   return {
-    selectConnection: (connections, organizationId) =>
-      activeStrategy.selectAccount(connections, organizationId, checkQuota),
+    selectConnection: (connections, workspaceId) =>
+      activeStrategy.selectAccount(connections, workspaceId, checkQuota),
 
-    getNextAvailable: (connections, organizationId, excludeConnectionId) => {
+    getNextAvailable: (connections, workspaceId, excludeConnectionId) => {
       const filtered = connections.filter((c) => c.id !== excludeConnectionId);
       if (filtered.length === 0) {
         logger.warn(
-          { organizationId, excludeConnectionId, totalConnections: connections.length },
+          { workspaceId, excludeConnectionId, totalConnections: connections.length },
           "account-orchestrator: no alternative connections available after excluding rate-limited connection",
         );
         return Promise.resolve(null);
@@ -413,7 +413,7 @@ export const createAccountOrchestrator = (
         { excludeConnectionId, remainingCount: filtered.length },
         "account-orchestrator: selecting next available connection (hot-swap)",
       );
-      return activeStrategy.selectAccount(filtered, organizationId, checkQuota);
+      return activeStrategy.selectAccount(filtered, workspaceId, checkQuota);
     },
   };
 };

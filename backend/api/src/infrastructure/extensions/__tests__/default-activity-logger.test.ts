@@ -32,7 +32,7 @@ describe("DefaultActivityLogger", () => {
     expect(() =>
       defaultActivityLogger.log({
         actorUserId: "u1",
-        organizationId: "o1",
+        workspaceId: "o1",
         action: "work-item.move",
         resourceType: "work_item",
         resourceId: "wi1",
@@ -45,7 +45,7 @@ describe("DefaultActivityLogger", () => {
     expect(() =>
       defaultActivityLogger.log({
         actorUserId: "u1",
-        organizationId: "o1",
+        workspaceId: "o1",
         action: "idea.edit",
         resourceType: "idea",
         resourceId: "idea-1",
@@ -61,7 +61,7 @@ describe("DefaultActivityLogger", () => {
     expect(() =>
       defaultActivityLogger.log({
         actorUserId: "u1",
-        organizationId: null,
+        workspaceId: null,
         action: "any",
         resourceType: "work_item",
         resourceId: "wi2",
@@ -73,7 +73,7 @@ describe("DefaultActivityLogger", () => {
     expect(() =>
       defaultActivityLogger.log({
         actorUserId: "u1",
-        organizationId: "o1",
+        workspaceId: "o1",
         action: "project.archive",
         resourceType: "project",
         resourceId: "p1",
@@ -86,7 +86,7 @@ describe("DefaultActivityLogger", () => {
 
     defaultActivityLogger.log({
       actorUserId: "u1",
-      organizationId: "o1",
+      workspaceId: "o1",
       action: "work-item.update",
       resourceType: "work_item",
       resourceId: "wi-mcp",
@@ -108,7 +108,7 @@ describe("DefaultActivityLogger", () => {
 
     defaultActivityLogger.log({
       actorUserId: "u1",
-      organizationId: "o1",
+      workspaceId: "o1",
       action: "idea.edit",
       resourceType: "idea",
       resourceId: "idea-ws",
@@ -130,7 +130,7 @@ describe("DefaultActivityLogger", () => {
 
     defaultActivityLogger.log({
       actorUserId: "u1",
-      organizationId: "o1",
+      workspaceId: "o1",
       action: "work-item.update",
       resourceType: "work_item",
       resourceId: "wi-bad",
@@ -151,7 +151,7 @@ describe("DefaultActivityLogger", () => {
 
     defaultActivityLogger.log({
       actorUserId: "u1",
-      organizationId: "o1",
+      workspaceId: "o1",
       action: "work-item.update",
       resourceType: "work_item",
       resourceId: "wi-nometa",

@@ -23,7 +23,7 @@ export const projectManagementModule = {
       .use(savedViewsModule())
       .use(integrationBatchesModule.protected()),
 
-  /** Auth-only routes (no active organization required) */
+  /** Auth-only routes (no active workspace required) */
   authOnly: () =>
     new Elysia()
       .use(userViewPreferencesModule()),

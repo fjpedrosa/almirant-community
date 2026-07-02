@@ -87,7 +87,7 @@ describe("consumeSseEvents", () => {
           streamPublisher: createStreamPublisher(published),
           threadId: `thread-${fixture.runtime}`,
           webSessionId: `web-${fixture.runtime}`,
-          webOrganizationId: "org-1",
+          webWorkspaceId: "org-1",
         },
       );
 
@@ -154,7 +154,7 @@ describe("consumeSseEvents", () => {
         streamPublisher: createStreamPublisher(published),
         threadId: "thread-planning",
         webSessionId: "web-planning",
-        webOrganizationId: "org-1",
+        webWorkspaceId: "org-1",
       },
     );
 

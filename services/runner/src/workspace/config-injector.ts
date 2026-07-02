@@ -39,7 +39,7 @@ type ConfigInjectorInput = {
    */
   requestSessionToken?: (params: {
     projectId: string;
-    organizationId: string;
+    workspaceId: string;
     jobId: string;
     /**
      * Optional list of MCP permissions to request for the session token.
@@ -393,7 +393,7 @@ export const buildInjectedEnv = async (
   const keys = await input.workerClient.getProviderKeys([keyProviderName], {
     jobId: input.job.id,
     createdByUserId: input.job.createdByUserId ?? undefined,
-    organizationId: input.job.organizationId ?? undefined,
+    workspaceId: input.job.workspaceId ?? undefined,
     preferredConnectionId: pinnedConnectionId,
   });
   const baseKeyEnvName = resolveClaudeInjectedKeyEnvName({
@@ -514,11 +514,11 @@ export const buildInjectedEnv = async (
     // jobs automatically surface as "auto-fix-bot" without injecting the
     // bot API key into the container. The `/mcp/internal` mount also rejects
     // raw API keys, so the session-token path is mandatory there.
-    if (input.requestSessionToken && input.job.organizationId) {
+    if (input.requestSessionToken && input.job.workspaceId) {
       try {
         const sessionResult = await input.requestSessionToken({
           projectId: jobProjectId,
-          organizationId: input.job.organizationId,
+          workspaceId: input.job.workspaceId,
           jobId: input.job.id,
           permissions: requestedPermissions,
         });

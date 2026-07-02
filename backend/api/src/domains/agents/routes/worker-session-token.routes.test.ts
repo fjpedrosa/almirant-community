@@ -9,7 +9,7 @@ import { AUTOMATION_BOT_USER_ID } from "../../../shared/services/session-token";
 
 type Job = {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string;
   createdByUserId: string | null;
   promptTemplate: string | null;
@@ -79,7 +79,7 @@ describe("POST /workers/session-token — mcp:internal guard", () => {
     const res = await app.handle(
       makeRequest({
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         permissions: ["mcp:read", "mcp:write", "mcp:internal"],
       })
     );
@@ -92,7 +92,7 @@ describe("POST /workers/session-token — mcp:internal guard", () => {
   it("rejects mcp:internal when the job was created by a human user", async () => {
     state.jobs["job-user"] = {
       id: "job-user",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       projectId: "project-1",
       createdByUserId: "user-abc", // real human
       promptTemplate: "feedback-triage", // internal skill
@@ -103,7 +103,7 @@ describe("POST /workers/session-token — mcp:internal guard", () => {
     const res = await app.handle(
       makeRequest({
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         jobId: "job-user",
         permissions: ["mcp:read", "mcp:write", "mcp:internal"],
       })
@@ -117,7 +117,7 @@ describe("POST /workers/session-token — mcp:internal guard", () => {
   it("rejects mcp:internal when the job is system-owned but skill is not internal", async () => {
     state.jobs["job-sys-public"] = {
       id: "job-sys-public",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       projectId: "project-1",
       createdByUserId: null, // system
       promptTemplate: "implement", // public skill
@@ -128,7 +128,7 @@ describe("POST /workers/session-token — mcp:internal guard", () => {
     const res = await app.handle(
       makeRequest({
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         jobId: "job-sys-public",
         permissions: ["mcp:read", "mcp:write", "mcp:internal"],
       })
@@ -140,7 +140,7 @@ describe("POST /workers/session-token — mcp:internal guard", () => {
   it("allows mcp:internal for a system-owned job bound to an internal skill", async () => {
     state.jobs["job-sys-internal"] = {
       id: "job-sys-internal",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       projectId: "project-1",
       createdByUserId: null,
       promptTemplate: "feedback-triage",
@@ -151,7 +151,7 @@ describe("POST /workers/session-token — mcp:internal guard", () => {
     const res = await app.handle(
       makeRequest({
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         jobId: "job-sys-internal",
         permissions: ["mcp:read", "mcp:write", "mcp:internal"],
       })
@@ -169,7 +169,7 @@ describe("POST /workers/session-token — mcp:internal guard", () => {
   it("allows mcp:internal for a job created by the automation bot", async () => {
     state.jobs["job-bot"] = {
       id: "job-bot",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       projectId: "project-1",
       createdByUserId: AUTOMATION_BOT_USER_ID,
       promptTemplate: "feedback-bug-fix",
@@ -180,7 +180,7 @@ describe("POST /workers/session-token — mcp:internal guard", () => {
     const res = await app.handle(
       makeRequest({
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         jobId: "job-bot",
         permissions: ["mcp:read", "mcp:write", "mcp:internal"],
       })
@@ -192,7 +192,7 @@ describe("POST /workers/session-token — mcp:internal guard", () => {
   it("does not affect the happy path for standard permissions", async () => {
     state.jobs["job-regular"] = {
       id: "job-regular",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       projectId: "project-1",
       createdByUserId: "user-abc",
       promptTemplate: "implement",
@@ -203,7 +203,7 @@ describe("POST /workers/session-token — mcp:internal guard", () => {
     const res = await app.handle(
       makeRequest({
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         jobId: "job-regular",
         permissions: ["mcp:read", "mcp:write"],
       })
@@ -215,7 +215,7 @@ describe("POST /workers/session-token — mcp:internal guard", () => {
   it("embeds body.jobId into the signed session token so INV-4 can match ai_sessions.agent_job_id", async () => {
     state.jobs["job-inv4"] = {
       id: "job-inv4",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       projectId: "project-1",
       createdByUserId: "user-abc",
       promptTemplate: "runner-implement",
@@ -229,7 +229,7 @@ describe("POST /workers/session-token — mcp:internal guard", () => {
     const res = await app.handle(
       makeRequest({
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         jobId: "job-inv4",
         permissions: ["mcp:read", "mcp:write"],
       })

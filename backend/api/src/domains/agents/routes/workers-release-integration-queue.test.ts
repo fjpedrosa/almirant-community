@@ -7,7 +7,7 @@ import {
   createWsMock,
   restoreRealModules,
 } from "../../../test/mocks";
-import { testIntegrationBatch, testOrganization, testProject, testRepository } from "../../../test/fixtures";
+import { testIntegrationBatch, testWorkspace, testProject, testRepository } from "../../../test/fixtures";
 
 const __real_resolveAiKey = { ...(await import("../../ai/shared/services/resolve-ai-key")) };
 
@@ -48,7 +48,7 @@ mock.module("@almirant/database", () =>
   createDatabaseMocks({
     validateApiKey: async () => ({
       id: "worker-api-key",
-      organizationId: testOrganization.id,
+      workspaceId: testWorkspace.id,
     }),
     getValidatingReleaseCandidates: async () => ({
       candidates: state.candidateResult?.candidates ?? [parentBlockCandidate],

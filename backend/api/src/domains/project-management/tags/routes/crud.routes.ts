@@ -12,9 +12,9 @@ export const crudRoutes = (useCases: TagUseCases) =>
     .use(sessionContextTypes)
 
     // GET /tags - List all tags
-    .get("/", async ({ activeOrganization }) => {
+    .get("/", async ({ activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const tags = await useCases.list(orgId);
         return successResponse(tags);
       } catch (error) {
@@ -28,9 +28,9 @@ export const crudRoutes = (useCases: TagUseCases) =>
     // POST /tags - Create tag
     .post(
       "/",
-      async ({ body, set, activeOrganization }) => {
+      async ({ body, set, activeWorkspace }) => {
         try {
-          const orgId = activeOrganization!.id;
+          const orgId = activeWorkspace!.id;
 
           if (!body.name || body.name.trim() === "") {
             set.status = 400;
@@ -68,9 +68,9 @@ export const crudRoutes = (useCases: TagUseCases) =>
     // GET /tags/:id - Get tag by ID
     .get(
       "/:id",
-      async ({ params, set, activeOrganization }) => {
+      async ({ params, set, activeWorkspace }) => {
         try {
-          const orgId = activeOrganization!.id;
+          const orgId = activeWorkspace!.id;
           const tag = await useCases.getById(orgId, params.id);
 
           if (!tag) {
@@ -97,9 +97,9 @@ export const crudRoutes = (useCases: TagUseCases) =>
     // PATCH /tags/:id - Update tag
     .patch(
       "/:id",
-      async ({ params, body, set, activeOrganization }) => {
+      async ({ params, body, set, activeWorkspace }) => {
         try {
-          const orgId = activeOrganization!.id;
+          const orgId = activeWorkspace!.id;
           const tag = await useCases.update(orgId, params.id, {
             name: body.name,
             color: body.color,
@@ -138,9 +138,9 @@ export const crudRoutes = (useCases: TagUseCases) =>
     // DELETE /tags/:id - Delete tag
     .delete(
       "/:id",
-      async ({ params, set, activeOrganization }) => {
+      async ({ params, set, activeWorkspace }) => {
         try {
-          const orgId = activeOrganization!.id;
+          const orgId = activeWorkspace!.id;
           const deleted = await useCases.delete(orgId, params.id);
 
           if (!deleted) {

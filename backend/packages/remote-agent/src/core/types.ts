@@ -74,7 +74,7 @@ export type OutputStreamRouterOptions = {
   threadId: string;
   jobId?: string;
   sessionId?: string;
-  organizationId?: string;
+  workspaceId?: string;
   maxBufferChars?: number;
   stagnantTimeoutMs?: number;
   messageEditThrottleMs?: number;

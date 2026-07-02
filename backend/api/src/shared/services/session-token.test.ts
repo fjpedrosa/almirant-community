@@ -11,7 +11,7 @@ const SIGNING_SECRET = "test-secret-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 const validParams = {
   projectId: "proj-1",
-  organizationId: "org-1",
+  workspaceId: "org-1",
   permissions: ["mcp:read", "mcp:write"] as string[],
   signingSecret: SIGNING_SECRET,
 };
@@ -56,16 +56,16 @@ describe("verifySessionToken — permission whitelist", () => {
     expect(payload?.permissions).toEqual(["mcp:read", "mcp:write"]);
   });
 
-  it("supports organization-scoped tokens without a projectId", () => {
+  it("supports workspace-scoped tokens without a projectId", () => {
     const token = generateSessionToken({
-      organizationId: "org-1",
+      workspaceId: "org-1",
       permissions: ["mcp:read", "mcp:write"],
       signingSecret: SIGNING_SECRET,
     });
 
     const payload = verifySessionToken(token, SIGNING_SECRET);
     expect(payload).not.toBeNull();
-    expect(payload?.organizationId).toBe("org-1");
+    expect(payload?.workspaceId).toBe("org-1");
     expect(payload?.projectId).toBeUndefined();
   });
 
@@ -100,7 +100,7 @@ describe("verifySessionToken — permission whitelist", () => {
     const raw = jwt.sign(
       {
         projectId: "proj-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         permissions: ["admin:everything"],
         sessionType: "agent",
         jti: "test-jti",

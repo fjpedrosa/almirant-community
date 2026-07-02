@@ -24,7 +24,7 @@ import {
   updateEntityComment,
   deleteEntityComment,
   enqueueNotification,
-  getMembersByOrganizationId,
+  getMembersByWorkspaceId,
   parseMentionsFromHtml,
 } from "@almirant/database";
 import {
@@ -79,29 +79,29 @@ const PROMOTABLE_WORK_ITEM_TYPE_SCHEMA = t.Union([
 const normalizeErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Unexpected error";
 
-const getOrganizationIdFromContext = (ctx: unknown): string => {
-  const activeOrganization = (ctx as { activeOrganization?: { id?: string } }).activeOrganization;
-  if (!activeOrganization?.id) {
-    throw new Error("ACTIVE_ORGANIZATION_NOT_FOUND");
+const getWorkspaceIdFromContext = (ctx: unknown): string => {
+  const activeWorkspace = (ctx as { activeWorkspace?: { id?: string } }).activeWorkspace;
+  if (!activeWorkspace?.id) {
+    throw new Error("ACTIVE_WORKSPACE_NOT_FOUND");
   }
-  return activeOrganization.id;
+  return activeWorkspace.id;
 };
 
 const mapSeedErrorToHttp = (errorMessage: string): { status: number; message: string } => {
-  if (errorMessage === "ACTIVE_ORGANIZATION_NOT_FOUND") {
-    return { status: 403, message: "No active organization in session" };
+  if (errorMessage === "ACTIVE_WORKSPACE_NOT_FOUND") {
+    return { status: 403, message: "No active workspace in session" };
   }
   if (errorMessage === "SEED_NOT_FOUND") {
     return { status: 404, message: "Seed not found" };
   }
   if (errorMessage === "OWNER_NOT_MEMBER") {
-    return { status: 400, message: "Selected owner does not belong to active organization" };
+    return { status: 400, message: "Selected owner does not belong to active workspace" };
   }
   if (errorMessage === "INVALID_SEED_STATUS") {
     return { status: 400, message: "Invalid seed status" };
   }
-  if (errorMessage === "PROJECT_NOT_IN_ORGANIZATION") {
-    return { status: 400, message: "Selected project does not belong to active organization" };
+  if (errorMessage === "PROJECT_NOT_IN_WORKSPACE") {
+    return { status: 400, message: "Selected project does not belong to active workspace" };
   }
   if (errorMessage === "WORK_ITEM_NOT_FOUND") {
     return { status: 404, message: "Work item not found" };
@@ -133,7 +133,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { query } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const pagination = parsePaginationParams(query);
         const statuses = query.statuses
           ? (query.statuses.split(",").map((s) => s.trim()).filter(Boolean) as import("@almirant/database").SeedStatus[])
@@ -186,7 +186,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { query } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const seeds = await getSelectedSeedsForIdeation(orgId, query.projectId);
         return successResponse(seeds);
       } catch (error) {
@@ -207,7 +207,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const item = await getSeedById(orgId, params.id);
         if (!item) {
           set.status = 404;
@@ -228,7 +228,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const title = body.title?.trim();
         if (!title) {
@@ -254,13 +254,13 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
           }
         );
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "seed:created",
           payload: { seedId: item.id, title: item.title, projectId: item.projectId },
         });
 
         // Notify all org members about new seed (fire-and-forget)
-        const members = await getMembersByOrganizationId(orgId);
+        const members = await getMembersByWorkspaceId(orgId);
         const creatorUserId = currentUser?.id ?? item.createdByUserId ?? null;
         const creatorName = (currentUser as { name?: string } | undefined)?.name ?? "Un miembro del equipo";
 
@@ -268,7 +268,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
           .filter((m) => m.userId !== creatorUserId)
           .map((m) => ({
             recipientUserId: m.userId,
-            organizationId: orgId,
+            workspaceId: orgId,
             type: "assignment" as const,
             title: "Nuevo seed creado",
             body: `${creatorName} creo seed: ${item.title}`,
@@ -315,7 +315,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const updated = await updateSeed(
           orgId,
@@ -342,7 +342,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
           return notFoundResponse("Seed");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "seed:updated",
           payload: { seedId: params.id, changes: body as Record<string, unknown> },
         });
@@ -392,14 +392,14 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const deleted = await deleteSeed(orgId, params.id);
         if (!deleted) {
           set.status = 404;
           return notFoundResponse("Seed");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "seed:deleted",
           payload: { seedId: params.id },
         });
@@ -419,7 +419,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const updated = await setSeedStatus(orgId, params.id, body.status, {
           triggeredBy: currentUser?.id ? "user" : "system",
@@ -430,7 +430,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
           return notFoundResponse("Seed");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "seed:updated",
           payload: { seedId: params.id, changes: { status: body.status } },
         });
@@ -453,7 +453,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const updated = await assignSeedOwner(orgId, params.id, body.ownerUserId ?? null, {
           triggeredBy: currentUser?.id ? "user" : "system",
@@ -464,7 +464,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
           return notFoundResponse("Seed");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "seed:updated",
           payload: { seedId: params.id, changes: { ownerUserId: body.ownerUserId } },
         });
@@ -504,14 +504,14 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const updated = await toggleSeedSelectedForIdeation(orgId, params.id, body.selected);
         if (!updated) {
           set.status = 404;
           return notFoundResponse("Seed");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "seed:updated",
           payload: { seedId: params.id, changes: { selectedForIdeation: body.selected } },
         });
@@ -534,11 +534,11 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { body } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const count = await bulkSelectSeedsForIdeation(orgId, body.ids, body.selected);
 
         for (const id of body.ids) {
-          wsConnectionManager.broadcastToOrganization(orgId, {
+          wsConnectionManager.broadcastToWorkspace(orgId, {
             type: "seed:updated",
             payload: { seedId: id, changes: { selectedForIdeation: body.selected } },
           });
@@ -564,7 +564,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const source = await getSeedById(orgId, params.id);
         if (!source) {
           set.status = 404;
@@ -603,7 +603,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
           }
         );
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "work-item:created",
           payload: {
             workItemId: workItem.id,
@@ -661,7 +661,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const link = await linkFeedbackToSeed(orgId, params.id, params.feedbackItemId, {
           triggeredBy: currentUser?.id ? "user" : "system",
@@ -682,7 +682,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const deleted = await unlinkFeedbackFromSeed(orgId, params.id, params.feedbackItemId, {
           triggeredBy: currentUser?.id ? "user" : "system",
@@ -707,7 +707,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
 
         const item = await getSeedById(orgId, params.id);
         if (!item) {
@@ -726,7 +726,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
           throw new Error("TAG_ID_OR_NAME_REQUIRED");
         }
 
-        // Verify tag belongs to organization
+        // Verify tag belongs to workspace
         const existingTag = await getTagById(orgId, tagId);
         if (!existingTag) {
           throw new Error("TAG_NOT_FOUND");
@@ -736,7 +736,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
 
         const updated = await getSeedById(orgId, params.id);
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "seed:updated",
           payload: { seedId: params.id, changes: { tagAdded: tagId } },
         });
@@ -763,7 +763,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
 
         const item = await getSeedById(orgId, params.id);
         if (!item) {
@@ -777,7 +777,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
           return notFoundResponse("Tag on seed");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "seed:updated",
           payload: { seedId: params.id, changes: { tagRemoved: params.tagId } },
         });
@@ -797,7 +797,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         // Verify seed belongs to org
         const item = await getSeedById(orgId, params.id);
         if (!item) {
@@ -819,7 +819,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         if (!currentUser?.id) {
           set.status = 401;
@@ -863,7 +863,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
             void sendMentionNotification({
               mentionedUserId,
               actorUserId: currentUser.id,
-              organizationId: orgId,
+              workspaceId: orgId,
               entityType: "seed",
               entityId: params.id,
               entityTitle: item.title,
@@ -908,7 +908,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         if (!currentUser?.id) {
           set.status = 401;
@@ -945,7 +945,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
             void sendMentionNotification({
               mentionedUserId,
               actorUserId: currentUser.id,
-              organizationId: orgId,
+              workspaceId: orgId,
               entityType: "seed",
               entityId: params.id,
               entityTitle: item.title,
@@ -989,7 +989,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         if (!currentUser?.id) {
           set.status = 401;
@@ -1021,7 +1021,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const item = await getSeedById(orgId, params.id);
         if (!item) {
           set.status = 404;
@@ -1045,7 +1045,7 @@ export const seedsRoutes = new Elysia({ prefix: "/seeds" })
     async (ctx) => {
       try {
         const { params, query, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         // Verify seed belongs to org
         const item = await getSeedById(orgId, params.id);
         if (!item) {

@@ -224,7 +224,7 @@ const retrieveDirectByProject = async (
  * Returns observations matching the FTS query, scoped to the project.
  */
 const retrieveFromObservations = async (
-  organizationId: string,
+  workspaceId: string,
   projectId: string,
   plan: QueryPlan
 ): Promise<RetrievedEvidence[]> => {
@@ -233,7 +233,7 @@ const retrieveFromObservations = async (
   }
 
   try {
-    const results = await searchObservations(organizationId, plan.ftsQuery, {
+    const results = await searchObservations(workspaceId, plan.ftsQuery, {
       projectId,
       limit: 10,
     });
@@ -260,7 +260,7 @@ const retrieveFromObservations = async (
     }));
   } catch (error) {
     logger.error(
-      { error, organizationId, projectId },
+      { error, workspaceId, projectId },
       "ask: observation retrieval failed"
     );
     return [];
@@ -286,7 +286,7 @@ const retrieveFromObservations = async (
 export const retrieveEvidence = async (
   projectId: string,
   plan: QueryPlan,
-  organizationId: string
+  workspaceId: string
 ): Promise<RetrievedEvidence[]> => {
   const allEvidence: RetrievedEvidence[] = [];
 
@@ -312,7 +312,7 @@ export const retrieveEvidence = async (
 
   // Step 2.5: Agent memory (observations) retrieval
   const observationResults = await retrieveFromObservations(
-    organizationId,
+    workspaceId,
     projectId,
     plan
   );

@@ -127,21 +127,21 @@ const inferAiProvider = (model: string, provider?: string): AiProvider => {
 };
 
 const recordQuotaUsage = async (
-  organizationId: string,
+  workspaceId: string,
   provider: AiProvider,
   totalTokens: number,
   estimatedCost: number,
 ): Promise<void> => {
   try {
     await quotaService.recordUsage(
-      organizationId,
+      workspaceId,
       provider,
       totalTokens,
       estimatedCost,
     );
   } catch (error) {
     logger.warn(
-      { organizationId, provider, totalTokens, estimatedCost, error },
+      { workspaceId, provider, totalTokens, estimatedCost, error },
       "work-items.routes: failed to record quota usage"
     );
   }
@@ -206,11 +206,11 @@ const normalizeMetadataWithAgents = (
 };
 
 const refreshForecastsForChangedWorkItems = async (
-  organizationId: string,
+  workspaceId: string,
   workItemIds: Array<string | null | undefined>,
 ): Promise<void> => {
   await refreshResourceForecastForAffectedBlocks(
-    organizationId,
+    workspaceId,
     workItemIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0),
   );
 };
@@ -242,9 +242,9 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   .post(
     "/bulk/move",
     async (ctx) => {
-      const { body, set, activeOrganization } = ctx;
+      const { body, set, activeWorkspace } = ctx;
       const user = (ctx as { user?: { id?: string } }).user;
-      const orgId = activeOrganization!.id;
+      const orgId = activeWorkspace!.id;
       if (!body.workItemIds || body.workItemIds.length === 0) {
         set.status = 400;
         return errorResponse("Work item IDs are required");
@@ -268,7 +268,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         if (
           msg.startsWith("BOARD_COLUMN_NOT_FOUND:")
           || msg.startsWith("BOARD_COLUMN_NOT_IN_BOARD:")
-          || msg.startsWith("BOARD_COLUMN_NOT_IN_ORGANIZATION:")
+          || msg.startsWith("BOARD_COLUMN_NOT_IN_WORKSPACE:")
           || msg.startsWith("BOARD_COLUMN_ROLE_NOT_FOUND:")
           || msg.startsWith("INCOMPLETE_CHECKLIST:")
         ) {
@@ -294,7 +294,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         if (beforeItem && beforeItem.boardColumnId !== movedItem.boardColumnId) {
           getActivityLogger().log({
             actorUserId: (user?.id ?? null) as string,
-            organizationId: orgId,
+            workspaceId: orgId,
             action: "moved",
             resourceType: "work_item",
             resourceId: movedItem.id,
@@ -313,7 +313,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
 
       for (const movedItem of movedItems) {
         if (!movedItem) continue;
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "work-item:updated",
           payload: {
             workItemId: movedItem.id,
@@ -336,8 +336,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // PATCH /work-items/bulk/priority - Bulk change priority
   .patch(
     "/bulk/priority",
-    async ({ body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       if (!body.workItemIds || body.workItemIds.length === 0) {
         set.status = 400;
         return errorResponse("Work item IDs are required");
@@ -360,7 +360,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
       }
 
       for (const workItemId of body.workItemIds) {
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "work-item:updated",
           payload: {
             workItemId,
@@ -384,8 +384,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // GET /work-items - List with pagination and filters
   .get(
     "/",
-    async ({ query, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ query, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const pagination = parsePaginationParams(query);
 
       const filters = {
@@ -422,8 +422,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // GET /work-items/resolve-task-ids?taskIds=A-1064,A-1065
   .get(
     "/resolve-task-ids",
-    async ({ query, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ query, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const raw = query.taskIds ?? "";
       const taskIds = raw
         .split(",")
@@ -481,7 +481,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
     async (ctx) => {
       const { body, set } = ctx;
       const user = (ctx as { user?: { id?: string } }).user;
-      const orgId = (ctx as { activeOrganization?: { id: string } }).activeOrganization!.id;
+      const orgId = (ctx as { activeWorkspace?: { id: string } }).activeWorkspace!.id;
 
       // Backward compatible endpoint. Prefer typed endpoints:
       // POST /work-items/tasks | /stories | /features | /epics
@@ -550,10 +550,10 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         if (
           msg.startsWith("BOARD_COLUMN_NOT_FOUND:")
           || msg.startsWith("BOARD_COLUMN_NOT_IN_BOARD:")
-          || msg.startsWith("BOARD_COLUMN_NOT_IN_ORGANIZATION:")
+          || msg.startsWith("BOARD_COLUMN_NOT_IN_WORKSPACE:")
           || msg.startsWith("BOARD_COLUMN_ROLE_NOT_FOUND:")
-          || msg.startsWith("BOARD_NOT_IN_ORGANIZATION:")
-          || msg.startsWith("PROJECT_NOT_IN_ORGANIZATION:")
+          || msg.startsWith("BOARD_NOT_IN_WORKSPACE:")
+          || msg.startsWith("PROJECT_NOT_IN_WORKSPACE:")
         ) {
           set.status = 400;
           return errorResponse(msg.replace(/^[A-Z_]+:\\s*/, ""));
@@ -566,7 +566,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
       // Track creation event
       getActivityLogger().log({
         actorUserId: (user?.id ?? null) as string,
-        organizationId: orgId,
+        workspaceId: orgId,
         action: "created",
         resourceType: "work_item",
         resourceId: item.id,
@@ -580,7 +580,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         },
       });
 
-      wsConnectionManager.broadcastToOrganization(orgId, {
+      wsConnectionManager.broadcastToWorkspace(orgId, {
         type: "work-item:created",
         payload: {
           workItemId: item.id,
@@ -622,8 +622,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // GET /work-items/:id - Get by ID
   .get(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const item = await getWorkItemById(params.id, orgId);
 
       if (!item) {
@@ -644,9 +644,9 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   .patch(
     "/:id",
     async (ctx) => {
-      const { params, body, set, activeOrganization } = ctx;
+      const { params, body, set, activeWorkspace } = ctx;
       const user = (ctx as { user?: { id?: string } }).user;
-      const orgId = activeOrganization!.id;
+      const orgId = activeWorkspace!.id;
       // Fetch current state to track changes
       const existing = await getWorkItemById(params.id, orgId);
 
@@ -722,7 +722,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
             if (oldVal !== newVal) {
               getActivityLogger().log({
                 actorUserId: (user?.id ?? null) as string,
-                organizationId: orgId,
+                workspaceId: orgId,
                 action: "updated",
                 resourceType: "work_item",
                 resourceId: params.id,
@@ -741,7 +741,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         }
       }
 
-      wsConnectionManager.broadcastToOrganization(orgId, {
+      wsConnectionManager.broadcastToWorkspace(orgId, {
         type: "work-item:updated",
         payload: {
           workItemId: params.id,
@@ -779,8 +779,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // DELETE /work-items/:id - Delete work item
   .delete(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       // Fetch before deleting to get boardId for the broadcast
       const existing = await getWorkItemById(params.id, orgId);
 
@@ -793,7 +793,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
 
       await refreshForecastsForChangedWorkItems(orgId, [existing?.parentId]);
 
-      wsConnectionManager.broadcastToOrganization(orgId, {
+      wsConnectionManager.broadcastToWorkspace(orgId, {
         type: "work-item:deleted",
         payload: {
           workItemId: params.id,
@@ -815,8 +815,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // GET /work-items/:id/context - Get all edit-dialog context in one request
   .get(
     "/:id/context",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const workItem = await getWorkItemById(params.id, orgId);
 
       if (!workItem) {
@@ -866,8 +866,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // GET /work-items/:id/resource-forecast - Compute current RAM forecast without persisting
   .get(
     "/:id/resource-forecast",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const forecast = await buildWorkItemResourceForecast(orgId, params.id);
       if (!forecast) {
         set.status = 404;
@@ -883,8 +883,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // POST /work-items/:id/resource-forecast/recalculate - Persist RAM forecast in metadata
   .post(
     "/:id/resource-forecast/recalculate",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const forecast = await buildWorkItemResourceForecast(orgId, params.id, { persist: true });
       if (!forecast) {
         set.status = 404;
@@ -901,9 +901,9 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   .patch(
     "/:id/move",
     async (ctx) => {
-      const { params, body, set, activeOrganization } = ctx;
+      const { params, body, set, activeWorkspace } = ctx;
       const user = (ctx as { user?: { id?: string } }).user;
-      const orgId = activeOrganization!.id;
+      const orgId = activeWorkspace!.id;
       const before = await getWorkItemById(params.id, orgId);
 
       if (!body.boardColumnId) {
@@ -954,7 +954,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
           if (beforeItem && beforeItem.boardColumnId !== movedItem.boardColumnId) {
             getActivityLogger().log({
               actorUserId: (user?.id ?? null) as string,
-              organizationId: orgId,
+              workspaceId: orgId,
               action: "moved",
               resourceType: "work_item",
               resourceId: movedItem.id,
@@ -974,7 +974,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
 
         for (const movedItem of movedItems) {
           if (!movedItem) continue;
-          wsConnectionManager.broadcastToOrganization(orgId, {
+          wsConnectionManager.broadcastToWorkspace(orgId, {
             type: "work-item:updated",
             payload: {
               workItemId: movedItem.id,
@@ -985,7 +985,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         }
 
         // Also broadcast update for the parent so UI refreshes its virtual column
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "work-item:updated",
           payload: {
             workItemId: params.id,
@@ -1017,7 +1017,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         if (
           msg.startsWith("BOARD_COLUMN_NOT_FOUND:")
           || msg.startsWith("BOARD_COLUMN_NOT_IN_BOARD:")
-          || msg.startsWith("BOARD_COLUMN_NOT_IN_ORGANIZATION:")
+          || msg.startsWith("BOARD_COLUMN_NOT_IN_WORKSPACE:")
           || msg.startsWith("BOARD_COLUMN_ROLE_NOT_FOUND:")
           || msg.startsWith("PARENT_TYPE_CANNOT_MOVE:")
           || msg.startsWith("INCOMPLETE_CHECKLIST:")
@@ -1057,7 +1057,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
       // Track move event
       getActivityLogger().log({
         actorUserId: (user?.id ?? null) as string,
-        organizationId: orgId,
+        workspaceId: orgId,
         action: "moved",
         resourceType: "work_item",
         resourceId: params.id,
@@ -1072,7 +1072,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         },
       });
 
-      wsConnectionManager.broadcastToOrganization(orgId, {
+      wsConnectionManager.broadcastToWorkspace(orgId, {
         type: "work-item:updated",
         payload: {
           workItemId: params.id,
@@ -1100,8 +1100,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // PATCH /work-items/:id/parent - Change parent of work item
   .patch(
     "/:id/parent",
-    async ({ params, body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const existing = await getWorkItemById(params.id, orgId);
       const success = await changeParent(orgId, params.id, body.parentId);
 
@@ -1116,7 +1116,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         body.parentId,
       ]);
 
-      wsConnectionManager.broadcastToOrganization(orgId, {
+      wsConnectionManager.broadcastToWorkspace(orgId, {
         type: "work-item:updated",
         payload: {
           workItemId: params.id,
@@ -1140,9 +1140,9 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   .post(
     "/:id/promote",
     async (ctx) => {
-      const { params, body, set, activeOrganization } = ctx;
+      const { params, body, set, activeWorkspace } = ctx;
       const user = (ctx as { user?: { id?: string } }).user;
-      const orgId = activeOrganization!.id;
+      const orgId = activeWorkspace!.id;
       const item = await getWorkItemById(params.id, orgId);
 
       if (!item) {
@@ -1180,7 +1180,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
           if (
             msg.startsWith("BOARD_COLUMN_NOT_FOUND:")
             || msg.startsWith("BOARD_COLUMN_NOT_IN_BOARD:")
-            || msg.startsWith("BOARD_COLUMN_NOT_IN_ORGANIZATION:")
+            || msg.startsWith("BOARD_COLUMN_NOT_IN_WORKSPACE:")
             || msg.startsWith("BOARD_COLUMN_ROLE_NOT_FOUND:")
           ) {
             set.status = 400;
@@ -1193,7 +1193,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
       // Create event for the type change
       getActivityLogger().log({
         actorUserId: (user?.id ?? null) as string,
-        organizationId: orgId,
+        workspaceId: orgId,
         action: "updated",
         resourceType: "work_item",
         resourceId: params.id,
@@ -1209,7 +1209,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         },
       });
 
-      wsConnectionManager.broadcastToOrganization(orgId, {
+      wsConnectionManager.broadcastToWorkspace(orgId, {
         type: "work-item:updated",
         payload: {
           workItemId: params.id,
@@ -1238,9 +1238,9 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   .post(
     "/:id/discard",
     async (ctx) => {
-      const { params, set, activeOrganization } = ctx;
+      const { params, set, activeWorkspace } = ctx;
       const user = (ctx as { user?: { id?: string } }).user;
-      const orgId = activeOrganization!.id;
+      const orgId = activeWorkspace!.id;
       const item = await getWorkItemById(params.id, orgId);
 
       if (!item) {
@@ -1271,7 +1271,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
       // Create event for the archive
       getActivityLogger().log({
         actorUserId: (user?.id ?? null) as string,
-        organizationId: orgId,
+        workspaceId: orgId,
         action: "updated",
         resourceType: "work_item",
         resourceId: params.id,
@@ -1287,7 +1287,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         },
       });
 
-      wsConnectionManager.broadcastToOrganization(orgId, {
+      wsConnectionManager.broadcastToWorkspace(orgId, {
         type: "work-item:updated",
         payload: {
           workItemId: params.id,
@@ -1308,8 +1308,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // PATCH /work-items/:id/reset-ai - Clear stuck AI processing state
   .patch(
     "/:id/reset-ai",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const existing = await getWorkItemById(params.id, orgId);
       if (!existing) {
         set.status = 404;
@@ -1322,7 +1322,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         return errorResponse("Failed to clear AI processing state");
       }
 
-      wsConnectionManager.broadcastToOrganization(orgId, {
+      wsConnectionManager.broadcastToWorkspace(orgId, {
         type: "work-item:updated",
         payload: {
           workItemId: params.id,
@@ -1343,8 +1343,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // PATCH /work-items/:id/prompt - Save generated prompt to metadata
   .patch(
     "/:id/prompt",
-    async ({ params, body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       if (!body.prompt || body.prompt.trim() === "") {
         set.status = 400;
         return errorResponse("Prompt is required");
@@ -1372,8 +1372,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // GET /work-items/:id/prompt - Retrieve stored generated prompt
   .get(
     "/:id/prompt",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const workItem = await getWorkItemById(params.id, orgId);
 
       if (!workItem) {
@@ -1411,10 +1411,10 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   .post(
     "/:id/generate-prompt",
     async (ctx) => {
-      const { params, body, set, activeOrganization } = ctx;
+      const { params, body, set, activeWorkspace } = ctx;
       const user = (ctx as { user?: { locale?: string } }).user;
       const locale = user?.locale ?? "es";
-      const orgId = activeOrganization!.id;
+      const orgId = activeWorkspace!.id;
       if (!body.providerKeyId && !isAiConfigured()) {
         set.status = 503;
         return errorResponse("AI service is not configured");
@@ -1452,7 +1452,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         const saved = await saveGeneratedPrompt(orgId, params.id, generatedPrompt);
 
         if (saved) {
-          wsConnectionManager.broadcastToOrganization(orgId, {
+          wsConnectionManager.broadcastToWorkspace(orgId, {
             type: "work-item:updated",
             payload: {
               workItemId: params.id,
@@ -1495,10 +1495,10 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   .post(
     "/:id/generate-docs",
     async (ctx) => {
-      const { params, body, set, activeOrganization } = ctx;
+      const { params, body, set, activeWorkspace } = ctx;
       const user = (ctx as { user?: { locale?: string } }).user;
       const locale = user?.locale ?? "es";
-      const orgId = activeOrganization!.id;
+      const orgId = activeWorkspace!.id;
       if (!body.providerKeyId && !isAiConfigured()) {
         set.status = 503;
         return errorResponse("AI service is not configured. Set OPENAI_API_KEY.", 503);
@@ -1581,8 +1581,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // GET /work-items/:id/attachments - List attachments
   .get(
     "/:id/attachments",
-    async ({ params, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const attachments = await getAttachmentsByWorkItem(orgId, params.id);
       return successResponse(attachments);
     },
@@ -1644,8 +1644,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // POST /work-items/:id/attachments - Upload attachment
   .post(
     "/:id/attachments",
-    async ({ params, body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const file = body.file;
       if (!file) {
         set.status = 400;
@@ -1742,8 +1742,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // DELETE /work-items/:id/attachments/:attachmentId - Delete attachment
   .delete(
     "/:id/attachments/:attachmentId",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const attachment = await getAttachment(orgId, params.attachmentId);
       if (!attachment) {
         set.status = 404;
@@ -2079,8 +2079,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // POST /work-items/:id/dependencies - Add a dependency
   .post(
     "/:id/dependencies",
-    async ({ params, body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       if (!body.blockedByWorkItemId) {
         set.status = 400;
         return errorResponse("blockedByWorkItemId is required");
@@ -2099,7 +2099,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
           body.blockedByWorkItemId,
         ]);
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "work-item:updated",
           payload: {
             workItemId: params.id,
@@ -2130,8 +2130,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // DELETE /work-items/:id/dependencies/:blockedById - Remove a dependency
   .delete(
     "/:id/dependencies/:blockedById",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const deleted = await removeDependency(params.id, params.blockedById);
 
       if (!deleted) {
@@ -2144,7 +2144,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         params.blockedById,
       ]);
 
-      wsConnectionManager.broadcastToOrganization(orgId, {
+      wsConnectionManager.broadcastToWorkspace(orgId, {
         type: "work-item:updated",
         payload: {
           workItemId: params.id,
@@ -2181,8 +2181,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // POST /work-items/:id/commits - Link a commit manually
   .post(
     "/:id/commits",
-    async ({ params, body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
 
       if (!body.commitId) {
         set.status = 400;
@@ -2197,7 +2197,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
           return errorResponse("This commit is already linked to this work item");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "work-item:updated",
           payload: {
             workItemId: params.id,
@@ -2228,8 +2228,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // DELETE /work-items/:id/commits/:commitId - Unlink a commit
   .delete(
     "/:id/commits/:commitId",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const deleted = await unlinkCommitFromWorkItem(params.id, params.commitId);
 
       if (!deleted) {
@@ -2237,7 +2237,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         return notFoundResponse("Commit link");
       }
 
-      wsConnectionManager.broadcastToOrganization(orgId, {
+      wsConnectionManager.broadcastToWorkspace(orgId, {
         type: "work-item:updated",
         payload: {
           workItemId: params.id,
@@ -2347,7 +2347,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
     "/:id/sessions",
     async (ctx) => {
       const { params, set } = ctx;
-      const orgId = (ctx as { activeOrganization?: { id: string } }).activeOrganization?.id;
+      const orgId = (ctx as { activeWorkspace?: { id: string } }).activeWorkspace?.id;
       if (!orgId) {
         set.status = 401;
         return errorResponse("Unauthorized");
@@ -2388,7 +2388,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
     "/:id/ai-sessions",
     async (ctx) => {
       const { params } = ctx;
-      const orgId = (ctx as { activeOrganization?: { id: string } }).activeOrganization!.id;
+      const orgId = (ctx as { activeWorkspace?: { id: string } }).activeWorkspace!.id;
       const result = await getAiSessionsSummaryByWorkItemId(orgId, params.id);
       return successResponse(result);
     },
@@ -2405,7 +2405,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
     async (ctx) => {
       const { params, body, set } = ctx;
       const user = (ctx as { user?: { id?: string } }).user;
-      const orgId = (ctx as { activeOrganization?: { id: string } }).activeOrganization!.id;
+      const orgId = (ctx as { activeWorkspace?: { id: string } }).activeWorkspace!.id;
       const existing = await getWorkItemById(params.id, orgId);
 
       const provider = inferAiProvider(body.model, body.provider);
@@ -2507,7 +2507,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
     "/:id/provenance",
     async (ctx) => {
       const { params, set } = ctx;
-      const orgId = (ctx as { activeOrganization?: { id: string } }).activeOrganization?.id;
+      const orgId = (ctx as { activeWorkspace?: { id: string } }).activeWorkspace?.id;
       if (!orgId) {
         set.status = 401;
         return errorResponse("Unauthorized");

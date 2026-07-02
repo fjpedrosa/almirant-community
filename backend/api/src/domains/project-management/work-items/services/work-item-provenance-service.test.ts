@@ -66,7 +66,7 @@ function makeJob(overrides: Partial<JobRow> = {}): JobRow {
     createdAt: new Date("2026-03-10T10:00:00Z"),
     updatedAt: new Date("2026-03-10T10:00:00Z"),
     priority: "medium",
-    organizationId: ORG_ID,
+    workspaceId: ORG_ID,
     projectId: null,
     boardId: null,
     workItemId: WORK_ITEM_ID,

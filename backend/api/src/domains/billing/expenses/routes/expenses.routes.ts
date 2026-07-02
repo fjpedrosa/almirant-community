@@ -42,10 +42,10 @@ const EXPENSE_STATUS_SCHEMA = t.Union([
 const normalizeErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Unexpected error";
 
-const getOrganizationIdFromContext = (ctx: unknown): string => {
-  const activeOrganization = (ctx as { activeOrganization?: { id?: string } }).activeOrganization;
-  if (!activeOrganization?.id) throw new Error("ACTIVE_ORGANIZATION_NOT_FOUND");
-  return activeOrganization.id;
+const getWorkspaceIdFromContext = (ctx: unknown): string => {
+  const activeWorkspace = (ctx as { activeWorkspace?: { id?: string } }).activeWorkspace;
+  if (!activeWorkspace?.id) throw new Error("ACTIVE_WORKSPACE_NOT_FOUND");
+  return activeWorkspace.id;
 };
 
 const getUserFromContext = (ctx: unknown): string | undefined => {
@@ -59,7 +59,7 @@ export const expensesRoutes = new Elysia({ prefix: "/expenses" })
     "/with-invoice",
     async (ctx) => {
       try {
-        const organizationId = getOrganizationIdFromContext(ctx);
+        const workspaceId = getWorkspaceIdFromContext(ctx);
         const userId = getUserFromContext(ctx);
 
         const file = (ctx.body as { file: File }).file;
@@ -77,7 +77,7 @@ export const expensesRoutes = new Elysia({ prefix: "/expenses" })
         const { parseInvoice, isInvoiceParsingConfigured } = await import("../services/invoice-parser-service");
 
         const fileBuffer = Buffer.from(await file.arrayBuffer());
-        const s3Key = generateInvoiceKey(organizationId, file.name);
+        const s3Key = generateInvoiceKey(workspaceId, file.name);
         const fileUrl = await uploadBufferToS3(fileBuffer, s3Key, file.type);
 
         let parsedData = null;
@@ -93,7 +93,7 @@ export const expensesRoutes = new Elysia({ prefix: "/expenses" })
         }
 
         const created = await createExpense(
-          organizationId,
+          workspaceId,
           {
             title: parsedData?.vendor || file.name,
             amount: parsedData?.amount ? String(parsedData.amount) : "0",
@@ -105,7 +105,7 @@ export const expensesRoutes = new Elysia({ prefix: "/expenses" })
           userId
         );
 
-        const expense = await updateExpense(organizationId, created.id, {
+        const expense = await updateExpense(workspaceId, created.id, {
           invoiceFileName: file.name,
           invoiceFileUrl: fileUrl,
           invoiceFileSize: file.size,
@@ -128,7 +128,7 @@ export const expensesRoutes = new Elysia({ prefix: "/expenses" })
   // GET /expenses/aggregations — MUST come before /:id to avoid route conflict
   .get("/aggregations", async (ctx) => {
     try {
-      const organizationId = getOrganizationIdFromContext(ctx);
+      const workspaceId = getWorkspaceIdFromContext(ctx);
       const query = ctx.query as Record<string, string>;
       const filters = {
         dateFrom: query.dateFrom,
@@ -136,7 +136,7 @@ export const expensesRoutes = new Elysia({ prefix: "/expenses" })
         paidByUserId: query.paidByUserId,
         categoryId: query.categoryId,
       };
-      const aggregations = await getExpenseAggregations(organizationId, filters);
+      const aggregations = await getExpenseAggregations(workspaceId, filters);
       return successResponse(aggregations);
     } catch (error) {
       return errorResponse(normalizeErrorMessage(error));
@@ -145,7 +145,7 @@ export const expensesRoutes = new Elysia({ prefix: "/expenses" })
   // GET /expenses — list with filters + pagination
   .get("/", async (ctx) => {
     try {
-      const organizationId = getOrganizationIdFromContext(ctx);
+      const workspaceId = getWorkspaceIdFromContext(ctx);
       const query = ctx.query as Record<string, string>;
       const pagination = parsePaginationParams(query);
       const filters = {
@@ -157,7 +157,7 @@ export const expensesRoutes = new Elysia({ prefix: "/expenses" })
         dateFrom: query.dateFrom,
         dateTo: query.dateTo,
       };
-      const { items, total } = await getExpenses(organizationId, pagination, filters);
+      const { items, total } = await getExpenses(workspaceId, pagination, filters);
       return successResponse(items, buildPaginationMeta(pagination.page, pagination.limit, total));
     } catch (error) {
       return errorResponse(normalizeErrorMessage(error));
@@ -166,8 +166,8 @@ export const expensesRoutes = new Elysia({ prefix: "/expenses" })
   // GET /expenses/:id
   .get("/:id", async (ctx) => {
     try {
-      const organizationId = getOrganizationIdFromContext(ctx);
-      const expense = await getExpenseById(organizationId, ctx.params.id);
+      const workspaceId = getWorkspaceIdFromContext(ctx);
+      const expense = await getExpenseById(workspaceId, ctx.params.id);
       if (!expense) return notFoundResponse("Expense not found");
       return successResponse(expense);
     } catch (error) {
@@ -179,9 +179,9 @@ export const expensesRoutes = new Elysia({ prefix: "/expenses" })
     "/",
     async (ctx) => {
       try {
-        const organizationId = getOrganizationIdFromContext(ctx);
+        const workspaceId = getWorkspaceIdFromContext(ctx);
         const userId = getUserFromContext(ctx);
-        const expense = await createExpense(organizationId, ctx.body as Parameters<typeof createExpense>[1], userId);
+        const expense = await createExpense(workspaceId, ctx.body as Parameters<typeof createExpense>[1], userId);
         return successResponse(expense);
       } catch (error) {
         return errorResponse(normalizeErrorMessage(error));
@@ -207,8 +207,8 @@ export const expensesRoutes = new Elysia({ prefix: "/expenses" })
     "/:id",
     async (ctx) => {
       try {
-        const organizationId = getOrganizationIdFromContext(ctx);
-        const expense = await updateExpense(organizationId, ctx.params.id, ctx.body as Parameters<typeof updateExpense>[2]);
+        const workspaceId = getWorkspaceIdFromContext(ctx);
+        const expense = await updateExpense(workspaceId, ctx.params.id, ctx.body as Parameters<typeof updateExpense>[2]);
         if (!expense) return notFoundResponse("Expense not found");
         return successResponse(expense);
       } catch (error) {
@@ -232,8 +232,8 @@ export const expensesRoutes = new Elysia({ prefix: "/expenses" })
   // DELETE /expenses/:id
   .delete("/:id", async (ctx) => {
     try {
-      const organizationId = getOrganizationIdFromContext(ctx);
-      const deleted = await deleteExpense(organizationId, ctx.params.id);
+      const workspaceId = getWorkspaceIdFromContext(ctx);
+      const deleted = await deleteExpense(workspaceId, ctx.params.id);
       if (!deleted) return notFoundResponse("Expense not found");
       return successResponse({ deleted: true });
     } catch (error) {
@@ -245,8 +245,8 @@ export const expensesRoutes = new Elysia({ prefix: "/expenses" })
     "/:id/invoice",
     async (ctx) => {
       try {
-        const organizationId = getOrganizationIdFromContext(ctx);
-        const expense = await getExpenseById(organizationId, ctx.params.id);
+        const workspaceId = getWorkspaceIdFromContext(ctx);
+        const expense = await getExpenseById(workspaceId, ctx.params.id);
         if (!expense) return notFoundResponse("Expense not found");
 
         const file = (ctx.body as { file: File }).file;
@@ -264,7 +264,7 @@ export const expensesRoutes = new Elysia({ prefix: "/expenses" })
         const { parseInvoice, isInvoiceParsingConfigured } = await import("../services/invoice-parser-service");
 
         const fileBuffer = Buffer.from(await file.arrayBuffer());
-        const s3Key = generateInvoiceKey(organizationId, file.name);
+        const s3Key = generateInvoiceKey(workspaceId, file.name);
         const fileUrl = await uploadBufferToS3(fileBuffer, s3Key, file.type);
 
         let parsedData = null;
@@ -296,7 +296,7 @@ export const expensesRoutes = new Elysia({ prefix: "/expenses" })
           if (parsedData.date) updateData.expenseDate = parsedData.date;
         }
 
-        const updated = await updateExpense(organizationId, ctx.params.id, updateData as Parameters<typeof updateExpense>[2]);
+        const updated = await updateExpense(workspaceId, ctx.params.id, updateData as Parameters<typeof updateExpense>[2]);
         return successResponse(updated);
       } catch (error) {
         return errorResponse(normalizeErrorMessage(error));

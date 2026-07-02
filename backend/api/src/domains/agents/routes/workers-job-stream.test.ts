@@ -7,7 +7,7 @@ import {
   createGithubServiceMock,
   restoreRealModules,
 } from "../../../test/mocks";
-import { testOrganization } from "../../../test/fixtures";
+import { testWorkspace } from "../../../test/fixtures";
 
 // ── Save real modules BEFORE mocking (prevents cross-file contamination) ──
 const __real_resolveAiKey = {
@@ -22,7 +22,7 @@ const state = {
       id: "job-1",
       workItemId: null,
       planningSessionId: "planning-session-1",
-      organizationId: testOrganization.id,
+      workspaceId: testWorkspace.id,
     },
     workItem: null,
     project: null,
@@ -33,7 +33,7 @@ const state = {
       id: string;
       workItemId: string | null;
       planningSessionId: string | null;
-      organizationId: string | null;
+      workspaceId: string | null;
     };
     workItem: null;
     project: null;
@@ -46,7 +46,7 @@ const planningOrgLookupChain = {
   from: () => planningOrgLookupChain,
   innerJoin: () => planningOrgLookupChain,
   where: () => planningOrgLookupChain,
-  limit: async () => [{ organizationId: testOrganization.id }],
+  limit: async () => [{ workspaceId: testWorkspace.id }],
 };
 
 const dbMocks = createDatabaseMocks({
@@ -80,7 +80,7 @@ mock.module("@almirant/database", () => dbMocks);
 mock.module("../../../shared/services/response", () => createResponseMocks());
 mock.module("../../../shared/ws/ws-connection-manager", () => ({
   wsConnectionManager: {
-    broadcastToOrganization: (
+    broadcastToWorkspace: (
       orgId: string,
       message: Record<string, unknown>,
     ) => {
@@ -125,7 +125,7 @@ describe("workersRoutes /jobs/:jobId/stream", () => {
         id: "job-1",
         workItemId: null,
         planningSessionId: "planning-session-1",
-        organizationId: testOrganization.id,
+        workspaceId: testWorkspace.id,
       },
       workItem: null,
       project: null,
@@ -157,7 +157,7 @@ describe("workersRoutes /jobs/:jobId/stream", () => {
     expect(res.status).toBe(200);
     expect(state.broadcasts).toHaveLength(1);
     expect(state.broadcasts[0]).toEqual({
-      orgId: testOrganization.id,
+      orgId: testWorkspace.id,
       message: {
         type: "planning:tool-call-start",
         payload: {
@@ -197,7 +197,7 @@ describe("workersRoutes /jobs/:jobId/stream", () => {
     expect(res.status).toBe(200);
     expect(state.broadcasts).toHaveLength(2);
     expect(state.broadcasts[0]).toEqual({
-      orgId: testOrganization.id,
+      orgId: testWorkspace.id,
       message: {
         type: "planning:tool-call-start",
         payload: {
@@ -213,7 +213,7 @@ describe("workersRoutes /jobs/:jobId/stream", () => {
       },
     });
     expect(state.broadcasts[1]).toEqual({
-      orgId: testOrganization.id,
+      orgId: testWorkspace.id,
       message: {
         type: "planning:subagent-spawn",
         payload: {
@@ -242,7 +242,7 @@ describe("workersRoutes /jobs/:jobId/stream", () => {
     expect(state.createdInteractions).toHaveLength(0);
     expect(state.broadcasts).toEqual([
       {
-        orgId: testOrganization.id,
+        orgId: testWorkspace.id,
         message: {
           type: "planning:text",
           payload: {

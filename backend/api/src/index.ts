@@ -19,7 +19,7 @@ import { errorMiddleware } from "./shared/middleware/error.middleware";
 import { loggerMiddleware } from "./shared/middleware/logger.middleware";
 import { setupPublicMcpServer } from "./mcp/setup/public";
 import { createMcpAuthenticator } from "./mcp/auth/authenticate";
-import { sessionAuthMiddleware, requireAuth, requireOrganization } from "./shared/middleware/session-auth.middleware";
+import { sessionAuthMiddleware, requireAuth, requireWorkspace } from "./shared/middleware/session-auth.middleware";
 
 // Domain modules
 import { documentCategoriesModule } from "./domains/documents/categories";
@@ -233,17 +233,17 @@ const app = new Elysia({
       .use(projectManagementModule.internal())
       .use(sessionAuthMiddleware)
       .use(requireAuth)
-      // ── Auth-only routes (no active organization required) ──────────────
+      // ── Auth-only routes (no active workspace required) ──────────────
       // These routes need an authenticated user but must work before the
-      // user has selected/created an organization (e.g. right after login).
+      // user has selected/created a workspace (e.g. right after login).
       .use(authModule.authOnly())
       .use(projectManagementModule.authOnly())
       // Instance onboarding (admin-only, no org required)
       .use(instanceModule.protected())
-      // ── Organization-scoped routes ─────────────────────────────────────
-      // All remaining routes require an active organization in the session.
-      // Returns 403 "No active organization" if none is set.
-      .use(requireOrganization)
+      // ── Workspace-scoped routes ─────────────────────────────────────
+      // All remaining routes require an active workspace in the session.
+      // Returns 403 "No active workspace" if none is set.
+      .use(requireWorkspace)
       .use(projectManagementModule.protected())
       .use(webhooksModule.protected())
       .use(agentsModule.protected())

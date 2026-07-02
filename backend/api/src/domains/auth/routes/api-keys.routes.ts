@@ -19,9 +19,9 @@ export const apiKeysRoutes = new Elysia({ prefix: "/api-keys" })
   // -------------------------------------------------------
   .post(
     "/",
-    async ({ body, set, user, activeOrganization }) => {
+    async ({ body, set, user, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
 
         if (!body.name || body.name.trim() === "") {
           set.status = 400;
@@ -51,9 +51,9 @@ export const apiKeysRoutes = new Elysia({ prefix: "/api-keys" })
   // -------------------------------------------------------
   // GET /api-keys - List all API keys
   // -------------------------------------------------------
-  .get("/", async ({ user, activeOrganization }) => {
+  .get("/", async ({ user, activeWorkspace }) => {
     try {
-      const orgId = activeOrganization!.id;
+      const orgId = activeWorkspace!.id;
       const userId = (user as { id: string }).id;
       const keys = await listApiKeys(orgId, userId);
       return successResponse(keys);
@@ -70,9 +70,9 @@ export const apiKeysRoutes = new Elysia({ prefix: "/api-keys" })
   // -------------------------------------------------------
   .delete(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
+    async ({ params, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const revoked = await revokeApiKey(orgId, params.id);
 
         if (!revoked) {

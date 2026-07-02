@@ -20,7 +20,7 @@ const state = {
       id: "job-1",
       workItemId: "work-item-1",
       planningSessionId: null,
-      organizationId: "org-1",
+      workspaceId: "org-1",
     },
     workItem: null,
     project: null,
@@ -31,7 +31,7 @@ const state = {
       id: string;
       workItemId: string | null;
       planningSessionId: string | null;
-      organizationId: string | null;
+      workspaceId: string | null;
     };
     workItem: null;
     project: null;
@@ -113,7 +113,7 @@ describe("workersRoutes /jobs/:jobId/logs", () => {
         id: "job-1",
         workItemId: "work-item-1",
         planningSessionId: null,
-        organizationId: "org-1",
+        workspaceId: "org-1",
       },
       workItem: null,
       project: null,

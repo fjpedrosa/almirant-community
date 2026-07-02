@@ -2,10 +2,10 @@ import { Elysia } from "elysia";
 import { db, schema, eq, and, gt, desc, isNotNull } from "@almirant/database";
 
 /**
- * Minimal organization info injected into the request context when
- * the session has an active organization.
+ * Minimal workspace info injected into the request context when
+ * the session has an active workspace.
  */
-export interface ActiveOrganization {
+export interface ActiveWorkspace {
   id: string;
   name: string;
   slug: string;
@@ -64,19 +64,19 @@ async function getSessionRowByCandidates(tokens: string[]) {
       .select({
         user: schema.user,
         session: schema.session,
-        organization: schema.organization,
+        workspace: schema.workspace,
         member: schema.member,
       })
       .from(schema.session)
       .innerJoin(schema.user, eq(schema.session.userId, schema.user.id))
       .leftJoin(
-        schema.organization,
-        eq(schema.session.activeOrganizationId, schema.organization.id)
+        schema.workspace,
+        eq(schema.session.activeWorkspaceId, schema.workspace.id)
       )
       .leftJoin(
         schema.member,
         and(
-          eq(schema.member.organizationId, schema.organization.id),
+          eq(schema.member.workspaceId, schema.workspace.id),
           eq(schema.member.userId, schema.user.id)
         )
       )
@@ -103,7 +103,7 @@ export const sessionAuthMiddleware = new Elysia({ name: "session-auth" })
     if (!tokens.length) {
       return {
         user: null,
-        activeOrganization: null as ActiveOrganization | null,
+        activeWorkspace: null as ActiveWorkspace | null,
         memberRole: null as string | null,
       };
     }
@@ -113,55 +113,55 @@ export const sessionAuthMiddleware = new Elysia({ name: "session-auth" })
     if (!row) {
       return {
         user: null,
-        activeOrganization: null as ActiveOrganization | null,
+        activeWorkspace: null as ActiveWorkspace | null,
         memberRole: null as string | null,
       };
     }
 
-    // Security: only trust active organization if the user is actually a member.
+    // Security: only trust active workspace if the user is actually a member.
     // If session points to an org where membership is missing (or null), auto-heal
-    // by selecting the user's first membership as active organization.
-    if (row.organization && row.member) {
-      const activeOrganization: ActiveOrganization = {
-        id: row.organization.id,
-        name: row.organization.name,
-        slug: row.organization.slug,
+    // by selecting the user's first membership as active workspace.
+    if (row.workspace && row.member) {
+      const activeWorkspace: ActiveWorkspace = {
+        id: row.workspace.id,
+        name: row.workspace.name,
+        slug: row.workspace.slug,
       };
       const memberRole: string = row.member.role;
-      return { user: row.user, activeOrganization, memberRole };
+      return { user: row.user, activeWorkspace, memberRole };
     }
 
     // Try to inherit org from user's most recent session that had one
     const [previousSession] = await db
-      .select({ activeOrganizationId: schema.session.activeOrganizationId })
+      .select({ activeWorkspaceId: schema.session.activeWorkspaceId })
       .from(schema.session)
       .where(
         and(
           eq(schema.session.userId, row.user.id),
-          isNotNull(schema.session.activeOrganizationId),
+          isNotNull(schema.session.activeWorkspaceId),
         ),
       )
       .orderBy(desc(schema.session.updatedAt))
       .limit(1);
 
-    const candidateOrgId = previousSession?.activeOrganizationId ?? null;
+    const candidateOrgId = previousSession?.activeWorkspaceId ?? null;
 
     // Verify membership for the candidate org, or fall back to oldest membership
     const fallbackMembership = candidateOrgId
       ? await db
           .select({
             role: schema.member.role,
-            organization: schema.organization,
+            workspace: schema.workspace,
           })
           .from(schema.member)
           .innerJoin(
-            schema.organization,
-            eq(schema.member.organizationId, schema.organization.id)
+            schema.workspace,
+            eq(schema.member.workspaceId, schema.workspace.id)
           )
           .where(
             and(
               eq(schema.member.userId, row.user.id),
-              eq(schema.member.organizationId, candidateOrgId),
+              eq(schema.member.workspaceId, candidateOrgId),
             ),
           )
           .limit(1)
@@ -173,12 +173,12 @@ export const sessionAuthMiddleware = new Elysia({ name: "session-auth" })
       : await db
           .select({
             role: schema.member.role,
-            organization: schema.organization,
+            workspace: schema.workspace,
           })
           .from(schema.member)
           .innerJoin(
-            schema.organization,
-            eq(schema.member.organizationId, schema.organization.id)
+            schema.workspace,
+            eq(schema.member.workspaceId, schema.workspace.id)
           )
           .where(eq(schema.member.userId, row.user.id))
           .orderBy(schema.member.createdAt)
@@ -187,24 +187,24 @@ export const sessionAuthMiddleware = new Elysia({ name: "session-auth" })
     if (!resolvedMembership.length) {
       return {
         user: row.user,
-        activeOrganization: null as ActiveOrganization | null,
+        activeWorkspace: null as ActiveWorkspace | null,
         memberRole: null as string | null,
       };
     }
 
     const fallback = resolvedMembership[0]!;
-    const fallbackOrg = fallback.organization;
+    const fallbackOrg = fallback.workspace;
 
-    if (row.session.activeOrganizationId !== fallbackOrg.id) {
+    if (row.session.activeWorkspaceId !== fallbackOrg.id) {
       await db
         .update(schema.session)
-        .set({ activeOrganizationId: fallbackOrg.id })
+        .set({ activeWorkspaceId: fallbackOrg.id })
         .where(eq(schema.session.id, row.session.id));
     }
 
     return {
       user: row.user,
-      activeOrganization: {
+      activeWorkspace: {
         id: fallbackOrg.id,
         name: fallbackOrg.name,
         slug: fallbackOrg.slug,
@@ -222,11 +222,11 @@ export const requireAuth = new Elysia({ name: "require-auth" })
     }
   });
 
-export const requireOrganization = new Elysia({ name: "require-organization" })
+export const requireWorkspace = new Elysia({ name: "require-workspace" })
   .onBeforeHandle({ as: "scoped" }, (ctx) => {
-    const activeOrganization = (ctx as unknown as Record<string, unknown>).activeOrganization;
-    if (!activeOrganization) {
+    const activeWorkspace = (ctx as unknown as Record<string, unknown>).activeWorkspace;
+    if (!activeWorkspace) {
       ctx.set.status = 403;
-      return { success: false, error: "No active organization" };
+      return { success: false, error: "No active workspace" };
     }
   });

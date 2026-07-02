@@ -60,7 +60,7 @@ const isLegacySyntheticInteractionId = (questionId: string): boolean =>
 
 type StartPlanningJobInput = {
   userId: string;
-  organizationId: string | null;
+  workspaceId: string | null;
   sessionId: string;
   userMessage: string;
   seedIds?: string[];
@@ -83,7 +83,7 @@ const resolveUserLocale = async (userId: string): Promise<string> =>
 
 const startPlanningJob = async ({
   userId,
-  organizationId,
+  workspaceId,
   sessionId,
   userMessage,
   seedIds,
@@ -133,7 +133,7 @@ const startPlanningJob = async ({
       workItemId: null,
       planningSessionId: sessionId,
       createdByUserId: userId,
-      organizationId: organizationId ?? undefined,
+      workspaceId: workspaceId ?? undefined,
       jobType: "planning",
       provider: resolved.provider,
       priority: "medium",
@@ -166,10 +166,10 @@ const startPlanningJob = async ({
     });
 
     // Persist user input to agent_job_logs for transcript replay
-    persistUserInput(job.id, organizationId ?? "", userMessage, messageMetadata);
+    persistUserInput(job.id, workspaceId ?? "", userMessage, messageMetadata);
 
-    if (organizationId) {
-      wsConnectionManager.broadcastToOrganization(organizationId, {
+    if (workspaceId) {
+      wsConnectionManager.broadcastToWorkspace(workspaceId, {
         type: "agent-job:status-changed",
         payload: {
           jobId: job.id,
@@ -208,7 +208,7 @@ const startPlanningJob = async ({
 
 const handlePlanningStart = (
   userId: string,
-  organizationId: string | null,
+  workspaceId: string | null,
   message: Extract<WsClientMessage, { type: "planning:start" }>,
   sendFn: (msg: WsServerMessage) => void
 ) => {
@@ -287,11 +287,11 @@ const handlePlanningStart = (
 
         if (converted) {
           // Persist user input to agent_job_logs for transcript replay
-          persistUserInput(converted.id, organizationId ?? "", userMessage);
+          persistUserInput(converted.id, workspaceId ?? "", userMessage);
         }
 
-        if (converted && organizationId) {
-          wsConnectionManager.broadcastToOrganization(organizationId, {
+        if (converted && workspaceId) {
+          wsConnectionManager.broadcastToWorkspace(workspaceId, {
             type: "agent-job:status-changed",
             payload: {
               jobId: converted.id,
@@ -322,7 +322,7 @@ const handlePlanningStart = (
       // No prewarm job found, fall through to normal behavior
       await startPlanningJob({
         userId,
-        organizationId,
+        workspaceId,
         sessionId,
         userMessage,
         seedIds,
@@ -352,7 +352,7 @@ const handlePlanningStart = (
 
 const handlePlanningAnswer = (
   userId: string,
-  organizationId: string | null,
+  workspaceId: string | null,
   message: Extract<WsClientMessage, { type: "planning:answer" }>,
   sendFn: (msg: WsServerMessage) => void
 ) => {
@@ -392,8 +392,8 @@ const handlePlanningAnswer = (
             }
           : undefined,
       );
-      if (jobUpdated && organizationId) {
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+      if (jobUpdated && workspaceId) {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "agent-job:status-changed",
           payload: {
             jobId: jobUpdated.id,
@@ -403,7 +403,7 @@ const handlePlanningAnswer = (
           },
         });
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "worker-interaction:responded",
           payload: {
             interactionId: updated.id,
@@ -425,7 +425,7 @@ const handlePlanningAnswer = (
 
 const handlePlanningPrompt = (
   userId: string,
-  organizationId: string | null,
+  workspaceId: string | null,
   message: Extract<WsClientMessage, { type: "planning:prompt" }>,
   sendFn: (msg: WsServerMessage) => void
 ) => {
@@ -469,7 +469,7 @@ const handlePlanningPrompt = (
 
         await startPlanningJob({
           userId,
-          organizationId,
+          workspaceId,
           sessionId,
           userMessage: trimmedPrompt,
           conversationHistory,
@@ -532,7 +532,7 @@ const handlePlanningPrompt = (
       }
 
       // Persist user answer to agent_job_logs for transcript replay
-      persistUserInput(activeJob.id, organizationId ?? "", trimmedPrompt, { source: "planning:prompt" });
+      persistUserInput(activeJob.id, workspaceId ?? "", trimmedPrompt, { source: "planning:prompt" });
 
       const updated = await respondToInteraction(
         pendingInteraction.id,
@@ -568,8 +568,8 @@ const handlePlanningPrompt = (
             }
           : undefined,
       );
-      if (jobUpdated && organizationId) {
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+      if (jobUpdated && workspaceId) {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "agent-job:status-changed",
           payload: {
             jobId: jobUpdated.id,
@@ -579,7 +579,7 @@ const handlePlanningPrompt = (
           },
         });
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "worker-interaction:responded",
           payload: {
             interactionId: updated.id,
@@ -588,7 +588,7 @@ const handlePlanningPrompt = (
           },
         });
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "planning:answer-received",
           payload: {
             sessionId,
@@ -614,7 +614,7 @@ const handlePlanningPrompt = (
 
 const handlePlanningCancel = (
   userId: string,
-  organizationId: string | null,
+  workspaceId: string | null,
   message: Extract<WsClientMessage, { type: "planning:cancel" }>,
   sendFn: (msg: WsServerMessage) => void
 ) => {
@@ -634,8 +634,8 @@ const handlePlanningCancel = (
 
       // Cancel the job itself
       const cancelled = await cancelJob(activeJob.id);
-      if (cancelled && organizationId) {
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+      if (cancelled && workspaceId) {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "agent-job:status-changed",
           payload: {
             jobId: cancelled.id,
@@ -658,7 +658,7 @@ const handlePlanningCancel = (
 
 const handlePlanningKill = (
   userId: string,
-  organizationId: string | null,
+  workspaceId: string | null,
   message: Extract<WsClientMessage, { type: "planning:kill" }>,
   sendFn: (msg: WsServerMessage) => void
 ) => {
@@ -674,8 +674,8 @@ const handlePlanningKill = (
 
         // Cancel the job itself
         const cancelled = await cancelJob(activeJob.id);
-        if (cancelled && organizationId) {
-          wsConnectionManager.broadcastToOrganization(organizationId, {
+        if (cancelled && workspaceId) {
+          wsConnectionManager.broadcastToWorkspace(workspaceId, {
             type: "agent-job:status-changed",
             payload: {
               jobId: cancelled.id,
@@ -692,8 +692,8 @@ const handlePlanningKill = (
         reason: "killed_by_user",
       });
 
-      if (completed && organizationId) {
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+      if (completed && workspaceId) {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "planning-session:completed",
           payload: {
             sessionId,
@@ -714,7 +714,7 @@ const handlePlanningKill = (
 
 const handlePlanningPrewarm = (
   userId: string,
-  organizationId: string | null,
+  workspaceId: string | null,
   message: Extract<WsClientMessage, { type: "planning:prewarm" }>,
   sendFn: (msg: WsServerMessage) => void
 ) => {
@@ -764,7 +764,7 @@ const handlePlanningPrewarm = (
         workItemId: null,
         planningSessionId: sessionId,
         createdByUserId: userId,
-        organizationId: organizationId ?? undefined,
+        workspaceId: workspaceId ?? undefined,
         jobType: "prewarm",
         provider: "claude-code",
         priority: "medium",
@@ -787,8 +787,8 @@ const handlePlanningPrewarm = (
         interactive: false,
       });
 
-      if (organizationId) {
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+      if (workspaceId) {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "agent-job:status-changed",
           payload: {
             jobId: job.id,
@@ -824,7 +824,7 @@ const handlePlanningPrewarm = (
 
 const handlePlanningInterrupt = (
   userId: string,
-  organizationId: string | null,
+  workspaceId: string | null,
   message: Extract<WsClientMessage, { type: "planning:interrupt" }>,
   sendFn: (msg: WsServerMessage) => void
 ) => {
@@ -850,8 +850,8 @@ const handlePlanningInterrupt = (
 
       // Transition job to waiting_for_input
       const jobUpdated = await updateJobStatus(activeJob.id, "waiting_for_input");
-      if (jobUpdated && organizationId) {
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+      if (jobUpdated && workspaceId) {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "agent-job:status-changed",
           payload: {
             jobId: jobUpdated.id,
@@ -868,8 +868,8 @@ const handlePlanningInterrupt = (
         payload: { sessionId },
       });
 
-      if (organizationId) {
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+      if (workspaceId) {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "planning:paused",
           payload: { sessionId },
         });
@@ -892,7 +892,7 @@ const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
 
 const handleAiFormatText = (
   userId: string,
-  organizationId: string | null,
+  workspaceId: string | null,
   message: Extract<WsClientMessage, { type: "ai:format-text" }>,
   sendFn: (msg: WsServerMessage) => void
 ) => {
@@ -922,8 +922,8 @@ const handleAiFormatText = (
       // If workItemId present, persist the generated prompt
       if (payload.workItemId && payload.fieldContext === "prompt") {
         try {
-          savedToDb = organizationId
-            ? await saveGeneratedPrompt(organizationId, payload.workItemId, formattedText)
+          savedToDb = workspaceId
+            ? await saveGeneratedPrompt(workspaceId, payload.workItemId, formattedText)
             : false;
 
           if (savedToDb) {
@@ -977,7 +977,7 @@ const handleAiFormatText = (
 
 export const routeMessage = (
   userId: string,
-  organizationId: string | null,
+  workspaceId: string | null,
   message: WsClientMessage,
   sendFn: (msg: WsServerMessage) => void
 ) => {
@@ -987,12 +987,12 @@ export const routeMessage = (
     (message as unknown as { clientActionId?: string }).clientActionId ??
     randomUUID();
 
-  return runWithTraceId(traceId, () => routeMessageInner(userId, organizationId, message, sendFn));
+  return runWithTraceId(traceId, () => routeMessageInner(userId, workspaceId, message, sendFn));
 };
 
 const routeMessageInner = (
   userId: string,
-  organizationId: string | null,
+  workspaceId: string | null,
   message: WsClientMessage,
   sendFn: (msg: WsServerMessage) => void
 ) => {
@@ -1002,7 +1002,7 @@ const routeMessageInner = (
       break;
 
     case "ai:format-text":
-      handleAiFormatText(userId, organizationId, message, sendFn);
+      handleAiFormatText(userId, workspaceId, message, sendFn);
       break;
 
     case "planning:start":
@@ -1010,7 +1010,7 @@ const routeMessageInner = (
         { userId, sessionId: message.payload.sessionId },
         "Planning session start requested"
       );
-      handlePlanningStart(userId, organizationId, message, sendFn);
+      handlePlanningStart(userId, workspaceId, message, sendFn);
       break;
 
     case "planning:answer":
@@ -1018,7 +1018,7 @@ const routeMessageInner = (
         { userId, sessionId: message.payload.sessionId },
         "Planning answer received"
       );
-      handlePlanningAnswer(userId, organizationId, message, sendFn);
+      handlePlanningAnswer(userId, workspaceId, message, sendFn);
       break;
 
     case "planning:prompt":
@@ -1026,7 +1026,7 @@ const routeMessageInner = (
         { userId, sessionId: message.payload.sessionId },
         "Planning prompt received"
       );
-      handlePlanningPrompt(userId, organizationId, message, sendFn);
+      handlePlanningPrompt(userId, workspaceId, message, sendFn);
       break;
 
     case "planning:cancel":
@@ -1034,7 +1034,7 @@ const routeMessageInner = (
         { userId, sessionId: message.payload.sessionId },
         "Planning session cancel requested"
       );
-      handlePlanningCancel(userId, organizationId, message, sendFn);
+      handlePlanningCancel(userId, workspaceId, message, sendFn);
       break;
 
     case "planning:kill":
@@ -1042,7 +1042,7 @@ const routeMessageInner = (
         { userId, sessionId: message.payload.sessionId },
         "Planning session kill requested"
       );
-      handlePlanningKill(userId, organizationId, message, sendFn);
+      handlePlanningKill(userId, workspaceId, message, sendFn);
       break;
 
     case "planning:prewarm":
@@ -1050,7 +1050,7 @@ const routeMessageInner = (
         { userId, sessionId: message.payload.sessionId },
         "Planning session prewarm requested"
       );
-      handlePlanningPrewarm(userId, organizationId, message, sendFn);
+      handlePlanningPrewarm(userId, workspaceId, message, sendFn);
       break;
 
     case "planning:interrupt":
@@ -1058,7 +1058,7 @@ const routeMessageInner = (
         { userId, sessionId: message.payload.sessionId },
         "Planning interrupt requested"
       );
-      handlePlanningInterrupt(userId, organizationId, message, sendFn);
+      handlePlanningInterrupt(userId, workspaceId, message, sendFn);
       break;
 
     default:

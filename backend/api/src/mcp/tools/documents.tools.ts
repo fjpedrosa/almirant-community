@@ -21,7 +21,7 @@ export const registerDocumentsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
         const page = params.page ?? 1;
         const limit = params.limit ?? 50;
@@ -33,7 +33,7 @@ export const registerDocumentsTools = (server: McpServer) => {
           projectId: params.projectId,
         };
 
-        const { items, total } = await getDocuments(organizationId, { page, limit, offset }, filters);
+        const { items, total } = await getDocuments(workspaceId, { page, limit, offset }, filters);
 
         const result = {
           documents: items,
@@ -68,9 +68,9 @@ export const registerDocumentsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const categories = await getDocumentCategories(organizationId);
+        const categories = await getDocumentCategories(workspaceId);
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify(categories, null, 2) }],

@@ -6,7 +6,7 @@ import {
   getRepoIdsForProject,
   getWorkItemById,
 } from "@almirant/database";
-import { getOrganizationIdFromExtra, getProjectIdFromExtra } from "../setup";
+import { getWorkspaceIdFromExtra, getProjectIdFromExtra } from "../setup";
 
 export const registerCommitTools = (server: McpServer) => {
   // -------------------------------------------------------
@@ -27,13 +27,13 @@ export const registerCommitTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: "Error: could not resolve organizationId from API key",
+                text: "Error: could not resolve workspaceId from API key",
               },
             ],
             isError: true,
@@ -53,14 +53,14 @@ export const registerCommitTools = (server: McpServer) => {
           };
         }
 
-        // Verify work item belongs to the organization
-        const workItem = await getWorkItemById(params.workItemId, organizationId);
+        // Verify work item belongs to the workspace
+        const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: `Error: Work item '${params.workItemId}' not found or does not belong to your organization`,
+                text: `Error: Work item '${params.workItemId}' not found or does not belong to your workspace`,
               },
             ],
             isError: true,

@@ -11,7 +11,7 @@ export type LinkTokenStatus = "pending" | "completed";
 export type LinkToken = {
   token: string;
   userId: string;
-  organizationId: string;
+  workspaceId: string;
   provider: string;
   scope: "user" | "organization";
   status: LinkTokenStatus;
@@ -47,7 +47,7 @@ const startCleanup = () => {
 
 export const createLinkToken = (params: {
   userId: string;
-  organizationId: string;
+  workspaceId: string;
   provider: string;
   scope: "user" | "organization";
 }): LinkToken => {
@@ -56,7 +56,7 @@ export const createLinkToken = (params: {
   const entry: LinkToken = {
     token,
     userId: params.userId,
-    organizationId: params.organizationId,
+    workspaceId: params.workspaceId,
     provider: params.provider,
     scope: params.scope,
     status: "pending",

@@ -44,7 +44,7 @@ import type {
  */
 export type BridgeRendererContext = {
   sessionId: string;
-  organizationId: string;
+  workspaceId: string;
   jobId: string;
   threadId: string;
   timestamp: number;
@@ -134,7 +134,7 @@ export type BridgeRenderer = {
  */
 const extractContext = (envelope: CanonicalEventEnvelope): BridgeRendererContext => ({
   sessionId: envelope.sessionId,
-  organizationId: envelope.organizationId,
+  workspaceId: envelope.workspaceId,
   jobId: envelope.jobId,
   threadId: envelope.threadId,
   timestamp: envelope.timestamp,

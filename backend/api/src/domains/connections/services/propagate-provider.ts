@@ -30,7 +30,7 @@ const getManagedByAgents = (metadata: Record<string, unknown> | undefined): Mana
  * Fire-and-forget — errors are logged but never block the caller.
  */
 export const propagateProviderToParent = async (
-  organizationId: string,
+  workspaceId: string,
   childWorkItemId: string,
   childMetadata: Record<string, unknown>,
 ): Promise<void> => {
@@ -75,7 +75,7 @@ export const propagateProviderToParent = async (
       merged.managedBy = childMetadata.managedBy;
     }
 
-    await updateWorkItem(organizationId, row.parentId, { metadata: merged });
+    await updateWorkItem(workspaceId, row.parentId, { metadata: merged });
   } catch (error) {
     logger.warn(
       { childWorkItemId, error },

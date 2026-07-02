@@ -69,7 +69,7 @@ const baseJobDefaults = (provider: string) =>
     projectId: null,
     boardId: null,
     createdByUserId: "user-1",
-    organizationId: "org-1",
+    workspaceId: "org-1",
     provider,
     priority: "medium" as const,
     status: "running" as const,
@@ -680,7 +680,7 @@ describe("buildInjectedEnv", () => {
       workerClient: buildMockClient(keys),
       job: baseJob("codex", {
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
       }),
       repository: {},
       apiBaseUrl: "http://localhost:3001/",
@@ -689,7 +689,7 @@ describe("buildInjectedEnv", () => {
 
     expect(requestSessionToken).toHaveBeenCalledWith({
       projectId: "project-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       jobId: "job-1",
       permissions: ["mcp:read", "mcp:write"],
     });
@@ -718,7 +718,7 @@ describe("buildInjectedEnv", () => {
       workerClient: buildMockClient(keys),
       job: baseJob("anthropic", {
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         config: {
           skillName: "feedback-bug-fix",
         },
@@ -730,7 +730,7 @@ describe("buildInjectedEnv", () => {
 
     expect(requestSessionToken).toHaveBeenCalledWith({
       projectId: "project-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       jobId: "job-1",
       permissions: ["mcp:read", "mcp:write", "mcp:internal"],
     });
@@ -765,7 +765,7 @@ describe("buildInjectedEnv", () => {
       workerClient: buildMockClient(keys),
       job: baseJob("anthropic", {
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         skillName: "feedback-triage",
         promptTemplate: "feedback-triage",
         config: {
@@ -779,7 +779,7 @@ describe("buildInjectedEnv", () => {
 
     expect(requestSessionToken).toHaveBeenCalledWith({
       projectId: "project-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       jobId: "job-1",
       permissions: ["mcp:read", "mcp:write", "mcp:internal"],
     });
@@ -807,7 +807,7 @@ describe("buildInjectedEnv", () => {
         workerClient: buildMockClient(keys),
         job: baseJob("anthropic", {
           projectId: "project-1",
-          organizationId: "org-1",
+          workspaceId: "org-1",
           config: { skillName },
         }),
         repository: {},
@@ -817,7 +817,7 @@ describe("buildInjectedEnv", () => {
 
       expect(requestSessionToken).toHaveBeenCalledWith({
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         jobId: "job-1",
         permissions: ["mcp:read", "mcp:write", "mcp:internal"],
       });
@@ -837,7 +837,7 @@ describe("buildInjectedEnv", () => {
       workerClient: buildMockClient(keys),
       job: baseJob("codex", {
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
       }),
       repository: {},
       apiBaseUrl: "http://localhost:3001",

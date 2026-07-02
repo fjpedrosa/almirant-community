@@ -10,7 +10,7 @@ export type NotificationType = "assignment" | "comment" | "mention" | "status_ch
 
 export interface SendNotificationParams {
   recipientUserId: string;
-  organizationId: string;
+  workspaceId: string;
   type: NotificationType;
   title: string;
   body?: string | null;
@@ -28,7 +28,7 @@ export interface NotificationPort {
   sendMention(params: {
     mentionedUserId: string;
     actorUserId: string;
-    organizationId: string;
+    workspaceId: string;
     entityType: string;
     entityId: string;
     entityTitle: string;

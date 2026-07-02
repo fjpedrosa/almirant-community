@@ -25,7 +25,7 @@ export const registerProjectsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
         const page = params.page ?? 1;
         const limit = params.limit ?? 50;
@@ -34,7 +34,7 @@ export const registerProjectsTools = (server: McpServer) => {
         // If a default projectId is configured, return only that project
         const defaultProjectId = getProjectIdFromExtra(extra);
         if (defaultProjectId) {
-          const project = await getProjectById(organizationId, defaultProjectId);
+          const project = await getProjectById(workspaceId, defaultProjectId);
           if (!project) {
             return {
               content: [{ type: "text" as const, text: `Error: Configured project with ID '${defaultProjectId}' not found` }],
@@ -51,7 +51,7 @@ export const registerProjectsTools = (server: McpServer) => {
         }
 
         const filters = params.includeArchived ? { includeArchived: true } : undefined;
-        const { projects, total } = await getProjects(organizationId, { page, limit, offset }, filters);
+        const { projects, total } = await getProjects(workspaceId, { page, limit, offset }, filters);
 
         const result = {
           projects,
@@ -88,9 +88,9 @@ export const registerProjectsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const project = await getProjectById(organizationId, params.id);
+        const project = await getProjectById(workspaceId, params.id);
 
         if (!project) {
           return {
@@ -126,9 +126,9 @@ export const registerProjectsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const project = await createProject(organizationId, {
+        const project = await createProject(workspaceId, {
           name: params.name,
           description: params.description,
           status: params.status as "active" | "archived" | "on_hold" | undefined,
@@ -162,11 +162,11 @@ export const registerProjectsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
         const { id, ...updateData } = params;
 
-        const project = await updateProject(organizationId, id, {
+        const project = await updateProject(workspaceId, id, {
           ...updateData,
           status: updateData.status as "active" | "archived" | "on_hold" | undefined,
         });
@@ -203,7 +203,7 @@ export const registerProjectsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
         // Use the provided projectId, or fall back to the session-configured one
         const projectId = params.projectId || getProjectIdFromExtra(extra);
@@ -215,11 +215,11 @@ export const registerProjectsTools = (server: McpServer) => {
           };
         }
 
-        // Verify project belongs to the organization
-        const project = await getProjectById(organizationId, projectId);
+        // Verify project belongs to the workspace
+        const project = await getProjectById(workspaceId, projectId);
         if (!project) {
           return {
-            content: [{ type: "text" as const, text: `Error: Project with ID '${projectId}' not found or does not belong to your organization` }],
+            content: [{ type: "text" as const, text: `Error: Project with ID '${projectId}' not found or does not belong to your workspace` }],
             isError: true,
           };
         }

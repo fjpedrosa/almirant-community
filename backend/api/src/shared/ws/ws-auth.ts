@@ -2,7 +2,7 @@ import { db, schema, eq, and, gt } from "@almirant/database";
 
 export interface WsTokenResult {
   user: typeof schema.user.$inferSelect;
-  organizationId: string | null;
+  workspaceId: string | null;
 }
 
 export const validateWsToken = async (
@@ -28,6 +28,6 @@ export const validateWsToken = async (
 
   return {
     user: match.user,
-    organizationId: match.session.activeOrganizationId ?? null,
+    workspaceId: match.session.activeWorkspaceId ?? null,
   };
 };

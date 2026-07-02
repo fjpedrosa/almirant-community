@@ -20,8 +20,8 @@ const PROJECT_MANAGEMENT_ACTIONS = new Set([
   "project.member.add",
   "project.member.remove",
   "work-item.delete",
-  "organization.invite",
-  "organization.remove-member",
+  "workspace.invite",
+  "workspace.remove-member",
   "feedback.screenshot.delete",
   "feedback.screenshot.read",
   // Extend as inline checks are migrated from other routes.

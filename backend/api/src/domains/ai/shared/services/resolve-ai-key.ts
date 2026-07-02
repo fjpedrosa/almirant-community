@@ -20,7 +20,7 @@ type AiProvider = "openai" | "anthropic" | "google" | "zai" | "xai";
 interface ResolveAiKeyParams {
   provider: AiProvider;
   userId: string | null;
-  organizationId: string;
+  workspaceId: string;
   encryptionKey: string;
   /** When true, only connections with orchestrationEnabled=true are considered. */
   forOrchestration?: boolean;
@@ -66,7 +66,7 @@ export const refreshConnectionCredentialsIfNeeded = async (
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the AI key for a given provider, respecting the organization's
+ * Resolve the AI key for a given provider, respecting the workspace's
  * `aiKeyPolicy` setting.
  *
  * The function:
@@ -81,11 +81,11 @@ export const refreshConnectionCredentialsIfNeeded = async (
 export const resolveAiKey = async (
   params: ResolveAiKeyParams,
 ): Promise<ResolvedAiKey | null> => {
-  const { provider, userId, organizationId, encryptionKey, forOrchestration, excludeConnectionIds } = params;
+  const { provider, userId, workspaceId, encryptionKey, forOrchestration, excludeConnectionIds } = params;
   const skipReasons: SkipReason[] = [];
 
   // 1. Get the org's AI key policy (defaults to "user_preferred" if no row)
-  const orgSettings = await getOrgSettings(organizationId);
+  const orgSettings = await getOrgSettings(workspaceId);
   const policy = orgSettings.aiKeyPolicy;
 
   // 2. Map the AI provider to the connection provider_type enum
@@ -95,7 +95,7 @@ export const resolveAiKey = async (
   const scopes: ConnectionScope[] =
     POLICY_SEARCH_ORDER[policy] ?? (() => {
       logger.warn(
-        { policy, organizationId },
+        { policy, workspaceId },
         "Unknown AI key policy, falling back to user_preferred",
       );
       return POLICY_SEARCH_ORDER.user_preferred as ConnectionScope[];
@@ -107,7 +107,7 @@ export const resolveAiKey = async (
       continue;
     }
 
-    const scopeId = scope === "user" ? userId! : organizationId;
+    const scopeId = scope === "user" ? userId! : workspaceId;
 
     const allConnections = await findActiveConnections(
       connectionProvider,
@@ -150,14 +150,14 @@ export const resolveAiKey = async (
     if (forOrchestration && orchestrationStrategy && connections.length >= 2) {
       const orchestrator = createAccountOrchestrator(
         orchestrationStrategy,
-        (resolvedOrganizationId, resolvedProvider) =>
+        (resolvedWorkspaceId, resolvedProvider) =>
           quotaService.checkQuotaForProvider(
-            resolvedOrganizationId,
+            resolvedWorkspaceId,
             resolvedProvider as AiProvider,
           ),
       );
 
-      const selected = await orchestrator.selectConnection(connections, organizationId);
+      const selected = await orchestrator.selectConnection(connections, workspaceId);
       if (selected) {
         try {
           const credentials = await refreshConnectionCredentialsIfNeeded(
@@ -272,7 +272,7 @@ export const resolveAiKey = async (
       {
         scope,
         provider: connectionProvider,
-        organizationId,
+        workspaceId,
         connectionCount: connections.length,
         skipReasons: skipReasons.filter((r) => r.connectionId),
       },
@@ -284,7 +284,7 @@ export const resolveAiKey = async (
     {
       provider,
       userId,
-      organizationId,
+      workspaceId,
       policy,
       skipReasons,
     },

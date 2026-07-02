@@ -114,28 +114,28 @@ export const generateAttachmentKey = (
 };
 
 export const generateEditorImageKey = (
-  organizationId: string,
+  workspaceId: string,
   fileName: string
 ): string => {
   const uuid = crypto.randomUUID();
   const sanitizedName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-  return `editor-images/${organizationId}/${uuid}-${sanitizedName}`;
+  return `editor-images/${workspaceId}/${uuid}-${sanitizedName}`;
 };
 
 export const generateEditorFileKey = (
-  organizationId: string,
+  workspaceId: string,
   fileName: string
 ): string => {
   const uuid = crypto.randomUUID();
   const sanitizedName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-  return `editor-files/${organizationId}/${uuid}-${sanitizedName}`;
+  return `editor-files/${workspaceId}/${uuid}-${sanitizedName}`;
 };
 
 /**
  * Generate an S3 key for feedback screenshots. Uses a flat prefix with no
- * organization scoping — access control is enforced at the API layer based
+ * workspace scoping — access control is enforced at the API layer based
  * on feedback-item ownership (author OR platform admin), not the uploader's
- * active organization. See task A-1906.
+ * active workspace. See task A-1906.
  */
 export const generateFeedbackScreenshotKey = (fileName: string): string => {
   const uuid = crypto.randomUUID();
@@ -143,10 +143,10 @@ export const generateFeedbackScreenshotKey = (fileName: string): string => {
   return `feedback-screenshots/${uuid}-${sanitizedName}`;
 };
 
-export const generateInvoiceKey = (organizationId: string, fileName: string): string => {
+export const generateInvoiceKey = (workspaceId: string, fileName: string): string => {
   const uuid = crypto.randomUUID();
   const sanitizedName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-  return `invoices/${organizationId}/${uuid}-${sanitizedName}`;
+  return `invoices/${workspaceId}/${uuid}-${sanitizedName}`;
 };
 
 export const extractKeyFromUrl = (url: string): string | null => {

@@ -5,7 +5,7 @@ import { serviceAccountsRoutes } from "./routes/service-accounts.routes";
 import { devAuthRoutes } from "./routes/dev-auth.routes";
 import { usersRoutes } from "./routes/users.routes";
 import { onboardingRoutes } from "./routes/onboarding.routes";
-import { organizationSettingsRoutes } from "./routes/organization-settings.routes";
+import { workspaceSettingsRoutes } from "./routes/workspace-settings.routes";
 import { linkTokenPublicRoutes } from "./routes/link-token-public.routes";
 import { mcpOAuthRoutes } from "./routes/mcp-oauth.routes";
 
@@ -16,12 +16,12 @@ export const authModule = {
   mcpOAuth: () => new Elysia().use(sessionAuthMiddleware).use(mcpOAuthRoutes),
   /** Public link-token complete endpoint (unauthenticated, for CLI) - mounted outside /api */
   linkToken: () => new Elysia().use(linkTokenPublicRoutes),
-  /** Auth-only routes (no active organization required) - mounted under /api after auth middleware */
+  /** Auth-only routes (no active workspace required) - mounted under /api after auth middleware */
   authOnly: () => new Elysia().use(usersRoutes).use(onboardingRoutes),
-  /** Organization-scoped routes - mounted under /api after org middleware */
+  /** Workspace-scoped routes - mounted under /api after org middleware */
   protected: () =>
     new Elysia()
       .use(apiKeysRoutes)
       .use(serviceAccountsRoutes)
-      .use(organizationSettingsRoutes),
+      .use(workspaceSettingsRoutes),
 };

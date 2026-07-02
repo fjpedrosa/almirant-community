@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import { logger } from "@almirant/config";
-import { getOrganizationIdByProjectId } from "@almirant/database";
+import { getWorkspaceIdByProjectId } from "@almirant/database";
 import { AskError } from "./ask-orchestrator";
 
 // ---------------------------------------------------------------------------
@@ -132,36 +132,36 @@ export const sanitizeOutput = (answer: string): string => {
 };
 
 // ---------------------------------------------------------------------------
-// Project-organization tenancy validation
+// Project-workspace tenancy validation
 // ---------------------------------------------------------------------------
 
 /**
- * Verify that the given project belongs to the specified organization.
+ * Verify that the given project belongs to the specified workspace.
  * Throws `AskError("INVALID_PROJECT", ...)` if the project does not exist
- * or belongs to a different organization.
+ * or belongs to a different workspace.
  */
 export const validateProjectAccess = async (
-  organizationId: string,
+  workspaceId: string,
   projectId: string,
 ): Promise<void> => {
-  const projectOrgId = await getOrganizationIdByProjectId(projectId);
+  const projectOrgId = await getWorkspaceIdByProjectId(projectId);
 
   if (!projectOrgId) {
     logger.warn(
-      { projectId, organizationId },
+      { projectId, workspaceId },
       "ask-security: project not found during tenancy validation",
     );
     throw new AskError("INVALID_PROJECT", "Project not found");
   }
 
-  if (projectOrgId !== organizationId) {
+  if (projectOrgId !== workspaceId) {
     logger.warn(
-      { projectId, organizationId, projectOrgId },
-      "ask-security: project does not belong to the caller organization",
+      { projectId, workspaceId, projectOrgId },
+      "ask-security: project does not belong to the caller workspace",
     );
     throw new AskError(
       "INVALID_PROJECT",
-      "Project does not belong to the current organization",
+      "Project does not belong to the current workspace",
     );
   }
 };
@@ -170,32 +170,32 @@ export const validateProjectAccess = async (
 // In-memory rate limiter
 // ---------------------------------------------------------------------------
 
-/** Maximum requests per organization per window */
+/** Maximum requests per workspace per window */
 const RATE_LIMIT_MAX_REQUESTS = 20;
 
 /** Sliding window duration in milliseconds (1 minute) */
 const RATE_LIMIT_WINDOW_MS = 60_000;
 
 /**
- * Internal store: maps organizationId to an array of request timestamps.
+ * Internal store: maps workspaceId to an array of request timestamps.
  * Old entries are pruned on each check.
  */
 const rateLimitStore = new Map<string, number[]>();
 
 /**
- * Check whether the organization is within the rate limit for Ask requests.
+ * Check whether the workspace is within the rate limit for Ask requests.
  *
  * Returns `{ allowed: true }` when the request can proceed, or
  * `{ allowed: false, retryAfterMs }` when the limit has been exceeded.
  */
 export const checkRateLimit = (
-  organizationId: string,
+  workspaceId: string,
 ): { allowed: boolean; retryAfterMs?: number } => {
   const now = Date.now();
   const windowStart = now - RATE_LIMIT_WINDOW_MS;
 
   // Get existing timestamps and prune expired ones
-  const timestamps = (rateLimitStore.get(organizationId) ?? []).filter(
+  const timestamps = (rateLimitStore.get(workspaceId) ?? []).filter(
     (ts) => ts > windowStart,
   );
 
@@ -205,19 +205,19 @@ export const checkRateLimit = (
     const retryAfterMs = oldestInWindow + RATE_LIMIT_WINDOW_MS - now;
 
     logger.warn(
-      { organizationId, requestsInWindow: timestamps.length },
+      { workspaceId, requestsInWindow: timestamps.length },
       "ask-security: rate limit exceeded",
     );
 
     // Store the pruned array
-    rateLimitStore.set(organizationId, timestamps);
+    rateLimitStore.set(workspaceId, timestamps);
 
     return { allowed: false, retryAfterMs: Math.max(retryAfterMs, 1000) };
   }
 
   // Record the current request
   timestamps.push(now);
-  rateLimitStore.set(organizationId, timestamps);
+  rateLimitStore.set(workspaceId, timestamps);
 
   return { allowed: true };
 };

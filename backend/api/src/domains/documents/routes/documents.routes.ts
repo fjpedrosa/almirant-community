@@ -42,8 +42,8 @@ export const documentsRoutes = new Elysia({ prefix: "/documents" })
   .get(
     "/",
     async (ctx) => {
-      const { query, activeOrganization } = ctx;
-      const orgId = activeOrganization!.id;
+      const { query, activeWorkspace } = ctx;
+      const orgId = activeWorkspace!.id;
       const user = (ctx as unknown as Record<string, unknown>).user as { id: string } | null;
       const pagination = parsePaginationParams(query);
 
@@ -89,8 +89,8 @@ export const documentsRoutes = new Elysia({ prefix: "/documents" })
   // GET /documents/search - Full-text search across all documents
   .get(
     "/search",
-    async ({ query, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ query, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       if (!query.q || query.q.trim() === "") {
         set.status = 400;
         return errorResponse("Search query (q) is required");
@@ -127,8 +127,8 @@ export const documentsRoutes = new Elysia({ prefix: "/documents" })
   // GET /documents/cross-project - Documents grouped by project
   .get(
     "/cross-project",
-    async ({ query, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ query, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const filters = {
         search: query.search || undefined,
         categoryId: query.categoryId || undefined,
@@ -148,8 +148,8 @@ export const documentsRoutes = new Elysia({ prefix: "/documents" })
   // POST /documents - Create document
   .post(
     "/",
-    async ({ body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       if (!body.title || body.title.trim() === "") {
         set.status = 400;
         return errorResponse("Title is required");
@@ -185,7 +185,7 @@ export const documentsRoutes = new Elysia({ prefix: "/documents" })
         return errorResponse("Unauthorized", 401);
       }
 
-      const orgId = ctx.activeOrganization!.id;
+      const orgId = ctx.activeWorkspace!.id;
       const favorites = await getFavoriteDocuments(user.id, orgId);
       return successResponse(favorites);
     }
@@ -194,8 +194,8 @@ export const documentsRoutes = new Elysia({ prefix: "/documents" })
   // POST /documents/sync - Sync documents from repository
   .post(
     "/sync",
-    async ({ body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       if (!isS3Configured()) {
         set.status = 503;
         return errorResponse("S3 storage is not configured");
@@ -312,8 +312,8 @@ export const documentsRoutes = new Elysia({ prefix: "/documents" })
   // GET /documents/:id - Get by ID
   .get(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const doc = await getDocumentById(orgId, params.id);
 
       if (!doc) {
@@ -333,8 +333,8 @@ export const documentsRoutes = new Elysia({ prefix: "/documents" })
   // PATCH /documents/:id - Update
   .patch(
     "/:id",
-    async ({ params, body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const updated = await updateDocument(orgId, params.id, {
         title: body.title,
         content: body.content,
@@ -367,8 +367,8 @@ export const documentsRoutes = new Elysia({ prefix: "/documents" })
   // DELETE /documents/:id - Delete
   .delete(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const deleted = await deleteDocument(orgId, params.id);
 
       if (!deleted) {
@@ -415,7 +415,7 @@ export const documentsRoutes = new Elysia({ prefix: "/documents" })
         return errorResponse("Unauthorized", 401);
       }
 
-      const orgId = ctx.activeOrganization!.id;
+      const orgId = ctx.activeWorkspace!.id;
       const result = await toggleDocumentFavorite(user.id, ctx.params.id, orgId);
       if (!result) {
         ctx.set.status = 404;
@@ -501,8 +501,8 @@ export const documentsRoutes = new Elysia({ prefix: "/documents" })
   .post(
     "/recategorize",
     async (ctx) => {
-      const { body, set, activeOrganization } = ctx;
-      const orgId = activeOrganization!.id;
+      const { body, set, activeWorkspace } = ctx;
+      const orgId = activeWorkspace!.id;
 
       const docsPath = (await getDocsPathByProjectId(body.projectId)) || "docs/";
       const uncategorized = await getUncategorizedSyncedDocuments(body.projectId);

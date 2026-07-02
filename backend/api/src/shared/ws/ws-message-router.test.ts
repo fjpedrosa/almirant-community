@@ -63,7 +63,7 @@ const state = {
     | null,
   prewarmJob: null as Record<string, unknown> | null,
   updateStatusCalls: [] as Array<{ jobId: string; status: string }>,
-  broadcastCalls: [] as Array<{ organizationId: string; message: Record<string, unknown> }>,
+  broadcastCalls: [] as Array<{ workspaceId: string; message: Record<string, unknown> }>,
 };
 
 const dbMocks = createDatabaseMocks({
@@ -184,8 +184,8 @@ const wsMocks = createWsMock();
 mock.module("./ws-connection-manager", () => ({
   wsConnectionManager: {
     ...wsMocks.wsConnectionManager,
-    broadcastToOrganization: (organizationId: string, message: Record<string, unknown>) => {
-      state.broadcastCalls.push({ organizationId, message });
+    broadcastToWorkspace: (workspaceId: string, message: Record<string, unknown>) => {
+      state.broadcastCalls.push({ workspaceId, message });
     },
   },
 }));

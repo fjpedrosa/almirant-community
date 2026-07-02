@@ -12,7 +12,7 @@ import {
   getDocumentCategories,
   createDocumentCategory,
   getDocumentCategoryByNameAndParent,
-  getOrganizationIdByProjectId,
+  getWorkspaceIdByProjectId,
 } from "@almirant/database";
 import { successResponse, errorResponse } from "../../../shared/services/response";
 import { hashDocumentContent } from "../services/document-hasher";
@@ -75,16 +75,16 @@ export const documentsSyncRoutes = new Elysia({ prefix: "/sync/documents" })
   .get(
     "/categories",
     async ({ query, set }) => {
-      if (!query.organizationId) {
+      if (!query.workspaceId) {
         set.status = 400;
-        return errorResponse("organizationId query parameter is required");
+        return errorResponse("workspaceId query parameter is required");
       }
-      const categories = await getDocumentCategories(query.organizationId);
+      const categories = await getDocumentCategories(query.workspaceId);
       return successResponse(categories);
     },
     {
       query: t.Object({
-        organizationId: t.Optional(t.String()),
+        workspaceId: t.Optional(t.String()),
       }),
     }
   )
@@ -93,14 +93,14 @@ export const documentsSyncRoutes = new Elysia({ prefix: "/sync/documents" })
   .post(
     "/categories",
     async ({ body, set }) => {
-      // Resolve organizationId: accept directly or resolve from projectId
-      let orgId = body.organizationId;
+      // Resolve workspaceId: accept directly or resolve from projectId
+      let orgId = body.workspaceId;
       if (!orgId && body.projectId) {
-        orgId = await getOrganizationIdByProjectId(body.projectId) ?? undefined;
+        orgId = await getWorkspaceIdByProjectId(body.projectId) ?? undefined;
       }
       if (!orgId) {
         set.status = 400;
-        return errorResponse("organizationId or projectId is required");
+        return errorResponse("workspaceId or projectId is required");
       }
 
       if (!body.name || body.name.trim() === "") {
@@ -132,7 +132,7 @@ export const documentsSyncRoutes = new Elysia({ prefix: "/sync/documents" })
     },
     {
       body: t.Object({
-        organizationId: t.Optional(t.String()),
+        workspaceId: t.Optional(t.String()),
         projectId: t.Optional(t.String()),
         name: t.String(),
         color: t.Optional(t.String()),
@@ -151,11 +151,11 @@ export const documentsSyncRoutes = new Elysia({ prefix: "/sync/documents" })
         return errorResponse("S3 storage is not configured");
       }
 
-      // Resolve organizationId from projectId
-      const orgId = await getOrganizationIdByProjectId(body.projectId);
+      // Resolve workspaceId from projectId
+      const orgId = await getWorkspaceIdByProjectId(body.projectId);
       if (!orgId) {
         set.status = 400;
-        return errorResponse("Could not resolve organization for the given projectId");
+        return errorResponse("Could not resolve workspace for the given projectId");
       }
 
       if (body.files.length === 0) {

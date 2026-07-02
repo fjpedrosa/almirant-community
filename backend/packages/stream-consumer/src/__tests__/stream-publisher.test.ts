@@ -12,7 +12,7 @@ const describeWithRedis = REDIS_URL ? describe : describe.skip;
 const makeEvent = (overrides: Partial<AgentOutputEvent> = {}): AgentOutputEvent => ({
   jobId: "job-1",
   sessionId: "session-1",
-  organizationId: "org-1",
+  workspaceId: "org-1",
   threadId: "thread-1",
   timestamp: Date.now(),
   sequenceNumber: 1,
@@ -80,7 +80,7 @@ describeWithRedis("StreamPublisher", () => {
 
     expect(fieldMap.get("jobId")).toBe("job-1");
     expect(fieldMap.get("sessionId")).toBe("session-1");
-    expect(fieldMap.get("organizationId")).toBe("org-1");
+    expect(fieldMap.get("workspaceId")).toBe("org-1");
     expect(fieldMap.get("threadId")).toBe("thread-1");
     expect(fieldMap.get("type")).toBe("step");
     expect(fieldMap.get("description")).toBe("Running analysis");
@@ -161,7 +161,7 @@ describeWithRedis("StreamPublisher", () => {
     // Should have identity + type fields only
     expect(fieldKeys).toContain("jobId");
     expect(fieldKeys).toContain("sessionId");
-    expect(fieldKeys).toContain("organizationId");
+    expect(fieldKeys).toContain("workspaceId");
     expect(fieldKeys).toContain("threadId");
     expect(fieldKeys).toContain("timestamp");
     expect(fieldKeys).toContain("sequenceNumber");

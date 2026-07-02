@@ -162,7 +162,7 @@ describe("mcpOAuthRoutes", () => {
       tokenBody.access_token,
       "test-secret-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
     );
-    expect(payload?.organizationId).toBe("org-test-1");
+    expect(payload?.workspaceId).toBe("org-test-1");
     expect(payload?.userId).toBe("user-test-1");
     expect(payload?.projectId).toBeUndefined();
     expect(payload?.permissions).toEqual(["mcp:read", "mcp:write"]);

@@ -8,7 +8,7 @@ import type { TelegramCallbackContext, TelegramMessageContext, TelegramOutboundM
 import { callbackStore } from "../callback-store";
 import { getFrontendBaseUrl } from "../../telegram-utils";
 import { telegramState } from "../state";
-import { getOrganizationIdForUser } from "../organization-context";
+import { getWorkspaceIdForUser } from "../workspace-context";
 
 type CreateStep =
   | { step: "pick-board"; type: string; title: string; userId: string }
@@ -38,15 +38,15 @@ export async function handleCreateCommand(
     };
   }
 
-  const organizationId = await getOrganizationIdForUser(ctx.userId);
-  if (!organizationId) {
+  const workspaceId = await getWorkspaceIdForUser(ctx.userId);
+  if (!workspaceId) {
     return {
       parseMode: "Markdown",
       text: "No pude resolver tu organización activa para crear items.",
     };
   }
 
-  const boards = await getAllBoards(organizationId);
+  const boards = await getAllBoards(workspaceId);
   const token = callbackStore.put<CreateStep>({
     step: "pick-board",
     type,
@@ -117,11 +117,11 @@ export async function handleCreateColumnCallback(
 
   const board = await getBoardByIdInternal(payload.boardId);
   if (!board) return null;
-  const organizationId = board.organizationId;
-  if (!organizationId) return null;
+  const workspaceId = board.workspaceId;
+  if (!workspaceId) return null;
 
   const created = await createWorkItem(
-    organizationId,
+    workspaceId,
     {
       projectId: null,
       boardId: board.id,

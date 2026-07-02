@@ -18,12 +18,12 @@ import { wsConnectionManager } from "../../../shared/ws/ws-connection-manager";
 const normalizeErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Unexpected error";
 
-const getOrganizationIdFromContext = (ctx: unknown): string => {
-  const activeOrganization = (ctx as { activeOrganization?: { id?: string } }).activeOrganization;
-  if (!activeOrganization?.id) {
-    throw new Error("ACTIVE_ORGANIZATION_NOT_FOUND");
+const getWorkspaceIdFromContext = (ctx: unknown): string => {
+  const activeWorkspace = (ctx as { activeWorkspace?: { id?: string } }).activeWorkspace;
+  if (!activeWorkspace?.id) {
+    throw new Error("ACTIVE_WORKSPACE_NOT_FOUND");
   }
-  return activeOrganization.id;
+  return activeWorkspace.id;
 };
 
 const getUserIdFromContext = (ctx: unknown): string => {
@@ -35,8 +35,8 @@ const getUserIdFromContext = (ctx: unknown): string => {
 };
 
 const mapNotificationErrorToHttp = (errorMessage: string): { status: number; message: string } => {
-  if (errorMessage === "ACTIVE_ORGANIZATION_NOT_FOUND") {
-    return { status: 403, message: "No active organization in session" };
+  if (errorMessage === "ACTIVE_WORKSPACE_NOT_FOUND") {
+    return { status: 403, message: "No active workspace in session" };
   }
   if (errorMessage === "AUTH_REQUIRED") {
     return { status: 401, message: "Authentication required" };
@@ -51,7 +51,7 @@ export const notificationsRoutes = new Elysia({ prefix: "/notifications" })
     async (ctx) => {
       try {
         const { query } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const userId = getUserIdFromContext(ctx);
         const pagination = parsePaginationParams(query);
 
@@ -86,7 +86,7 @@ export const notificationsRoutes = new Elysia({ prefix: "/notifications" })
     "/unread-count",
     async (ctx) => {
       try {
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const userId = getUserIdFromContext(ctx);
         const count = await getUnreadCount(userId, orgId);
         return successResponse({ count });
@@ -129,7 +129,7 @@ export const notificationsRoutes = new Elysia({ prefix: "/notifications" })
     "/read-all",
     async (ctx) => {
       try {
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const userId = getUserIdFromContext(ctx);
         const count = await markAllNotificationsAsRead(userId, orgId);
         wsConnectionManager.sendToUser(userId, {
@@ -149,7 +149,7 @@ export const notificationsRoutes = new Elysia({ prefix: "/notifications" })
     "/preferences",
     async (ctx) => {
       try {
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const userId = getUserIdFromContext(ctx);
         const preferences = await getNotificationPreferences(userId, orgId);
         return successResponse(preferences);
@@ -166,7 +166,7 @@ export const notificationsRoutes = new Elysia({ prefix: "/notifications" })
     async (ctx) => {
       try {
         const { body } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const userId = getUserIdFromContext(ctx);
         const preference = await upsertNotificationPreference(
           userId,

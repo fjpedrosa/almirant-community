@@ -9,7 +9,7 @@ import {
   createWsMock,
   restoreRealModules,
 } from "../../../test/mocks";
-import { testOrganization } from "../../../test/fixtures";
+import { testWorkspace } from "../../../test/fixtures";
 
 const state = {
   s3Downloads: [] as string[],
@@ -23,7 +23,7 @@ const existingJob = {
   planningSessionId: null,
   jobType: "implementation" as const,
   createdByUserId: null,
-  organizationId: testOrganization.id,
+  workspaceId: testWorkspace.id,
   config: {
     workspace: {
       kind: "uploaded_files",
@@ -51,7 +51,7 @@ const attachment = {
 const dbMocks = createDatabaseMocks({
   validateApiKey: async () => ({
     id: "worker-api-key",
-    organizationId: "shared-runner-org",
+    workspaceId: "shared-runner-org",
     allowedIssuedPermissions: ["mcp:read", "mcp:write"],
   }),
   getJobById: async (id: string) => {
@@ -65,8 +65,8 @@ const dbMocks = createDatabaseMocks({
       createdByUser: null,
     };
   },
-  getAttachment: async (organizationId: string, id: string) => {
-    if (organizationId !== testOrganization.id || id !== attachment.id) return null;
+  getAttachment: async (workspaceId: string, id: string) => {
+    if (workspaceId !== testWorkspace.id || id !== attachment.id) return null;
     return attachment;
   },
 });

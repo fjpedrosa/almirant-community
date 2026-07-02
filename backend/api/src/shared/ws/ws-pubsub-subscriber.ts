@@ -4,7 +4,7 @@ import { wsConnectionManager } from "./ws-connection-manager";
 import type { WsServerMessage } from "./ws-types";
 
 type PubSubMessage = {
-  organizationId: string;
+  workspaceId: string;
   message: WsServerMessage;
   originInstanceId?: string;
 };
@@ -32,10 +32,10 @@ export const startWsPubSubSubscriber = (config: {
   redis.on("message", (channel, rawMessage) => {
     try {
       const parsed: PubSubMessage = JSON.parse(rawMessage);
-      if (!parsed.organizationId || !parsed.message) {
+      if (!parsed.workspaceId || !parsed.message) {
         logger.warn(
           { channel },
-          "Invalid WS Pub/Sub message: missing organizationId or message"
+          "Invalid WS Pub/Sub message: missing workspaceId or message"
         );
         return;
       }
@@ -47,8 +47,8 @@ export const startWsPubSubSubscriber = (config: {
         return;
       }
 
-      wsConnectionManager.broadcastLocallyToOrganization(
-        parsed.organizationId,
+      wsConnectionManager.broadcastLocallyToWorkspace(
+        parsed.workspaceId,
         parsed.message
       );
     } catch (err) {

@@ -30,7 +30,7 @@ mock.module("@almirant/config", () => createLoggerMock());
 // --- WebSocket ---
 mock.module("../../shared/ws/ws-connection-manager", () => createWsMock());
 mock.module("../../shared/ws/feedback-events", () => ({
-  resolveFeedbackOrganizationId: () => null,
+  resolveFeedbackWorkspaceId: () => null,
   broadcastFeedbackItemCreated: () => {},
   broadcastFeedbackItemUpdated: () => {},
   broadcastFeedbackItemDeleted: () => {},
@@ -40,18 +40,18 @@ mock.module("../../shared/ws/feedback-events", () => ({
 }));
 
 // --- Setup helpers (used by every tool module via `../setup`) ---
-const _getOrganizationIdFromExtra = (extra: { authInfo?: { extra?: Record<string, unknown> } }) => {
-  const organizationId = extra.authInfo?.extra?.organizationId;
-  return typeof organizationId === "string" ? organizationId : undefined;
+const _getWorkspaceIdFromExtra = (extra: { authInfo?: { extra?: Record<string, unknown> } }) => {
+  const workspaceId = extra.authInfo?.extra?.workspaceId;
+  return typeof workspaceId === "string" ? workspaceId : undefined;
 };
 
 mock.module("../setup", () => ({
-  getOrganizationIdFromExtra: _getOrganizationIdFromExtra,
+  getWorkspaceIdFromExtra: _getWorkspaceIdFromExtra,
   assertOrgScope: (extra: { authInfo?: { extra?: Record<string, unknown> } }) => {
-    const orgId = _getOrganizationIdFromExtra(extra);
+    const orgId = _getWorkspaceIdFromExtra(extra);
     if (!orgId) {
       return {
-        content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+        content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
         isError: true,
       };
     }

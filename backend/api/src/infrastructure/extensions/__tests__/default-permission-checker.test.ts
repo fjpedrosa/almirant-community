@@ -2,10 +2,10 @@ import { describe, it, expect } from "bun:test";
 import { defaultPermissionChecker as checker } from "../default-permission-checker";
 
 describe("DefaultPermissionChecker", () => {
-  const owner = { userId: "u1", organizationId: "o1", role: "owner" };
-  const admin = { userId: "u2", organizationId: "o1", role: "admin" };
-  const member = { userId: "u3", organizationId: "o1", role: "member" };
-  const none = { userId: "u4", organizationId: "o1", role: null };
+  const owner = { userId: "u1", workspaceId: "o1", role: "owner" };
+  const admin = { userId: "u2", workspaceId: "o1", role: "admin" };
+  const member = { userId: "u3", workspaceId: "o1", role: "member" };
+  const none = { userId: "u4", workspaceId: "o1", role: null };
 
   it("grants all actions to owner", () => {
     expect(checker.can(owner, "work-item.delete")).toBe(true);
@@ -22,7 +22,7 @@ describe("DefaultPermissionChecker", () => {
     expect(checker.can(member, "work-item.delete")).toBe(false);
     expect(checker.can(member, "project.transfer")).toBe(false);
     expect(checker.can(member, "project.delete")).toBe(false);
-    expect(checker.can(member, "organization.invite")).toBe(false);
+    expect(checker.can(member, "workspace.invite")).toBe(false);
   });
 
   it("allows non-management actions for members", () => {

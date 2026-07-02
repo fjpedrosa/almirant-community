@@ -20,7 +20,7 @@ type RunOnce = (cfg?: { intervalMs?: number; batchSize?: number }, deps?: Sweepe
 
 const makeAssignmentNotification = (overrides: Record<string, unknown> = {}) => ({
   id: `notif-${Math.random().toString(36).slice(2, 8)}`,
-  organizationId: "org-1",
+  workspaceId: "org-1",
   recipientUserId: "user-1",
   type: "assignment" as const,
   debounceKey: "key-assign-1",
@@ -37,7 +37,7 @@ const makeAssignmentNotification = (overrides: Record<string, unknown> = {}) => 
 
 const makeCommentNotification = (overrides: Record<string, unknown> = {}) => ({
   id: `notif-${Math.random().toString(36).slice(2, 8)}`,
-  organizationId: "org-1",
+  workspaceId: "org-1",
   recipientUserId: "user-1",
   type: "comment" as const,
   debounceKey: "key-comment-1",
@@ -55,7 +55,7 @@ const makeCommentNotification = (overrides: Record<string, unknown> = {}) => ({
 
 const makeStatusChangedNotification = (overrides: Record<string, unknown> = {}) => ({
   id: `notif-${Math.random().toString(36).slice(2, 8)}`,
-  organizationId: "org-1",
+  workspaceId: "org-1",
   recipientUserId: "user-1",
   type: "status_changed" as const,
   debounceKey: "key-status-1",

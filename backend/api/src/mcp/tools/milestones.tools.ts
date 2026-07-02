@@ -10,7 +10,7 @@ import {
   addWorkItemsToMilestone,
   removeWorkItemFromMilestone,
 } from "@almirant/database";
-import { getProjectIdFromExtra, getOrganizationIdFromExtra } from "../setup";
+import { getProjectIdFromExtra, getWorkspaceIdFromExtra } from "../setup";
 
 const MILESTONE_STATUS_SCHEMA = z.enum(["planned", "in_progress", "completed", "on_hold", "cancelled"]);
 const MILESTONE_PRIORITY_SCHEMA = z.enum(["low", "medium", "high", "urgent"]);
@@ -27,10 +27,10 @@ export const registerMilestonesTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
@@ -43,7 +43,7 @@ export const registerMilestonesTools = (server: McpServer) => {
           };
         }
 
-        const milestones = await getMilestonesByProject(organizationId, projectId);
+        const milestones = await getMilestonesByProject(workspaceId, projectId);
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify(milestones, null, 2) }],
@@ -68,15 +68,15 @@ export const registerMilestonesTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
-        const milestone = await getMilestoneById(organizationId, params.milestoneId);
+        const milestone = await getMilestoneById(workspaceId, params.milestoneId);
 
         if (!milestone) {
           return {
@@ -108,16 +108,16 @@ export const registerMilestonesTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
         // Validate milestone exists
-        const milestone = await getMilestoneById(organizationId, params.milestoneId);
+        const milestone = await getMilestoneById(workspaceId, params.milestoneId);
         if (!milestone) {
           return {
             content: [{ type: "text" as const, text: `Error: Milestone with ID '${params.milestoneId}' not found` }],
@@ -155,10 +155,10 @@ export const registerMilestonesTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
@@ -171,7 +171,7 @@ export const registerMilestonesTools = (server: McpServer) => {
           };
         }
 
-        const milestone = await createMilestone(organizationId, {
+        const milestone = await createMilestone(workspaceId, {
           projectId,
           title: params.title,
           description: params.description,
@@ -181,7 +181,7 @@ export const registerMilestonesTools = (server: McpServer) => {
 
         if (!milestone) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not create milestone. The project may not exist or does not belong to the organization." }],
+            content: [{ type: "text" as const, text: "Error: could not create milestone. The project may not exist or does not belong to the workspace." }],
             isError: true,
           };
         }
@@ -226,16 +226,16 @@ export const registerMilestonesTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
         // Validate milestone exists
-        const existing = await getMilestoneById(organizationId, params.milestoneId);
+        const existing = await getMilestoneById(workspaceId, params.milestoneId);
         if (!existing) {
           return {
             content: [{ type: "text" as const, text: `Error: Milestone with ID '${params.milestoneId}' not found` }],
@@ -243,7 +243,7 @@ export const registerMilestonesTools = (server: McpServer) => {
           };
         }
 
-        const updated = await updateMilestone(organizationId, params.milestoneId, {
+        const updated = await updateMilestone(workspaceId, params.milestoneId, {
           title: params.title,
           description: params.description,
           status: params.status,
@@ -281,16 +281,16 @@ export const registerMilestonesTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
         // Validate milestone exists
-        const existing = await getMilestoneById(organizationId, params.milestoneId);
+        const existing = await getMilestoneById(workspaceId, params.milestoneId);
         if (!existing) {
           return {
             content: [{ type: "text" as const, text: `Error: Milestone with ID '${params.milestoneId}' not found` }],
@@ -298,7 +298,7 @@ export const registerMilestonesTools = (server: McpServer) => {
           };
         }
 
-        const deleted = await deleteMilestone(organizationId, params.milestoneId);
+        const deleted = await deleteMilestone(workspaceId, params.milestoneId);
 
         if (!deleted) {
           return {
@@ -331,16 +331,16 @@ export const registerMilestonesTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
         // Validate milestone exists
-        const existing = await getMilestoneById(organizationId, params.milestoneId);
+        const existing = await getMilestoneById(workspaceId, params.milestoneId);
         if (!existing) {
           return {
             content: [{ type: "text" as const, text: `Error: Milestone with ID '${params.milestoneId}' not found` }],
@@ -374,16 +374,16 @@ export const registerMilestonesTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
         // Validate milestone exists
-        const existing = await getMilestoneById(organizationId, params.milestoneId);
+        const existing = await getMilestoneById(workspaceId, params.milestoneId);
         if (!existing) {
           return {
             content: [{ type: "text" as const, text: `Error: Milestone with ID '${params.milestoneId}' not found` }],

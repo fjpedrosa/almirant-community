@@ -21,7 +21,7 @@ export async function handleStatusCommand(
   if (st.activeBoardId) {
     const board = await getBoardByIdInternal(st.activeBoardId);
     if (board) {
-      sprint = await getActiveSprint(board.organizationId, st.activeBoardId);
+      sprint = await getActiveSprint(board.workspaceId, st.activeBoardId);
     }
   }
 

@@ -74,7 +74,7 @@ export type CompletionEvaluationParams = {
   injectedEnvRepoUrl?: string;
   streamPublisher?: StreamPublisher;
   webSessionId?: string;
-  webOrganizationId?: string;
+  webWorkspaceId?: string;
   threadId?: string;
   workerId: string;
   apiBaseUrl?: string;
@@ -174,7 +174,7 @@ export async function evaluateCompletion(
     injectedEnvRepoUrl,
     streamPublisher,
     webSessionId,
-    webOrganizationId,
+    webWorkspaceId,
     threadId,
     workerId,
     apiBaseUrl,
@@ -750,7 +750,7 @@ export async function evaluateCompletion(
         await publishCanonicalEvent(streamPublisher, {
           jobId: job.id,
           sessionId: webSessionId ?? "",
-          organizationId: webOrganizationId ?? "",
+          workspaceId: webWorkspaceId ?? "",
           threadId: threadId ?? "",
           timestamp: Date.now(),
           sequenceNumber: nextSequence(),
@@ -769,7 +769,7 @@ export async function evaluateCompletion(
         await publishCanonicalEvent(streamPublisher, {
           jobId: job.id,
           sessionId: webSessionId ?? "",
-          organizationId: webOrganizationId ?? "",
+          workspaceId: webWorkspaceId ?? "",
           threadId: threadId ?? "",
           timestamp: Date.now(),
           sequenceNumber: nextSequence(),

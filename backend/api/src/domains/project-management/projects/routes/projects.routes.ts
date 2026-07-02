@@ -37,9 +37,9 @@ import {
   getWorkItemStatsByType,
   linkRepoToInstallation,
   extractGithubRepoFullName,
-  getGithubConnectionForOrganization,
+  getGithubConnectionForWorkspace,
   getUnlinkedGithubRepos,
-  getDiscordConnectionByOrganization,
+  getDiscordConnectionByWorkspace,
   getDiscordProjectChannel,
   upsertDiscordProjectChannel,
   getDiscordNotificationPreferences,
@@ -138,15 +138,15 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // ──────────────────────────────────────────────
 
   // GET /projects — List with pagination and filters
-  .get("/", async ({ query, activeOrganization, user }) => {
-    const orgId = activeOrganization!.id;
+  .get("/", async ({ query, activeWorkspace, user }) => {
+    const orgId = activeWorkspace!.id;
     const pagination = parsePaginationParams(query);
 
     const filters = {
       search: query.search || undefined,
       status: (query.status || undefined) as "active" | "archived" | "on_hold" | undefined,
-      organizationId: query.organizationId || undefined,
-      organizationIds: query.organizationIds ? query.organizationIds.split(",") : undefined,
+      workspaceId: query.workspaceId || undefined,
+      workspaceIds: query.workspaceIds ? query.workspaceIds.split(",") : undefined,
       personal: query.personal === "true",
       includeArchived: query.includeArchived === "true",
       userId: user?.id,
@@ -162,16 +162,16 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
       limit: t.Optional(t.String()),
       search: t.Optional(t.String()),
       status: t.Optional(t.String()),
-      organizationId: t.Optional(t.String()),
-      organizationIds: t.Optional(t.String()),
+      workspaceId: t.Optional(t.String()),
+      workspaceIds: t.Optional(t.String()),
       personal: t.Optional(t.String()),
       includeArchived: t.Optional(t.String()),
     }),
   })
 
   // POST /projects — Create project
-  .post("/", async ({ body, set, activeOrganization, user }) => {
-    const orgId = activeOrganization!.id;
+  .post("/", async ({ body, set, activeWorkspace, user }) => {
+    const orgId = activeWorkspace!.id;
 
     if (!body.name || body.name.trim() === "") {
       set.status = 400;
@@ -206,22 +206,22 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
       productionUrl: t.Optional(t.String()),
       stagingUrl: t.Optional(t.String()),
       techStack: t.Optional(t.Array(t.String())),
-      organizationId: t.Optional(t.Nullable(t.String())),
+      workspaceId: t.Optional(t.Nullable(t.String())),
       startDate: t.Optional(t.String()),
       targetDate: t.Optional(t.String()),
     }),
   })
 
   // GET /projects/linked-github-urls — All GitHub repo URLs linked to any project
-  .get("/linked-github-urls", async ({ activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/linked-github-urls", async ({ activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const urls = await getAllGithubRepoUrls(orgId);
     return successResponse(urls);
   })
 
   // GET /projects/:id — Get by ID
-  .get("/:id", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
 
     if (!project) {
@@ -237,13 +237,13 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // PATCH /projects/:id — Update project
-  .patch("/:id", async ({ params, body, set, activeOrganization, user }) => {
-    const orgId = activeOrganization!.id;
+  .patch("/:id", async ({ params, body, set, activeWorkspace, user }) => {
+    const orgId = activeWorkspace!.id;
 
     // Pre-fetch the existing project when we need to compare fields
     const needsExistingProject =
       body.productionUrl !== undefined ||
-      (body.organizationId !== undefined && body.organizationId !== null);
+      (body.workspaceId !== undefined && body.workspaceId !== null);
 
     let oldProductionUrl: string | null = null;
     let existing: Awaited<ReturnType<typeof getProjectById>> | null = null;
@@ -256,12 +256,12 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
     }
 
     // Validate permissions when transferring project to a different workspace
-    const targetOrgId = body.organizationId;
+    const targetOrgId = body.workspaceId;
     if (
       targetOrgId !== undefined &&
       targetOrgId !== null &&
       existing &&
-      targetOrgId !== (existing.organizationId ?? "")
+      targetOrgId !== (existing.workspaceId ?? "")
     ) {
       const membership = await db
         .select({ role: schema.member.role })
@@ -269,7 +269,7 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
         .where(
           and(
             eq(schema.member.userId, user!.id),
-            eq(schema.member.organizationId, targetOrgId)
+            eq(schema.member.workspaceId, targetOrgId)
           )
         )
         .limit(1);
@@ -277,7 +277,7 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
       if (
         membership.length === 0 ||
         !getPermissionChecker().can(
-          { userId: user!.id, organizationId: targetOrgId, role: membership[0]!.role },
+          { userId: user!.id, workspaceId: targetOrgId, role: membership[0]!.role },
           "project.transfer"
         )
       ) {
@@ -288,20 +288,20 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
       }
     }
 
-    // Detect transfer: organizationId is changing to a different org
+    // Detect transfer: workspaceId is changing to a different org
     const isTransfer =
       targetOrgId !== undefined &&
       targetOrgId !== null &&
       existing &&
-      targetOrgId !== (existing.organizationId ?? "");
+      targetOrgId !== (existing.workspaceId ?? "");
 
     if (isTransfer) {
       // Transfer project + child entities (ideaItems, milestones) atomically
       await transferProject(orgId, params.id, targetOrgId!);
     }
 
-    // Apply remaining field updates (including organizationId for the project row itself if not transferred separately)
-    const { organizationId: _orgId, ...updateFields } = body;
+    // Apply remaining field updates (including workspaceId for the project row itself if not transferred separately)
+    const { workspaceId: _orgId, ...updateFields } = body;
     const hasOtherUpdates = Object.values(updateFields).some((v) => v !== undefined);
 
     // Use the effective org for the update query
@@ -356,15 +356,15 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
       stagingUrl: t.Optional(t.Nullable(t.String())),
       screenshotUrl: t.Optional(t.Nullable(t.String())),
       techStack: t.Optional(t.Nullable(t.Array(t.String()))),
-      organizationId: t.Optional(t.Nullable(t.String())),
+      workspaceId: t.Optional(t.Nullable(t.String())),
       startDate: t.Optional(t.Nullable(t.String())),
       targetDate: t.Optional(t.Nullable(t.String())),
     }),
   })
 
   // POST /projects/:id/archive — Archive project (logical delete)
-  .post("/:id/archive", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .post("/:id/archive", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const archived = await archiveProject(orgId, params.id);
 
     if (!archived) {
@@ -380,8 +380,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // DELETE /projects/:id — Delete project
-  .delete("/:id", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .delete("/:id", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const deleted = await deleteProject(orgId, params.id);
 
     if (!deleted) {
@@ -397,8 +397,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // POST /projects/:id/capture-screenshot — Trigger manual screenshot capture
-  .post("/:id/capture-screenshot", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .post("/:id/capture-screenshot", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
 
     if (!project) {
@@ -424,8 +424,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // GET /projects/:id/screenshot — Serve private screenshot from S3
-  .get("/:id/screenshot", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id/screenshot", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
 
     if (!project) {
@@ -515,8 +515,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // ──────────────────────────────────────────────
 
   // GET /projects/:id/roadmap — Hierarchical roadmap with calculated dates
-  .get("/:id/roadmap", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id/roadmap", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
 
     if (!project) {
@@ -538,8 +538,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // ──────────────────────────────────────────────
 
   // GET /projects/:id/stats/by-type — Work item stats grouped by type
-  .get("/:id/stats/by-type", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id/stats/by-type", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
 
     if (!project) {
@@ -562,8 +562,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // ──────────────────────────────────────────────
 
   // GET /projects/:id/detail — Batch: project + boards + docLinks + repositories + notes
-  .get("/:id/detail", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id/detail", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
 
     if (!project) {
@@ -602,8 +602,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // ──────────────────────────────────────────────
 
   // GET /projects/:id/members — List project members
-  .get("/:id/members", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id/members", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
 
     if (!project) {
@@ -620,8 +620,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // POST /projects/:id/members — Add a member to the project
-  .post("/:id/members", async ({ params, body, set, activeOrganization, user }) => {
-    const orgId = activeOrganization!.id;
+  .post("/:id/members", async ({ params, body, set, activeWorkspace, user }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
 
     if (!project) {
@@ -636,7 +636,7 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
     if (
       !callerMembership ||
       !getPermissionChecker().can(
-        { userId: user!.id, organizationId: orgId, role: callerMembership.role },
+        { userId: user!.id, workspaceId: orgId, role: callerMembership.role },
         "project.member.add"
       )
     ) {
@@ -644,13 +644,13 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
       return errorResponse("Only project owners or admins can add members");
     }
 
-    // Validate invited user belongs to the same organization
+    // Validate invited user belongs to the same workspace
     const orgMembership = await db
       .select({ id: schema.member.id })
       .from(schema.member)
       .where(
         and(
-          eq(schema.member.organizationId, orgId),
+          eq(schema.member.workspaceId, orgId),
           eq(schema.member.userId, body.userId)
         )
       )
@@ -658,7 +658,7 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
 
     if (orgMembership.length === 0) {
       set.status = 400;
-      return errorResponse("User does not belong to this organization");
+      return errorResponse("User does not belong to this workspace");
     }
 
     const member = await addProjectMember(params.id, body.userId, body.role || "member");
@@ -675,8 +675,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // DELETE /projects/:id/members/:userId — Remove a member from the project
-  .delete("/:id/members/:userId", async ({ params, set, activeOrganization, user }) => {
-    const orgId = activeOrganization!.id;
+  .delete("/:id/members/:userId", async ({ params, set, activeWorkspace, user }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
 
     if (!project) {
@@ -691,7 +691,7 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
     if (
       !callerMembership ||
       !getPermissionChecker().can(
-        { userId: user!.id, organizationId: orgId, role: callerMembership.role },
+        { userId: user!.id, workspaceId: orgId, role: callerMembership.role },
         "project.member.remove"
       )
     ) {
@@ -725,8 +725,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // ──────────────────────────────────────────────
 
   // GET /projects/:id/doc-links — List doc links
-  .get("/:id/doc-links", async ({ params, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id/doc-links", async ({ params, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const links = await getDocLinks(orgId, params.id);
 
     return successResponse(links);
@@ -737,8 +737,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // POST /projects/:id/doc-links — Create doc link
-  .post("/:id/doc-links", async ({ params, body, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .post("/:id/doc-links", async ({ params, body, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     if (!body.title || body.title.trim() === "") {
       set.status = 400;
       return errorResponse("Title is required");
@@ -771,8 +771,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // PATCH /projects/:id/doc-links/reorder — Reorder doc links
   // NOTE: This route MUST be registered before /:id/doc-links/:linkId
   // to avoid "reorder" being captured as a :linkId param.
-  .patch("/:id/doc-links/reorder", async ({ params, body, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .patch("/:id/doc-links/reorder", async ({ params, body, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     if (!body.linkIds || !Array.isArray(body.linkIds) || body.linkIds.length === 0) {
       set.status = 400;
       return errorResponse("linkIds array is required");
@@ -792,8 +792,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // PATCH /projects/:id/doc-links/:linkId — Update doc link
-  .patch("/:id/doc-links/:linkId", async ({ params, body, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .patch("/:id/doc-links/:linkId", async ({ params, body, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const link = await updateDocLink(orgId, params.linkId, {
       ...body,
       type: body.type as "notion" | "github" | "gdocs" | "confluence" | "figma" | "other" | undefined,
@@ -819,8 +819,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // DELETE /projects/:id/doc-links/:linkId — Delete doc link
-  .delete("/:id/doc-links/:linkId", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .delete("/:id/doc-links/:linkId", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const deleted = await deleteDocLink(orgId, params.linkId);
 
     if (!deleted) {
@@ -841,8 +841,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // ──────────────────────────────────────────────
 
   // GET /projects/:id/repositories — List repositories
-  .get("/:id/repositories", async ({ params, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id/repositories", async ({ params, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const repos = await getRepositories(orgId, params.id);
 
     return successResponse(repos);
@@ -853,7 +853,7 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // POST /projects/:id/repositories — Create repository
-  .post("/:id/repositories", async ({ params, body, set, activeOrganization }) => {
+  .post("/:id/repositories", async ({ params, body, set, activeWorkspace }) => {
     if (!body.name || body.name.trim() === "") {
       set.status = 400;
       return errorResponse("Name is required");
@@ -864,7 +864,7 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
       return errorResponse("URL is required");
     }
 
-    const orgId = activeOrganization!.id;
+    const orgId = activeWorkspace!.id;
     const repo = await createRepository(orgId, params.id, {
       ...body,
       provider: body.provider as "github" | "gitlab" | "bitbucket" | "other" | undefined,
@@ -877,11 +877,11 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
 
     // Auto-link to GitHub installation if this is a GitHub repo
     const effectiveProvider = body.provider || "github";
-    if (effectiveProvider === "github" && activeOrganization) {
+    if (effectiveProvider === "github" && activeWorkspace) {
       const githubRepoFullName = extractGithubRepoFullName(body.url);
       if (githubRepoFullName) {
         try {
-          const connection = await getGithubConnectionForOrganization(activeOrganization.id);
+          const connection = await getGithubConnectionForWorkspace(activeWorkspace.id);
           if (connection) {
             await linkRepoToInstallation({
               installationId: connection.id,
@@ -918,8 +918,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // PATCH /projects/:id/repositories/reorder — Reorder repositories
   // NOTE: This route MUST be registered before /:id/repositories/:repoId
   // to avoid "reorder" being captured as a :repoId param.
-  .patch("/:id/repositories/reorder", async ({ params, body, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .patch("/:id/repositories/reorder", async ({ params, body, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     if (!body.repoIds || !Array.isArray(body.repoIds) || body.repoIds.length === 0) {
       set.status = 400;
       return errorResponse("repoIds array is required");
@@ -941,15 +941,15 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // POST /projects/:id/repositories/repair-links — Repair missing GitHub installation links
   // NOTE: This route MUST be registered before /:id/repositories/:repoId
   // to avoid "repair-links" being captured as a :repoId param.
-  .post("/:id/repositories/repair-links", async ({ params, set, activeOrganization }) => {
-    if (!activeOrganization) {
+  .post("/:id/repositories/repair-links", async ({ params, set, activeWorkspace }) => {
+    if (!activeWorkspace) {
       set.status = 400;
-      return errorResponse("Active organization is required");
+      return errorResponse("Active workspace is required");
     }
 
-    const connection = await getGithubConnectionForOrganization(activeOrganization.id);
+    const connection = await getGithubConnectionForWorkspace(activeWorkspace.id);
     if (!connection) {
-      return successResponse({ repaired: 0, message: "No active GitHub installation found for this organization" });
+      return successResponse({ repaired: 0, message: "No active GitHub installation found for this workspace" });
     }
 
     const unlinkedRepos = await getUnlinkedGithubRepos(params.id);
@@ -989,8 +989,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // PATCH /projects/:id/repositories/:repoId — Update repository
-  .patch("/:id/repositories/:repoId", async ({ params, body, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .patch("/:id/repositories/:repoId", async ({ params, body, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const repo = await updateRepository(orgId, params.repoId, {
       ...body,
       provider: body.provider as "github" | "gitlab" | "bitbucket" | "other" | undefined,
@@ -1017,8 +1017,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // DELETE /projects/:id/repositories/:repoId — Delete repository
-  .delete("/:id/repositories/:repoId", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .delete("/:id/repositories/:repoId", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const deleted = await deleteRepository(orgId, params.repoId);
 
     if (!deleted) {
@@ -1039,8 +1039,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // ──────────────────────────────────────────────
 
   // GET /projects/:id/notes — List notes
-  .get("/:id/notes", async ({ params, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id/notes", async ({ params, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const notes = await getNotes(orgId, params.id);
 
     return successResponse(notes);
@@ -1051,8 +1051,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // POST /projects/:id/notes — Create note
-  .post("/:id/notes", async ({ params, body, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .post("/:id/notes", async ({ params, body, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     if (!body.title || body.title.trim() === "") {
       set.status = 400;
       return errorResponse("Title is required");
@@ -1076,8 +1076,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // PATCH /projects/:id/notes/reorder — Reorder notes
   // NOTE: This route MUST be registered before /:id/notes/:noteId
   // to avoid "reorder" being captured as a :noteId param.
-  .patch("/:id/notes/reorder", async ({ params, body, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .patch("/:id/notes/reorder", async ({ params, body, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     if (!body.noteIds || !Array.isArray(body.noteIds) || body.noteIds.length === 0) {
       set.status = 400;
       return errorResponse("noteIds array is required");
@@ -1097,8 +1097,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // GET /projects/:id/notes/:noteId — Get note by ID
-  .get("/:id/notes/:noteId", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id/notes/:noteId", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const note = await getNoteById(orgId, params.noteId);
 
     if (!note) {
@@ -1115,8 +1115,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // PATCH /projects/:id/notes/:noteId — Update note
-  .patch("/:id/notes/:noteId", async ({ params, body, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .patch("/:id/notes/:noteId", async ({ params, body, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const note = await updateNote(orgId, params.noteId, body);
 
     if (!note) {
@@ -1138,8 +1138,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // DELETE /projects/:id/notes/:noteId — Delete note
-  .delete("/:id/notes/:noteId", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .delete("/:id/notes/:noteId", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const deleted = await deleteNote(orgId, params.noteId);
 
     if (!deleted) {
@@ -1159,9 +1159,9 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // Boards sub-resource
   // ──────────────────────────────────────────────
 
-  // GET /projects/:id/boards — List boards for the project's organization
-  .get("/:id/boards", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  // GET /projects/:id/boards — List boards for the project's workspace
+  .get("/:id/boards", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
 
     if (!project) {
@@ -1179,8 +1179,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // GET /projects/:id/nightly-validation — Get nightly validation config
-  .get("/:id/nightly-validation", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id/nightly-validation", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
@@ -1206,8 +1206,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // PATCH /projects/:id/nightly-validation — Update nightly validation config
-  .patch("/:id/nightly-validation", async ({ params, body, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .patch("/:id/nightly-validation", async ({ params, body, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
@@ -1253,8 +1253,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // ──────────────────────────────────────────────
 
   // GET /projects/:id/ai-config
-  .get("/:id/ai-config", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id/ai-config", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
@@ -1267,8 +1267,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // PATCH /projects/:id/ai-config
-  .patch("/:id/ai-config", async ({ params, body, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .patch("/:id/ai-config", async ({ params, body, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
@@ -1293,8 +1293,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // ──────────────────────────────────────────────
 
   // GET /projects/:id/skill-config — Get skill config
-  .get("/:id/skill-config", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id/skill-config", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
@@ -1309,8 +1309,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // PATCH /projects/:id/skill-config — Update skill config
-  .patch("/:id/skill-config", async ({ params, body, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .patch("/:id/skill-config", async ({ params, body, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
@@ -1338,15 +1338,15 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // Discord Channel sub-resource
 
   // GET /projects/:id/discord-channel — Get the Discord channel override for a project
-  .get("/:id/discord-channel", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id/discord-channel", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
       return notFoundResponse("Project");
     }
 
-    const connection = await getDiscordConnectionByOrganization(orgId);
+    const connection = await getDiscordConnectionByWorkspace(orgId);
     if (!connection) {
       return successResponse({
         projectChannel: null,
@@ -1373,18 +1373,18 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // PATCH /projects/:id/discord-channel — Set/update the Discord channel override
-  .patch("/:id/discord-channel", async ({ params, body, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .patch("/:id/discord-channel", async ({ params, body, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
       return notFoundResponse("Project");
     }
 
-    const connection = await getDiscordConnectionByOrganization(orgId);
+    const connection = await getDiscordConnectionByWorkspace(orgId);
     if (!connection) {
       set.status = 400;
-      return errorResponse("No Discord connection found for this organization", 400);
+      return errorResponse("No Discord connection found for this workspace", 400);
     }
 
     const upserted = await upsertDiscordProjectChannel({
@@ -1413,15 +1413,15 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   // ──────────────────────────────────────────────
 
   // GET /projects/:id/discord-notifications — Get project-level notification prefs
-  .get("/:id/discord-notifications", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id/discord-notifications", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
       return notFoundResponse("Project");
     }
 
-    const connection = await getDiscordConnectionByOrganization(orgId);
+    const connection = await getDiscordConnectionByWorkspace(orgId);
     if (!connection) {
       return successResponse({ preferences: null, orgDefaults: null });
     }
@@ -1464,18 +1464,18 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // PATCH /projects/:id/discord-notifications — Upsert project-level notification prefs
-  .patch("/:id/discord-notifications", async ({ params, body, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .patch("/:id/discord-notifications", async ({ params, body, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
       return notFoundResponse("Project");
     }
 
-    const connection = await getDiscordConnectionByOrganization(orgId);
+    const connection = await getDiscordConnectionByWorkspace(orgId);
     if (!connection) {
       set.status = 400;
-      return errorResponse("No Discord connection found for this organization", 400);
+      return errorResponse("No Discord connection found for this workspace", 400);
     }
 
     const upserted = await upsertDiscordNotificationPreferences({
@@ -1513,18 +1513,18 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // DELETE /projects/:id/discord-notifications — Delete project-level notification override
-  .delete("/:id/discord-notifications", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .delete("/:id/discord-notifications", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
       return notFoundResponse("Project");
     }
 
-    const connection = await getDiscordConnectionByOrganization(orgId);
+    const connection = await getDiscordConnectionByWorkspace(orgId);
     if (!connection) {
       set.status = 400;
-      return errorResponse("No Discord connection found for this organization", 400);
+      return errorResponse("No Discord connection found for this workspace", 400);
     }
 
     const deleted = await deleteDiscordProjectNotificationPreferences(

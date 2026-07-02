@@ -7,7 +7,7 @@ import {
   restoreRealModules,
   withTestOrg,
 } from "../../../../test/mocks";
-import { testOrganization, testUser } from "../../../../test/fixtures";
+import { testWorkspace, testUser } from "../../../../test/fixtures";
 
 // -------------------------------------------------------
 // Fixtures
@@ -15,7 +15,7 @@ import { testOrganization, testUser } from "../../../../test/fixtures";
 
 const testPlanningSession = {
   id: "ps-test-1",
-  organizationId: testOrganization.id,
+  workspaceId: testWorkspace.id,
   projectId: "proj-test-1",
   boardId: "board-test-1",
   title: "Test planning session",

@@ -41,13 +41,13 @@ export async function handleAssignCommand(
   }
 
   const board = await getBoardByIdInternal(item.boardId);
-  const organizationId = board?.organizationId;
-  if (!organizationId) {
+  const workspaceId = board?.workspaceId;
+  if (!workspaceId) {
     return { parseMode: "Markdown", text: "No pude resolver la organización del board." };
   }
 
   const updated = await updateWorkItem(
-    organizationId,
+    workspaceId,
     item.id,
     { assignee: targetUserId },
     { triggeredBy: "system", triggeredByUserId: ctx.userId }

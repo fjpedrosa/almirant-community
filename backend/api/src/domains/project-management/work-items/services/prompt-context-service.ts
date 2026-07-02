@@ -57,7 +57,7 @@ export interface WorkItemContext {
 
 export const gatherWorkItemContext = async (
   workItemId: string,
-  organizationId: string
+  workspaceId: string
 ): Promise<WorkItemContext | null> => {
   const workItem = await getWorkItemById(workItemId);
   if (!workItem) return null;
@@ -66,11 +66,11 @@ export const gatherWorkItemContext = async (
 
   // Gather project and board context in parallel
   const [projectData, boardData, siblingsData] = await Promise.all([
-    workItem.projectId ? getProjectById(organizationId, workItem.projectId) : null,
+    workItem.projectId ? getProjectById(workspaceId, workItem.projectId) : null,
     getBoardByIdInternal(workItem.boardId),
     workItem.parentId
       ? getWorkItems(
-          organizationId,
+          workspaceId,
           { page: 1, limit: 50, offset: 0 },
           { parentId: workItem.parentId }
         ).then((r) => r.items.filter((i) => i.id !== workItemId))

@@ -37,7 +37,7 @@ const flattenEvent = (event: AgentOutputEvent): string[] => {
 
   addField("jobId", event.jobId);
   addField("sessionId", event.sessionId);
-  addField("organizationId", event.organizationId);
+  addField("workspaceId", event.workspaceId);
   addField("threadId", event.threadId);
   addField("timestamp", event.timestamp);
   addField("sequenceNumber", event.sequenceNumber);

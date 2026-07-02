@@ -15,7 +15,7 @@ export interface StoragePort {
 
 export interface AttachmentStoragePort {
   write(
-    organizationId: string,
+    workspaceId: string,
     fileName: string,
     buffer: Uint8Array
   ): Promise<string>;

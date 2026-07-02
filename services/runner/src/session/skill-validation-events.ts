@@ -4,7 +4,7 @@ type SkillValidationCanonicalEventParams = {
   jobId: string;
   threadId?: string;
   webSessionId?: string;
-  webOrganizationId?: string;
+  webWorkspaceId?: string;
   skillName: string;
   nextSequence: () => number;
   now?: () => number;
@@ -14,12 +14,12 @@ export const buildSkillValidationCanonicalEvents = ({
   jobId,
   threadId,
   webSessionId,
-  webOrganizationId,
+  webWorkspaceId,
   skillName,
   nextSequence,
   now = () => Date.now(),
 }: SkillValidationCanonicalEventParams): CanonicalEventEnvelope[] => {
-  if (!webSessionId || !webOrganizationId) return [];
+  if (!webSessionId || !webWorkspaceId) return [];
 
   const timestamp = now();
   const toolCallId = `skill-${skillName}-${timestamp}`;
@@ -30,7 +30,7 @@ export const buildSkillValidationCanonicalEvents = ({
     {
       jobId,
       sessionId: webSessionId,
-      organizationId: webOrganizationId,
+      workspaceId: webWorkspaceId,
       threadId: effectiveThreadId,
       timestamp,
       sequenceNumber: nextSequence(),
@@ -44,7 +44,7 @@ export const buildSkillValidationCanonicalEvents = ({
     {
       jobId,
       sessionId: webSessionId,
-      organizationId: webOrganizationId,
+      workspaceId: webWorkspaceId,
       threadId: effectiveThreadId,
       timestamp: timestamp + 1,
       sequenceNumber: nextSequence(),

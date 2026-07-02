@@ -42,7 +42,7 @@ export interface DebugContext {
    * S3 object key for the feedback screenshot (`feedback-screenshots/<uuid>-<name>`).
    * Added in A-1906 so admins and the original author can view screenshots
    * via `GET /api/feedback-items/:id/screenshot`, independently of the
-   * uploader's active organization.
+   * uploader's active workspace.
    */
   screenshotKey?: string | null;
   consoleErrors: string[];

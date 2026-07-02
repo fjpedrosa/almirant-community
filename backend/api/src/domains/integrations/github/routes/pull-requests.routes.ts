@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { validateApiKey, getGithubInstallationIdByRepoFullName, getRepoIdByGithubFullName, getOrganizationIdByRepoId } from "@almirant/database";
+import { validateApiKey, getGithubInstallationIdByRepoFullName, getRepoIdByGithubFullName, getWorkspaceIdByRepoId } from "@almirant/database";
 import { logger } from "@almirant/config";
 import { sessionAuthMiddleware } from "../../../../shared/middleware/session-auth.middleware";
 import { errorResponse, successResponse } from "../../../../shared/services/response";
@@ -62,7 +62,7 @@ const linkPrToWorkItems = (
   prNumber: number,
 ): void => {
   getRepoIdByGithubFullName(repoFullName)
-    .then((repoId) => (repoId ? getOrganizationIdByRepoId(repoId) : null))
+    .then((repoId) => (repoId ? getWorkspaceIdByRepoId(repoId) : null))
     .then((orgId) => {
       if (!orgId) return;
       return autoLinkPrToWorkItems(orgId, {

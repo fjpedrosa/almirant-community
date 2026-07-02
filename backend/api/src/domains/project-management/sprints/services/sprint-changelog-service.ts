@@ -78,13 +78,13 @@ const getLabels = (locale: string) => {
 // ---------------------------------------------------------------------------
 
 const groupItemsByParent = async (
-  organizationId: string,
+  workspaceId: string,
   completedWorkItemIds: string[],
   locale: string = "es"
 ): Promise<ChangelogGroup[]> => {
   if (completedWorkItemIds.length === 0) return [];
 
-  const workItems = await getWorkItemsByIds(organizationId, completedWorkItemIds);
+  const workItems = await getWorkItemsByIds(workspaceId, completedWorkItemIds);
   const workItemMap = new Map(workItems.map((wi) => [wi.id, wi]));
 
   const groupMap = new Map<string, ChangelogGroup>();
@@ -411,13 +411,13 @@ export const generateSprintChangelog = async (args: {
     const locale = args.locale ?? "es";
 
     const board = await getBoardByIdInternal(args.boardId);
-    const organizationId = board?.organizationId;
-    if (!organizationId) {
+    const workspaceId = board?.workspaceId;
+    if (!workspaceId) {
       logger.warn({ boardId: args.boardId }, "Cannot generate sprint changelog: board not found");
       return null;
     }
 
-    const items = await getSprintWorkItems(organizationId, args.sprintId);
+    const items = await getSprintWorkItems(workspaceId, args.sprintId);
     const completedIds = items
       .filter((i) => i.completedAt !== null)
       .map((i) => i.workItemId);
@@ -427,10 +427,10 @@ export const generateSprintChangelog = async (args: {
       return null;
     }
 
-    const groups = await groupItemsByParent(organizationId, completedIds, locale);
+    const groups = await groupItemsByParent(workspaceId, completedIds, locale);
     if (groups.length === 0) return null;
 
-    const projectId = await getSprintMajorityProjectId(organizationId, args.sprintId);
+    const projectId = await getSprintMajorityProjectId(workspaceId, args.sprintId);
 
     const title = `Changelog - ${args.sprintName}`;
     const content = isAiConfigured()
@@ -444,7 +444,7 @@ export const generateSprintChangelog = async (args: {
     );
 
     if (existing) {
-      await updateDocument(organizationId, existing.id, {
+      await updateDocument(workspaceId, existing.id, {
         title,
         content,
         projectId,
@@ -452,7 +452,7 @@ export const generateSprintChangelog = async (args: {
       return { documentId: existing.id };
     }
 
-    const created = await createDocument(organizationId, { title, content, projectId: projectId ?? undefined });
+    const created = await createDocument(workspaceId, { title, content, projectId: projectId ?? undefined });
     if (!created) return null;
 
     await setSprintDocumentForKind({

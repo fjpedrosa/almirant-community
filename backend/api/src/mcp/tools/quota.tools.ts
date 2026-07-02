@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { checkQuotaAvailable, getCurrentUsage } from "@almirant/database";
 import type { ProviderQuotaDb } from "@almirant/database";
-import { getOrganizationIdFromExtra } from "../setup";
+import { getWorkspaceIdFromExtra } from "../setup";
 
 type AiProviderEnum = ProviderQuotaDb["provider"];
 
@@ -20,12 +20,12 @@ export const registerQuotaTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
-        const availability = await checkQuotaAvailable(organizationId, params.provider as AiProviderEnum);
+        const availability = await checkQuotaAvailable(workspaceId, params.provider as AiProviderEnum);
         return {
           content: [
             {
@@ -64,9 +64,9 @@ export const registerQuotaTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const providers: AiProviderEnum[] = params.provider
@@ -79,7 +79,7 @@ export const registerQuotaTools = (server: McpServer) => {
         }> = [];
 
         for (const p of providers) {
-          const entries = await getCurrentUsage(organizationId, p);
+          const entries = await getCurrentUsage(workspaceId, p);
           allUsage.push({ provider: p, entries });
         }
 

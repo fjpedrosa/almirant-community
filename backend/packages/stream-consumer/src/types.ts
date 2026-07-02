@@ -26,7 +26,7 @@ export type AgentOutputEvent = {
   // Identity
   jobId: string;
   sessionId: string;
-  organizationId: string;
+  workspaceId: string;
   threadId: string;
   timestamp: number;
   sequenceNumber: number;

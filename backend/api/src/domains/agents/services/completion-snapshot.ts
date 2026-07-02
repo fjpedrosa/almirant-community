@@ -5,9 +5,9 @@ type CompletionSnapshotJob = {
 };
 
 type ExpectedWorkItemIdDeps = {
-  getLeafTaskIdsUnder: (organizationId: string, rootWorkItemId: string) => Promise<string[]>;
+  getLeafTaskIdsUnder: (workspaceId: string, rootWorkItemId: string) => Promise<string[]>;
   getDodRemediationExpectedLeafTaskIdsUnder: (
-    organizationId: string,
+    workspaceId: string,
     rootWorkItemId: string,
   ) => Promise<string[]>;
 };
@@ -32,21 +32,21 @@ export const isDodRemediationCompletionJob = (
 export const resolveExpectedWorkItemIdsForCompletion = async (
   input: {
     rootWorkItemId: string | null;
-    organizationId: string | null;
+    workspaceId: string | null;
     job: CompletionSnapshotJob;
   },
   deps: ExpectedWorkItemIdDeps,
 ): Promise<string[]> => {
-  if (!input.rootWorkItemId || !input.organizationId) {
+  if (!input.rootWorkItemId || !input.workspaceId) {
     return [];
   }
 
   if (isDodRemediationCompletionJob(input.job)) {
     return deps.getDodRemediationExpectedLeafTaskIdsUnder(
-      input.organizationId,
+      input.workspaceId,
       input.rootWorkItemId,
     );
   }
 
-  return deps.getLeafTaskIdsUnder(input.organizationId, input.rootWorkItemId);
+  return deps.getLeafTaskIdsUnder(input.workspaceId, input.rootWorkItemId);
 };

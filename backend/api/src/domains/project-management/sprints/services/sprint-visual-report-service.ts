@@ -101,7 +101,7 @@ const resolveGroupForWorkItem = async (
 };
 
 export const buildSprintScreenshotsSection = async (args: {
-  organizationId: string;
+  workspaceId: string;
   sprintId: string;
   completedItems: Array<{ workItemId: string; taskId: string | null; title: string }>;
 }): Promise<SprintReportScreenshotsSection | null> => {
@@ -114,7 +114,7 @@ export const buildSprintScreenshotsSection = async (args: {
   await Promise.all(
     args.completedItems.map(async (item) => {
       const attachments = await getAttachmentsByWorkItem(
-        args.organizationId,
+        args.workspaceId,
         item.workItemId,
       );
       const images = attachments.filter((a) =>
@@ -202,20 +202,20 @@ export const upsertSprintVisualReportDocument = async (args: {
 }): Promise<{ documentId: string } | null> => {
   try {
     const board = await getBoardByIdInternal(args.boardId);
-    const organizationId = board?.organizationId;
-    if (!organizationId) {
+    const workspaceId = board?.workspaceId;
+    if (!workspaceId) {
       logger.warn({ boardId: args.boardId }, "Cannot upsert sprint visual report: board not found");
       return null;
     }
 
     const evidence = await buildSprintScreenshotsSection({
-      organizationId,
+      workspaceId,
       sprintId: args.sprintId,
       completedItems: args.completedItems,
     });
     if (!evidence) return null;
 
-    const projectId = await getSprintMajorityProjectId(organizationId, args.sprintId);
+    const projectId = await getSprintMajorityProjectId(workspaceId, args.sprintId);
 
     const title = `Reporte visual - ${args.sprintName}`;
     const content = renderVisualReportMarkdown({ sprintName: args.sprintName, evidence });
@@ -223,11 +223,11 @@ export const upsertSprintVisualReportDocument = async (args: {
     const existing = await getSprintDocumentRefByKind(args.sprintId, SPRINT_DOCUMENT_KIND_VISUAL_REPORT);
 
     if (existing) {
-      await updateDocument(organizationId, existing.id, { title, content, projectId });
+      await updateDocument(workspaceId, existing.id, { title, content, projectId });
       return { documentId: existing.id };
     }
 
-    const created = await createDocument(organizationId, { title, content, projectId: projectId ?? undefined });
+    const created = await createDocument(workspaceId, { title, content, projectId: projectId ?? undefined });
     if (!created) return null;
 
     await setSprintDocumentForKind({
@@ -262,12 +262,12 @@ export const kickoffSprintVisualReportGeneration = (args: {
   // Fire-and-forget: visual report is best-effort and must not block sprint closing.
   getBoardByIdInternal(args.boardId)
     .then(async (board) => {
-      const organizationId = board?.organizationId;
-      if (!organizationId) {
+      const workspaceId = board?.workspaceId;
+      if (!workspaceId) {
         logger.warn({ boardId: args.boardId }, "Cannot kickoff visual report: board not found");
         return;
       }
-      const items = await getSprintWorkItems(organizationId, args.sprintId);
+      const items = await getSprintWorkItems(workspaceId, args.sprintId);
       return upsertSprintVisualReportDocument({
         sprintId: args.sprintId,
         boardId: args.boardId,

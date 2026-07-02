@@ -26,7 +26,7 @@ export const registerHandbookTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
         const searchOptions = {
           category: params.category,
@@ -35,12 +35,12 @@ export const registerHandbookTools = (server: McpServer) => {
         };
         const queryEmbedding = await generateHandbookEmbeddingsIfConfigured([params.query]);
         const chunks = queryEmbedding?.[0]
-          ? await searchHandbookChunksByEmbedding(organizationId, queryEmbedding[0], searchOptions)
-          : await searchHandbookChunks(organizationId, params.query, searchOptions);
+          ? await searchHandbookChunksByEmbedding(workspaceId, queryEmbedding[0], searchOptions)
+          : await searchHandbookChunks(workspaceId, params.query, searchOptions);
 
         const fallback = chunks.length === 0
           ? await listHandbookEntries(
-              organizationId,
+              workspaceId,
               { page: 1, limit: params.limit, offset: 0 },
               { search: params.query, category: params.category, status: params.status },
             )
@@ -107,9 +107,9 @@ export const registerHandbookTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const proposal = await createHandbookCaptureProposal(organizationId, {
+        const proposal = await createHandbookCaptureProposal(workspaceId, {
           title: params.title,
           slug: params.slug ?? (params.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "handbook-entry"),
           summary: params.summary ?? null,

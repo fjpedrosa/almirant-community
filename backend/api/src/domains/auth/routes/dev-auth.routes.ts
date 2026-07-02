@@ -46,20 +46,20 @@ export const devAuthRoutes = new Elysia({ prefix: "/dev" }).post(
       );
     }
 
-    // Ensure test user belongs to an organization (required by dashboard layout).
+    // Ensure test user belongs to a workspace (required by dashboard layout).
     const [existingMember] = await db
       .select()
       .from(schema.member)
       .where(eq(schema.member.userId, testUser.id))
       .limit(1);
 
-    let orgId: string | null = existingMember?.organizationId ?? null;
+    let orgId: string | null = existingMember?.workspaceId ?? null;
 
     if (!orgId) {
-      // Find any existing organization to join
+      // Find any existing workspace to join
       const [anyOrg] = await db
-        .select({ id: schema.organization.id })
-        .from(schema.organization)
+        .select({ id: schema.workspace.id })
+        .from(schema.workspace)
         .limit(1);
 
       if (anyOrg) {
@@ -68,7 +68,7 @@ export const devAuthRoutes = new Elysia({ prefix: "/dev" }).post(
           .insert(schema.member)
           .values({
             id: crypto.randomUUID(),
-            organizationId: orgId,
+            workspaceId: orgId,
             userId: testUser.id,
             role: "admin",
             createdAt: new Date(),
@@ -87,10 +87,10 @@ export const devAuthRoutes = new Elysia({ prefix: "/dev" }).post(
 
     if (existingSession && new Date(existingSession.expiresAt) > now) {
       // Ensure active org is set
-      if (!existingSession.activeOrganizationId && orgId) {
+      if (!existingSession.activeWorkspaceId && orgId) {
         await db
           .update(schema.session)
-          .set({ activeOrganizationId: orgId })
+          .set({ activeWorkspaceId: orgId })
           .where(eq(schema.session.id, existingSession.id));
       }
       return {
@@ -117,7 +117,7 @@ export const devAuthRoutes = new Elysia({ prefix: "/dev" }).post(
         userId: testUser.id,
         ipAddress: "127.0.0.1",
         userAgent: "playwright-e2e",
-        activeOrganizationId: orgId,
+        activeWorkspaceId: orgId,
       })
       .returning();
 

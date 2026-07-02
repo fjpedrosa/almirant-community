@@ -189,7 +189,7 @@ export const syncProjectGithubData = async (
             branch: item.prHeadBranch ?? (item.currentMetadata.pullRequest as Record<string, unknown>)?.branch ?? "",
           };
           const merged = { ...item.currentMetadata, pullRequest: updatedPr };
-          await updateWorkItem(item.organizationId, item.workItemId, { metadata: merged });
+          await updateWorkItem(item.workspaceId, item.workItemId, { metadata: merged });
           reconciledCount++;
         }
 

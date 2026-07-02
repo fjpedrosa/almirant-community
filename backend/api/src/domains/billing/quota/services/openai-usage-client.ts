@@ -242,14 +242,14 @@ const getCompletionsUsage = async (
     queryParams.page = params.page;
     return makeRequest<OpenAiUsageResponse>(
       apiKey,
-      "/v1/organization/usage/completions",
+      "/v1/workspace/usage/completions",
       queryParams
     );
   }
 
   return fetchAllPages<OpenAiUsageResponse>(
     apiKey,
-    "/v1/organization/usage/completions",
+    "/v1/workspace/usage/completions",
     queryParams
   );
 };
@@ -274,14 +274,14 @@ const getCosts = async (
     queryParams.page = params.page;
     return makeRequest<OpenAiCostResponse>(
       apiKey,
-      "/v1/organization/costs",
+      "/v1/workspace/costs",
       queryParams
     );
   }
 
   return fetchAllPages<OpenAiCostResponse>(
     apiKey,
-    "/v1/organization/costs",
+    "/v1/workspace/costs",
     queryParams
   );
 };

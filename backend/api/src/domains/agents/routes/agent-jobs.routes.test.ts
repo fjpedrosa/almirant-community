@@ -36,11 +36,11 @@ const dbMocks = createDatabaseMocks({
   getJobById: async (id: string) => state.jobDetailsById[id] ?? null,
   findClusterByAgentJobId: async (jobId: string) =>
     state.clusterByJobId.has(jobId) ? state.clusterByJobId.get(jobId) ?? null : null,
-  getScheduledAgentConfigById: async (id: string, organizationId: string) => {
-    if (id !== "cfg-1" || organizationId !== "org-test-1") return null;
+  getScheduledAgentConfigById: async (id: string, workspaceId: string) => {
+    if (id !== "cfg-1" || workspaceId !== "org-test-1") return null;
     return {
       id,
-      organizationId,
+      workspaceId,
       projectId: testWorkItem.projectId,
       name: "Autofix bug tickets",
       prompt: null,
@@ -119,9 +119,9 @@ const makeRequest = (path: string, body: unknown): Request =>
 const withTestOrgRole = (role: string) => (app: Elysia) =>
   app.derive(() => ({
     user: testUser,
-    activeOrganization: {
+    activeWorkspace: {
       id: "org-test-1",
-      name: "Test Organization",
+      name: "Test Workspace",
       slug: "test-org",
     },
     memberRole: role,
@@ -208,7 +208,7 @@ describe("agentJobsRoutes POST /agent-jobs", () => {
       jobType: "validation",
       projectId: testWorkItem.projectId,
       boardId: testWorkItem.boardId,
-      organizationId: "org-test-1",
+      workspaceId: "org-test-1",
       createdByUserId: testUser.id,
       priority: "medium",
       config: {
@@ -245,7 +245,7 @@ describe("agentJobsRoutes POST /agent-jobs", () => {
         boardId: null,
         planningSessionId: null,
         createdByUserId: testUser.id,
-        organizationId: "org-test-1",
+        workspaceId: "org-test-1",
         jobType: "scheduled",
         status: "completed",
         provider: "claude-code",
@@ -340,7 +340,7 @@ describe("agentJobsRoutes POST /agent-jobs", () => {
         boardId: testWorkItem.boardId,
         planningSessionId: "planning-session-1",
         createdByUserId: testUser.id,
-        organizationId: "org-test-1",
+        workspaceId: "org-test-1",
         jobType: "planning",
         status: "waiting_for_input",
         provider: "claude-code",
@@ -417,7 +417,7 @@ describe("agentJobsRoutes POST /agent-jobs", () => {
         boardId: testWorkItem.boardId,
         planningSessionId: null,
         createdByUserId: testUser.id,
-        organizationId: "org-test-1",
+        workspaceId: "org-test-1",
         jobType: "implementation",
         status: "queued",
         provider: "zipu",
@@ -513,7 +513,7 @@ describe("agentJobsRoutes POST /agent-jobs", () => {
 
     expect(res.status).toBe(200);
     expect(state.lastListFilters).toMatchObject({
-      organizationId: "org-test-1",
+      workspaceId: "org-test-1",
       status: "paused",
       projectId: testWorkItem.projectId,
       jobType: "scheduled",
@@ -534,7 +534,7 @@ describe("agentJobsRoutes POST /agent-jobs", () => {
 
     expect(res.status).toBe(200);
     expect(state.lastListFilters).toMatchObject({
-      organizationId: "org-test-1",
+      workspaceId: "org-test-1",
       status: ["queued", "running"],
       projectId: [testWorkItem.projectId, "project-2"],
       jobType: ["implementation", "scheduled"],
@@ -559,7 +559,7 @@ describe("agentJobsRoutes GET /agent-jobs/:id requestedByUser resolution", () =>
         boardId: null,
         planningSessionId: null,
         createdByUserId: "auto-fix-bot",
-        organizationId: "org-test-1",
+        workspaceId: "org-test-1",
         jobType: "bug-fix",
         status: "queued",
         provider: "claude-code",
@@ -711,7 +711,7 @@ describe("agentJobsRoutes GET /agent-jobs/:id cluster resolution", () => {
         boardId: null,
         planningSessionId: null,
         createdByUserId: testUser.id,
-        organizationId: "org-test-1",
+        workspaceId: "org-test-1",
         jobType: "bug-fix",
         status: "completed",
         provider: "claude-code",

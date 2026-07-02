@@ -14,13 +14,13 @@ export const boardViewRoutes = (useCases: SavedViewUseCases) =>
     // GET /boards/:id/views - List saved views for a board
     .get(
       "/:id/views",
-      async ({ user, activeOrganization, params, set }) => {
+      async ({ user, activeWorkspace, params, set }) => {
         if (!user) {
           set.status = 401;
           return errorResponse("Unauthorized", 401);
         }
 
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const views = await useCases.listByBoard(user.id, params.id, orgId);
 
         if (views === null) {
@@ -40,13 +40,13 @@ export const boardViewRoutes = (useCases: SavedViewUseCases) =>
     // POST /boards/:id/views - Create a saved view
     .post(
       "/:id/views",
-      async ({ user, activeOrganization, body, set, params }) => {
+      async ({ user, activeWorkspace, body, set, params }) => {
         if (!user) {
           set.status = 401;
           return errorResponse("Unauthorized", 401);
         }
 
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const result = await useCases.create(user.id, params.id, orgId, {
           name: body.name,
           config: body.config,

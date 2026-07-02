@@ -24,7 +24,7 @@ const makeEvent = (
 ): AgentOutputEvent => ({
   jobId: "test-job",
   sessionId: "test-session",
-  organizationId: "test-org",
+  workspaceId: "test-org",
   threadId: "test-thread",
   timestamp: Date.now(),
   sequenceNumber: 1,
@@ -505,7 +505,7 @@ describeWithRedis("Integration — End-to-End Streaming Fan-out", () => {
         // Identity
         jobId: "rt-job-123",
         sessionId: "rt-session-456",
-        organizationId: "rt-org-789",
+        workspaceId: "rt-org-789",
         threadId: "rt-thread-abc",
         timestamp: 1700000000000,
         sequenceNumber: 42,
@@ -585,7 +585,7 @@ describeWithRedis("Integration — End-to-End Streaming Fan-out", () => {
       // Identity fields
       expect(event.jobId).toBe(fullEvent.jobId);
       expect(event.sessionId).toBe(fullEvent.sessionId);
-      expect(event.organizationId).toBe(fullEvent.organizationId);
+      expect(event.workspaceId).toBe(fullEvent.workspaceId);
       expect(event.threadId).toBe(fullEvent.threadId);
       expect(event.timestamp).toBe(fullEvent.timestamp);
       expect(event.sequenceNumber).toBe(fullEvent.sequenceNumber);

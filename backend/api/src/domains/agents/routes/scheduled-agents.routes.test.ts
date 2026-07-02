@@ -18,7 +18,7 @@ const state = {
 
 const scheduledConfig = {
   id: "cfg-scheduled-1",
-  organizationId: "org-test-1",
+  workspaceId: "org-test-1",
   projectId: testProject.id,
   name: "Autofix feedback bugs",
   prompt: "Resuelve un ticket de feedback bug",
@@ -47,7 +47,7 @@ const dbMocks = createDatabaseMocks({
     state.createdConfigInput = input;
     return {
       id: input.id ?? "cfg-manual-1",
-      organizationId: "org-test-1",
+      workspaceId: "org-test-1",
       projectId: testProject.id,
       projectName: testProject.name,
       name: input.name,
@@ -74,13 +74,13 @@ const dbMocks = createDatabaseMocks({
       updatedAt: new Date("2026-04-15T12:00:00.000Z").toISOString(),
     };
   },
-  getScheduledAgentConfigById: async (id: string, organizationId: string) =>
-    id === scheduledConfig.id && organizationId === scheduledConfig.organizationId
+  getScheduledAgentConfigById: async (id: string, workspaceId: string) =>
+    id === scheduledConfig.id && workspaceId === scheduledConfig.workspaceId
       ? (state.scheduledConfigOverride ?? scheduledConfig)
       : undefined,
   updateScheduledAgentConfig: async (
     _id: string,
-    _organizationId: string,
+    _workspaceId: string,
     input: Record<string, unknown>,
   ) => {
     state.updatedConfigInput = input;
@@ -110,7 +110,7 @@ mock.module("@almirant/database", () => dbMocks);
 mock.module("../../../shared/services/response", () => createResponseMocks());
 mock.module("../../../shared/ws/ws-connection-manager", () => ({
   wsConnectionManager: {
-    broadcastToOrganization: (orgId: string, message: Record<string, unknown>) => {
+    broadcastToWorkspace: (orgId: string, message: Record<string, unknown>) => {
       state.broadcasts.push({ orgId, message });
     },
     sendToUser: () => {},
@@ -194,7 +194,7 @@ describe("scheduledAgentsRoutes POST /scheduled-agents", () => {
 
     expect(response.status).toBe(201);
     expect(state.createdConfigInput).toMatchObject({
-      organizationId: "org-test-1",
+      workspaceId: "org-test-1",
       name: "Agente en borrador",
       projectId: testProject.id,
       scheduleType: "manual",
@@ -475,7 +475,7 @@ describe("scheduledAgentsRoutes POST /scheduled-agents/:id/trigger", () => {
 
     expect(response.status).toBe(200);
     expect(state.createdJobInput).toMatchObject({
-      organizationId: scheduledConfig.organizationId,
+      workspaceId: scheduledConfig.workspaceId,
       projectId: scheduledConfig.projectId,
       createdByUserId: testUser.id,
       jobType: "scheduled",
@@ -488,7 +488,7 @@ describe("scheduledAgentsRoutes POST /scheduled-agents/:id/trigger", () => {
     });
     expect(state.broadcasts).toEqual([
       {
-        orgId: scheduledConfig.organizationId,
+        orgId: scheduledConfig.workspaceId,
         message: {
           type: "agent-job:status-changed",
           payload: {

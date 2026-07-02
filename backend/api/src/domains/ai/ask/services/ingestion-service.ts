@@ -72,7 +72,7 @@ export const ingestWorkItems = async (
   for (const item of items) {
     try {
       const doc: NewAskDocument = {
-        organizationId: orgId,
+        workspaceId: orgId,
         projectId,
         sourceType: "work_item",
         sourceId: item.id,
@@ -124,7 +124,7 @@ export const ingestDocuments = async (
   for (const doc of docs) {
     try {
       const askDoc: NewAskDocument = {
-        organizationId: orgId,
+        workspaceId: orgId,
         projectId,
         sourceType: "document",
         sourceId: doc.id,
@@ -187,7 +187,7 @@ export const ingestEvents = async (
       if (event.newValue) contentParts.push(`To: ${event.newValue}`);
 
       const askDoc: NewAskDocument = {
-        organizationId: orgId,
+        workspaceId: orgId,
         projectId,
         sourceType: "event",
         sourceId: event.eventId,

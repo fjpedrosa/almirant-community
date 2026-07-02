@@ -16,27 +16,27 @@ type InteractionTimeoutConfig = {
   intervalMs?: number;
 };
 
-/** Resolve organizationId from a workItemId via the work item's project. */
+/** Resolve workspaceId from a workItemId via the work item's project. */
 const resolveOrgIdFromWorkItem = async (workItemId: string | null): Promise<string | null> => {
   if (!workItemId) return null;
   const [row] = await db
-    .select({ organizationId: projects.organizationId })
+    .select({ workspaceId: projects.workspaceId })
     .from(workItems)
     .innerJoin(projects, eq(workItems.projectId, projects.id))
     .where(eq(workItems.id, workItemId))
     .limit(1);
-  return row?.organizationId ?? null;
+  return row?.workspaceId ?? null;
 };
 
 const broadcastStatusChanged = async (args: {
   jobId: string;
   status: string;
   workItemId: string | null;
-  organizationId?: string | null;
+  workspaceId?: string | null;
 }) => {
-  const orgId = args.organizationId ?? await resolveOrgIdFromWorkItem(args.workItemId);
+  const orgId = args.workspaceId ?? await resolveOrgIdFromWorkItem(args.workItemId);
   if (!orgId) return;
-  wsConnectionManager.broadcastToOrganization(orgId, {
+  wsConnectionManager.broadcastToWorkspace(orgId, {
     type: "agent-job:status-changed",
     payload: {
       jobId: args.jobId,
@@ -54,10 +54,10 @@ const handleExpiredInteraction = async (interaction: ExpiredInteraction): Promis
   if (!job) return;
 
   const orgId =
-    job.job.organizationId ??
+    job.job.workspaceId ??
     await resolveOrgIdFromWorkItem(interaction.workItemId ?? job.job.workItemId ?? null);
   if (orgId) {
-    wsConnectionManager.broadcastToOrganization(orgId, {
+    wsConnectionManager.broadcastToWorkspace(orgId, {
       type: "worker-interaction:expired",
       payload: {
         interactionId: interaction.id,
@@ -106,7 +106,7 @@ const handleExpiredInteraction = async (interaction: ExpiredInteraction): Promis
           jobId: updated.id,
           status: updated.status,
           workItemId: updated.workItemId ?? null,
-          organizationId: orgId,
+          workspaceId: orgId,
         });
         logger.warn(
           { jobId, interactionId: interaction.id },
@@ -132,7 +132,7 @@ const handleExpiredInteraction = async (interaction: ExpiredInteraction): Promis
           jobId: updated.id,
           status: updated.status,
           workItemId: updated.workItemId ?? null,
-          organizationId: orgId,
+          workspaceId: orgId,
         });
         logger.info(
           { jobId, interactionId: interaction.id, defaultAnswer: interaction.defaultAnswer },
@@ -158,7 +158,7 @@ const handleExpiredInteraction = async (interaction: ExpiredInteraction): Promis
           jobId: updated.id,
           status: updated.status,
           workItemId: updated.workItemId ?? null,
-          organizationId: orgId,
+          workspaceId: orgId,
         });
         logger.info(
           { jobId, interactionId: interaction.id },
@@ -186,7 +186,7 @@ const handleExpiredInteraction = async (interaction: ExpiredInteraction): Promis
           jobId: updated.id,
           status: updated.status,
           workItemId: updated.workItemId ?? null,
-          organizationId: orgId,
+          workspaceId: orgId,
         });
         logger.info(
           { jobId, interactionId: interaction.id },
@@ -211,7 +211,7 @@ const handleExpiredInteraction = async (interaction: ExpiredInteraction): Promis
           jobId: updated.id,
           status: updated.status,
           workItemId: updated.workItemId ?? null,
-          organizationId: orgId,
+          workspaceId: orgId,
         });
       }
     }

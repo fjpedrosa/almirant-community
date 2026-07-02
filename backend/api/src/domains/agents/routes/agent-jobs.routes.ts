@@ -65,7 +65,7 @@ const broadcastStatusChanged = (orgId: string, args: {
   workItemId: string | null;
   planningSessionId?: string | null;
 }) => {
-  wsConnectionManager.broadcastToOrganization(orgId, {
+  wsConnectionManager.broadcastToWorkspace(orgId, {
     type: "agent-job:status-changed",
     payload: {
       jobId: args.jobId,
@@ -76,8 +76,8 @@ const broadcastStatusChanged = (orgId: string, args: {
   });
 };
 
-const getOrgIdFromContext = (ctx: { activeOrganization?: { id: string } }): string | null => {
-  return ctx.activeOrganization?.id ?? null;
+const getOrgIdFromContext = (ctx: { activeWorkspace?: { id: string } }): string | null => {
+  return ctx.activeWorkspace?.id ?? null;
 };
 
 const hasWorkspaceWideProjectAccess = (ctx: { memberRole?: string | null }): boolean => {
@@ -112,7 +112,7 @@ const hydrateScheduledConfigNames = async <
   T extends { config?: AgentJobConfig | null }
 >(
   jobs: T[],
-  organizationId: string
+  workspaceId: string
 ): Promise<T[]> => {
   const scheduledConfigIds = [
     ...new Set(
@@ -133,7 +133,7 @@ const hydrateScheduledConfigNames = async <
     scheduledConfigIds.map(async (scheduledConfigId) => {
       const config = await getScheduledAgentConfigById(
         scheduledConfigId,
-        organizationId
+        workspaceId
       );
       const configName = getTrimmedString(config?.name);
       if (configName) {
@@ -196,15 +196,15 @@ const resolveResourceProfileLimit = (value: string | number | undefined): number
 };
 
 const loadSubagentMemoryProfiles = async (
-  organizationId: string,
+  workspaceId: string,
   options: { range?: string; limit?: number } = {},
 ): Promise<SubagentMemoryProfile[]> => {
   const { sampleEvery, from, now } = resolveResourceProfileRange(options.range);
   const limit = resolveResourceProfileLimit(options.limit);
 
   const [{ jobs }, allMetrics] = await Promise.all([
-    listAgentJobs({ limit, offset: 0 }, { organizationId }),
-    getAllWorkersMetricsHistory(from, now, sampleEvery, organizationId),
+    listAgentJobs({ limit, offset: 0 }, { workspaceId }),
+    getAllWorkersMetricsHistory(from, now, sampleEvery, workspaceId),
   ]);
 
   const timelines = await Promise.all(
@@ -303,11 +303,11 @@ const agentWorkspaceSchema = t.Union([
 ]);
 
 const buildRequiredImplementationResourceEstimate = async (
-  organizationId: string,
+  workspaceId: string,
   workItemId: string,
   profiles?: SubagentMemoryProfile[],
 ): Promise<NonNullable<AgentJobConfig["resourceEstimate"]>> => {
-  const forecast = await buildWorkItemResourceForecast(organizationId, workItemId, {
+  const forecast = await buildWorkItemResourceForecast(workspaceId, workItemId, {
     ...(profiles ? { profiles } : {}),
     persist: true,
   });
@@ -325,7 +325,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
     "/",
     async (ctx) => {
       const { body, set } = ctx;
-      const orgId = getOrgIdFromContext(ctx as { activeOrganization?: { id: string } });
+      const orgId = getOrgIdFromContext(ctx as { activeWorkspace?: { id: string } });
       const userId = (ctx as { user?: { id?: string } }).user?.id ?? null;
       if (!orgId) {
         set.status = 401;
@@ -484,7 +484,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         workItemId,
         planningSessionId: body.planningSessionId ?? null,
         createdByUserId: userId,
-        organizationId: orgId,
+        workspaceId: orgId,
         jobType,
         provider: body.provider,
         priority: body.priority ?? "medium",
@@ -506,7 +506,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
       // gap where the user sees a session in /sessions but no card animation.
       if (job.workItemId) {
         await setWorkItemAiProcessing(orgId, job.workItemId, true);
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "work-item:updated",
           payload: {
             workItemId: job.workItemId,
@@ -571,7 +571,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
     "/batch",
     async (ctx) => {
       const { body, set } = ctx;
-      const orgId = getOrgIdFromContext(ctx as { activeOrganization?: { id: string } });
+      const orgId = getOrgIdFromContext(ctx as { activeWorkspace?: { id: string } });
       const userId = (ctx as { user?: { id?: string } }).user?.id ?? null;
       if (!orgId) {
         set.status = 401;
@@ -797,7 +797,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
             boardId: r.boardId,
             workItemId: r.id,
             createdByUserId: userId,
-            organizationId: orgId,
+            workspaceId: orgId,
             provider: body.provider,
             priority: body.priority ?? "medium",
             config: {
@@ -870,7 +870,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
     "/",
     async (ctx) => {
       const { query, set } = ctx;
-      const orgId = getOrgIdFromContext(ctx as { activeOrganization?: { id: string } });
+      const orgId = getOrgIdFromContext(ctx as { activeWorkspace?: { id: string } });
       if (!orgId) {
         set.status = 401;
         return errorResponse("Unauthorized");
@@ -887,7 +887,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
           ? await getAccessibleProjectIds(userId, orgId)
           : undefined;
       const filters = {
-        organizationId: orgId,
+        workspaceId: orgId,
         status: parseCsvFilterParam<AgentJobStatus>(query.status),
         projectId: parseCsvFilterParam(query.projectId),
         boardId: query.boardId || undefined,
@@ -966,7 +966,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
     "/resource-profiles",
     async (ctx) => {
       const { query, set } = ctx;
-      const orgId = getOrgIdFromContext(ctx as { activeOrganization?: { id: string } });
+      const orgId = getOrgIdFromContext(ctx as { activeWorkspace?: { id: string } });
       if (!orgId) {
         set.status = 401;
         return errorResponse("Unauthorized");
@@ -1000,12 +1000,12 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         return notFoundResponse("Agent job");
       }
 
-      const orgId = getOrgIdFromContext(ctx as { activeOrganization?: { id: string } });
+      const orgId = getOrgIdFromContext(ctx as { activeWorkspace?: { id: string } });
       if (!orgId) {
         set.status = 401;
         return errorResponse("Unauthorized");
       }
-      if (!job.job.organizationId || job.job.organizationId !== orgId) {
+      if (!job.job.workspaceId || job.job.workspaceId !== orgId) {
         set.status = 404;
         return notFoundResponse("Agent job");
       }
@@ -1075,12 +1075,12 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         return notFoundResponse("Agent job");
       }
 
-      const orgId = getOrgIdFromContext(ctx as { activeOrganization?: { id: string } });
+      const orgId = getOrgIdFromContext(ctx as { activeWorkspace?: { id: string } });
       if (!orgId) {
         set.status = 401;
         return errorResponse("Unauthorized");
       }
-      if (!job.job.organizationId || job.job.organizationId !== orgId) {
+      if (!job.job.workspaceId || job.job.workspaceId !== orgId) {
         set.status = 404;
         return notFoundResponse("Agent job");
       }
@@ -1143,12 +1143,12 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         return notFoundResponse("Agent job");
       }
 
-      const orgId = getOrgIdFromContext(ctx as { activeOrganization?: { id: string } });
+      const orgId = getOrgIdFromContext(ctx as { activeWorkspace?: { id: string } });
       if (!orgId) {
         set.status = 401;
         return errorResponse("Unauthorized");
       }
-      if (!job.job.organizationId || job.job.organizationId !== orgId) {
+      if (!job.job.workspaceId || job.job.workspaceId !== orgId) {
         set.status = 404;
         return notFoundResponse("Agent job");
       }
@@ -1231,12 +1231,12 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         return notFoundResponse("Agent job");
       }
 
-      const orgId = getOrgIdFromContext(ctx as { activeOrganization?: { id: string } });
+      const orgId = getOrgIdFromContext(ctx as { activeWorkspace?: { id: string } });
       if (!orgId) {
         set.status = 401;
         return errorResponse("Unauthorized");
       }
-      if (!job.job.organizationId || job.job.organizationId !== orgId) {
+      if (!job.job.workspaceId || job.job.workspaceId !== orgId) {
         set.status = 404;
         return notFoundResponse("Agent job");
       }
@@ -1278,12 +1278,12 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         return notFoundResponse("Agent job");
       }
 
-      const orgId = getOrgIdFromContext(ctx as { activeOrganization?: { id: string } });
+      const orgId = getOrgIdFromContext(ctx as { activeWorkspace?: { id: string } });
       if (!orgId) {
         set.status = 401;
         return errorResponse("Unauthorized");
       }
-      if (!job.job.organizationId || job.job.organizationId !== orgId) {
+      if (!job.job.workspaceId || job.job.workspaceId !== orgId) {
         set.status = 404;
         return notFoundResponse("Agent job");
       }
@@ -1345,7 +1345,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
     "/:id/cancel",
     async (ctx) => {
       const { params, set } = ctx;
-      const orgId = getOrgIdFromContext(ctx as { activeOrganization?: { id: string } });
+      const orgId = getOrgIdFromContext(ctx as { activeWorkspace?: { id: string } });
       if (!orgId) {
         set.status = 401;
         return errorResponse("Unauthorized");
@@ -1355,7 +1355,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         set.status = 404;
         return notFoundResponse("Agent job");
       }
-      if (!existing.job.organizationId || existing.job.organizationId !== orgId) {
+      if (!existing.job.workspaceId || existing.job.workspaceId !== orgId) {
         set.status = 404;
         return notFoundResponse("Agent job");
       }
@@ -1372,7 +1372,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
       if (updated.workItemId) {
         try {
           await clearWorkItemAiState(updated.workItemId);
-          wsConnectionManager.broadcastToOrganization(orgId, {
+          wsConnectionManager.broadcastToWorkspace(orgId, {
             type: "work-item:updated",
             payload: {
               workItemId: updated.workItemId,
@@ -1398,7 +1398,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
     "/reset-stuck",
     async (ctx) => {
       const { set } = ctx;
-      const orgId = getOrgIdFromContext(ctx as { activeOrganization?: { id: string } });
+      const orgId = getOrgIdFromContext(ctx as { activeWorkspace?: { id: string } });
       if (!orgId) {
         set.status = 401;
         return errorResponse("Unauthorized");
@@ -1414,7 +1414,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         const cleared = await clearWorkItemAiState(item.id);
         if (cleared) {
           resetIds.push(item.id);
-          wsConnectionManager.broadcastToOrganization(orgId, {
+          wsConnectionManager.broadcastToWorkspace(orgId, {
             type: "work-item:updated",
             payload: {
               workItemId: item.id,
@@ -1439,12 +1439,12 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         return notFoundResponse("Agent job");
       }
 
-      const orgId = getOrgIdFromContext(ctx as { activeOrganization?: { id: string } });
+      const orgId = getOrgIdFromContext(ctx as { activeWorkspace?: { id: string } });
       if (!orgId) {
         set.status = 401;
         return errorResponse("Unauthorized");
       }
-      if (!job.job.organizationId || job.job.organizationId !== orgId) {
+      if (!job.job.workspaceId || job.job.workspaceId !== orgId) {
         set.status = 404;
         return notFoundResponse("Agent job");
       }
@@ -1465,7 +1465,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
     async (ctx) => {
       const { params, body, set } = ctx;
       const user = (ctx as { user?: { id?: string } }).user;
-      const orgId = getOrgIdFromContext(ctx as { activeOrganization?: { id: string } });
+      const orgId = getOrgIdFromContext(ctx as { activeWorkspace?: { id: string } });
       if (!orgId) {
         set.status = 401;
         return errorResponse("Unauthorized");
@@ -1490,7 +1490,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
       }
 
       if (job.job.planningSessionId) {
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "planning:answer-received",
           payload: {
             sessionId: job.job.planningSessionId,
@@ -1524,7 +1524,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
       }
 
       // Notify connected clients
-      wsConnectionManager.broadcastToOrganization(orgId, {
+      wsConnectionManager.broadcastToWorkspace(orgId, {
         type: "worker-interaction:responded",
         payload: {
           interactionId: updated.id,
@@ -1552,7 +1552,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
     "/:id/retry",
     async (ctx) => {
       const { params, set } = ctx;
-      const orgId = getOrgIdFromContext(ctx as { activeOrganization?: { id: string } });
+      const orgId = getOrgIdFromContext(ctx as { activeWorkspace?: { id: string } });
       if (!orgId) {
         set.status = 401;
         return errorResponse("Unauthorized");
@@ -1563,7 +1563,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         return notFoundResponse("Agent job");
       }
 
-      if (!existing.job.organizationId || existing.job.organizationId !== orgId) {
+      if (!existing.job.workspaceId || existing.job.workspaceId !== orgId) {
         set.status = 404;
         return notFoundResponse("Agent job");
       }
@@ -1649,7 +1649,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         workItemId: existing.job.workItemId ?? null,
         planningSessionId: existing.job.planningSessionId ?? null,
         createdByUserId: existing.job.createdByUserId ?? null,
-        organizationId: existing.job.organizationId ?? orgId,
+        workspaceId: existing.job.workspaceId ?? orgId,
         jobType: existing.job.jobType ?? "implementation",
         provider: existing.job.provider,
         priority: existing.job.priority,

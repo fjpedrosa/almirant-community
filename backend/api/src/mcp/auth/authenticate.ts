@@ -1,4 +1,4 @@
-import { validateApiKey, resolveProjectOrganization } from "@almirant/database";
+import { validateApiKey, resolveProjectWorkspace } from "@almirant/database";
 import { env } from "@almirant/config";
 import { verifySessionToken, SESSION_TOKEN_PREFIX, VALID_SESSION_TOKEN_PERMISSIONS } from "../../shared/services/session-token";
 
@@ -126,7 +126,7 @@ export const createMcpAuthenticator = (config: McpAuthenticatorConfig) =>
             clientId: `session:${sessionPayload.sessionType}`,
             scopes: [],
             extra: {
-              organizationId: sessionPayload.organizationId,
+              workspaceId: sessionPayload.workspaceId,
               sessionType: sessionPayload.sessionType,
               permissions: sessionPayload.permissions,
               ...(sessionPayload.projectId ? { projectId: sessionPayload.projectId } : {}),
@@ -157,12 +157,12 @@ export const createMcpAuthenticator = (config: McpAuthenticatorConfig) =>
     const projectId = url.searchParams.get("projectId");
     const jobId = url.searchParams.get("jobId");
 
-    // Resolve organizationId: prefer the project's org when projectId is provided.
-    // This lets a single API key operate across organizations the user belongs to.
-    let organizationId = apiKey.organizationId;
+    // Resolve workspaceId: prefer the project's org when projectId is provided.
+    // This lets a single API key operate across workspaces the user belongs to.
+    let workspaceId = apiKey.workspaceId;
     if (projectId && apiKey.userId) {
-      const projectOrgId = await resolveProjectOrganization(projectId, apiKey.userId);
-      if (projectOrgId) organizationId = projectOrgId;
+      const projectOrgId = await resolveProjectWorkspace(projectId, apiKey.userId);
+      if (projectOrgId) workspaceId = projectOrgId;
     }
 
     // Resolve permissions from API key row, with safe fallback
@@ -196,7 +196,7 @@ export const createMcpAuthenticator = (config: McpAuthenticatorConfig) =>
         extra: {
           apiKeyId: apiKey.id,
           apiKeyName: apiKey.name,
-          organizationId,
+          workspaceId,
           permissions,
           ...(projectId ? { projectId } : {}),
           ...(jobId ? { jobId } : {}),

@@ -21,7 +21,7 @@ import {
   getChildCountsByParentIds,
 } from "@almirant/database";
 import { wsConnectionManager } from "../../shared/ws/ws-connection-manager";
-import { getManagedByAgentFromExtra, getOrganizationIdFromExtra, getProjectIdFromExtra } from "../setup";
+import { getManagedByAgentFromExtra, getWorkspaceIdFromExtra, getProjectIdFromExtra } from "../setup";
 import { propagateProviderToParent } from "../../domains/connections/services/propagate-provider";
 
 type ManagedByAgent = "claude-code" | "codex";
@@ -157,7 +157,7 @@ const mergeManagedByMetadata = (
 type ResolvedLeafTask = Awaited<ReturnType<typeof getWorkItemById>> & { resolvedFrom: string[] };
 
 const resolveToLeafTasks = async (
-  organizationId: string,
+  workspaceId: string,
   item: NonNullable<Awaited<ReturnType<typeof getWorkItemById>>>,
   resolvedFrom: string,
   maxDepth: number,
@@ -168,7 +168,7 @@ const resolveToLeafTasks = async (
   if (depth > maxDepth || seen.has(item.id)) return;
   seen.add(item.id);
 
-  const children = await getWorkItemHierarchy(organizationId, item.id);
+  const children = await getWorkItemHierarchy(workspaceId, item.id);
 
   if (item.type === "task" && children.length === 0) {
     const existing = resolvedMap.get(item.id);
@@ -183,9 +183,9 @@ const resolveToLeafTasks = async (
   }
 
   for (const child of children) {
-    const hydrated = await getWorkItemById(child.id, organizationId);
+    const hydrated = await getWorkItemById(child.id, workspaceId);
     if (hydrated) {
-      await resolveToLeafTasks(organizationId, hydrated, resolvedFrom, maxDepth, seen, resolvedMap, depth + 1);
+      await resolveToLeafTasks(workspaceId, hydrated, resolvedFrom, maxDepth, seen, resolvedMap, depth + 1);
     }
   }
 };
@@ -201,9 +201,9 @@ export const registerSkillContextTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const includeLeafTasks = params.includeLeafTasks ?? true;
@@ -215,8 +215,8 @@ export const registerSkillContextTools = (server: McpServer) => {
         const taskIds = uniqueIds.filter((id) => !UUID_REGEX.test(id));
 
         const [byUuid, byTaskId] = await Promise.all([
-          getWorkItemsByIds(organizationId, uuidIds),
-          getWorkItemsByTaskIds(organizationId, taskIds),
+          getWorkItemsByIds(workspaceId, uuidIds),
+          getWorkItemsByTaskIds(workspaceId, taskIds),
         ]);
 
         const foundMap = new Map<string, NonNullable<Awaited<ReturnType<typeof getWorkItemById>>>>();
@@ -267,7 +267,7 @@ export const registerSkillContextTools = (server: McpServer) => {
           }
           if (!baseItem) continue;
 
-          await resolveToLeafTasks(organizationId, baseItem, inputId, maxDepth, new Set<string>(), resolvedMap);
+          await resolveToLeafTasks(workspaceId, baseItem, inputId, maxDepth, new Set<string>(), resolvedMap);
         }
 
         return {
@@ -308,9 +308,9 @@ export const registerSkillContextTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
@@ -321,7 +321,7 @@ export const registerSkillContextTools = (server: McpServer) => {
           };
         }
 
-        const boards = await getAllBoards(organizationId);
+        const boards = await getAllBoards(workspaceId);
         const result = boards.map((board) => ({
           id: board.id,
           name: board.name,
@@ -358,16 +358,16 @@ export const registerSkillContextTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const managedByFromClient = getManagedByAgentFromExtra(extra);
         const managedByFromProvider = getManagedByFromAiProvider(params.aiProvider);
         const managedBy = managedByFromProvider ?? managedByFromClient;
 
-        const moved = await bulkMoveWorkItems(organizationId, params.workItemIds, params.boardColumnId);
+        const moved = await bulkMoveWorkItems(workspaceId, params.workItemIds, params.boardColumnId);
         if (!moved) {
           return {
             content: [{ type: "text" as const, text: "Error: no work items moved" }],
@@ -378,11 +378,11 @@ export const registerSkillContextTools = (server: McpServer) => {
         const updatedItems = [];
         for (const workItemId of params.workItemIds) {
           if (params.setAiProcessing) {
-            await setWorkItemAiProcessing(organizationId, workItemId, true);
+            await setWorkItemAiProcessing(workspaceId, workItemId, true);
           }
 
           if (params.aiProvider || managedBy) {
-            const item = await getWorkItemById(workItemId, organizationId);
+            const item = await getWorkItemById(workItemId, workspaceId);
             if (item) {
               const meta = mergeManagedByMetadata(
                 (item.metadata as Record<string, unknown>) ?? {},
@@ -397,15 +397,15 @@ export const registerSkillContextTools = (server: McpServer) => {
                 },
                 managedBy
               );
-              await updateWorkItem(organizationId, workItemId, { metadata: meta });
-              void propagateProviderToParent(organizationId, workItemId, meta);
+              await updateWorkItem(workspaceId, workItemId, { metadata: meta });
+              void propagateProviderToParent(workspaceId, workItemId, meta);
             }
           }
 
-          const updated = await getWorkItemById(workItemId, organizationId);
+          const updated = await getWorkItemById(workItemId, workspaceId);
           if (updated) {
             updatedItems.push(updated);
-            wsConnectionManager.broadcastToOrganization(organizationId, {
+            wsConnectionManager.broadcastToWorkspace(workspaceId, {
               type: "work-item:updated",
               payload: {
                 workItemId,
@@ -454,9 +454,9 @@ export const registerSkillContextTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const [dependencies, dependents] = await Promise.all([
@@ -516,9 +516,9 @@ export const registerSkillContextTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
@@ -529,14 +529,14 @@ export const registerSkillContextTools = (server: McpServer) => {
           };
         }
 
-        const project = await getProjectById(organizationId, projectId);
+        const project = await getProjectById(workspaceId, projectId);
         const uniqueInputIds = Array.from(new Set(params.ids.map((id) => id.trim()).filter(Boolean)));
 
         const uuidIds = uniqueInputIds.filter((id) => UUID_REGEX.test(id));
         const taskIds = uniqueInputIds.filter((id) => !UUID_REGEX.test(id));
         const [byUuid, byTaskId] = await Promise.all([
-          getWorkItemsByIds(organizationId, uuidIds),
-          getWorkItemsByTaskIds(organizationId, taskIds),
+          getWorkItemsByIds(workspaceId, uuidIds),
+          getWorkItemsByTaskIds(workspaceId, taskIds),
         ]);
         const baseItems = [...byUuid, ...byTaskId].filter((item) => item.projectId === projectId);
         const byTaskIdMap = new Map(byTaskId.filter((item) => item.taskId).map((item) => [item.taskId as string, item]));
@@ -547,7 +547,7 @@ export const registerSkillContextTools = (server: McpServer) => {
             ? baseItems.find((item) => item.id === rawId)
             : byTaskIdMap.get(rawId);
           if (!base) continue;
-          await resolveToLeafTasks(organizationId, base, rawId, 3, new Set<string>(), leafMap);
+          await resolveToLeafTasks(workspaceId, base, rawId, 3, new Set<string>(), leafMap);
         }
 
         const valid = [] as Array<ResolvedLeafTask & { isValid: true }>;
@@ -566,7 +566,7 @@ export const registerSkillContextTools = (server: McpServer) => {
           }
         }
 
-        const boards = await getAllBoards(organizationId);
+        const boards = await getAllBoards(workspaceId);
         const boardContext = boards
           .filter((board) => valid.some((task) => task.boardId === board.id))
           .map((board) => ({
@@ -665,9 +665,9 @@ export const registerSkillContextTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
@@ -681,7 +681,7 @@ export const registerSkillContextTools = (server: McpServer) => {
         const limit = params.limit ?? 20;
         const searches = await Promise.all(
           params.keywords.map((keyword) =>
-            getWorkItems(organizationId, { page: 1, limit, offset: 0 }, { projectId, search: keyword })
+            getWorkItems(workspaceId, { page: 1, limit, offset: 0 }, { projectId, search: keyword })
           )
         );
 
@@ -706,7 +706,7 @@ export const registerSkillContextTools = (server: McpServer) => {
             descriptionExcerpt: (item.description ?? "").slice(0, 200),
           }));
 
-        const boards = await getAllBoards(organizationId);
+        const boards = await getAllBoards(workspaceId);
         const boardContext = boards.map((board) => ({
           id: board.id,
           name: board.name,
@@ -882,17 +882,17 @@ export const registerSkillContextTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const projectId = getProjectIdFromExtra(extra);
         const isUuid = UUID_REGEX.test(params.taskId);
 
         let item = isUuid
-          ? await getWorkItemById(params.taskId, organizationId)
-          : (await getWorkItemsByTaskIds(organizationId, [params.taskId]))[0] ?? null;
+          ? await getWorkItemById(params.taskId, workspaceId)
+          : (await getWorkItemsByTaskIds(workspaceId, [params.taskId]))[0] ?? null;
 
         if (!item) {
           return {
@@ -907,7 +907,7 @@ export const registerSkillContextTools = (server: McpServer) => {
           };
         }
 
-        const boards = await getAllBoards(organizationId);
+        const boards = await getAllBoards(workspaceId);
         const board = boards.find((b) => b.id === item.boardId);
         if (!board) {
           return {
@@ -925,13 +925,13 @@ export const registerSkillContextTools = (server: McpServer) => {
 
         let siblings: Awaited<ReturnType<typeof getWorkItemHierarchy>> = [];
         if (item.parentId) {
-          siblings = (await getWorkItemHierarchy(organizationId, item.parentId)).filter((candidate) => candidate.id !== item.id);
+          siblings = (await getWorkItemHierarchy(workspaceId, item.parentId)).filter((candidate) => candidate.id !== item.id);
         }
 
         let reviewableChildren: Awaited<ReturnType<typeof getWorkItemHierarchy>> = [];
         let childrenSummary: Record<string, number> = {};
         if (params.featureReview) {
-          const children = await getWorkItemHierarchy(organizationId, item.id);
+          const children = await getWorkItemHierarchy(workspaceId, item.id);
           for (const child of children) {
             const colName = child.columnName ?? "(no column)";
             childrenSummary[colName] = (childrenSummary[colName] ?? 0) + 1;
@@ -1004,9 +1004,9 @@ export const registerSkillContextTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
@@ -1017,14 +1017,14 @@ export const registerSkillContextTools = (server: McpServer) => {
           };
         }
 
-        const project = await getProjectById(organizationId, projectId);
+        const project = await getProjectById(workspaceId, projectId);
         const uniqueInputIds = Array.from(new Set(params.ids.map((id) => id.trim()).filter(Boolean)));
 
         const uuidIds = uniqueInputIds.filter((id) => UUID_REGEX.test(id));
         const taskIds = uniqueInputIds.filter((id) => !UUID_REGEX.test(id));
         const [byUuid, byTaskId] = await Promise.all([
-          getWorkItemsByIds(organizationId, uuidIds),
-          getWorkItemsByTaskIds(organizationId, taskIds),
+          getWorkItemsByIds(workspaceId, uuidIds),
+          getWorkItemsByTaskIds(workspaceId, taskIds),
         ]);
         const baseItems = [...byUuid, ...byTaskId].filter((item) => item.projectId === projectId);
         const byTaskIdMap = new Map(byTaskId.filter((item) => item.taskId).map((item) => [item.taskId as string, item]));
@@ -1035,10 +1035,10 @@ export const registerSkillContextTools = (server: McpServer) => {
             ? baseItems.find((item) => item.id === rawId)
             : byTaskIdMap.get(rawId);
           if (!base) continue;
-          await resolveToLeafTasks(organizationId, base, rawId, 3, new Set<string>(), leafMap);
+          await resolveToLeafTasks(workspaceId, base, rawId, 3, new Set<string>(), leafMap);
         }
 
-        const boards = await getAllBoards(organizationId);
+        const boards = await getAllBoards(workspaceId);
 
         const boardContexts = boards.map((board) => {
           const columnMap = buildColumnMap(board.columns);
@@ -1082,9 +1082,9 @@ export const registerSkillContextTools = (server: McpServer) => {
 
         const parentItems = [];
         for (const parentId of parentIds) {
-          const parent = await getWorkItemById(parentId, organizationId);
+          const parent = await getWorkItemById(parentId, workspaceId);
           if (!parent) continue;
-          const children = await getWorkItemHierarchy(organizationId, parentId);
+          const children = await getWorkItemHierarchy(workspaceId, parentId);
           const childrenInReview = children.filter((c) => {
             const bc = boardContexts.find((b) => b.id === c.boardId);
             return bc?.columnMap.review && c.boardColumnId === bc.columnMap.review;
@@ -1143,17 +1143,17 @@ export const registerSkillContextTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const projectId = getProjectIdFromExtra(extra);
         const isUuid = UUID_REGEX.test(params.workItemId);
 
         const item = isUuid
-          ? await getWorkItemById(params.workItemId, organizationId)
-          : (await getWorkItemsByTaskIds(organizationId, [params.workItemId]))[0] ?? null;
+          ? await getWorkItemById(params.workItemId, workspaceId)
+          : (await getWorkItemsByTaskIds(workspaceId, [params.workItemId]))[0] ?? null;
 
         if (!item) {
           return {
@@ -1172,13 +1172,13 @@ export const registerSkillContextTools = (server: McpServer) => {
 
         // Gather parent, siblings, project, and board in parallel
         const [parentItem, siblingsData, projectData, boardData] = await Promise.all([
-          item.parentId ? getWorkItemById(item.parentId, organizationId) : null,
+          item.parentId ? getWorkItemById(item.parentId, workspaceId) : null,
           item.parentId
-            ? getWorkItems(organizationId, { page: 1, limit: 50, offset: 0 }, { parentId: item.parentId })
+            ? getWorkItems(workspaceId, { page: 1, limit: 50, offset: 0 }, { parentId: item.parentId })
                 .then((r) => r.items.filter((i) => i.id !== item.id))
             : Promise.resolve([]),
-          item.projectId ? getProjectById(organizationId, item.projectId) : null,
-          getAllBoards(organizationId).then((boards) => boards.find((b) => b.id === item.boardId) ?? null),
+          item.projectId ? getProjectById(workspaceId, item.projectId) : null,
+          getAllBoards(workspaceId).then((boards) => boards.find((b) => b.id === item.boardId) ?? null),
         ]);
 
         const walkthroughRaw = metadata.walkthrough as Record<string, unknown> | undefined;
@@ -1262,9 +1262,9 @@ export const registerSkillContextTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
@@ -1275,14 +1275,14 @@ export const registerSkillContextTools = (server: McpServer) => {
           };
         }
 
-        const project = await getProjectById(organizationId, projectId);
+        const project = await getProjectById(workspaceId, projectId);
         const uniqueInputIds = Array.from(new Set(params.ids.map((id) => id.trim()).filter(Boolean)));
 
         const uuidIds = uniqueInputIds.filter((id) => UUID_REGEX.test(id));
         const taskIds = uniqueInputIds.filter((id) => !UUID_REGEX.test(id));
         const [byUuid, byTaskId] = await Promise.all([
-          getWorkItemsByIds(organizationId, uuidIds),
-          getWorkItemsByTaskIds(organizationId, taskIds),
+          getWorkItemsByIds(workspaceId, uuidIds),
+          getWorkItemsByTaskIds(workspaceId, taskIds),
         ]);
         const baseItems = [...byUuid, ...byTaskId].filter((item) => item.projectId === projectId);
         const byTaskIdMap = new Map(byTaskId.filter((item) => item.taskId).map((item) => [item.taskId as string, item]));
@@ -1293,10 +1293,10 @@ export const registerSkillContextTools = (server: McpServer) => {
             ? baseItems.find((item) => item.id === rawId)
             : byTaskIdMap.get(rawId);
           if (!base) continue;
-          await resolveToLeafTasks(organizationId, base, rawId, 3, new Set<string>(), leafMap);
+          await resolveToLeafTasks(workspaceId, base, rawId, 3, new Set<string>(), leafMap);
         }
 
-        const boards = await getAllBoards(organizationId);
+        const boards = await getAllBoards(workspaceId);
 
         const boardContexts = boards.map((board) => {
           const columnMap = buildColumnMap(board.columns);
@@ -1355,9 +1355,9 @@ export const registerSkillContextTools = (server: McpServer) => {
 
         const parentItems = [];
         for (const parentId of parentIds) {
-          const parent = await getWorkItemById(parentId, organizationId);
+          const parent = await getWorkItemById(parentId, workspaceId);
           if (!parent) continue;
-          const children = await getWorkItemHierarchy(organizationId, parentId);
+          const children = await getWorkItemHierarchy(workspaceId, parentId);
           const childrenInRelease = children.filter((c) => {
             const bc = boardContexts.find((b) => b.id === c.boardId);
             return bc?.columnMap.release && c.boardColumnId === bc.columnMap.release;
@@ -1378,7 +1378,7 @@ export const registerSkillContextTools = (server: McpServer) => {
         }
 
         // Existing project documents for context
-        const existingDocsResult = await getDocuments(organizationId, { page: 1, limit: 50, offset: 0 }, { projectId });
+        const existingDocsResult = await getDocuments(workspaceId, { page: 1, limit: 50, offset: 0 }, { projectId });
         const existingDocs = existingDocsResult.items.map((doc: Record<string, unknown>) => ({
           id: doc.id,
           title: doc.title,
