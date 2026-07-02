@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join, basename } from "node:path";
-import type { ContainerManager } from "../workspace/container-manager";
+import type { ContainerDriver } from "../workspace/container-driver";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -117,7 +117,7 @@ const tryReadSkillLocal = async (
  * Returns an array of directory names (not full paths).
  */
 const listDirsInContainer = async (
-  containerManager: ContainerManager,
+  containerManager: ContainerDriver,
   containerId: string,
   dirPath: string,
   cwd: string,
@@ -141,7 +141,7 @@ const listDirsInContainer = async (
  * exist, is empty, or exceeds the size limit.
  */
 const readFileInContainer = async (
-  containerManager: ContainerManager,
+  containerManager: ContainerDriver,
   containerId: string,
   filePath: string,
   cwd: string,
@@ -240,7 +240,7 @@ export const scanRepoForSkills = async (
  * from the container's filesystem (where the repo is cloned at runtime).
  */
 export const scanRepoForSkillsInContainer = async (
-  containerManager: ContainerManager,
+  containerManager: ContainerDriver,
   containerId: string,
   repoPath: string,
 ): Promise<ScannedSkill[]> => {

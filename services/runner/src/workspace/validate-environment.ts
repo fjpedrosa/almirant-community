@@ -5,7 +5,7 @@
  * and the related waitForHealthy / waitForServeReady helpers.
  */
 
-import type { ContainerManager } from "./container-manager";
+import type { ContainerDriver } from "./container-driver";
 import type { ValidateEnvironment } from "../shared/types";
 import { sleep } from "../shared/job-helpers";
 
@@ -17,7 +17,7 @@ export const SERVE_READINESS_POLL_MS = 1_000;
 // ── Dependencies ─────────────────────────────────────────────────────────────
 
 export type ValidateEnvironmentDeps = {
-  containerManager: ContainerManager;
+  containerManager: ContainerDriver;
 };
 
 // ── Functions ────────────────────────────────────────────────────────────────

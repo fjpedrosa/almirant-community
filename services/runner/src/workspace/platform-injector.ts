@@ -1,6 +1,6 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
-import type { ContainerManager } from "./container-manager";
+import type { ContainerDriver } from "./container-driver";
 
 const LOG_PREFIX = "[platform-injector]";
 
@@ -25,7 +25,7 @@ type InjectOptions = {
   containerId: string;
   workspacePath: string; // /workspace/repo
   runtime: "claude-code" | "opencode" | "codex";
-  containerManager: ContainerManager;
+  containerManager: ContainerDriver;
 };
 
 // ---------------------------------------------------------------------------
@@ -72,7 +72,7 @@ const formatProbeOutput = (value: string): string =>
 const probeWorkspaceState = async (
   containerId: string,
   workspacePath: string,
-  containerManager: ContainerManager,
+  containerManager: ContainerDriver,
 ): Promise<string[]> => {
   try {
     const probe = await containerManager.execInContainer(
@@ -188,7 +188,7 @@ const transformInjectedFileContent = (params: {
 const ensureOpenCodeAgentDiscoveryPath = async (opts: {
   containerId: string;
   workspacePath: string;
-  containerManager: ContainerManager;
+  containerManager: ContainerDriver;
   platformConfigPath: string;
   result: PlatformInjectionResult;
 }): Promise<string[]> => {
@@ -472,7 +472,7 @@ export const createPlatformInjector = (config: PlatformInjectorConfig) => {
 const processMdFile = async (opts: {
   containerId: string;
   workspacePath: string;
-  containerManager: ContainerManager;
+  containerManager: ContainerDriver;
   platformSourcePath: string;
   targetFilename: string;
   label: string;
@@ -547,7 +547,7 @@ const processMdFile = async (opts: {
 const applyGitExclusions = async (opts: {
   containerId: string;
   workspacePath: string;
-  containerManager: ContainerManager;
+  containerManager: ContainerDriver;
   paths: string[];
   result: PlatformInjectionResult;
 }): Promise<void> => {

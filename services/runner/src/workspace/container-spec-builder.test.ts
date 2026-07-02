@@ -158,3 +158,53 @@ describe("buildContainerSpec", () => {
     expect(spec.memoryLimitMb).toBeGreaterThanOrEqual(3584);
   });
 });
+
+describe("buildContainerSpec workspace mount modes", () => {
+  const buildSpecForMode = (workspaceMountMode: "bind" | "tmpfs" | "volume") =>
+    buildContainerSpec({
+      job: createJob(),
+      workItem: null,
+      runtimeConfig: {
+        type: "claude-shim",
+        image: "almirant-claude-shim:test",
+        envVars: {},
+      },
+      injectedEnv: {},
+      openCodeConfig: {
+        mcp: {},
+      } as never,
+      workspaceMountMode,
+      reposHostPath: "/repos",
+    });
+
+  it("emits logical volumes without host paths in volume mode", () => {
+    const spec = buildSpecForMode("volume");
+
+    expect(spec.volumes).toEqual([
+      { source: "workspace", target: "/workspace" },
+      { source: "tmp", target: "/tmp" },
+      { source: "home", target: "/home/opencode" },
+    ]);
+    expect(spec.tmpfs).toEqual({});
+  });
+
+  it("treats volume mode as disk-backed for the memory limit (no tmpfs tax)", () => {
+    const bindSpec = buildSpecForMode("bind");
+    const volumeSpec = buildSpecForMode("volume");
+    const tmpfsSpec = buildSpecForMode("tmpfs");
+
+    expect(volumeSpec.memoryLimitMb).toBe(bindSpec.memoryLimitMb!);
+    expect(tmpfsSpec.memoryLimitMb!).toBeGreaterThan(volumeSpec.memoryLimitMb!);
+  });
+
+  it("keeps the default bind behavior unchanged (host-path binds, no tmpfs)", () => {
+    const spec = buildSpecForMode("bind");
+
+    expect(spec.volumes).toEqual([
+      { source: "/repos/job-1", target: "/workspace" },
+      { source: "/repos/job-1/.tmp", target: "/tmp" },
+      { source: "/repos/job-1/.home", target: "/home/opencode" },
+    ]);
+    expect(spec.tmpfs).toEqual({});
+  });
+});

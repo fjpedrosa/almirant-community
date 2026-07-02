@@ -26,7 +26,7 @@ import {
   buildPlanningPrompt,
   shouldInlinePlanningSkillContent,
 } from "./planning-prompt";
-import type { ContainerManager } from "../workspace/container-manager";
+import type { ContainerDriver } from "../workspace/container-driver";
 import { WORKSPACE_REPO_PATH } from "../workspace/container-spec-builder";
 import { startTmpfsWatcher } from "../observability/resource-monitor";
 import type { RunnerJobEventLogger } from "../observability/job-event-logger";
@@ -49,7 +49,7 @@ import { join } from "node:path";
 
 export type SessionRunnerDeps = {
   workerClient: AlmirantWorkerClient;
-  containerManager: ContainerManager;
+  containerManager: ContainerDriver;
   config: {
     apiBaseUrl?: string;
     apiKey?: string;

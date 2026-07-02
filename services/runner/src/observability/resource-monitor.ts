@@ -5,7 +5,7 @@
  * disk-backed /workspace inside a running container, emitting warnings and
  * aborting the session at critical thresholds.
  */
-import type { ContainerManager } from "../workspace/container-manager";
+import type { ContainerDriver } from "../workspace/container-driver";
 import type { RunnerJobEventLogger } from "./job-event-logger";
 import { emitResourceUsage } from "./telemetry";
 import { resolveJobIntent, resolveResourceTier, getResourcesForTier } from "../orchestration/job-intent";
@@ -31,7 +31,7 @@ export const RESOURCE_EXEC_TIMEOUT_MS = 10_000;
  */
 export const WORKSPACE_DU_TIMEOUT_MS = 30_000;
 
-type ExecInContainerResult = Awaited<ReturnType<ContainerManager["execInContainer"]>>;
+type ExecInContainerResult = Awaited<ReturnType<ContainerDriver["execInContainer"]>>;
 type ResourceWatcherOptions = {
   checkIntervalMs?: number;
   execTimeoutMs?: number;
@@ -78,7 +78,7 @@ const withTimeout = async <T>(
 };
 
 const execInContainerWithTimeout = (
-  containerManager: ContainerManager,
+  containerManager: ContainerDriver,
   containerId: string,
   args: string[],
   cwd: string,
@@ -106,7 +106,7 @@ const execInContainerWithTimeout = (
  * - At critical threshold: logs error, sets critical flag to abort session.
  */
 export function startTmpfsWatcher(
-  containerManager: ContainerManager,
+  containerManager: ContainerDriver,
   containerId: string,
   jobId: string,
   eventLogger: RunnerJobEventLogger,
@@ -282,7 +282,7 @@ export function startTmpfsWatcher(
  * Helps optimize SKILL_MEMORY_MAP allocations based on real usage data.
  */
 export async function logTmpfsUsage(
-  containerManager: ContainerManager,
+  containerManager: ContainerDriver,
   containerId: string,
   jobId: string,
   eventLogger: { info: (phase: string, eventType: string, message: string, payload: Record<string, unknown>) => void },

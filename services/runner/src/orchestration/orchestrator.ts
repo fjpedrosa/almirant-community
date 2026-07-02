@@ -9,7 +9,8 @@ import type {
   CronScheduleConfig,
 } from "@almirant/remote-agent";
 import { Cron } from "croner";
-import type { ContainerCleanupResult, ContainerManager } from "../workspace/container-manager";
+import type { ContainerCleanupResult } from "../workspace/container-manager";
+import type { ContainerDriver } from "../workspace/container-driver";
 import type { JobExecutor } from "../job-executor";
 import type { RunnerStatusSnapshot } from "../shared/types";
 import { classifyError, isRecoverableError } from "../shared/types";
@@ -43,7 +44,7 @@ type RunnerOrchestratorConfig = {
 
 type RunnerOrchestratorDeps = {
   workerClient: AlmirantWorkerClient;
-  containerManager: ContainerManager;
+  containerManager: ContainerDriver;
   jobExecutor: JobExecutor;
 };
 
@@ -105,7 +106,7 @@ const resolveQuietPeriodMinutes = (value: number | null | undefined): number => 
 export class RunnerOrchestrator {
   private readonly config: RunnerOrchestratorConfig;
   private readonly workerClient: AlmirantWorkerClient;
-  private readonly containerManager: ContainerManager;
+  private readonly containerManager: ContainerDriver;
   private readonly jobExecutor: JobExecutor;
 
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;

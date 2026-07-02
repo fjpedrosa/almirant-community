@@ -25,7 +25,7 @@ import {
   publishCanonicalEvent,
   publishNativeEvent,
 } from "./stream-events";
-import type { ContainerManager } from "../workspace/container-manager";
+import type { ContainerDriver } from "../workspace/container-driver";
 import type { RunnerJobEventLogger } from "../observability/job-event-logger";
 import {
   computeOverallTimeout,
@@ -61,7 +61,7 @@ export const PLANNING_INTERACTION_TIMEOUT_MS = 15 * 60 * 1000;
 
 export type EventConsumerDeps = {
   workerClient: AlmirantWorkerClient;
-  containerManager: ContainerManager;
+  containerManager: ContainerDriver;
   config: {
     overallTimeoutMs?: number;
     effortPointDurationMs?: number;

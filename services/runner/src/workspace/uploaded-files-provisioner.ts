@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { ContainerManager } from "./container-manager";
+import type { ContainerDriver } from "./container-driver";
 import type { ResolvedUploadedFilesWorkspace } from "./agent-workspace";
 
 export type WorkspaceFileDownload = {
@@ -22,7 +22,7 @@ export type UploadedFilesProvisionerInput = {
   workspacePath: string;
   workspace: ResolvedUploadedFilesWorkspace;
   downloadFile: (fileId: string) => Promise<WorkspaceFileDownload>;
-  containerManager: Pick<ContainerManager, "writeFileBufferViaExec">;
+  containerManager: Pick<ContainerDriver, "writeFileBufferViaExec">;
   limits?: Partial<UploadedFilesProvisionerLimits>;
 };
 

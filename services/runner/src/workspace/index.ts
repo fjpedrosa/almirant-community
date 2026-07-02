@@ -1,5 +1,7 @@
 export { createContainerManager } from "./container-manager";
 export type { ContainerManager } from "./container-manager";
+export { createContainerDriver } from "./container-driver-factory";
+export type { ContainerDriver, DriverCapabilities } from "./container-driver";
 export { buildInjectedEnv, resolveRuntimeConfig } from "./config-injector";
 export { createPlatformInjector } from "./platform-injector";
 export type { PlatformInjectionResult } from "./platform-injector";

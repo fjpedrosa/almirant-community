@@ -5,7 +5,7 @@ import {
   DeleteObjectCommand,
   HeadObjectCommand,
 } from "@aws-sdk/client-s3";
-import type { ContainerManager } from "../workspace/container-manager";
+import type { ContainerDriver } from "../workspace/container-driver";
 
 type CheckpointS3Config = {
   accessKey: string;
@@ -52,7 +52,7 @@ const streamToBuffer = async (stream: NodeJS.ReadableStream): Promise<Buffer> =>
 
 const createActiveCheckpointManager = (
   config: CheckpointManagerConfig,
-  containerManager: ContainerManager
+  containerManager: ContainerDriver
 ): CheckpointManager => {
   const s3 = createS3Client(config.s3);
   const bucket = config.s3.bucket;
@@ -163,7 +163,7 @@ const noopCheckpointManager: CheckpointManager = {
 
 export const createCheckpointManager = (
   config: CheckpointManagerConfig | undefined,
-  containerManager: ContainerManager
+  containerManager: ContainerDriver
 ): CheckpointManager => {
   if (!config) {
     return noopCheckpointManager;
