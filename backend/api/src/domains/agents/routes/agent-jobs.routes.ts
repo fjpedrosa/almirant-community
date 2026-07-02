@@ -58,6 +58,7 @@ import {
   createDiscordThread,
   isDiscordBridgeConfigured,
 } from "../../integrations/discord/services/discord-thread";
+import { refreshCanonicalSessionProjection } from "../../ideation/planning-sessions/services/canonical-session-projection";
 
 const broadcastStatusChanged = (orgId: string, args: {
   jobId: string;
@@ -1696,6 +1697,16 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
       }));
 
       const inserted = await insertSessionEventsBatch(events);
+      if (existing.job.planningSessionId) {
+        await refreshCanonicalSessionProjection({
+          planningSessionId: existing.job.planningSessionId,
+          workspaceId: existing.job.workspaceId,
+        }).catch((error) => {
+          console.warn(
+            `[agent-jobs] Failed to refresh canonical session projection for ${params.id}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
+      }
       return successResponse({ inserted });
     },
     {

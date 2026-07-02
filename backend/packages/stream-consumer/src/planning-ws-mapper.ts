@@ -364,6 +364,12 @@ export const mapCanonicalEventToPlanningWsMessage = (
 
     case "agent.text.complete":
     case "agent.bash.output":
+    case "agent.question.resolved":
+    case "user.answer.submitted":
+    case "turn.started":
+    case "turn.awaiting_user":
+    case "turn.resumed":
+    case "turn.completed":
     case "session.connected":
     case "session.closed":
     case "job.started":

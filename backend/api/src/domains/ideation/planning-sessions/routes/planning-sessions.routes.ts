@@ -40,6 +40,7 @@ import { localeToLanguageName } from "../../../ai/shared/services/locale-utils";
 import { renameDiscordThread } from "../../../integrations/discord/services/discord-thread";
 import { logger } from "@almirant/config";
 import { inferPlanningSkillName } from "../services/planning-skill-routing";
+import { getOrRefreshCanonicalSessionProjection } from "../services/canonical-session-projection";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1107,6 +1108,37 @@ Examples:
         kinds: t.Optional(t.String()),
         limit: t.Optional(t.Numeric()),
       }),
+    }
+  )
+
+  // GET /planning-sessions/:id/session-projection — Get materialized canonical v2 session state
+  .get(
+    "/:id/session-projection",
+    async (ctx) => {
+      try {
+        const { params, set } = ctx;
+        const workspaceId = getWorkspaceIdFromContext(ctx);
+
+        const session = await getPlanningSessionById(params.id);
+        if (!session || session.workspaceId !== workspaceId) {
+          set.status = 404;
+          return notFoundResponse("Planning session");
+        }
+
+        const projection = await getOrRefreshCanonicalSessionProjection({
+          planningSessionId: params.id,
+          workspaceId,
+        });
+
+        return successResponse(projection);
+      } catch (error) {
+        const mapped = mapPlanningErrorToHttp(normalizeErrorMessage(error));
+        ctx.set.status = mapped.status;
+        return errorResponse(mapped.message, mapped.status);
+      }
+    },
+    {
+      params: t.Object({ id: t.String() }),
     }
   )
 

@@ -81,6 +81,7 @@ import {
 import { getInstallationAccessToken } from "../../integrations/github/services/github-service";
 import type { ProviderQuotaDb, ApiKey, CodingAgent, AiProvider, AgentJobConfig, NewAgentNativeEvent } from "@almirant/database";
 import { env, logger } from "@almirant/config";
+import { refreshCanonicalSessionProjection } from "../../ideation/planning-sessions/services/canonical-session-projection";
 import { getGithubAppCredentials } from "../../instance/services/github-app-credentials-service";
 import { errorResponse, notFoundResponse, successResponse } from "../../../shared/services/response";
 import { downloadBufferFromS3, extractKeyFromUrl, isS3Configured } from "../../../shared/services/s3-service";
@@ -3104,6 +3105,17 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       }));
 
       const inserted = await insertSessionEventsBatch(events);
+      if (existing.job.planningSessionId) {
+        await refreshCanonicalSessionProjection({
+          planningSessionId: existing.job.planningSessionId,
+          workspaceId: existing.job.workspaceId,
+        }).catch((error) => {
+          logger.warn(
+            { jobId: params.id, error },
+            "Failed to refresh canonical session projection after worker event persistence",
+          );
+        });
+      }
       return successResponse({ inserted });
     },
     {
