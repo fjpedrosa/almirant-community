@@ -21,7 +21,7 @@ export type CurrencyCode =
 // Entity types
 export interface ExpenseCategory {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   parentId: string | null;
   name: string;
   icon: string | null;
@@ -34,7 +34,7 @@ export interface ExpenseCategory {
 
 export interface Expense {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string | null;
   categoryId: string | null;
   paidByUserId: string | null;
@@ -67,7 +67,7 @@ export interface ExpenseWithRelations extends Expense {
 
 export interface RecurringExpense {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string | null;
   categoryId: string | null;
   paidByUserId: string | null;

@@ -357,7 +357,7 @@ export const useWebSocket = (): UseWebSocketReturn => {
   }, [clearHeartbeat, clearReconnectTimer]);
 
   const reconnect = useCallback(() => {
-    console.info("[WS] Reconnecting (organization switch)");
+    console.info("[WS] Reconnecting (workspace switch)");
     disconnect();
     // Reset intentional close flag so reconnection logic works
     intentionalCloseRef.current = false;

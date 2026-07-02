@@ -46,7 +46,7 @@ export interface IntegrationBatchItem {
 
 export interface IntegrationBatch {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string;
   repositoryId: string;
   boardId: string | null;

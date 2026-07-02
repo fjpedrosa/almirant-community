@@ -374,7 +374,7 @@ export const projectsApi = {
 // Discord types
 interface DiscordConnectionResponse {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   guildId: string;
   guildName: string | null;
   defaultChannelId: string | null;
@@ -1818,7 +1818,7 @@ export const feedbackApi = {
    * Upload a feedback screenshot. Stored in S3 under a flat
    * `feedback-screenshots/<uuid>-<name>` prefix (no org scoping). The backend
    * enforces access at view time via feedback-item ownership, so admins can
-   * still see screenshots uploaded by users from different organizations.
+   * still see screenshots uploaded by users from different workspaces.
    */
   uploadScreenshot: async (file: File): Promise<{ key: string }> => {
     const url = `${API_BASE}/feedback-screenshots`;
@@ -1881,7 +1881,7 @@ export const quotaApi = {
 export const usageApi = {
   getSummary: (projectId?: string) =>
     request<{
-      organizationId: string;
+      workspaceId: string;
       projectId?: string;
       period: string;
       totalSeconds: number;
@@ -2455,12 +2455,12 @@ export const recurringExpensesApi = {
     ),
 };
 
-// Organization Settings API
-export const organizationSettingsApi = {
-  get: () => request<unknown>("/organization-settings"),
+// Workspace Settings API
+export const workspaceSettingsApi = {
+  get: () => request<unknown>("/workspace-settings"),
 
   update: (data: unknown) =>
-    request<unknown>("/organization-settings", {
+    request<unknown>("/workspace-settings", {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
@@ -2468,31 +2468,31 @@ export const organizationSettingsApi = {
 
 // Service Accounts API
 export const serviceAccountsApi = {
-  list: (organizationId: string) =>
+  list: (workspaceId: string) =>
     request<import("@/domains/api-keys/domain/types").ServiceAccount[]>(
-      `/organizations/${organizationId}/service-accounts`
+      `/workspaces/${workspaceId}/service-accounts`
     ),
 
-  create: (organizationId: string, data: { name: string; type: string }) =>
-    request<unknown>(`/organizations/${organizationId}/service-accounts`, {
+  create: (workspaceId: string, data: { name: string; type: string }) =>
+    request<unknown>(`/workspaces/${workspaceId}/service-accounts`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  provision: (organizationId: string) =>
-    request<unknown>(`/organizations/${organizationId}/service-accounts/provision`, {
+  provision: (workspaceId: string) =>
+    request<unknown>(`/workspaces/${workspaceId}/service-accounts/provision`, {
       method: "POST",
     }),
 
-  rotateKey: (organizationId: string, serviceAccountId: string) =>
+  rotateKey: (workspaceId: string, serviceAccountId: string) =>
     request<{ key: string; keyPrefix: string }>(
-      `/organizations/${organizationId}/service-accounts/${serviceAccountId}/rotate-key`,
+      `/workspaces/${workspaceId}/service-accounts/${serviceAccountId}/rotate-key`,
       { method: "POST" }
     ),
 
-  deactivate: (organizationId: string, serviceAccountId: string) =>
+  deactivate: (workspaceId: string, serviceAccountId: string) =>
     request<void>(
-      `/organizations/${organizationId}/service-accounts/${serviceAccountId}`,
+      `/workspaces/${workspaceId}/service-accounts/${serviceAccountId}`,
       { method: "DELETE" }
     ),
 };

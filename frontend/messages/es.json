@@ -116,8 +116,8 @@
     "settings": "Configuración",
     "backoffice": "Backoffice",
     "signOut": "Cerrar sesión",
-    "organizations": "Organizaciones",
-    "createOrganization": "Crear organización",
+    "workspaces": "Workspaces",
+    "createWorkspace": "Crear workspace",
     "teams": "Equipos",
     "roadmap": "Hoja de ruta",
     "goals": "Objetivos",
@@ -1395,7 +1395,7 @@
       "passwordsDoNotMatch": "Las contraseñas no coinciden."
     },
     "acceptInvitation": {
-      "title": "Invitación a organización",
+      "title": "Invitación al workspace",
       "signInToAccept": "Continúa para iniciar sesión o crear tu cuenta",
       "goHome": "Ir al inicio"
     }
@@ -4541,7 +4541,7 @@
   },
   "analytics": {
     "title": "Analiticas",
-    "description": "Metricas de uso de la organizacion y consumo por usuario.",
+    "description": "Métricas de uso del workspace y consumo por usuario.",
     "tabs": {
       "overview": "Resumen",
       "byUser": "Por Usuario",

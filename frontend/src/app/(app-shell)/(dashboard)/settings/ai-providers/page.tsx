@@ -8,7 +8,7 @@ export default function AiProvidersSettingsPage() {
       <IntegrationsPageContainer
         categories={["ai"]}
         title="AI Providers"
-        description="Manage model providers, API keys, account scope, and organization AI key resolution policy."
+        description="Manage model providers, API keys, account scope, and workspace AI key resolution policy."
         showWorkspaceSelector
       />
     </Suspense>

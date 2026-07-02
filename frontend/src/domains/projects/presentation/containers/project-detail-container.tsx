@@ -78,7 +78,7 @@ export const ProjectDetailContainer: React.FC<ProjectDetailContainerProps> = ({
     editForm.pendingTransferOrgId && project
       ? {
           projectName: project.name,
-          fromWorkspaceName: project.organizationName ?? "workspace actual",
+          fromWorkspaceName: project.workspaceName ?? "workspace actual",
           toWorkspaceName:
             teams.find((t) => t.id === editForm.pendingTransferOrgId)?.name ??
             editForm.pendingTransferOrgId ??

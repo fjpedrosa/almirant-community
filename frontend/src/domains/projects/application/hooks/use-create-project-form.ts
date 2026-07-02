@@ -43,7 +43,7 @@ const slugifyForRepo = (value: string): string => {
 
 export const useCreateProjectForm = (onSuccess?: () => void) => {
   const createProject = useCreateProject();
-  const { confirmedActiveTeamId: activeOrganizationId } = useActiveTeam();
+  const { confirmedActiveTeamId: activeWorkspaceId } = useActiveTeam();
   const { data: githubStatus } = useGithubStatus();
 
   const installations = useMemo(
@@ -123,7 +123,7 @@ export const useCreateProjectForm = (onSuccess?: () => void) => {
             : undefined,
           techStack:
             data.techStack.length > 0 ? data.techStack : undefined,
-          organizationId: activeOrganizationId,
+          workspaceId: activeWorkspaceId,
         })) as { id: string };
         createdProjectId = created.id;
         showToast.success("Proyecto creado correctamente");
@@ -163,7 +163,7 @@ export const useCreateProjectForm = (onSuccess?: () => void) => {
       onSuccess?.();
     },
     [
-      activeOrganizationId,
+      activeWorkspaceId,
       createGithubRepoMutation,
       createProject,
       form,

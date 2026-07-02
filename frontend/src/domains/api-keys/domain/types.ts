@@ -49,7 +49,7 @@ export interface ApiKeyCreatedDialogProps {
 // Service Account types
 export interface ServiceAccount {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   name: string;
   type: "runner" | "integration";
   keyPrefix: string | null;

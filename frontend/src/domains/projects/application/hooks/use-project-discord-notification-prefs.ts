@@ -151,7 +151,7 @@ export const useProjectDiscordNotificationPrefs = (projectId: string) => {
     mutationFn: () => projectsApi.deleteDiscordNotificationPrefs(projectId),
     onSuccess: () => {
       setLocalOverrides({});
-      showToast.success("Reverted to organization defaults");
+      showToast.success("Reverted to workspace defaults");
       queryClient.invalidateQueries({
         queryKey: projectKeys.discordNotificationPrefs(projectId),
       });

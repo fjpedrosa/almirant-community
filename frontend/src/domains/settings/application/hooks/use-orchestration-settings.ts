@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
-import { organizationSettingsApi } from "@/lib/api/client";
+import { workspaceSettingsApi } from "@/lib/api/client";
 import { useConnections } from "@/domains/integrations/application/hooks/use-connections";
 import type {
   OrchestrationStrategy,
@@ -21,14 +21,14 @@ export const useOrchestrationSettings = () => {
   const { data: orgSettings, isLoading } = useQuery({
     queryKey: orchestrationKeys.settings(),
     queryFn: async () => {
-      const result = await organizationSettingsApi.get();
+      const result = await workspaceSettingsApi.get();
       return result as OrchestrationSettingsData;
     },
   });
 
   const mutation = useMutation({
     mutationFn: (data: { orchestrationStrategy: OrchestrationStrategy | null }) =>
-      organizationSettingsApi.update(data),
+      workspaceSettingsApi.update(data),
     onMutate: async (newData) => {
       await queryClient.cancelQueries({
         queryKey: orchestrationKeys.settings(),

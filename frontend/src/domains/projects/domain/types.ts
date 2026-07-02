@@ -132,7 +132,7 @@ export interface Project {
   stagingUrl: string | null;
   screenshotUrl: string | null;
   techStack: string[] | null;
-  organizationId: string | null;
+  workspaceId: string | null;
   startDate: Date | null;
   targetDate: Date | null;
   createdAt: Date;
@@ -159,7 +159,7 @@ export interface ProjectWithRelations extends Project {
   notes: ProjectNote[];
   workItemsCount: number;
   completedItemsCount: number;
-  organizationName: string | null;
+  workspaceName: string | null;
   epicCount?: number;
   featureCount?: number;
   storyCount?: number;
@@ -214,7 +214,7 @@ export interface CreateProjectRequest {
   productionUrl?: string;
   stagingUrl?: string;
   techStack?: string[];
-  organizationId?: string | null;
+  workspaceId?: string | null;
   startDate?: string;
   targetDate?: string;
 }
@@ -231,7 +231,7 @@ export interface UpdateProjectRequest {
   productionUrl?: string | null;
   stagingUrl?: string | null;
   techStack?: string[] | null;
-  organizationId?: string | null;
+  workspaceId?: string | null;
   startDate?: string | null;
   targetDate?: string | null;
 }
@@ -240,8 +240,8 @@ export interface UpdateProjectRequest {
 export interface ProjectFilters {
   search?: string;
   status?: ProjectStatus;
-  organizationId?: string;
-  /** When true, return only projects with no organization (personal projects). */
+  workspaceId?: string;
+  /** When true, return only projects with no workspace (personal projects). */
   personal?: boolean;
 }
 
@@ -331,7 +331,7 @@ export interface ProjectCardProps {
   clientName: string | null;
   techStack: string[] | null;
   github?: ProjectGithubInfo | null;
-  organizationName?: string | null;
+  workspaceName?: string | null;
   epicCount?: number;
   featureCount?: number;
   storyCount?: number;

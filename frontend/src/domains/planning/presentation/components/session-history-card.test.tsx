@@ -7,7 +7,7 @@ const session: PlanningSession = {
   id: "planning-1",
   projectId: "project-1",
   boardId: null,
-  organizationId: "org-1",
+  workspaceId: "org-1",
   title: "Checkout planning",
   status: "active",
   config: null,

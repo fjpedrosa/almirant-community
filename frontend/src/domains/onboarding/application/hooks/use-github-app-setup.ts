@@ -201,7 +201,7 @@ export const useGithubAppSetup = (options: UseGithubAppSetupOptions = {}) => {
 
       const targetUrl =
         manifestForm.installTarget === "org"
-          ? `https://github.com/organizations/${encodeURIComponent(trimmedOrgSlug)}/settings/apps/new?state=${encodeURIComponent(state)}`
+          ? `https://github.com/workspaces/${encodeURIComponent(trimmedOrgSlug)}/settings/apps/new?state=${encodeURIComponent(state)}`
           : `https://github.com/settings/apps/new?state=${encodeURIComponent(state)}`;
 
       const form = document.createElement("form");

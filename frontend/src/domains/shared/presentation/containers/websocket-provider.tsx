@@ -98,7 +98,7 @@ export const WebSocketProvider = ({ children }: { children: ReactNode }) => {
     },
   });
 
-  // Reconnect WebSocket when the confirmed organization changes.
+  // Reconnect WebSocket when the confirmed workspace changes.
   // This ensures the WS connection uses the new session token with the updated org.
   useEffect(() => {
     // Skip on initial mount (prevTeamIdRef is null)

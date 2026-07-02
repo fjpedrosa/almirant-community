@@ -71,7 +71,7 @@ export const ProjectDiscordNotificationPrefsCard: React.FC<
             {isInheriting ? (
               <Badge variant="secondary" className="ml-2 text-xs">
                 <Building2 className="mr-1 h-3 w-3" />
-                Using organization defaults
+                Using workspace defaults
               </Badge>
             ) : (
               <Badge variant="outline" className="ml-2 text-xs">
@@ -150,7 +150,7 @@ export const ProjectDiscordNotificationPrefsCard: React.FC<
               disabled={isSaving}
               className="text-muted-foreground"
             >
-              Revert to organization defaults
+              Revert to workspace defaults
             </Button>
           )}
         </div>

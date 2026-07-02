@@ -5,7 +5,7 @@ export type TodoItemPriority = "low" | "medium" | "high" | "urgent";
 
 export interface TodoItem {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string | null;
   title: string;
   description: string | null;

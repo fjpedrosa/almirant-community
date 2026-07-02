@@ -33,7 +33,7 @@ export const useProjectWizard = () => {
   const router = useRouter();
   const createProject = useCreateProject();
   const createApiKey = useCreateApiKey();
-  const { confirmedActiveTeamId: activeOrganizationId } = useActiveTeam();
+  const { confirmedActiveTeamId: activeWorkspaceId } = useActiveTeam();
 
   // GitHub & Vercel connection status
   const { data: githubStatus } = useGithubStatus();
@@ -285,10 +285,10 @@ export const useProjectWizard = () => {
   // ---- Finish ----
   const finish = useCallback(async () => {
     try {
-      // 1. Create the project (scoped to active organization)
+      // 1. Create the project (scoped to active workspace)
       const createdProject = (await createProject.mutateAsync({
         name: state.projectName.trim(),
-        organizationId: activeOrganizationId,
+        workspaceId: activeWorkspaceId,
       })) as { id: string };
 
       // 2. If creating a new GitHub repo, do it now
@@ -366,7 +366,7 @@ export const useProjectWizard = () => {
       showToast.error("No se pudo completar el setup del proyecto");
     }
   }, [
-    activeOrganizationId,
+    activeWorkspaceId,
     createProject,
     createGithubRepo,
     githubMode,

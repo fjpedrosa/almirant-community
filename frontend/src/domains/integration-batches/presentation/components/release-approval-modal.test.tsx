@@ -5,7 +5,7 @@ import type { IntegrationBatchWithItems } from "../../domain/types";
 
 const baseBatch: IntegrationBatchWithItems = {
   id: "batch-1",
-  organizationId: "org-1",
+  workspaceId: "org-1",
   projectId: "proj-1",
   repositoryId: "repo-1",
   boardId: "board-1",

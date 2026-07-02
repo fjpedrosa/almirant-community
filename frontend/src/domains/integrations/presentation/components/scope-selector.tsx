@@ -8,7 +8,7 @@ import type {
 // ---------------------------------------------------------------------------
 // AiScopeSelector - Purely presentational
 // ---------------------------------------------------------------------------
-// Toggle AI connection scope between workspace (organization) and personal.
+// Toggle AI connection scope between workspace and personal.
 // Uses shadcn/ui Tabs as a visual toggle.
 // ---------------------------------------------------------------------------
 

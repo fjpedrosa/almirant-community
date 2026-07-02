@@ -65,7 +65,7 @@ export interface PlanningSessionResult {
 
 export interface PlanningSession {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string | null;
   boardId: string | null;
   title: string;
@@ -121,7 +121,7 @@ export interface PlanningMessage {
 
 export interface Seed {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string | null;
   title: string;
   description: string | null;

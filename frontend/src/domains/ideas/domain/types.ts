@@ -8,7 +8,7 @@ export type IdeaTabValue = "all" | "ideas";
 
 export interface IdeaItem {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string | null;
   type: IdeaItemType;
   status: IdeaItemStatus;

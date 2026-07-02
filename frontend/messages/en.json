@@ -116,8 +116,8 @@
     "settings": "Settings",
     "backoffice": "Backoffice",
     "signOut": "Sign out",
-    "organizations": "Organizations",
-    "createOrganization": "Create organization",
+    "workspaces": "Workspaces",
+    "createWorkspace": "Create workspace",
     "teams": "Teams",
     "roadmap": "Roadmap",
     "goals": "Goals",
@@ -1395,7 +1395,7 @@
       "passwordsDoNotMatch": "Passwords do not match."
     },
     "acceptInvitation": {
-      "title": "Organization Invitation",
+      "title": "Workspace Invitation",
       "signInToAccept": "Continue to sign in or create your account",
       "goHome": "Go to home"
     }
@@ -4540,7 +4540,7 @@
   },
   "analytics": {
     "title": "Analytics",
-    "description": "Organization usage metrics and per-user consumption.",
+    "description": "Workspace usage metrics and per-user consumption.",
     "tabs": {
       "overview": "Overview",
       "byUser": "By User",

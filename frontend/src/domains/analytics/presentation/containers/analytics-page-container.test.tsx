@@ -134,7 +134,7 @@ mock.module("next-intl", () => ({
   useTranslations: () => (key: string) => {
     const labels: Record<string, string> = {
       title: "Analytics",
-      description: "Organization usage metrics and per-user consumption.",
+      description: "Workspace usage metrics and per-user consumption.",
       "kpi.totalMinutes": "Total Minutes",
       "kpi.totalSessions": "Total Sessions",
       "kpi.activeUsers": "Active Users",

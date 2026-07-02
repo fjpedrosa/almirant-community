@@ -8,8 +8,8 @@ import { useActiveTeam } from "@/domains/teams/application/hooks/use-active-team
 const DEBOUNCE_MS = 500;
 
 const viewPreferenceKeys = {
-  byPage: (pageKey: string, organizationId?: string | null) =>
-    ["viewPreferences", pageKey, `org:${organizationId ?? "none"}`] as const,
+  byPage: (pageKey: string, workspaceId?: string | null) =>
+    ["viewPreferences", pageKey, `org:${workspaceId ?? "none"}`] as const,
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -1,7 +1,7 @@
 import { TIER_CONFIGS, type UsageTierInfo, type Tier } from "../../domain/types";
 
 /**
- * Returns the current organization's tier info.
+ * Returns the current workspace's tier info.
  *
  * TODO: Replace with a real API call once a billing/subscription endpoint exists.
  * For now returns the "free" tier from the centralized TIER_CONFIGS.

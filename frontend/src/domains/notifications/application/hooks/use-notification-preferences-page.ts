@@ -9,7 +9,7 @@ const NOTIFICATION_TYPES: NotificationType[] = ["assignment", "comment", "mentio
 const buildDefaultPreference = (type: NotificationType): NotificationPreference => ({
   id: "",
   userId: "",
-  organizationId: "",
+  workspaceId: "",
   notificationType: type,
   inAppEnabled: true,
   emailEnabled: true,
