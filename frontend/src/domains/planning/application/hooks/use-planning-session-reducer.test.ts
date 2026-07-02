@@ -13,9 +13,14 @@ import {
   getReplayDedupBaselineFromMessages,
   shouldShowIdleTimeoutToast,
   stripRetransmittedStreamingChunk,
+  createStreamingReplayDedupeState,
+  primeStreamingReplayDedupe,
+  resetStreamingReplayDedupe,
+  dedupeStreamingReplayChunk,
   INITIAL_STATE,
   type PlanningSessionState,
 } from "./use-planning-session";
+import type { PlanningMessage } from "../../domain/types";
 import type { StreamingBlock } from "@/domains/shared/domain/streaming-block-types";
 import type { AgentLogChunk } from "@/domains/shared/domain/types";
 
@@ -207,6 +212,134 @@ describe("stripRetransmittedStreamingChunk", () => {
         "## Phase 3\n- Scope current constraints\n- Compare trade-offs\n- Validate edge cases\n",
       ),
     ).toBe("- Validate edge cases\n");
+  });
+});
+
+describe("streaming replay dedupe (reconnect baselines)", () => {
+  const buildAssistantMessage = (
+    id: string,
+    content: string,
+    messageType: "stream" | "thinking",
+  ): PlanningMessage => ({
+    id,
+    sessionId: "sess-1",
+    role: "assistant",
+    content,
+    messageType,
+    inputTokens: null,
+    outputTokens: null,
+    metadata: {},
+    createdAt: "2026-01-01T00:00:01Z",
+  });
+
+  const NOW = 1_700_000_000_000;
+
+  it("un baseline obsoleto del turno anterior robaría el prefijo del turno nuevo; el reset de frontera lo evita", () => {
+    const previousTurnText = "## Plan\n- Paso A\n- Paso B\n";
+    const primed = primeStreamingReplayDedupe(
+      [buildAssistantMessage("a-1", previousTurnText, "stream")],
+      NOW,
+    );
+
+    // The next turn legitimately starts with the same section heading.
+    const newTurnChunk = "## Plan\n- Paso A\n- Paso B\n- Paso C (revisado)\n";
+
+    // Hazard documented: with the stale baseline still armed, the new turn's
+    // prefix would be stripped as if it were a retransmission.
+    const stale = dedupeStreamingReplayChunk(primed, "text", newTurnChunk, "", NOW);
+    expect(stale.content).toBe("- Paso C (revisado)\n");
+
+    // Correct behavior: the turn boundary resets the baselines, so the new
+    // turn's content passes through intact (no stripping, no duplication).
+    const afterBoundary = resetStreamingReplayDedupe();
+    const fresh = dedupeStreamingReplayChunk(
+      afterBoundary,
+      "text",
+      newTurnChunk,
+      "",
+      NOW,
+    );
+    expect(fresh.content).toBe(newTurnChunk);
+  });
+
+  it("overlap parcial en replay de reconexión aplica solo el sufijo nuevo y un segundo replay queda vacío", () => {
+    const persisted = "## Alternativas\n- Mantener el flujo\n- Dividir el reducer\n";
+    let state = primeStreamingReplayDedupe(
+      [buildAssistantMessage("a-1", persisted, "stream")],
+      NOW,
+    );
+
+    const replayed =
+      "## Alternativas\n- Mantener el flujo\n- Dividir el reducer\n- Añadir dedupe\n";
+    const first = dedupeStreamingReplayChunk(state, "text", replayed, "", NOW);
+    expect(first.content).toBe("- Añadir dedupe\n");
+    state = first.state;
+
+    // The baseline grew with the applied suffix — replaying the suffix again
+    // yields nothing new.
+    const second = dedupeStreamingReplayChunk(
+      state,
+      "text",
+      "- Añadir dedupe\n",
+      "",
+      NOW,
+    );
+    expect(second.content).toBe("");
+  });
+
+  it("los baselines de text y thinking son independientes", () => {
+    const state = primeStreamingReplayDedupe(
+      [
+        buildAssistantMessage("a-1", "## Texto persistido\n- linea texto\n", "stream"),
+        buildAssistantMessage("a-2", "## Razonamiento previo\n- linea thinking\n", "thinking"),
+      ],
+      NOW,
+    );
+
+    // A replayed thinking chunk dedupes against the thinking baseline only.
+    const thinking = dedupeStreamingReplayChunk(
+      state,
+      "thinking",
+      "## Razonamiento previo\n- linea thinking\n- nueva idea\n",
+      "",
+      NOW,
+    );
+    expect(thinking.content).toBe("- nueva idea\n");
+    // ...and does not mutate the text baseline.
+    expect(thinking.state.textBaseline).toBe(state.textBaseline);
+
+    // A replayed text chunk is unaffected by the thinking baseline.
+    const text = dedupeStreamingReplayChunk(
+      thinking.state,
+      "text",
+      "## Texto persistido\n- linea texto\n- nueva seccion\n",
+      "",
+      NOW,
+    );
+    expect(text.content).toBe("- nueva seccion\n");
+    expect(text.state.thinkingBaseline).toBe(thinking.state.thinkingBaseline);
+  });
+
+  it("fuera de la ventana de dedupe el contenido pasa íntegro", () => {
+    const state = primeStreamingReplayDedupe(
+      [buildAssistantMessage("a-1", "## Contenido previo\n- item\n", "stream")],
+      NOW,
+    );
+
+    const afterWindow = dedupeStreamingReplayChunk(
+      state,
+      "text",
+      "## Contenido previo\n- item\n- extra\n",
+      "",
+      NOW + 60_000,
+    );
+    expect(afterWindow.content).toBe("## Contenido previo\n- item\n- extra\n");
+  });
+
+  it("el estado inicial no dedupea nada (ventana cerrada)", () => {
+    const state = createStreamingReplayDedupeState();
+    const result = dedupeStreamingReplayChunk(state, "text", "Hola", "", NOW);
+    expect(result.content).toBe("Hola");
   });
 });
 

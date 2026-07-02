@@ -624,6 +624,81 @@ export const getReplayDedupBaselineFromMessages = (
   return "";
 };
 
+// --- Reconnect replay dedupe (text/thinking baselines) ---
+
+/** @internal Exported for testing only */
+export interface StreamingReplayDedupeState {
+  /** Baseline for planning:text chunks — last known rendered text content. */
+  textBaseline: string;
+  /** Baseline for planning:thinking chunks — independent from text. */
+  thinkingBaseline: string;
+  /** Epoch ms until which reconnect dedup is applied. 0 = window closed. */
+  dedupeUntil: number;
+}
+
+/** @internal Exported for testing only */
+export const createStreamingReplayDedupeState = (): StreamingReplayDedupeState => ({
+  textBaseline: "",
+  thinkingBaseline: "",
+  dedupeUntil: 0,
+});
+
+/**
+ * Arms the reconnect dedup window from freshly hydrated messages so replayed
+ * planning:text/thinking chunks can be stripped against persisted content.
+ * @internal Exported for testing only
+ */
+export const primeStreamingReplayDedupe = (
+  messages: PlanningMessage[],
+  now: number,
+): StreamingReplayDedupeState => ({
+  textBaseline: getReplayDedupBaselineFromMessages(messages, "stream"),
+  thinkingBaseline: getReplayDedupBaselineFromMessages(messages, "thinking"),
+  dedupeUntil: now + RECENT_RECONNECT_DEDUP_WINDOW_MS,
+});
+
+/**
+ * Clears the baselines and closes the dedup window. MUST run at every turn
+ * boundary (planning:done, planning:response-complete and when the user hands
+ * the turn over): a baseline from a previous turn is stale — it no longer
+ * matches what the next turn streams, so it would either strip a legitimate
+ * prefix or fail to catch a retransmitted chunk (repeated text).
+ * @internal Exported for testing only
+ */
+export const resetStreamingReplayDedupe = (): StreamingReplayDedupeState =>
+  createStreamingReplayDedupeState();
+
+/**
+ * Applies the reconnect dedup to an incoming streaming chunk. Returns the
+ * novel content to render (possibly "" when fully retransmitted) plus the
+ * next dedupe state with the per-kind baseline extended.
+ * @internal Exported for testing only
+ */
+export const dedupeStreamingReplayChunk = (
+  dedupeState: StreamingReplayDedupeState,
+  kind: "text" | "thinking",
+  incomingContent: string,
+  fallbackBaseline: string,
+  now: number,
+): { content: string; state: StreamingReplayDedupeState } => {
+  const baseline =
+    kind === "text" ? dedupeState.textBaseline : dedupeState.thinkingBaseline;
+  const dedupeBase = baseline || fallbackBaseline;
+  const content =
+    now < dedupeState.dedupeUntil
+      ? stripRetransmittedStreamingChunk(dedupeBase, incomingContent)
+      : incomingContent;
+  if (!content) return { content: "", state: dedupeState };
+  const nextBaseline = `${dedupeBase}${content}`;
+  return {
+    content,
+    state:
+      kind === "text"
+        ? { ...dedupeState, textBaseline: nextBaseline }
+        : { ...dedupeState, thinkingBaseline: nextBaseline },
+  };
+};
+
 const parseMessageTimestamp = (value: string | null | undefined): number | null => {
   if (!value) return null;
   const parsed = Date.parse(value);
@@ -2763,23 +2838,14 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
   const streamingContentRef = useRef(state.streamingContent);
   const streamingThinkingContentRef = useRef(state.streamingThinkingContent);
   const messagesRef = useRef(state.messages);
-  const streamingReplayBaselineRef = useRef("");
-  const thinkingReplayBaselineRef = useRef("");
-  const reconnectDedupeUntilRef = useRef(0);
+  const replayDedupeRef = useRef<StreamingReplayDedupeState>(
+    createStreamingReplayDedupeState(),
+  );
   const idleTimeoutToastSessionIdRef = useRef<string | null>(null);
 
   const primeReplayDedupWindow = useCallback((messages: PlanningMessage[]) => {
     messagesRef.current = messages;
-    streamingReplayBaselineRef.current = getReplayDedupBaselineFromMessages(
-      messages,
-      "stream",
-    );
-    thinkingReplayBaselineRef.current = getReplayDedupBaselineFromMessages(
-      messages,
-      "thinking",
-    );
-    reconnectDedupeUntilRef.current =
-      Date.now() + RECENT_RECONNECT_DEDUP_WINDOW_MS;
+    replayDedupeRef.current = primeStreamingReplayDedupe(messages, Date.now());
   }, []);
 
   useEffect(() => {
@@ -2815,17 +2881,15 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
     const handleText = (message: WsServerMessage) => {
       const msg = message as WsServerPlanningText;
       if (!matchesSession(msg.payload.sessionId)) return;
-      const dedupeBase =
-        streamingReplayBaselineRef.current || streamingContentRef.current;
-      const content =
-        Date.now() < reconnectDedupeUntilRef.current
-          ? stripRetransmittedStreamingChunk(
-              dedupeBase,
-              msg.payload.content,
-            )
-          : msg.payload.content;
+      const { content, state: nextTextDedupe } = dedupeStreamingReplayChunk(
+        replayDedupeRef.current,
+        "text",
+        msg.payload.content,
+        streamingContentRef.current,
+        Date.now(),
+      );
+      replayDedupeRef.current = nextTextDedupe;
       if (!content) return;
-      streamingReplayBaselineRef.current = `${dedupeBase}${content}`;
       streamingContentRef.current += content;
       dispatch({ type: "RECEIVE_TEXT", content, sequenceNum: msg.payload.sequenceNum, jobId: msg.payload.jobId });
     };
@@ -2833,17 +2897,15 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
     const handleThinking = (message: WsServerMessage) => {
       const msg = message as WsServerPlanningThinking;
       if (!matchesSession(msg.payload.sessionId)) return;
-      const dedupeBase =
-        thinkingReplayBaselineRef.current || streamingThinkingContentRef.current;
-      const content =
-        Date.now() < reconnectDedupeUntilRef.current
-          ? stripRetransmittedStreamingChunk(
-              dedupeBase,
-              msg.payload.content,
-            )
-          : msg.payload.content;
+      const { content, state: nextThinkingDedupe } = dedupeStreamingReplayChunk(
+        replayDedupeRef.current,
+        "thinking",
+        msg.payload.content,
+        streamingThinkingContentRef.current,
+        Date.now(),
+      );
+      replayDedupeRef.current = nextThinkingDedupe;
       if (!content) return;
-      thinkingReplayBaselineRef.current = `${dedupeBase}${content}`;
       streamingThinkingContentRef.current += content;
       dispatch({ type: "RECEIVE_THINKING", content, sequenceNum: msg.payload.sequenceNum, jobId: msg.payload.jobId });
     };
@@ -2887,6 +2949,9 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
     const handleDone = (message: WsServerMessage) => {
       const msg = message as WsServerPlanningDone;
       if (!matchesSession(msg.payload.sessionId)) return;
+      // Turn boundary: drop the reconnect dedupe baselines — keeping them
+      // armed past planning:done lets a stale baseline mangle the next turn.
+      replayDedupeRef.current = resetStreamingReplayDedupe();
 
       // No separate FLUSH_STREAM dispatch — RECEIVE_DONE handles clearing.
       // Dispatching FLUSH_STREAM first can cause a React useReducer bail-out
@@ -2927,9 +2992,7 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
     const handleResponseComplete = (message: WsServerMessage) => {
       const msg = message as WsServerPlanningResponseComplete;
       if (!matchesSession(msg.payload.sessionId)) return;
-      reconnectDedupeUntilRef.current = 0;
-      streamingReplayBaselineRef.current = "";
-      thinkingReplayBaselineRef.current = "";
+      replayDedupeRef.current = resetStreamingReplayDedupe();
       // Single dispatch — RECEIVE_RESPONSE_COMPLETE clears streaming state
       // itself. A separate FLUSH_STREAM dispatch can bail out (return same
       // state ref) when content is already empty, which in React production
@@ -2947,18 +3010,14 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
     const handleError = (message: WsServerMessage) => {
       const msg = message as WsServerPlanningError;
       if (!matchesSession(msg.payload.sessionId)) return;
-      reconnectDedupeUntilRef.current = 0;
-      streamingReplayBaselineRef.current = "";
-      thinkingReplayBaselineRef.current = "";
+      replayDedupeRef.current = resetStreamingReplayDedupe();
       dispatch({ type: "RECEIVE_ERROR", error: msg.payload.message });
     };
 
     const handleSessionCompleted = (message: WsServerMessage) => {
       const msg = message as WsServerPlanningSessionCompleted;
       if (!matchesSession(msg.payload.sessionId)) return;
-      reconnectDedupeUntilRef.current = 0;
-      streamingReplayBaselineRef.current = "";
-      thinkingReplayBaselineRef.current = "";
+      replayDedupeRef.current = resetStreamingReplayDedupe();
       dispatch({ type: "COMPLETE", result: msg.payload.result });
     };
 
@@ -3237,6 +3296,8 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
       }
       console.info("[planning] startSession: sending planning:start", { sessionId, agentConfig });
 
+      // Turn boundary: stale reconnect baselines must not leak into the new turn.
+      replayDedupeRef.current = resetStreamingReplayDedupe();
       dispatch({ type: "START_STREAMING" });
 
       wsContext.sendMessage({
@@ -3261,6 +3322,8 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
 
       persistAnsweredQuestionId(state.sessionId, questionId);
 
+      // Turn boundary: stale reconnect baselines must not leak into the new turn.
+      replayDedupeRef.current = resetStreamingReplayDedupe();
       // Single dispatch: graduates streaming blocks + adds answer
       // in correct chronological order (no separate ADD_USER_MESSAGE needed)
       dispatch({ type: "ANSWER_QUESTION", questionId, answer });
@@ -3294,6 +3357,8 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
       const trimmedPrompt = prompt.trim();
       if (!trimmedPrompt) return;
 
+      // Turn boundary: stale reconnect baselines must not leak into the new turn.
+      replayDedupeRef.current = resetStreamingReplayDedupe();
       if (state.pendingQuestion) {
         persistAnsweredQuestionId(
           state.sessionId,
