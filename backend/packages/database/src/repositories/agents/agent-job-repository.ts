@@ -755,6 +755,12 @@ export const claimJobs = async (
     //  - gate `runner-implement` / `runner-document` jobs on the estimate being
     //    present (or the job being older than 10 minutes — escape valve so the
     //    queue can never fully stall if the estimator is degraded).
+    // The gate is guarded on two fronts:
+    //  - it is skipped entirely when the estimator is disabled (no active
+    //    effort_estimator_config); otherwise every gated job would wait out the
+    //    10-minute escape when the feature is off.
+    //  - skill_name / prompt_template are NULL-guarded because prompt-only
+    //    (scheduled) jobs leave both NULL, and `NULL NOT IN (...)` = NULL in SQL.
     // The lock clause is narrowed to `FOR UPDATE OF aj SKIP LOCKED` so we only
     // lock `agent_jobs` rows; the estimates table stays unlocked and writers can
     // keep populating it without serializing against the claim path.
@@ -786,8 +792,24 @@ export const claimJobs = async (
             OR aj.workspace_id NOT IN (SELECT workspace_id FROM orgs_at_limit)
           )
           AND (
-            (aj.skill_name NOT IN ('runner-implement', 'runner-document')
-             AND aj.prompt_template NOT IN ('runner-implement', 'runner-document'))
+            -- CRITICAL: skip the estimate gate entirely when the estimator is
+            -- disabled (no active effort_estimator_config — kill-switch or
+            -- degraded estimator). With the estimator off no estimate rows are
+            -- ever written, so gating would make every runner-implement/
+            -- runner-document job wait out the 10-minute escape below — strictly
+            -- worse than not gating at all.
+            NOT EXISTS (
+              SELECT 1 FROM effort_estimator_configs ec WHERE ec.is_active = true
+            )
+            -- NULL-guard skill_name / prompt_template (same pattern as the
+            -- workspace_id guard above): both are NULL for prompt-only /
+            -- scheduled jobs, and in SQL "NULL NOT IN (...)" evaluates to NULL
+            -- (not TRUE), which would collapse the whole OR-chain to NULL and
+            -- silently exclude the row until the 10-minute escape.
+            OR (
+              (aj.skill_name IS NULL OR aj.skill_name NOT IN ('runner-implement', 'runner-document'))
+              AND (aj.prompt_template IS NULL OR aj.prompt_template NOT IN ('runner-implement', 'runner-document'))
+            )
             OR e.id IS NOT NULL
             OR aj.created_at < NOW() - INTERVAL '10 minutes'
           )

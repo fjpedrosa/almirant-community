@@ -188,6 +188,34 @@ describe("claimJobs effort-estimate gating (A-1945)", () => {
     expect(sqlText).toContain("aj.created_at < NOW() - INTERVAL '10 minutes'");
   });
 
+  // CRITICAL 1: skill_name / prompt_template are NULL for prompt-only (scheduled)
+  // jobs. In SQL `NULL NOT IN (...)` evaluates to NULL, not TRUE, so an
+  // un-guarded `skill_name NOT IN (...) AND prompt_template NOT IN (...)` drops
+  // the entire OR-chain to NULL and silently EXCLUDES the row from being claimed
+  // until the 10-minute escape kicks in. The gate must NULL-guard both columns
+  // exactly like the sibling workspace_id guard three lines above.
+  test("NULL-guards skill_name and prompt_template so prompt-only jobs are not gated out", async () => {
+    const sqlText = await getClaimSqlText();
+    expect(sqlText).toContain(
+      "aj.skill_name IS NULL OR aj.skill_name NOT IN ('runner-implement', 'runner-document')",
+    );
+    expect(sqlText).toContain(
+      "aj.prompt_template IS NULL OR aj.prompt_template NOT IN ('runner-implement', 'runner-document')",
+    );
+  });
+
+  // CRITICAL 2: when the estimator is disabled (no active effort_estimator_config,
+  // e.g. kill-switch / degraded estimator) no estimate rows are ever written, so
+  // gating would make every runner-implement/runner-document job wait out the
+  // 10-minute escape — strictly worse than not gating. The gate must be skipped
+  // entirely when no active config exists.
+  test("skips the estimate gate entirely when no active effort_estimator_config exists", async () => {
+    const sqlText = await getClaimSqlText();
+    expect(sqlText).toContain("NOT EXISTS");
+    expect(sqlText).toContain("effort_estimator_configs");
+    expect(sqlText).toContain("is_active = true");
+  });
+
   test("locks only agent_jobs rows (FOR UPDATE OF aj SKIP LOCKED)", async () => {
     const sqlText = await getClaimSqlText();
     expect(sqlText).toContain("FOR UPDATE OF aj SKIP LOCKED");
