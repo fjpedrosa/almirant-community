@@ -21,6 +21,7 @@ import {
   getBugFixAttemptsByFixPrUrl,
   getLatestBugFixAttemptByFeedbackItemId,
   updateBugFixAttempt,
+  markAttemptAsMergedIfActive,
   updateFeedbackItem,
   getFeedbackItemById,
   getFeedbackClusterById,
@@ -621,14 +622,19 @@ export const moveFeedbackBugsToPendingValidationOnPrMerge = async (pr: {
 
   const results = await Promise.allSettled(
     attempts.map(async (attempt) => {
+      // Compare-and-swap: only flip to `merged` from an active status. If a
+      // competing writer (timeout sweeper / job-cancel cascade) already moved
+      // this attempt to a terminal `failed` — e.g. a stale PR merging late —
+      // markAttemptAsMergedIfActive returns null and we skip, rather than
+      // resurrecting a dead attempt and re-triggering cluster resolution.
       const mergedAttempt =
         attempt.status === "merged"
           ? attempt
-          : await updateBugFixAttempt(attempt.id, { status: "merged" });
+          : await markAttemptAsMergedIfActive(attempt.id);
 
       if (!mergedAttempt) {
         logger.warn(
-          `[github-webhook] Could not mark bug-fix attempt ${attempt.id} as merged for PR #${pr.number}`
+          `[github-webhook] Skipped marking bug-fix attempt ${attempt.id} as merged for PR #${pr.number}: attempt is no longer active (already terminal)`
         );
         return null;
       }

@@ -787,6 +787,14 @@ export const markAttemptAsFailed = async (
   reason: string,
   detectedBy: string
 ): Promise<BugFixAttempt | null> => {
+  // Compare-and-swap: only transition attempts that are still active. A
+  // separate reader (failActiveAttemptForCancelledJob, the timeout sweeper, or
+  // an abort service) may have observed the attempt as active moments before,
+  // but a concurrent PR-merge webhook / reconciler could flip it to `merged`
+  // in between. Guarding the UPDATE on the active statuses makes this a no-op
+  // when the row already reached a terminal state (`merged` / `failed`), so a
+  // just-merged attempt is never clobbered back to `failed`. 0 rows updated ⇒
+  // already terminal ⇒ return null.
   const [updated] = await db
     .update(bugFixAttempts)
     .set({
@@ -795,7 +803,12 @@ export const markAttemptAsFailed = async (
       failureDetectedBy: detectedBy,
       updatedAt: new Date(),
     })
-    .where(eq(bugFixAttempts.id, id))
+    .where(
+      and(
+        eq(bugFixAttempts.id, id),
+        inArray(bugFixAttempts.status, [...ACTIVE_STATUSES])
+      )
+    )
     .returning();
 
   if (!updated) return null;
@@ -835,6 +848,41 @@ export const markAttemptAsFailed = async (
   }
 
   return updated;
+};
+
+/**
+ * Compare-and-swap merge write for the PR-merge path. Only flips an attempt to
+ * `merged` when it is still active (`analyzing` / `proposed` / `implementing`).
+ *
+ * This is the symmetric guard to `markAttemptAsFailed`: the PR-merge webhook /
+ * reconciler both SELECT the attempt (via `getBugFixAttemptsByFixPrUrl`) and
+ * then write `merged` in a separate statement. Between the two, a competing
+ * fail write (timeout sweeper, job-cancel cascade) may have moved the attempt
+ * to a terminal `failed` state — e.g. a stale PR from an already-failed attempt
+ * merging late. Guarding the UPDATE on the active statuses prevents that late
+ * merge from resurrecting a dead attempt and re-triggering cluster resolution.
+ *
+ * Returns null when the attempt is no longer active (already `merged` — the
+ * caller short-circuits that case separately — or already `failed`).
+ */
+export const markAttemptAsMergedIfActive = async (
+  id: string
+): Promise<BugFixAttempt | null> => {
+  const [updated] = await db
+    .update(bugFixAttempts)
+    .set({
+      status: "merged",
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(bugFixAttempts.id, id),
+        inArray(bugFixAttempts.status, [...ACTIVE_STATUSES])
+      )
+    )
+    .returning();
+
+  return updated ?? null;
 };
 
 /**

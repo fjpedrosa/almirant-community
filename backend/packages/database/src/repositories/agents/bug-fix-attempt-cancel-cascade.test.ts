@@ -24,6 +24,8 @@ const d = hasDb ? describe : describe.skip;
 d("job-cancel → bug_fix_attempt cascade", () => {
   let db: typeof import("../../client").db;
   let failActiveAttemptForCancelledJob: typeof import("./bug-fix-attempt-repository").failActiveAttemptForCancelledJob;
+  let markAttemptAsFailed: typeof import("./bug-fix-attempt-repository").markAttemptAsFailed;
+  let markAttemptAsMergedIfActive: typeof import("./bug-fix-attempt-repository").markAttemptAsMergedIfActive;
   let cancelJob: typeof import("./agent-job-repository").cancelJob;
   let updateJobStatus: typeof import("./agent-job-repository").updateJobStatus;
   let sql: typeof import("drizzle-orm").sql;
@@ -43,9 +45,11 @@ d("job-cancel → bug_fix_attempt cascade", () => {
   beforeAll(async () => {
     if (!hasDb) return;
     ({ db } = await import("../../client"));
-    ({ failActiveAttemptForCancelledJob } = await import(
-      "./bug-fix-attempt-repository"
-    ));
+    ({
+      failActiveAttemptForCancelledJob,
+      markAttemptAsFailed,
+      markAttemptAsMergedIfActive,
+    } = await import("./bug-fix-attempt-repository"));
     // Cache-busted import: `agent-job-repository.claim-sql.test.ts` runs
     // earlier in the suite and leaves a mock-bound instance of this module
     // in bun's module cache (its afterAll restores the dependency mocks,
@@ -244,6 +248,99 @@ d("job-cancel → bug_fix_attempt cascade", () => {
       await updateJobStatus(jobId, "completed");
 
       expect(await getAttemptStatus(attemptId)).toBe("implementing");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // CRÍTICO 2 — compare-and-swap on the terminal writes. markAttemptAsFailed
+  // must NOT clobber an attempt that has already reached a terminal state
+  // (merged / failed), and the merge write must NOT resurrect a terminal
+  // `failed` attempt. These reproduce the TOCTOU interleaving where a
+  // just-merged PR (webhook or reconciler) races a fail write over the same row.
+  // ---------------------------------------------------------------------------
+  describe("markAttemptAsFailed compare-and-swap", () => {
+    test("fails an active (implementing) attempt and returns the row", async () => {
+      const attemptId = await createAttempt({
+        agentJobId: null,
+        status: "implementing",
+      });
+
+      const updated = await markAttemptAsFailed(attemptId, "boom", "test");
+
+      expect(updated).not.toBeNull();
+      expect(updated!.status).toBe("failed");
+      expect(updated!.failureReason).toBe("boom");
+    });
+
+    test("does NOT clobber an already-merged attempt (returns null, stays merged)", async () => {
+      const attemptId = await createAttempt({
+        agentJobId: null,
+        status: "merged",
+      });
+
+      const result = await markAttemptAsFailed(attemptId, "boom", "test");
+
+      expect(result).toBeNull();
+      expect(await getAttemptStatus(attemptId)).toBe("merged");
+    });
+
+    test("is a no-op on an already-failed attempt (idempotent, returns null)", async () => {
+      const attemptId = await createAttempt({
+        agentJobId: null,
+        status: "failed",
+      });
+
+      const result = await markAttemptAsFailed(attemptId, "boom", "test");
+
+      expect(result).toBeNull();
+      expect(await getAttemptStatus(attemptId)).toBe("failed");
+    });
+
+    test("TOCTOU interleaving: a merge that lands first wins over a later fail", async () => {
+      // Simulate: SELECT saw the attempt active, but a merge webhook committed
+      // `merged` before our fail UPDATE runs. The fail must lose (no-op).
+      const attemptId = await createAttempt({
+        agentJobId: null,
+        status: "implementing",
+      });
+
+      // Merge lands first (the winning write).
+      const merged = await markAttemptAsMergedIfActive(attemptId);
+      expect(merged).not.toBeNull();
+      expect(merged!.status).toBe("merged");
+
+      // Fail arrives second — must not overwrite the merged terminal state.
+      const failed = await markAttemptAsFailed(attemptId, "job_failed", "system");
+      expect(failed).toBeNull();
+      expect(await getAttemptStatus(attemptId)).toBe("merged");
+    });
+  });
+
+  describe("markAttemptAsMergedIfActive compare-and-swap (merge path)", () => {
+    test("merges an active (implementing) attempt", async () => {
+      const attemptId = await createAttempt({
+        agentJobId: null,
+        status: "implementing",
+      });
+
+      const merged = await markAttemptAsMergedIfActive(attemptId);
+
+      expect(merged).not.toBeNull();
+      expect(merged!.status).toBe("merged");
+    });
+
+    test("does NOT resurrect a terminal `failed` attempt (returns null, stays failed)", async () => {
+      // A stale PR from an already-failed attempt merges late: the failed
+      // attempt must not flip back to merged and re-trigger resolution.
+      const attemptId = await createAttempt({
+        agentJobId: null,
+        status: "failed",
+      });
+
+      const result = await markAttemptAsMergedIfActive(attemptId);
+
+      expect(result).toBeNull();
+      expect(await getAttemptStatus(attemptId)).toBe("failed");
     });
   });
 });
