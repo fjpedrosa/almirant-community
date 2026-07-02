@@ -901,8 +901,10 @@ export const markAttemptAsMergedIfActive = async (
  *   - Idempotent: returns `null` when the attempt is already terminal
  *     (`merged` / `failed`) or when the job is not linked to any attempt.
  */
-export const failActiveAttemptForCancelledJob = async (
-  jobId: string
+const failActiveAttemptForTerminalJob = async (
+  jobId: string,
+  reason: string,
+  detectedBy: string
 ): Promise<BugFixAttempt | null> => {
   const [candidate] = await db
     .select({ id: bugFixAttempts.id })
@@ -917,8 +919,28 @@ export const failActiveAttemptForCancelledJob = async (
 
   if (!candidate) return null;
 
-  return markAttemptAsFailed(candidate.id, "job_cancelled", "job_cancel");
+  // markAttemptAsFailed is compare-and-swap guarded, so a race where the
+  // attempt turned terminal between the select above and this write is a no-op.
+  return markAttemptAsFailed(candidate.id, reason, detectedBy);
 };
+
+export const failActiveAttemptForCancelledJob = (
+  jobId: string
+): Promise<BugFixAttempt | null> =>
+  failActiveAttemptForTerminalJob(jobId, "job_cancelled", "job_cancel");
+
+/**
+ * Sibling of `failActiveAttemptForCancelledJob` for the `failed` termination
+ * path. The overwhelming majority of real job terminations are `failed`
+ * (stale-job recovery, the 4h timeout sweep, orchestrator quota/retry-window
+ * exhaustion, the worker POST /status endpoint), so without cascading on
+ * `failed` a linked attempt lingers active ("implementing") indefinitely and
+ * the cluster never reopens for re-triage.
+ */
+export const failActiveAttemptForFailedJob = (
+  jobId: string
+): Promise<BugFixAttempt | null> =>
+  failActiveAttemptForTerminalJob(jobId, "job_failed", "job_failure");
 
 export const getActiveAttemptForCluster = async (
   clusterId: string

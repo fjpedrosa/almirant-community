@@ -24,6 +24,7 @@ const d = hasDb ? describe : describe.skip;
 d("job-cancel → bug_fix_attempt cascade", () => {
   let db: typeof import("../../client").db;
   let failActiveAttemptForCancelledJob: typeof import("./bug-fix-attempt-repository").failActiveAttemptForCancelledJob;
+  let failActiveAttemptForFailedJob: typeof import("./bug-fix-attempt-repository").failActiveAttemptForFailedJob;
   let markAttemptAsFailed: typeof import("./bug-fix-attempt-repository").markAttemptAsFailed;
   let markAttemptAsMergedIfActive: typeof import("./bug-fix-attempt-repository").markAttemptAsMergedIfActive;
   let cancelJob: typeof import("./agent-job-repository").cancelJob;
@@ -47,6 +48,7 @@ d("job-cancel → bug_fix_attempt cascade", () => {
     ({ db } = await import("../../client"));
     ({
       failActiveAttemptForCancelledJob,
+      failActiveAttemptForFailedJob,
       markAttemptAsFailed,
       markAttemptAsMergedIfActive,
     } = await import("./bug-fix-attempt-repository"));
@@ -248,6 +250,71 @@ d("job-cancel → bug_fix_attempt cascade", () => {
       await updateJobStatus(jobId, "completed");
 
       expect(await getAttemptStatus(attemptId)).toBe("implementing");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // CRÍTICO 1(a) — the cascade must also fire when a job terminates in `failed`,
+  // not only `cancelled`. Most real terminations are `failed` (stale-job
+  // recovery, 4h timeout, orchestrator quota/retry-window, worker POST status).
+  // Without this, a bug_fix_attempt whose job dies `failed` stays active
+  // ("implementing") forever and the cluster never reopens.
+  // ---------------------------------------------------------------------------
+  describe("cascade on job failure", () => {
+    test("failActiveAttemptForFailedJob marks an active attempt failed with a failure reason", async () => {
+      const jobId = await createJob();
+      const attemptId = await createAttempt({
+        agentJobId: jobId,
+        status: "implementing",
+      });
+
+      const updated = await failActiveAttemptForFailedJob(jobId);
+
+      expect(updated).not.toBeNull();
+      expect(updated!.id).toBe(attemptId);
+      expect(updated!.status).toBe("failed");
+      expect(updated!.failureReason).toBe("job_failed");
+      expect(updated!.failureDetectedBy).toBe("job_failure");
+    });
+
+    test("failActiveAttemptForFailedJob is idempotent against already-terminal attempts", async () => {
+      const jobId = await createJob();
+      await createAttempt({ agentJobId: jobId, status: "merged" });
+
+      const result = await failActiveAttemptForFailedJob(jobId);
+
+      expect(result).toBeNull();
+    });
+
+    test("updateJobStatus(status: 'failed') cascades to the linked active attempt", async () => {
+      const jobId = await createJob("running");
+      const attemptId = await createAttempt({
+        agentJobId: jobId,
+        status: "analyzing",
+      });
+
+      const updated = await updateJobStatus(jobId, "failed", {
+        errorType: "worker-crash",
+        errorMessage: "boom",
+      });
+
+      expect(updated).not.toBeNull();
+      expect(updated!.status).toBe("failed");
+      expect(await getAttemptStatus(attemptId)).toBe("failed");
+    });
+
+    test("updateJobStatus(status: 'failed') does NOT clobber an already-merged attempt", async () => {
+      // A PR merged the attempt just before the job was marked failed; the
+      // cascade goes through the compare-and-swap and must leave `merged`.
+      const jobId = await createJob("running");
+      const attemptId = await createAttempt({
+        agentJobId: jobId,
+        status: "merged",
+      });
+
+      await updateJobStatus(jobId, "failed", { errorType: "timeout" });
+
+      expect(await getAttemptStatus(attemptId)).toBe("merged");
     });
   });
 
