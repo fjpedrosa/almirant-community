@@ -528,6 +528,88 @@ describe("createSseCanonicalAdapter", () => {
     }
   });
 
+  it("emite spawn de fallback en content_block_stop cuando el enrichment nunca llega", () => {
+    const adapter = createSseCanonicalAdapter();
+
+    // content_block_start: initial delta only carries {name, id} — poor data,
+    // no early spawn yet (avoids the confusing "Agent" flash).
+    const startEvents = adapter.processEvent(
+      createSseEvent("message.part.delta", {
+        partType: "tool_use",
+        delta: JSON.stringify({ name: "Agent", id: "agent-oom-1" }),
+      }),
+    );
+    expect(startEvents.filter((e) => e.kind === "agent.tool_call.start")).toHaveLength(1);
+    expect(startEvents.filter((e) => e.kind === "agent.subagent.spawn")).toHaveLength(0);
+
+    // content_block_stop: the shim re-emits the full tool JSON with an "input"
+    // key, but the input is empty (OOM/stream cut — input_json_delta never
+    // accumulated). This is the LAST reliable signal for this tool call, so a
+    // minimal fallback spawn must be emitted here instead of omitting it.
+    const stopEvents = adapter.processEvent(
+      createSseEvent("message.part.delta", {
+        partType: "tool_use",
+        delta: JSON.stringify({ name: "Agent", id: "agent-oom-1", input: {} }),
+      }),
+    );
+    const spawns = stopEvents.filter((e) => e.kind === "agent.subagent.spawn");
+    expect(spawns).toHaveLength(1);
+    expect(spawns[0]).toMatchObject({
+      subagentId: "agent-oom-1",
+      isBackground: false,
+    });
+    // tool_call.start stays unique per toolCallId — no duplicate on the stop delta
+    expect(stopEvents.filter((e) => e.kind === "agent.tool_call.start")).toHaveLength(0);
+  });
+
+  it("delta enriquecido emite exactamente 1 spawn y la re-emisión es idempotente con el mismo subagentId", () => {
+    const adapter = createSseCanonicalAdapter();
+
+    // Poor initial delta → no early spawn
+    const startEvents = adapter.processEvent(
+      createSseEvent("message.part.delta", {
+        partType: "tool_use",
+        delta: JSON.stringify({ name: "Task", id: "task-rich-1" }),
+      }),
+    );
+    expect(startEvents.filter((e) => e.kind === "agent.subagent.spawn")).toHaveLength(0);
+
+    // Enriched delta (content_block_stop with full input) → exactly 1 spawn
+    const enrichedEvents = adapter.processEvent(
+      createSseEvent("message.part.delta", {
+        partType: "tool_use",
+        delta: JSON.stringify({
+          name: "Task",
+          id: "task-rich-1",
+          input: {
+            description: "Explorar el runner",
+            subagent_type: "backend-architect",
+          },
+        }),
+      }),
+    );
+    const enrichedSpawns = enrichedEvents.filter((e) => e.kind === "agent.subagent.spawn");
+    expect(enrichedSpawns).toHaveLength(1);
+    expect(enrichedSpawns[0]).toMatchObject({
+      subagentId: "task-rich-1",
+      description: "Explorar el runner",
+      subagentType: "backend-architect",
+    });
+
+    // Flush (transition to text) re-emits the spawn with the SAME subagentId —
+    // the frontend deduplicates by subagentId and just updates the block.
+    const flushEvents = adapter.processEvent(
+      createSseEvent("message.part.delta", {
+        partType: "text",
+        delta: "listo",
+      }),
+    );
+    const reEmittedSpawns = flushEvents.filter((e) => e.kind === "agent.subagent.spawn");
+    for (const spawn of reEmittedSpawns) {
+      expect(spawn).toMatchObject({ subagentId: "task-rich-1" });
+    }
+  });
+
   it("marca errores recoverable aunque el tool_use pendiente no llegue a emitirse", () => {
     const adapter = createSseCanonicalAdapter();
     adapter.processEvent(

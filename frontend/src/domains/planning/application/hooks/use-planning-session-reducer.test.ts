@@ -13,9 +13,14 @@ import {
   getReplayDedupBaselineFromMessages,
   shouldShowIdleTimeoutToast,
   stripRetransmittedStreamingChunk,
+  createStreamingReplayDedupeState,
+  primeStreamingReplayDedupe,
+  resetStreamingReplayDedupe,
+  dedupeStreamingReplayChunk,
   INITIAL_STATE,
   type PlanningSessionState,
 } from "./use-planning-session";
+import type { PlanningMessage } from "../../domain/types";
 import type { StreamingBlock } from "@/domains/shared/domain/streaming-block-types";
 import type { AgentLogChunk } from "@/domains/shared/domain/types";
 
@@ -207,6 +212,134 @@ describe("stripRetransmittedStreamingChunk", () => {
         "## Phase 3\n- Scope current constraints\n- Compare trade-offs\n- Validate edge cases\n",
       ),
     ).toBe("- Validate edge cases\n");
+  });
+});
+
+describe("streaming replay dedupe (reconnect baselines)", () => {
+  const buildAssistantMessage = (
+    id: string,
+    content: string,
+    messageType: "stream" | "thinking",
+  ): PlanningMessage => ({
+    id,
+    sessionId: "sess-1",
+    role: "assistant",
+    content,
+    messageType,
+    inputTokens: null,
+    outputTokens: null,
+    metadata: {},
+    createdAt: "2026-01-01T00:00:01Z",
+  });
+
+  const NOW = 1_700_000_000_000;
+
+  it("un baseline obsoleto del turno anterior robaría el prefijo del turno nuevo; el reset de frontera lo evita", () => {
+    const previousTurnText = "## Plan\n- Paso A\n- Paso B\n";
+    const primed = primeStreamingReplayDedupe(
+      [buildAssistantMessage("a-1", previousTurnText, "stream")],
+      NOW,
+    );
+
+    // The next turn legitimately starts with the same section heading.
+    const newTurnChunk = "## Plan\n- Paso A\n- Paso B\n- Paso C (revisado)\n";
+
+    // Hazard documented: with the stale baseline still armed, the new turn's
+    // prefix would be stripped as if it were a retransmission.
+    const stale = dedupeStreamingReplayChunk(primed, "text", newTurnChunk, "", NOW);
+    expect(stale.content).toBe("- Paso C (revisado)\n");
+
+    // Correct behavior: the turn boundary resets the baselines, so the new
+    // turn's content passes through intact (no stripping, no duplication).
+    const afterBoundary = resetStreamingReplayDedupe();
+    const fresh = dedupeStreamingReplayChunk(
+      afterBoundary,
+      "text",
+      newTurnChunk,
+      "",
+      NOW,
+    );
+    expect(fresh.content).toBe(newTurnChunk);
+  });
+
+  it("overlap parcial en replay de reconexión aplica solo el sufijo nuevo y un segundo replay queda vacío", () => {
+    const persisted = "## Alternativas\n- Mantener el flujo\n- Dividir el reducer\n";
+    let state = primeStreamingReplayDedupe(
+      [buildAssistantMessage("a-1", persisted, "stream")],
+      NOW,
+    );
+
+    const replayed =
+      "## Alternativas\n- Mantener el flujo\n- Dividir el reducer\n- Añadir dedupe\n";
+    const first = dedupeStreamingReplayChunk(state, "text", replayed, "", NOW);
+    expect(first.content).toBe("- Añadir dedupe\n");
+    state = first.state;
+
+    // The baseline grew with the applied suffix — replaying the suffix again
+    // yields nothing new.
+    const second = dedupeStreamingReplayChunk(
+      state,
+      "text",
+      "- Añadir dedupe\n",
+      "",
+      NOW,
+    );
+    expect(second.content).toBe("");
+  });
+
+  it("los baselines de text y thinking son independientes", () => {
+    const state = primeStreamingReplayDedupe(
+      [
+        buildAssistantMessage("a-1", "## Texto persistido\n- linea texto\n", "stream"),
+        buildAssistantMessage("a-2", "## Razonamiento previo\n- linea thinking\n", "thinking"),
+      ],
+      NOW,
+    );
+
+    // A replayed thinking chunk dedupes against the thinking baseline only.
+    const thinking = dedupeStreamingReplayChunk(
+      state,
+      "thinking",
+      "## Razonamiento previo\n- linea thinking\n- nueva idea\n",
+      "",
+      NOW,
+    );
+    expect(thinking.content).toBe("- nueva idea\n");
+    // ...and does not mutate the text baseline.
+    expect(thinking.state.textBaseline).toBe(state.textBaseline);
+
+    // A replayed text chunk is unaffected by the thinking baseline.
+    const text = dedupeStreamingReplayChunk(
+      thinking.state,
+      "text",
+      "## Texto persistido\n- linea texto\n- nueva seccion\n",
+      "",
+      NOW,
+    );
+    expect(text.content).toBe("- nueva seccion\n");
+    expect(text.state.thinkingBaseline).toBe(thinking.state.thinkingBaseline);
+  });
+
+  it("fuera de la ventana de dedupe el contenido pasa íntegro", () => {
+    const state = primeStreamingReplayDedupe(
+      [buildAssistantMessage("a-1", "## Contenido previo\n- item\n", "stream")],
+      NOW,
+    );
+
+    const afterWindow = dedupeStreamingReplayChunk(
+      state,
+      "text",
+      "## Contenido previo\n- item\n- extra\n",
+      "",
+      NOW + 60_000,
+    );
+    expect(afterWindow.content).toBe("## Contenido previo\n- item\n- extra\n");
+  });
+
+  it("el estado inicial no dedupea nada (ventana cerrada)", () => {
+    const state = createStreamingReplayDedupeState();
+    const result = dedupeStreamingReplayChunk(state, "text", "Hola", "", NOW);
+    expect(result.content).toBe("Hola");
   });
 });
 
@@ -763,6 +896,30 @@ describe("START_STREAMING after response complete", () => {
       (m) => m.role === "assistant" && m.messageType === "thinking",
     );
     expect(thinkingMsgs).toHaveLength(1);
+  });
+
+  it("preserva los bloques thinking al cruzar de turno cuando RECEIVE_RESPONSE_COMPLETE no llegó antes", () => {
+    // Simulate: the previous turn's response-complete was lost (WS drop) and
+    // the user starts a new turn directly — streamingBlocks still hold the
+    // previous turn's thinking/text blocks.
+    let state = buildStreamingDoneState({ phase: "chatting" });
+
+    state = planningReducer(state, { type: "START_STREAMING" });
+
+    // The previous turn's blocks must graduate to completedTurnBlocks —
+    // including thinking, which would otherwise disappear from the timeline.
+    expect(state.streamingBlocks).toEqual([]);
+    expect(state.completedTurnBlocks).toHaveLength(1);
+
+    const graduated = state.completedTurnBlocks[0];
+    const thinkingBlocks = graduated.filter((b) => b.type === "thinking");
+    expect(thinkingBlocks).toHaveLength(1);
+    // Chronological order preserved: thinking was the first block of the turn
+    expect(graduated[0].type).toBe("thinking");
+    // The rest of the persistent blocks survive too
+    expect(graduated.filter((b) => b.type === "text")).toHaveLength(2);
+    expect(graduated.filter((b) => b.type === "tool_call")).toHaveLength(1);
+    expect(graduated.filter((b) => b.type === "subagent")).toHaveLength(1);
   });
 });
 
@@ -2238,6 +2395,104 @@ describe("Sequence dedup in reducer", () => {
     expect(state.lastSeenSequenceNum).toBe(0);
   });
 
+  it("descarta la retransmisión del run anterior tras START_STREAMING cuando el job no cambió", () => {
+    let state: PlanningSessionState = {
+      ...INITIAL_STATE,
+      phase: "booting",
+      sessionId: "sess-job-boundary",
+    };
+
+    // Turn 1: events from job-1 advance the per-job sequence
+    state = planningReducer(state, {
+      type: "RECEIVE_TEXT",
+      content: "First turn",
+      sequenceNum: 41,
+      jobId: "job-1",
+    });
+    state = planningReducer(state, {
+      type: "RECEIVE_TEXT",
+      content: " tail",
+      sequenceNum: 42,
+      jobId: "job-1",
+    });
+    expect(state.streamingContent).toBe("First turn tail");
+
+    // Turn boundary: response complete + new prompt
+    state = planningReducer(state, { type: "RECEIVE_RESPONSE_COMPLETE" });
+    state = planningReducer(state, { type: "ADD_USER_MESSAGE", content: "Next" });
+    state = planningReducer(state, { type: "START_STREAMING" });
+    expect(state.lastSeenSequenceNum).toBe(-1);
+
+    // A WS replay retransmits an old event of the same job — must be ignored
+    // even though lastSeenSequenceNum was reset for the new turn.
+    state = planningReducer(state, {
+      type: "RECEIVE_TEXT",
+      content: "First turn tail",
+      sequenceNum: 42,
+      jobId: "job-1",
+    });
+    expect(state.streamingContent).toBe("");
+
+    // The same job continuing into the new turn (higher seq) is accepted
+    state = planningReducer(state, {
+      type: "RECEIVE_TEXT",
+      content: "Second turn",
+      sequenceNum: 43,
+      jobId: "job-1",
+    });
+    expect(state.streamingContent).toBe("Second turn");
+    expect(state.lastSeenSequenceNum).toBe(43);
+  });
+
+  it("acepta un run nuevo que reinicia la numeración en seq 0 y sigue descartando el run viejo", () => {
+    let state: PlanningSessionState = {
+      ...INITIAL_STATE,
+      phase: "booting",
+      sessionId: "sess-new-run",
+    };
+
+    state = planningReducer(state, {
+      type: "RECEIVE_TEXT",
+      content: "Old run",
+      sequenceNum: 42,
+      jobId: "job-1",
+    });
+    expect(state.streamingContent).toBe("Old run");
+
+    state = planningReducer(state, { type: "RECEIVE_RESPONSE_COMPLETE" });
+    state = planningReducer(state, { type: "ADD_USER_MESSAGE", content: "Next" });
+    state = planningReducer(state, { type: "START_STREAMING" });
+
+    // New job legitimately restarts the per-job numbering at 0 → accepted
+    state = planningReducer(state, {
+      type: "RECEIVE_TEXT",
+      content: "New run",
+      sequenceNum: 0,
+      jobId: "job-2",
+    });
+    expect(state.streamingContent).toBe("New run");
+    expect(state.lastSeenSequenceNum).toBe(0);
+
+    // A late retransmission from the previous run must still be dropped
+    state = planningReducer(state, {
+      type: "RECEIVE_TEXT",
+      content: "Old run replayed",
+      sequenceNum: 40,
+      jobId: "job-1",
+    });
+    expect(state.streamingContent).toBe("New run");
+    expect(state.lastSeenSequenceNum).toBe(0);
+
+    // The new run keeps streaming normally
+    state = planningReducer(state, {
+      type: "RECEIVE_TEXT",
+      content: " continues",
+      sequenceNum: 1,
+      jobId: "job-2",
+    });
+    expect(state.streamingContent).toBe("New run continues");
+  });
+
   it("applies dedup to RECEIVE_THINKING as well", () => {
     let state: PlanningSessionState = {
       ...INITIAL_STATE,
@@ -2288,6 +2543,53 @@ describe("Sequence dedup in reducer", () => {
     });
     expect(state.streamingBlocks).toHaveLength(1);
     expect(state.lastSeenSequenceNum).toBe(5);
+  });
+
+  it("RECEIVE_SUBAGENT_SPAWN deduplica por subagentId y enriquece el bloque existente", () => {
+    let state: PlanningSessionState = {
+      ...INITIAL_STATE,
+      phase: "streaming",
+      sessionId: "sess-subagent-dedup",
+    };
+
+    // Fallback spawn with minimal data (e.g. enrichment never arrived)
+    state = planningReducer(state, {
+      type: "RECEIVE_SUBAGENT_SPAWN",
+      subagentId: "sa-1",
+      description: "Agent",
+      isBackground: false,
+      sequenceNum: 0,
+    });
+    expect(state.streamingBlocks).toHaveLength(1);
+
+    // Idempotent re-emission with the same subagentId (enriched data) —
+    // must UPDATE the existing block, never create a duplicate.
+    state = planningReducer(state, {
+      type: "RECEIVE_SUBAGENT_SPAWN",
+      subagentId: "sa-1",
+      description: "Explorar el runner",
+      isBackground: false,
+      subagentType: "backend-architect",
+      sequenceNum: 1,
+    });
+    expect(state.streamingBlocks).toHaveLength(1);
+    const block = state.streamingBlocks[0];
+    expect(block.type).toBe("subagent");
+    if (block.type === "subagent") {
+      expect(block.subagentId).toBe("sa-1");
+      expect(block.description).toBe("Explorar el runner");
+      expect(block.subagentType).toBe("backend-architect");
+    }
+
+    // A different subagentId does create a second block
+    state = planningReducer(state, {
+      type: "RECEIVE_SUBAGENT_SPAWN",
+      subagentId: "sa-2",
+      description: "Otro agente",
+      isBackground: true,
+      sequenceNum: 2,
+    });
+    expect(state.streamingBlocks).toHaveLength(2);
   });
 
   it("dedup works across mixed event types sharing the same sequence space", () => {

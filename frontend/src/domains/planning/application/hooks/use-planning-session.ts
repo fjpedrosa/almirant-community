@@ -351,6 +351,12 @@ export interface PlanningSessionState {
   answeredQuestionSignatures: string[];
   /** Highest sequenceNum seen from WS events — used to drop duplicates/out-of-order. */
   lastSeenSequenceNum: number;
+  /** JobId of the run currently streaming events (adopted from the first sequenced event). */
+  activeStreamJobId: string | null;
+  /** JobId that was streaming before the current turn started — used to drop late retransmissions. */
+  staleStreamJobId: string | null;
+  /** High-water sequenceNum of the stale run, recorded at the turn boundary. */
+  staleStreamSequenceNum: number;
 }
 
 // --- Valid phase transitions ---
@@ -397,9 +403,9 @@ const canTransition = (from: PlanningPhase, to: PlanningPhase): boolean => {
 type PlanningAction =
   | { type: "SET_SESSION"; session: PlanningSession }
   | { type: "START_STREAMING" }
-  | { type: "RECEIVE_TEXT"; content: string; sequenceNum?: number }
-  | { type: "RECEIVE_THINKING"; content: string; sequenceNum?: number }
-  | { type: "RECEIVE_STEP"; stepName: string; stepIndex: number; sequenceNum?: number }
+  | { type: "RECEIVE_TEXT"; content: string; sequenceNum?: number; jobId?: string }
+  | { type: "RECEIVE_THINKING"; content: string; sequenceNum?: number; jobId?: string }
+  | { type: "RECEIVE_STEP"; stepName: string; stepIndex: number; sequenceNum?: number; jobId?: string }
   | {
       type: "RECEIVE_QUESTION";
       questionId: string;
@@ -425,13 +431,13 @@ type PlanningAction =
       successCount: number;
       totalCount: number;
     }
-  | { type: "RECEIVE_TOOL_CALL_START"; toolCallId: string; toolName: string; inputPreview?: string; sequenceNum?: number }
-  | { type: "RECEIVE_TOOL_CALL_RESULT"; toolCallId: string; success: boolean; sequenceNum?: number }
-  | { type: "RECEIVE_FILE_READ"; filePath: string; lineRange?: string; sequenceNum?: number }
-  | { type: "RECEIVE_FILE_CHANGE"; filePath: string; operation: "write" | "edit"; sequenceNum?: number }
-  | { type: "RECEIVE_BASH_EXECUTE"; command: string; description?: string; sequenceNum?: number }
-  | { type: "RECEIVE_SUBAGENT_SPAWN"; subagentId: string; description: string; isBackground: boolean; subagentType?: string; sequenceNum?: number }
-  | { type: "RECEIVE_SUBAGENT_COMPLETE"; subagentId: string; success: boolean; sequenceNum?: number }
+  | { type: "RECEIVE_TOOL_CALL_START"; toolCallId: string; toolName: string; inputPreview?: string; sequenceNum?: number; jobId?: string }
+  | { type: "RECEIVE_TOOL_CALL_RESULT"; toolCallId: string; success: boolean; sequenceNum?: number; jobId?: string }
+  | { type: "RECEIVE_FILE_READ"; filePath: string; lineRange?: string; sequenceNum?: number; jobId?: string }
+  | { type: "RECEIVE_FILE_CHANGE"; filePath: string; operation: "write" | "edit"; sequenceNum?: number; jobId?: string }
+  | { type: "RECEIVE_BASH_EXECUTE"; command: string; description?: string; sequenceNum?: number; jobId?: string }
+  | { type: "RECEIVE_SUBAGENT_SPAWN"; subagentId: string; description: string; isBackground: boolean; subagentType?: string; sequenceNum?: number; jobId?: string }
+  | { type: "RECEIVE_SUBAGENT_COMPLETE"; subagentId: string; success: boolean; sequenceNum?: number; jobId?: string }
   | { type: "RECEIVE_TOKEN_USAGE"; inputTokens: number; outputTokens: number; totalInput?: number; totalOutput?: number; model?: string }
   | { type: "RECEIVE_DONE"; generatedItems: GeneratedWorkItem[]; summary?: string }
   | { type: "RECEIVE_RESPONSE_COMPLETE"; summary?: string; requiresFollowUp?: boolean; followUpPrompt?: string; expiresAt?: string | null }
@@ -516,6 +522,9 @@ export const INITIAL_STATE: PlanningSessionState = {
   answeredQuestionIds: [],
   answeredQuestionSignatures: [],
   lastSeenSequenceNum: -1,
+  activeStreamJobId: null,
+  staleStreamJobId: null,
+  staleStreamSequenceNum: -1,
 };
 
 const RECENT_RECONNECT_DEDUP_WINDOW_MS = 15_000;
@@ -613,6 +622,81 @@ export const getReplayDedupBaselineFromMessages = (
   }
 
   return "";
+};
+
+// --- Reconnect replay dedupe (text/thinking baselines) ---
+
+/** @internal Exported for testing only */
+export interface StreamingReplayDedupeState {
+  /** Baseline for planning:text chunks — last known rendered text content. */
+  textBaseline: string;
+  /** Baseline for planning:thinking chunks — independent from text. */
+  thinkingBaseline: string;
+  /** Epoch ms until which reconnect dedup is applied. 0 = window closed. */
+  dedupeUntil: number;
+}
+
+/** @internal Exported for testing only */
+export const createStreamingReplayDedupeState = (): StreamingReplayDedupeState => ({
+  textBaseline: "",
+  thinkingBaseline: "",
+  dedupeUntil: 0,
+});
+
+/**
+ * Arms the reconnect dedup window from freshly hydrated messages so replayed
+ * planning:text/thinking chunks can be stripped against persisted content.
+ * @internal Exported for testing only
+ */
+export const primeStreamingReplayDedupe = (
+  messages: PlanningMessage[],
+  now: number,
+): StreamingReplayDedupeState => ({
+  textBaseline: getReplayDedupBaselineFromMessages(messages, "stream"),
+  thinkingBaseline: getReplayDedupBaselineFromMessages(messages, "thinking"),
+  dedupeUntil: now + RECENT_RECONNECT_DEDUP_WINDOW_MS,
+});
+
+/**
+ * Clears the baselines and closes the dedup window. MUST run at every turn
+ * boundary (planning:done, planning:response-complete and when the user hands
+ * the turn over): a baseline from a previous turn is stale — it no longer
+ * matches what the next turn streams, so it would either strip a legitimate
+ * prefix or fail to catch a retransmitted chunk (repeated text).
+ * @internal Exported for testing only
+ */
+export const resetStreamingReplayDedupe = (): StreamingReplayDedupeState =>
+  createStreamingReplayDedupeState();
+
+/**
+ * Applies the reconnect dedup to an incoming streaming chunk. Returns the
+ * novel content to render (possibly "" when fully retransmitted) plus the
+ * next dedupe state with the per-kind baseline extended.
+ * @internal Exported for testing only
+ */
+export const dedupeStreamingReplayChunk = (
+  dedupeState: StreamingReplayDedupeState,
+  kind: "text" | "thinking",
+  incomingContent: string,
+  fallbackBaseline: string,
+  now: number,
+): { content: string; state: StreamingReplayDedupeState } => {
+  const baseline =
+    kind === "text" ? dedupeState.textBaseline : dedupeState.thinkingBaseline;
+  const dedupeBase = baseline || fallbackBaseline;
+  const content =
+    now < dedupeState.dedupeUntil
+      ? stripRetransmittedStreamingChunk(dedupeBase, incomingContent)
+      : incomingContent;
+  if (!content) return { content: "", state: dedupeState };
+  const nextBaseline = `${dedupeBase}${content}`;
+  return {
+    content,
+    state:
+      kind === "text"
+        ? { ...dedupeState, textBaseline: nextBaseline }
+        : { ...dedupeState, thinkingBaseline: nextBaseline },
+  };
 };
 
 const parseMessageTimestamp = (value: string | null | undefined): number | null => {
@@ -907,29 +991,78 @@ const stripDeferredQuestionFromStreamingBlocks = (
 
 // --- Sequence dedup guard ---
 
-/**
- * Checks whether a streaming action should be skipped due to duplicate or
- * out-of-order sequenceNum. Returns `true` when the event is a regression.
- * If the sequenceNum is absent (backward compat), the event is always accepted.
- */
-const isSequenceRegression = (
-  state: PlanningSessionState,
-  sequenceNum: number | undefined,
-): boolean => {
-  if (sequenceNum === undefined || sequenceNum === null) return false;
-  return sequenceNum <= state.lastSeenSequenceNum;
-};
+type SequenceGateResult =
+  | { accepted: false }
+  | {
+      accepted: true;
+      lastSeenSequenceNum: number;
+      activeStreamJobId: string | null;
+    };
 
 /**
- * Advances the high-water mark if the incoming sequenceNum is higher.
- * Returns the new value for lastSeenSequenceNum.
+ * Decides whether a sequenced streaming event should be applied.
+ *
+ * The web-bridge numbers sequences PER JOB, so a new job legitimately restarts
+ * at 0 while START_STREAMING resets the turn-local high-water mark. To keep
+ * both semantics safe the protection is scoped by job boundary:
+ * - same job as the active run → monotonic sequenceNum check;
+ * - job that was active before the turn boundary → retransmissions at or
+ *   below the mark recorded at START_STREAMING are dropped; higher numbers
+ *   mean the same job keeps streaming into the new turn and are adopted;
+ * - unknown job → new run, adopted from any sequenceNum (per-job restart);
+ * - no jobId or no sequenceNum → legacy behavior (turn-local check only).
  */
-const advanceSequenceNum = (
+const gateSequencedStreamEvent = (
   state: PlanningSessionState,
   sequenceNum: number | undefined,
-): number => {
-  if (sequenceNum === undefined || sequenceNum === null) return state.lastSeenSequenceNum;
-  return Math.max(state.lastSeenSequenceNum, sequenceNum);
+  jobId: string | undefined,
+): SequenceGateResult => {
+  // No sequenceNum (backward compat): always accepted, nothing advances.
+  if (sequenceNum === undefined || sequenceNum === null) {
+    return {
+      accepted: true,
+      lastSeenSequenceNum: state.lastSeenSequenceNum,
+      activeStreamJobId: state.activeStreamJobId,
+    };
+  }
+
+  // No jobId (legacy web-bridge payloads): turn-local high-water mark check.
+  if (!jobId) {
+    if (sequenceNum <= state.lastSeenSequenceNum) return { accepted: false };
+    return {
+      accepted: true,
+      lastSeenSequenceNum: sequenceNum,
+      activeStreamJobId: state.activeStreamJobId,
+    };
+  }
+
+  if (jobId === state.activeStreamJobId) {
+    if (sequenceNum <= state.lastSeenSequenceNum) return { accepted: false };
+    return {
+      accepted: true,
+      lastSeenSequenceNum: sequenceNum,
+      activeStreamJobId: jobId,
+    };
+  }
+
+  if (jobId === state.staleStreamJobId) {
+    // Retransmission of the run that was active before the turn boundary.
+    if (sequenceNum <= state.staleStreamSequenceNum) return { accepted: false };
+    // The old run only continues into the new turn while no other job took over.
+    if (state.activeStreamJobId !== null) return { accepted: false };
+    return {
+      accepted: true,
+      lastSeenSequenceNum: sequenceNum,
+      activeStreamJobId: jobId,
+    };
+  }
+
+  // New job: per-job numbering legitimately restarts at 0 → adopt it.
+  return {
+    accepted: true,
+    lastSeenSequenceNum: sequenceNum,
+    activeStreamJobId: jobId,
+  };
 };
 
 // --- Reducer ---
@@ -953,8 +1086,11 @@ export const planningReducer = (
       if (!canTransition(state.phase, "booting")) {
         return state;
       }
-      // Graduate previous turn's persistent blocks before clearing
-      const persistentTypes = new Set(["text", "tool_call", "subagent", "file_read", "file_change", "bash"]);
+      // Graduate previous turn's persistent blocks before clearing.
+      // "thinking" is included: when RECEIVE_RESPONSE_COMPLETE never arrived
+      // (e.g. lost over a WS drop) the thinking blocks were not graduated to
+      // messages yet, and dropping them here would erase them from the timeline.
+      const persistentTypes = new Set(["thinking", "text", "tool_call", "subagent", "file_read", "file_change", "bash"]);
       const prevPersistent = state.streamingBlocks.filter((b) => persistentTypes.has(b.type));
       const nextCompleted = prevPersistent.length > 0
         ? [...state.completedTurnBlocks, prevPersistent]
@@ -984,16 +1120,26 @@ export const planningReducer = (
         pendingFollowUp: false,
         followUpPrompt: null,
         processingStartedAt: Date.now(),
+        // The reset stays (a new job restarts numbering at 0), but the previous
+        // run's job + high-water mark are recorded so its retransmissions can
+        // still be detected after the boundary (see gateSequencedStreamEvent).
         lastSeenSequenceNum: -1,
+        activeStreamJobId: null,
+        staleStreamJobId: state.activeStreamJobId ?? state.staleStreamJobId,
+        staleStreamSequenceNum:
+          state.activeStreamJobId !== null
+            ? state.lastSeenSequenceNum
+            : state.staleStreamSequenceNum,
       };
     }
 
     case "RECEIVE_TEXT": {
       // Ignore streaming data after cancel or pause
       if (state.phase === "idle" || state.phase === "paused") return state;
-      // Drop duplicate or out-of-order events based on sequenceNum
-      if (isSequenceRegression(state, action.sequenceNum)) return state;
-      const nextSeqText = advanceSequenceNum(state, action.sequenceNum);
+      // Drop duplicate or out-of-order events based on jobId + sequenceNum
+      const gateText = gateSequencedStreamEvent(state, action.sequenceNum, action.jobId);
+      if (!gateText.accepted) return state;
+      const nextSeqText = gateText.lastSeenSequenceNum;
       const nextStreamingContent = stripLegacyPlanningControlTokens(
         state.streamingContent + action.content,
       );
@@ -1034,6 +1180,7 @@ export const planningReducer = (
           ...state,
           messages: deliveredMsgsText,
           lastSeenSequenceNum: nextSeqText,
+          activeStreamJobId: gateText.activeStreamJobId,
         };
       }
       // On first text chunk during resuming, transition to streaming and clear resumeStep
@@ -1046,6 +1193,7 @@ export const planningReducer = (
           streamingContent: nextStreamingContent,
           streamingBlocks: updatedTextBlocks,
           lastSeenSequenceNum: nextSeqText,
+          activeStreamJobId: gateText.activeStreamJobId,
         };
       }
       // On first text chunk during booting/thinking/chatting, transition to streaming.
@@ -1069,6 +1217,7 @@ export const planningReducer = (
           ...state,
           messages: deliveredMsgsText,
           lastSeenSequenceNum: nextSeqText,
+          activeStreamJobId: gateText.activeStreamJobId,
         };
       }
       const nextPhase =
@@ -1083,15 +1232,17 @@ export const planningReducer = (
         streamingContent: nextStreamingContent,
         streamingBlocks: updatedTextBlocks,
         lastSeenSequenceNum: nextSeqText,
+        activeStreamJobId: gateText.activeStreamJobId,
       };
     }
 
     case "RECEIVE_THINKING": {
       // Ignore streaming data after cancel or pause
       if (state.phase === "idle" || state.phase === "paused") return state;
-      // Drop duplicate or out-of-order events based on sequenceNum
-      if (isSequenceRegression(state, action.sequenceNum)) return state;
-      const nextSeqThinking = advanceSequenceNum(state, action.sequenceNum);
+      // Drop duplicate or out-of-order events based on jobId + sequenceNum
+      const gateThinking = gateSequencedStreamEvent(state, action.sequenceNum, action.jobId);
+      if (!gateThinking.accepted) return state;
+      const nextSeqThinking = gateThinking.lastSeenSequenceNum;
       // On first thinking chunk during resuming, transition to thinking and clear resumeStep
       if (state.phase === "resuming") {
         return {
@@ -1101,6 +1252,7 @@ export const planningReducer = (
           streamingThinkingContent: state.streamingThinkingContent + action.content,
           streamingBlocks: [...state.streamingBlocks, { type: "thinking" as const, content: action.content }],
           lastSeenSequenceNum: nextSeqThinking,
+          activeStreamJobId: gateThinking.activeStreamJobId,
         };
       }
       // On first thinking chunk during booting/streaming/chatting, transition to thinking.
@@ -1121,6 +1273,7 @@ export const planningReducer = (
         return {
           ...state,
           lastSeenSequenceNum: nextSeqThinking,
+          activeStreamJobId: gateThinking.activeStreamJobId,
         };
       }
       const nextPhase =
@@ -1144,18 +1297,20 @@ export const planningReducer = (
           state.streamingThinkingContent + action.content,
         streamingBlocks: updatedThinkBlocks,
         lastSeenSequenceNum: nextSeqThinking,
+        activeStreamJobId: gateThinking.activeStreamJobId,
       };
     }
 
     case "RECEIVE_TOOL_CALL_START": {
       // Ignore tool events during pause
       if (state.phase === "paused") return state;
-      // Drop duplicate or out-of-order events based on sequenceNum
-      if (isSequenceRegression(state, action.sequenceNum)) return state;
+      // Drop duplicate or out-of-order events based on jobId + sequenceNum
+      const gateToolStart = gateSequencedStreamEvent(state, action.sequenceNum, action.jobId);
+      if (!gateToolStart.accepted) return state;
       // AskUserQuestion: skip during streaming — the QuestionWizard handles it.
       // It will appear in DB history via loadMessagesFromLogs.
       if (action.toolName === "AskUserQuestion") return state;
-      const nextSeqToolStart = advanceSequenceNum(state, action.sequenceNum);
+      const nextSeqToolStart = gateToolStart.lastSeenSequenceNum;
 
       // Recover streaming phase if we're in chatting — a tool call is strong
       // evidence the agent is actively working (e.g. after question answer when
@@ -1186,6 +1341,7 @@ export const planningReducer = (
               phase: toolPhase,
               latestActivity: `Agente: ${description || subagentType}`,
               lastSeenSequenceNum: nextSeqToolStart,
+              activeStreamJobId: gateToolStart.activeStreamJobId,
               streamingBlocks: [
                 ...state.streamingBlocks,
                 {
@@ -1201,7 +1357,7 @@ export const planningReducer = (
           }
         }
         // If we can't extract subagent info, skip — the spawn event will handle it
-        return { ...state, phase: toolPhase, lastSeenSequenceNum: nextSeqToolStart };
+        return { ...state, phase: toolPhase, lastSeenSequenceNum: nextSeqToolStart, activeStreamJobId: gateToolStart.activeStreamJobId };
       }
 
       // Regular tool call: if block exists, update its inputPreview (enriched data)
@@ -1215,6 +1371,7 @@ export const planningReducer = (
           phase: toolPhase,
           latestActivity: activity || state.latestActivity,
           lastSeenSequenceNum: nextSeqToolStart,
+          activeStreamJobId: gateToolStart.activeStreamJobId,
           streamingBlocks: state.streamingBlocks.map((block, i) =>
             i === existingIdx && block.type === "tool_call"
               ? { ...block, inputPreview: action.inputPreview ?? block.inputPreview }
@@ -1227,6 +1384,7 @@ export const planningReducer = (
         phase: toolPhase,
         latestActivity: activity || state.latestActivity,
         lastSeenSequenceNum: nextSeqToolStart,
+        activeStreamJobId: gateToolStart.activeStreamJobId,
         streamingBlocks: [
           ...state.streamingBlocks,
           {
@@ -1242,10 +1400,12 @@ export const planningReducer = (
 
     case "RECEIVE_TOOL_CALL_RESULT": {
       if (state.phase === "paused") return state;
-      if (isSequenceRegression(state, action.sequenceNum)) return state;
+      const gateToolResult = gateSequencedStreamEvent(state, action.sequenceNum, action.jobId);
+      if (!gateToolResult.accepted) return state;
       return {
         ...state,
-        lastSeenSequenceNum: advanceSequenceNum(state, action.sequenceNum),
+        lastSeenSequenceNum: gateToolResult.lastSeenSequenceNum,
+        activeStreamJobId: gateToolResult.activeStreamJobId,
         streamingBlocks: state.streamingBlocks.map((block) =>
           block.type === "tool_call" && block.toolCallId === action.toolCallId
             ? { ...block, status: action.success ? ("success" as const) : ("error" as const) }
@@ -1256,8 +1416,9 @@ export const planningReducer = (
 
     case "RECEIVE_FILE_READ": {
       if (state.phase === "paused") return state;
-      if (isSequenceRegression(state, action.sequenceNum)) return state;
-      const nextSeqFileRead = advanceSequenceNum(state, action.sequenceNum);
+      const gateFileRead = gateSequencedStreamEvent(state, action.sequenceNum, action.jobId);
+      if (!gateFileRead.accepted) return state;
+      const nextSeqFileRead = gateFileRead.lastSeenSequenceNum;
       // Enrich the last pending tool_call block with file info (avoids duplicate blocks)
       const lastReadTool = [...state.streamingBlocks].reverse().find(
         (b) => b.type === "tool_call" && b.status === "pending"
@@ -1270,6 +1431,7 @@ export const planningReducer = (
           ...state,
           latestActivity: fileActivity,
           lastSeenSequenceNum: nextSeqFileRead,
+          activeStreamJobId: gateFileRead.activeStreamJobId,
           streamingBlocks: state.streamingBlocks.map((block) =>
             block === lastReadTool
               ? { ...block, filePath: action.filePath, lineRange: action.lineRange }
@@ -1281,14 +1443,16 @@ export const planningReducer = (
         ...state,
         latestActivity: fileActivity,
         lastSeenSequenceNum: nextSeqFileRead,
+        activeStreamJobId: gateFileRead.activeStreamJobId,
         streamingBlocks: [...state.streamingBlocks, { type: "file_read" as const, filePath: action.filePath, lineRange: action.lineRange }],
       };
     }
 
     case "RECEIVE_FILE_CHANGE": {
       if (state.phase === "paused") return state;
-      if (isSequenceRegression(state, action.sequenceNum)) return state;
-      const nextSeqFileChange = advanceSequenceNum(state, action.sequenceNum);
+      const gateFileChange = gateSequencedStreamEvent(state, action.sequenceNum, action.jobId);
+      if (!gateFileChange.accepted) return state;
+      const nextSeqFileChange = gateFileChange.lastSeenSequenceNum;
       const lastChangeTool = [...state.streamingBlocks].reverse().find(
         (b) => b.type === "tool_call" && b.status === "pending"
       );
@@ -1296,6 +1460,7 @@ export const planningReducer = (
         return {
           ...state,
           lastSeenSequenceNum: nextSeqFileChange,
+          activeStreamJobId: gateFileChange.activeStreamJobId,
           streamingBlocks: state.streamingBlocks.map((block) =>
             block === lastChangeTool
               ? { ...block, filePath: action.filePath }
@@ -1306,14 +1471,16 @@ export const planningReducer = (
       return {
         ...state,
         lastSeenSequenceNum: nextSeqFileChange,
+        activeStreamJobId: gateFileChange.activeStreamJobId,
         streamingBlocks: [...state.streamingBlocks, { type: "file_change" as const, filePath: action.filePath, operation: action.operation }],
       };
     }
 
     case "RECEIVE_BASH_EXECUTE": {
       if (state.phase === "paused") return state;
-      if (isSequenceRegression(state, action.sequenceNum)) return state;
-      const nextSeqBash = advanceSequenceNum(state, action.sequenceNum);
+      const gateBash = gateSequencedStreamEvent(state, action.sequenceNum, action.jobId);
+      if (!gateBash.accepted) return state;
+      const nextSeqBash = gateBash.lastSeenSequenceNum;
       const lastBashTool = [...state.streamingBlocks].reverse().find(
         (b) => b.type === "tool_call" && b.status === "pending"
       );
@@ -1325,6 +1492,7 @@ export const planningReducer = (
           ...state,
           latestActivity: bashActivity,
           lastSeenSequenceNum: nextSeqBash,
+          activeStreamJobId: gateBash.activeStreamJobId,
           streamingBlocks: state.streamingBlocks.map((block) =>
             block === lastBashTool
               ? { ...block, command: action.command, description: action.description }
@@ -1336,14 +1504,16 @@ export const planningReducer = (
         ...state,
         latestActivity: bashActivity,
         lastSeenSequenceNum: nextSeqBash,
+        activeStreamJobId: gateBash.activeStreamJobId,
         streamingBlocks: [...state.streamingBlocks, { type: "bash" as const, command: action.command, description: action.description }],
       };
     }
 
     case "RECEIVE_SUBAGENT_SPAWN": {
       if (state.phase === "paused") return state;
-      if (isSequenceRegression(state, action.sequenceNum)) return state;
-      const nextSeqSpawn = advanceSequenceNum(state, action.sequenceNum);
+      const gateSpawn = gateSequencedStreamEvent(state, action.sequenceNum, action.jobId);
+      if (!gateSpawn.accepted) return state;
+      const nextSeqSpawn = gateSpawn.lastSeenSequenceNum;
       // Update existing block if already spawned (early spawn → full data arrives later)
       const existingSpawnIdx = state.streamingBlocks.findIndex(
         (b) => b.type === "subagent" && b.subagentId === action.subagentId,
@@ -1356,6 +1526,7 @@ export const planningReducer = (
           ...state,
           latestActivity: subagentActivity,
           lastSeenSequenceNum: nextSeqSpawn,
+          activeStreamJobId: gateSpawn.activeStreamJobId,
           streamingBlocks: state.streamingBlocks.map((block, i) =>
             i === existingSpawnIdx && block.type === "subagent"
               ? {
@@ -1371,6 +1542,7 @@ export const planningReducer = (
         ...state,
         latestActivity: subagentActivity,
         lastSeenSequenceNum: nextSeqSpawn,
+        activeStreamJobId: gateSpawn.activeStreamJobId,
         streamingBlocks: [
           ...state.streamingBlocks,
           {
@@ -1387,10 +1559,12 @@ export const planningReducer = (
 
     case "RECEIVE_SUBAGENT_COMPLETE": {
       if (state.phase === "paused") return state;
-      if (isSequenceRegression(state, action.sequenceNum)) return state;
+      const gateSubagentComplete = gateSequencedStreamEvent(state, action.sequenceNum, action.jobId);
+      if (!gateSubagentComplete.accepted) return state;
       return {
         ...state,
-        lastSeenSequenceNum: advanceSequenceNum(state, action.sequenceNum),
+        lastSeenSequenceNum: gateSubagentComplete.lastSeenSequenceNum,
+        activeStreamJobId: gateSubagentComplete.activeStreamJobId,
         streamingBlocks: state.streamingBlocks.map((block) =>
           block.type === "subagent" && block.subagentId === action.subagentId
             ? { ...block, status: "done" as const }
@@ -1410,11 +1584,13 @@ export const planningReducer = (
       };
 
     case "RECEIVE_STEP": {
-      if (isSequenceRegression(state, action.sequenceNum)) return state;
+      const gateStep = gateSequencedStreamEvent(state, action.sequenceNum, action.jobId);
+      if (!gateStep.accepted) return state;
       return {
         ...state,
         currentStep: { name: action.stepName, index: action.stepIndex },
-        lastSeenSequenceNum: advanceSequenceNum(state, action.sequenceNum),
+        lastSeenSequenceNum: gateStep.lastSeenSequenceNum,
+        activeStreamJobId: gateStep.activeStreamJobId,
       };
     }
 
@@ -2662,23 +2838,14 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
   const streamingContentRef = useRef(state.streamingContent);
   const streamingThinkingContentRef = useRef(state.streamingThinkingContent);
   const messagesRef = useRef(state.messages);
-  const streamingReplayBaselineRef = useRef("");
-  const thinkingReplayBaselineRef = useRef("");
-  const reconnectDedupeUntilRef = useRef(0);
+  const replayDedupeRef = useRef<StreamingReplayDedupeState>(
+    createStreamingReplayDedupeState(),
+  );
   const idleTimeoutToastSessionIdRef = useRef<string | null>(null);
 
   const primeReplayDedupWindow = useCallback((messages: PlanningMessage[]) => {
     messagesRef.current = messages;
-    streamingReplayBaselineRef.current = getReplayDedupBaselineFromMessages(
-      messages,
-      "stream",
-    );
-    thinkingReplayBaselineRef.current = getReplayDedupBaselineFromMessages(
-      messages,
-      "thinking",
-    );
-    reconnectDedupeUntilRef.current =
-      Date.now() + RECENT_RECONNECT_DEDUP_WINDOW_MS;
+    replayDedupeRef.current = primeStreamingReplayDedupe(messages, Date.now());
   }, []);
 
   useEffect(() => {
@@ -2714,37 +2881,33 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
     const handleText = (message: WsServerMessage) => {
       const msg = message as WsServerPlanningText;
       if (!matchesSession(msg.payload.sessionId)) return;
-      const dedupeBase =
-        streamingReplayBaselineRef.current || streamingContentRef.current;
-      const content =
-        Date.now() < reconnectDedupeUntilRef.current
-          ? stripRetransmittedStreamingChunk(
-              dedupeBase,
-              msg.payload.content,
-            )
-          : msg.payload.content;
+      const { content, state: nextTextDedupe } = dedupeStreamingReplayChunk(
+        replayDedupeRef.current,
+        "text",
+        msg.payload.content,
+        streamingContentRef.current,
+        Date.now(),
+      );
+      replayDedupeRef.current = nextTextDedupe;
       if (!content) return;
-      streamingReplayBaselineRef.current = `${dedupeBase}${content}`;
       streamingContentRef.current += content;
-      dispatch({ type: "RECEIVE_TEXT", content, sequenceNum: msg.payload.sequenceNum });
+      dispatch({ type: "RECEIVE_TEXT", content, sequenceNum: msg.payload.sequenceNum, jobId: msg.payload.jobId });
     };
 
     const handleThinking = (message: WsServerMessage) => {
       const msg = message as WsServerPlanningThinking;
       if (!matchesSession(msg.payload.sessionId)) return;
-      const dedupeBase =
-        thinkingReplayBaselineRef.current || streamingThinkingContentRef.current;
-      const content =
-        Date.now() < reconnectDedupeUntilRef.current
-          ? stripRetransmittedStreamingChunk(
-              dedupeBase,
-              msg.payload.content,
-            )
-          : msg.payload.content;
+      const { content, state: nextThinkingDedupe } = dedupeStreamingReplayChunk(
+        replayDedupeRef.current,
+        "thinking",
+        msg.payload.content,
+        streamingThinkingContentRef.current,
+        Date.now(),
+      );
+      replayDedupeRef.current = nextThinkingDedupe;
       if (!content) return;
-      thinkingReplayBaselineRef.current = `${dedupeBase}${content}`;
       streamingThinkingContentRef.current += content;
-      dispatch({ type: "RECEIVE_THINKING", content, sequenceNum: msg.payload.sequenceNum });
+      dispatch({ type: "RECEIVE_THINKING", content, sequenceNum: msg.payload.sequenceNum, jobId: msg.payload.jobId });
     };
 
     const handleStep = (message: WsServerMessage) => {
@@ -2755,6 +2918,7 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         stepName: msg.payload.stepName,
         stepIndex: msg.payload.stepIndex,
         sequenceNum: msg.payload.sequenceNum,
+        jobId: msg.payload.jobId,
       });
     };
 
@@ -2785,6 +2949,9 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
     const handleDone = (message: WsServerMessage) => {
       const msg = message as WsServerPlanningDone;
       if (!matchesSession(msg.payload.sessionId)) return;
+      // Turn boundary: drop the reconnect dedupe baselines — keeping them
+      // armed past planning:done lets a stale baseline mangle the next turn.
+      replayDedupeRef.current = resetStreamingReplayDedupe();
 
       // No separate FLUSH_STREAM dispatch — RECEIVE_DONE handles clearing.
       // Dispatching FLUSH_STREAM first can cause a React useReducer bail-out
@@ -2825,9 +2992,7 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
     const handleResponseComplete = (message: WsServerMessage) => {
       const msg = message as WsServerPlanningResponseComplete;
       if (!matchesSession(msg.payload.sessionId)) return;
-      reconnectDedupeUntilRef.current = 0;
-      streamingReplayBaselineRef.current = "";
-      thinkingReplayBaselineRef.current = "";
+      replayDedupeRef.current = resetStreamingReplayDedupe();
       // Single dispatch — RECEIVE_RESPONSE_COMPLETE clears streaming state
       // itself. A separate FLUSH_STREAM dispatch can bail out (return same
       // state ref) when content is already empty, which in React production
@@ -2845,18 +3010,14 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
     const handleError = (message: WsServerMessage) => {
       const msg = message as WsServerPlanningError;
       if (!matchesSession(msg.payload.sessionId)) return;
-      reconnectDedupeUntilRef.current = 0;
-      streamingReplayBaselineRef.current = "";
-      thinkingReplayBaselineRef.current = "";
+      replayDedupeRef.current = resetStreamingReplayDedupe();
       dispatch({ type: "RECEIVE_ERROR", error: msg.payload.message });
     };
 
     const handleSessionCompleted = (message: WsServerMessage) => {
       const msg = message as WsServerPlanningSessionCompleted;
       if (!matchesSession(msg.payload.sessionId)) return;
-      reconnectDedupeUntilRef.current = 0;
-      streamingReplayBaselineRef.current = "";
-      thinkingReplayBaselineRef.current = "";
+      replayDedupeRef.current = resetStreamingReplayDedupe();
       dispatch({ type: "COMPLETE", result: msg.payload.result });
     };
 
@@ -2905,6 +3066,7 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         toolName: msg.payload.toolName,
         inputPreview: msg.payload.inputPreview,
         sequenceNum: msg.payload.sequenceNum,
+        jobId: msg.payload.jobId,
       });
     };
 
@@ -2917,6 +3079,7 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         toolCallId: msg.payload.toolCallId,
         success: msg.payload.success,
         sequenceNum: msg.payload.sequenceNum,
+        jobId: msg.payload.jobId,
       });
     };
 
@@ -2929,6 +3092,7 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         filePath: msg.payload.filePath,
         lineRange: msg.payload.lineRange,
         sequenceNum: msg.payload.sequenceNum,
+        jobId: msg.payload.jobId,
       });
     };
 
@@ -2941,6 +3105,7 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         filePath: msg.payload.filePath,
         operation: msg.payload.operation,
         sequenceNum: msg.payload.sequenceNum,
+        jobId: msg.payload.jobId,
       });
     };
 
@@ -2953,6 +3118,7 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         command: msg.payload.command,
         description: msg.payload.description,
         sequenceNum: msg.payload.sequenceNum,
+        jobId: msg.payload.jobId,
       });
     };
 
@@ -2967,6 +3133,7 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         isBackground: msg.payload.isBackground,
         subagentType: msg.payload.subagentType,
         sequenceNum: msg.payload.sequenceNum,
+        jobId: msg.payload.jobId,
       });
     };
 
@@ -2979,6 +3146,7 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         subagentId: msg.payload.subagentId,
         success: msg.payload.success,
         sequenceNum: msg.payload.sequenceNum,
+        jobId: msg.payload.jobId,
       });
     };
 
@@ -3128,6 +3296,8 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
       }
       console.info("[planning] startSession: sending planning:start", { sessionId, agentConfig });
 
+      // Turn boundary: stale reconnect baselines must not leak into the new turn.
+      replayDedupeRef.current = resetStreamingReplayDedupe();
       dispatch({ type: "START_STREAMING" });
 
       wsContext.sendMessage({
@@ -3152,6 +3322,8 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
 
       persistAnsweredQuestionId(state.sessionId, questionId);
 
+      // Turn boundary: stale reconnect baselines must not leak into the new turn.
+      replayDedupeRef.current = resetStreamingReplayDedupe();
       // Single dispatch: graduates streaming blocks + adds answer
       // in correct chronological order (no separate ADD_USER_MESSAGE needed)
       dispatch({ type: "ANSWER_QUESTION", questionId, answer });
@@ -3185,6 +3357,8 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
       const trimmedPrompt = prompt.trim();
       if (!trimmedPrompt) return;
 
+      // Turn boundary: stale reconnect baselines must not leak into the new turn.
+      replayDedupeRef.current = resetStreamingReplayDedupe();
       if (state.pendingQuestion) {
         persistAnsweredQuestionId(
           state.sessionId,

@@ -669,7 +669,13 @@ export const createSseCanonicalAdapter = (): EventAdapter => {
                     // Emitting with toolName ("Agent") as description causes a confusing flash.
                     // Wait for the enriched delta (content_block_stop) with full input.
                     const hasMeaningfulData = (earlyDesc !== earlyName) || !!earlyType;
-                    if (hasMeaningfulData) {
+                    // content_block_stop deltas always carry an "input" key (the
+                    // shim re-emits the full tool JSON). If it arrived without
+                    // meaningful data (OOM/stream cut truncated the input), this
+                    // is the last reliable signal for the tool call — emit a
+                    // minimal fallback spawn instead of omitting it entirely.
+                    const isTerminalSnapshot = /"input"\s*:/.test(toolUseBuffer);
+                    if (hasMeaningfulData || isTerminalSnapshot) {
                       earlySpawnedToolCallIds.add(earlyId);
                       earlyDetectedToolCallId = earlyId;
                       events.push({
