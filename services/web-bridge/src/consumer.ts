@@ -204,18 +204,19 @@ export const createWebBridgeConsumer = (
               });
             }
 
-            // Route canonical event through WebRenderer → Redis Pub/Sub
-            const envelope: CanonicalEventEnvelope = {
-              ...streamEvent.envelope,
-              threadId: event.jobId,
-              sequenceNumber: seqGuard.nextSequence(event.jobId),
-            };
-
-            // Dedup: reject out-of-order or duplicate envelopes
-            if (seqGuard.isRegression(event.jobId, envelope.sequenceNumber)) {
+            // Dedup: reject out-of-order or duplicate envelopes based on
+            // the PRODUCER-assigned sequence number, BEFORE reassigning the
+            // bridge-local one (checking the reassigned number would never
+            // detect a regression — it is monotonic by construction).
+            if (
+              seqGuard.isRegression(
+                event.jobId,
+                streamEvent.envelope.sequenceNumber,
+              )
+            ) {
               log("warn", `Dropping out-of-order/duplicate envelope`, {
                 jobId: event.jobId,
-                sequenceNumber: envelope.sequenceNumber,
+                producerSequenceNumber: streamEvent.envelope.sequenceNumber,
                 kind: canonicalEvent.kind,
               });
               totalProcessed += 1;
@@ -223,6 +224,14 @@ export const createWebBridgeConsumer = (
               await ack();
               return;
             }
+
+            // Route canonical event through WebRenderer → Redis Pub/Sub
+            // with a reassigned bridge-local monotonic sequence number.
+            const envelope: CanonicalEventEnvelope = {
+              ...streamEvent.envelope,
+              threadId: event.jobId,
+              sequenceNumber: seqGuard.nextSequence(event.jobId),
+            };
 
             await routeCanonical(envelope);
 
