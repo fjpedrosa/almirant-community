@@ -2,6 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "b
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 
+// Capture the real client module BEFORE the mock is registered so afterAll
+// can restore it: mock.restore() does NOT clear mock.module() registrations,
+// and a leaked client mock poisons later suites in the same run (e.g. the
+// DB-gated bug-fix-attempt-cancel-cascade tests) that import the real db.
+const realClient = { ...(await import("../../client")) };
+
 let getDodRemediationExpectedLeafTaskIdsUnder:
   typeof import("./dod-remediation-repository").getDodRemediationExpectedLeafTaskIdsUnder;
 let capturedSql: SQL | undefined;
@@ -26,6 +32,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
+  mock.module("../../client", () => realClient);
   mock.restore();
 });
 

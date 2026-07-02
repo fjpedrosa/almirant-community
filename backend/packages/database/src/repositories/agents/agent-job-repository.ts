@@ -583,7 +583,45 @@ export const updateJobStatus = async (
     .where(eq(agentJobs.id, id))
     .returning();
 
+  if (updated && status === "cancelled") {
+    await cascadeJobCancelToBugFixAttempt(id);
+  }
+
   return updated ?? null;
+};
+
+/**
+ * When an agent_jobs row transitions to `cancelled` — whether via the
+ * runner reporting shutdown, an explicit user cancel, or an internal
+ * sweeper — the linked bug_fix_attempt (if any) must transition to
+ * `failed` right away. Without this cascade the attempt lingers in an
+ * active status until the ~30-min zombie sweeper cleans it up, blocking
+ * the feedback item from being re-triaged.
+ *
+ * Isolated as a fire-and-log helper so a DB hiccup on the cascade never
+ * masks the job-status update itself.
+ *
+ * The bug-fix repository is imported lazily (not statically) on purpose:
+ * it transitively pulls `feedback-cluster-repository` →
+ * `work-item-repository`, and a static import would drag that whole graph
+ * into every consumer of this module — including the SQL-mock suite
+ * (`agent-job-repository.claim-sql.test.ts`), whose minimal drizzle mocks
+ * cannot evaluate those modules and would poison bun's module cache for
+ * the rest of the test run. The module is cached after the first cancel,
+ * so the runtime cost is a one-time lookup.
+ */
+const cascadeJobCancelToBugFixAttempt = async (jobId: string): Promise<void> => {
+  try {
+    const { failActiveAttemptForCancelledJob } = await import(
+      "./bug-fix-attempt-repository"
+    );
+    await failActiveAttemptForCancelledJob(jobId);
+  } catch (err) {
+    logger.warn(
+      { err, jobId, traceId: getCurrentTraceId() },
+      "failed to cascade job cancel to bug_fix_attempts"
+    );
+  }
 };
 
 export const cancelJob = async (id: string): Promise<typeof agentJobs.$inferSelect | null> => {
@@ -608,6 +646,10 @@ export const cancelJob = async (id: string): Promise<typeof agentJobs.$inferSele
     })
     .where(and(eq(agentJobs.id, id), inArray(agentJobs.status, ACTIVE_AGENT_JOB_STATUSES)))
     .returning();
+
+  if (updated) {
+    await cascadeJobCancelToBugFixAttempt(id);
+  }
 
   return updated ?? null;
 };

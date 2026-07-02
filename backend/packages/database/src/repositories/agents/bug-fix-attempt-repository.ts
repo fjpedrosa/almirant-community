@@ -837,6 +837,41 @@ export const markAttemptAsFailed = async (
   return updated;
 };
 
+/**
+ * Cascade helper for the job-cancel path: when an agent_jobs row transitions
+ * to `cancelled` (via `cancelJob` or a runner-driven `updateJobStatus`), the
+ * linked bug_fix_attempts row should transition to `failed` immediately so
+ * downstream pipelines (feedback-bug-triage cron, cluster auto-transitions)
+ * can react within minutes instead of waiting ~30 min for the zombie
+ * sweeper to notice a stalled attempt.
+ *
+ * Behaviour:
+ *   - Finds the attempt referenced by `agent_job_id = jobId` whose status is
+ *     still active (`analyzing` / `proposed` / `implementing`).
+ *   - Delegates to `markAttemptAsFailed` so the existing cluster-transition
+ *     hook (open-on-abort) fires consistently with other failure paths.
+ *   - Idempotent: returns `null` when the attempt is already terminal
+ *     (`merged` / `failed`) or when the job is not linked to any attempt.
+ */
+export const failActiveAttemptForCancelledJob = async (
+  jobId: string
+): Promise<BugFixAttempt | null> => {
+  const [candidate] = await db
+    .select({ id: bugFixAttempts.id })
+    .from(bugFixAttempts)
+    .where(
+      and(
+        eq(bugFixAttempts.agentJobId, jobId),
+        inArray(bugFixAttempts.status, [...ACTIVE_STATUSES])
+      )
+    )
+    .limit(1);
+
+  if (!candidate) return null;
+
+  return markAttemptAsFailed(candidate.id, "job_cancelled", "job_cancel");
+};
+
 export const getActiveAttemptForCluster = async (
   clusterId: string
 ): Promise<BugFixAttempt | null> => {

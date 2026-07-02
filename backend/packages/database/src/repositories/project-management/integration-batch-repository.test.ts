@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { sql as drizzleSql } from "drizzle-orm";
+
+// Capture the real client module BEFORE the mock is registered so afterAll
+// can restore it: mock.restore() does NOT clear mock.module() registrations,
+// and a leaked client mock poisons later suites in the same run (e.g. the
+// DB-gated bug-fix-attempt-cancel-cascade tests) that import the real db.
+const realClient = { ...(await import("../../client")) };
 
 type ValidatingLeafRow = {
   id: string;
@@ -186,12 +191,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  mock.module("../../client", () => ({
-    db: {},
-    schema: {},
-    sql: drizzleSql,
-    closeConnections: async () => {},
-  }));
+  mock.module("../../client", () => realClient);
   mock.restore();
 });
 
