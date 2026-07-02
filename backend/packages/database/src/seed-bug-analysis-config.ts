@@ -13,6 +13,7 @@
  * Requires DATABASE_URL in env (loaded via --env-file).
  */
 
+import { resolveRuntime } from "@almirant/shared";
 import { db, closeConnections } from "./client";
 import { scheduledAgentConfigs } from "./schema";
 import { eq } from "drizzle-orm";
@@ -53,7 +54,7 @@ export const seedBugAnalysisConfig = async (
         "Automated bug analysis and fix pipeline. Runs every 10 minutes to classify new bugs by domain and enqueue fix analysis jobs (max 3 concurrent).",
       codingAgent: "claude-code",
       aiProvider: "anthropic",
-      aiModel: "claude-opus-4-6",
+      aiModel: resolveRuntime({ provider: "claude-code" }).model,
       scheduleType: "cron",
       scheduleConfig: { expression: "*/10 * * * *" },
       timezone: "Europe/Madrid",

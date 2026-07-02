@@ -8,6 +8,10 @@ import {
   withTestOrg,
 } from "../../../../test/mocks";
 import { testOrganization, testUser } from "../../../../test/fixtures";
+// Real module snapshot — restored in afterAll (mock.restore() does NOT clear mock.module()).
+import * as modelFactoryExports from "../../../ai/shared/services/model-factory";
+
+const __realModelFactory = { ...modelFactoryExports };
 
 // -------------------------------------------------------
 // Fixtures
@@ -64,6 +68,26 @@ let currentPendingInteraction: {
   timeoutAction: string | null;
 } | null = null;
 
+// Completed session used by the /resume tests (recent createdAt to pass the 7-day window).
+const testCompletedSession = {
+  ...testPlanningSession,
+  id: "ps-completed-1",
+  status: "completed",
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+let capturedCreateJobInput: Record<string, unknown> | null = null;
+let lastResolvedModelName: string | null = null;
+
+// Reset helpers (functions so TS doesn't narrow the captured values to `null` in tests).
+const resetCapturedCreateJobInput = () => {
+  capturedCreateJobInput = null;
+};
+const resetLastResolvedModelName = () => {
+  lastResolvedModelName = null;
+};
+
 // -------------------------------------------------------
 // Module mocks - MUST be at top level before any dynamic imports
 // -------------------------------------------------------
@@ -74,8 +98,25 @@ mock.module("@almirant/database", () =>
       items: [testPlanningSession],
       total: 1,
     }),
-    getPlanningSessionById: async (id: string) =>
-      id === testPlanningSession.id ? testPlanningSession : null,
+    getPlanningSessionById: async (id: string) => {
+      if (id === testPlanningSession.id) return testPlanningSession;
+      if (id === testCompletedSession.id) return testCompletedSession;
+      return null;
+    },
+    resumePlanningSession: async (id: string) =>
+      id === testCompletedSession.id ? { ...testCompletedSession, status: "active" } : null,
+    getLatestJobForPlanningSession: async () => null,
+    getEnrichedConversationHistory: async () => [],
+    buildSessionRecoverySummary: async () => null,
+    createJob: async (input: Record<string, unknown>) => {
+      capturedCreateJobInput = input;
+      return {
+        id: "job-resume-1",
+        status: "queued",
+        workItemId: null,
+        ...input,
+      };
+    },
     createPlanningSession: async (
       _orgId: string,
       input: Record<string, unknown>
@@ -115,6 +156,19 @@ mock.module("../../../integrations/discord/services/discord-thread", () => ({
   isDiscordBridgeConfigured: () => false,
   createDiscordThread: async () => null,
   renameDiscordThread: async () => {},
+}));
+mock.module("../../../ai/shared/services/model-factory", () => ({
+  ...__realModelFactory,
+  getDefaultModel: () => {
+    throw new Error("no default model configured in tests");
+  },
+  resolveModelFromProviderKey: async (
+    _providerKeyId: string,
+    opts?: { modelName?: string },
+  ) => {
+    lastResolvedModelName = opts?.modelName ?? null;
+    return null;
+  },
 }));
 
 // -------------------------------------------------------
@@ -268,6 +322,38 @@ describe("planning-sessions.routes", () => {
     });
   });
 
+  describe("POST /planning-sessions/:id/resume", () => {
+    it("resolves the default model from the shared runtime when the session has no previous job", async () => {
+      resetCapturedCreateJobInput();
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(`/planning-sessions/${testCompletedSession.id}/resume`, json({}))
+      );
+
+      expect(res.status).toBe(200);
+      expect(capturedCreateJobInput?.provider).toBe("claude-code");
+      expect(capturedCreateJobInput?.model).toBe("claude-opus-4-8");
+    });
+  });
+
+  describe("POST /planning-sessions/:id/generate-title", () => {
+    it("requests the haiku alias (not a dated snapshot) when resolving the provider key model", async () => {
+      resetLastResolvedModelName();
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/planning-sessions/${testPlanningSession.id}/generate-title`,
+          json({ prompt: "Quiero mejorar el onboarding", providerKeyId: "key-1" })
+        )
+      );
+
+      expect(res.status).toBe(200);
+      expect(lastResolvedModelName).toBe("claude-haiku-4-5");
+    });
+  });
+
   describe("PATCH /planning-sessions/:id", () => {
     it("updates the session title", async () => {
       const app = await makeApp();
@@ -301,5 +387,6 @@ describe("planning-sessions.routes", () => {
 
 afterAll(() => {
   mock.restore();
+  mock.module("../../../ai/shared/services/model-factory", () => __realModelFactory);
   restoreRealModules();
 });

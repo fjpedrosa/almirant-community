@@ -17,6 +17,7 @@ import {
   workItems,
 } from "@almirant/database";
 import type { AgentJobConfig } from "@almirant/database";
+import { resolveRuntime } from "@almirant/shared";
 import {
   buildSessionControlComponents,
   type DiscordActionRow,
@@ -479,7 +480,8 @@ const queueCommandJob = async (params: {
     config,
     codingAgent: "claude-code",
     aiProvider: "anthropic",
-    model: "claude-opus-4-6",
+    // Default model centralized in @almirant/shared runtime-selection (claude-code runtime).
+    model: resolveRuntime({ provider: "claude-code" }).model,
     skillName: config.skillName ?? "implement",
   });
 

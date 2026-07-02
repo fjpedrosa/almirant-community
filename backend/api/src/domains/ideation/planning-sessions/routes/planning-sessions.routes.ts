@@ -625,7 +625,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
         const resumeProvider = (lastJob?.provider ?? "claude-code") as "claude-code" | "codex" | "zipu" | "grok";
         const resumeCodingAgent = (lastJob?.codingAgent ?? "claude-code") as "claude-code" | "codex" | "opencode";
         const resumeAiProvider = (lastJob?.aiProvider ?? "anthropic") as "anthropic" | "openai" | "google" | "zai" | "xai";
-        const resumeModel = lastJob?.model ?? "claude-opus-4-6";
+        const resumeModel = lastJob?.model ?? resolveRuntime({ provider: resumeProvider }).model;
         const lastJobDetail = lastJob ? await getJobById(lastJob.id) : null;
         const resumeSkillName = inferPlanningSkillName({
           prompt: resumeUserMessage,
@@ -804,7 +804,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
           let resolved: Awaited<ReturnType<typeof resolveModelFromProviderKey>> | null = null;
           if (body.providerKeyId) {
             resolved = await resolveModelFromProviderKey(body.providerKeyId, {
-              modelName: "claude-haiku-4-5-20251001",
+              modelName: "claude-haiku-4-5",
             });
             logger.info({ providerKeyId: body.providerKeyId, hasModel: !!resolved }, "generate-title: resolved provider key");
           }

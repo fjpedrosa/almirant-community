@@ -491,7 +491,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         config: jobConfig,
         codingAgent: (body.codingAgent as CodingAgent | undefined) ?? jobConfig.codingAgent ?? "claude-code",
         aiProvider: (body.aiProvider as AiProvider | undefined) ?? resolveRuntime({ provider: body.provider }).aiProvider as AiProvider,
-        model: body.model ?? jobConfig.model ?? "claude-opus-4-6",
+        model: body.model ?? jobConfig.model ?? resolveRuntime({ provider: body.provider }).model,
         ...(jobConfig.skillName ? { skillName: jobConfig.skillName } : {}),
         // New model fields
         prompt: jobConfig.prompt ?? null,
@@ -810,7 +810,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
             },
             codingAgent: (body.codingAgent as CodingAgent | undefined) ?? batchConfigWithSkill.codingAgent ?? "claude-code",
             aiProvider: (body.aiProvider as AiProvider | undefined) ?? resolveRuntime({ provider: body.provider }).aiProvider as AiProvider,
-            model: body.model ?? batchConfigWithSkill.model ?? "claude-opus-4-6",
+            model: body.model ?? batchConfigWithSkill.model ?? resolveRuntime({ provider: body.provider }).model,
             ...(batchConfigWithSkill.skillName ? { skillName: batchConfigWithSkill.skillName } : {}),
             // New model fields
             promptTemplate: batchInferredSkillName ?? null,
@@ -1656,7 +1656,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         config: retryConfig,
         codingAgent: existing.job.codingAgent ?? "claude-code",
         aiProvider: existing.job.aiProvider ?? "anthropic",
-        model: existing.job.model ?? "claude-opus-4-6",
+        model: existing.job.model ?? resolveRuntime({ provider: existing.job.provider }).model,
         ...(retrySkillName ? { skillName: retrySkillName } : {}),
         prompt: existing.job.prompt ?? null,
         promptTemplate: retryPromptTemplate,
