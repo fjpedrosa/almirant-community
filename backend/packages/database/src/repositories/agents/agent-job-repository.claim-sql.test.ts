@@ -38,7 +38,7 @@ const txExecute = mock(async (query: unknown) => {
   return [...claimResultRows];
 });
 
-const loggerWarn = mock(() => undefined);
+const loggerWarn = mock((..._args: unknown[]) => undefined);
 
 const transactionMock = mock(async (callback: (tx: { execute: typeof txExecute }) => Promise<unknown>) => {
   return callback({ execute: txExecute });
