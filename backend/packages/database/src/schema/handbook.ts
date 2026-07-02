@@ -12,7 +12,7 @@ import {
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { projects } from "./projects";
 import { user } from "./auth";
 import { agentJobs } from "./agent-jobs";
@@ -42,9 +42,9 @@ export const handbookEntries = pgTable(
   "handbook_entries",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     title: varchar("title", { length: 500 }).notNull(),
     slug: varchar("slug", { length: 500 }).notNull(),
     summary: text("summary"),
@@ -64,9 +64,9 @@ export const handbookEntries = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex("handbook_entries_org_slug_unique_idx").on(table.organizationId, table.slug),
-    index("handbook_entries_org_status_idx").on(table.organizationId, table.status),
-    index("handbook_entries_org_category_idx").on(table.organizationId, table.category),
+    uniqueIndex("handbook_entries_org_slug_unique_idx").on(table.workspaceId, table.slug),
+    index("handbook_entries_org_status_idx").on(table.workspaceId, table.status),
+    index("handbook_entries_org_category_idx").on(table.workspaceId, table.category),
     index("handbook_entries_source_project_idx").on(table.sourceProjectId),
     index("handbook_entries_archived_at_idx").on(table.archivedAt),
     index("handbook_entries_search_vector_idx").using("gin", table.searchVector),
@@ -124,9 +124,9 @@ export const handbookCaptureProposals = pgTable(
   "handbook_capture_proposals",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     title: varchar("title", { length: 500 }).notNull(),
     slug: varchar("slug", { length: 500 }).notNull(),
     summary: text("summary"),
@@ -145,7 +145,7 @@ export const handbookCaptureProposals = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    index("handbook_capture_proposals_org_status_idx").on(table.organizationId, table.status),
+    index("handbook_capture_proposals_org_status_idx").on(table.workspaceId, table.status),
     index("handbook_capture_proposals_source_project_idx").on(table.sourceProjectId),
     index("handbook_capture_proposals_target_entry_idx").on(table.targetEntryId),
     index("handbook_capture_proposals_slug_idx").on(table.slug),

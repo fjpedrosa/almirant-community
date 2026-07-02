@@ -14,22 +14,22 @@ const computeContentHash = (content: string): string =>
 
 /**
  * Builds the dual-scope WHERE condition:
- *  - Official skills (organizationId IS NULL)
- *  - Workspace skills (organizationId = orgId AND projectId IS NULL)
- *  - Project-specific skills (organizationId = orgId AND projectId = projectId)
+ *  - Official skills (workspaceId IS NULL)
+ *  - Workspace skills (workspaceId = orgId AND projectId IS NULL)
+ *  - Project-specific skills (workspaceId = orgId AND projectId = projectId)
  *
  * When no projectId is provided, only official + workspace skills are returned.
  */
 const buildScopeCondition = (orgId: string, projectId?: string) => {
-  const officialScope = isNull(skills.organizationId);
+  const officialScope = isNull(skills.workspaceId);
   const workspaceScope = and(
-    eq(skills.organizationId, orgId),
+    eq(skills.workspaceId, orgId),
     isNull(skills.projectId),
   );
 
   if (projectId) {
     const projectScope = and(
-      eq(skills.organizationId, orgId),
+      eq(skills.workspaceId, orgId),
       eq(skills.projectId, projectId),
     );
     return or(officialScope, workspaceScope, projectScope);
@@ -144,8 +144,8 @@ export const getSkillById = async (
       and(
         eq(skills.id, id),
         or(
-          isNull(skills.organizationId), // official
-          eq(skills.organizationId, orgId), // belongs to org
+          isNull(skills.workspaceId), // official
+          eq(skills.workspaceId, orgId), // belongs to org
         ),
       ),
     )
@@ -176,8 +176,8 @@ export const getSkillBySlug = async (
     // Prefer the most specific match: project > workspace > official
     .orderBy(
       sql`CASE
-        WHEN ${skills.organizationId} IS NOT NULL AND ${skills.projectId} IS NOT NULL THEN 0
-        WHEN ${skills.organizationId} IS NOT NULL AND ${skills.projectId} IS NULL THEN 1
+        WHEN ${skills.workspaceId} IS NOT NULL AND ${skills.projectId} IS NOT NULL THEN 0
+        WHEN ${skills.workspaceId} IS NOT NULL AND ${skills.projectId} IS NULL THEN 1
         ELSE 2
       END`,
     )
@@ -198,7 +198,7 @@ export const createSkill = async (
   const sizeBytes = Buffer.byteLength(data.content, "utf8");
 
   const values: NewSkill = {
-    organizationId: orgId,
+    workspaceId: orgId,
     projectId: data.projectId ?? null,
     name: data.name,
     slug: data.slug,
@@ -228,7 +228,7 @@ export const updateSkill = async (
 ): Promise<SkillDb | null> => {
   // Verify ownership first (must belong to org, cannot edit official skills)
   const existing = await getSkillById(orgId, id);
-  if (!existing || existing.organizationId !== orgId) return null;
+  if (!existing || existing.workspaceId !== orgId) return null;
 
   const updateData: Record<string, unknown> = {
     updatedAt: new Date(),
@@ -253,7 +253,7 @@ export const updateSkill = async (
   const [updated] = await db
     .update(skills)
     .set(updateData)
-    .where(and(eq(skills.id, id), eq(skills.organizationId, orgId)))
+    .where(and(eq(skills.id, id), eq(skills.workspaceId, orgId)))
     .returning();
 
   return updated ?? null;
@@ -273,7 +273,7 @@ export const deleteSkill = async (
       archivedAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(and(eq(skills.id, id), eq(skills.organizationId, orgId)))
+    .where(and(eq(skills.id, id), eq(skills.workspaceId, orgId)))
     .returning();
 
   return archived ?? null;
@@ -295,8 +295,8 @@ export const findSkillByContentHash = async (
         eq(skills.contentHash, hash),
         isNull(skills.archivedAt),
         or(
-          isNull(skills.organizationId), // official
-          eq(skills.organizationId, orgId), // belongs to org
+          isNull(skills.workspaceId), // official
+          eq(skills.workspaceId, orgId), // belongs to org
         ),
       ),
     )
@@ -330,7 +330,7 @@ export type ImportSkillsResult = {
  * - If a skill with the same slug+org+project exists but different contentHash -> update
  * - If no matching skill exists -> create with source "repo"
  *
- * Uses the unique index on (slug, organizationId, projectId) for matching.
+ * Uses the unique index on (slug, workspaceId, projectId) for matching.
  */
 export const importSkillsFromRepo = async (
   orgId: string,
@@ -347,7 +347,7 @@ export const importSkillsFromRepo = async (
       .where(
         and(
           eq(skills.slug, skill.slug),
-          eq(skills.organizationId, orgId),
+          eq(skills.workspaceId, orgId),
           eq(skills.projectId, projectId),
           isNull(skills.archivedAt),
         ),
@@ -380,7 +380,7 @@ export const importSkillsFromRepo = async (
     } else {
       // New skill — create
       await db.insert(skills).values({
-        organizationId: orgId,
+        workspaceId: orgId,
         projectId,
         name: skill.name,
         slug: skill.slug,

@@ -52,19 +52,19 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   // GET /boards - List all boards (global)
   // -------------------------------------------------------
-  .get("/", async ({ activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/", async ({ activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const boards = await getAllBoards(orgId);
     return successResponse(boards);
   })
 
   // -------------------------------------------------------
-  // POST /boards - Create a board for the organization
+  // POST /boards - Create a board for the workspace
   // -------------------------------------------------------
   .post(
     "/",
-    async ({ body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       if (!body.name || body.name.trim() === "") {
         set.status = 400;
         return errorResponse("Name is required");
@@ -99,8 +99,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .post(
     "/from-template",
-    async ({ body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       if (!body.templateId || body.templateId.trim() === "") {
         set.status = 400;
         return errorResponse("templateId is required");
@@ -134,9 +134,9 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .post(
     "/provision",
-    async ({ set, activeOrganization }) => {
+    async ({ set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const result = await provisionDefaultBoard(orgId);
 
         if (!result.provisioned) {
@@ -170,8 +170,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .get(
     "/area/:area",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       if (!VALID_AREAS.includes(params.area as (typeof VALID_AREAS)[number])) {
         set.status = 400;
         return errorResponse(
@@ -198,8 +198,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .get(
     "/area/:area/work-items",
-    async ({ params, query, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, query, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       if (!VALID_AREAS.includes(params.area as (typeof VALID_AREAS)[number])) {
         set.status = 400;
         return errorResponse(
@@ -245,8 +245,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .get(
     "/:id/sprints",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const board = await getBoardById(params.id, orgId);
       if (!board) {
         set.status = 404;
@@ -267,8 +267,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .get(
     "/:id/sprints/active",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const board = await getBoardById(params.id, orgId);
       if (!board) {
         set.status = 404;
@@ -289,8 +289,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .get(
     "/:id/sprints/next-number",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const board = await getBoardById(params.id, orgId);
       if (!board) {
         set.status = 404;
@@ -311,8 +311,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .get(
     "/:id/sprints/done-preview",
-    async ({ params, query, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, query, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const board = await getBoardById(params.id, orgId);
       if (!board) {
         set.status = 404;
@@ -349,8 +349,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .post(
     "/:id/sprints",
-    async ({ params, body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const board = await getBoardById(params.id, orgId);
       if (!board) {
         set.status = 404;
@@ -390,8 +390,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .post(
     "/:id/sprints/close-by-date",
-    async ({ params, body, set, user, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, body, set, user, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const board = await getBoardById(params.id, orgId);
       if (!board) {
         set.status = 404;
@@ -442,8 +442,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .post(
     "/:id/sprints/close-adhoc",
-    async ({ params, body, set, user, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, body, set, user, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const board = await getBoardById(params.id, orgId);
       if (!board) {
         set.status = 404;
@@ -490,8 +490,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .post(
     "/:id/sprints/:sprintId/close",
-    async ({ params, body, set, user, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, body, set, user, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const board = await getBoardById(params.id, orgId);
       if (!board) {
         set.status = 404;
@@ -547,8 +547,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .get(
     "/:id/sprints/:sprintId/work-items",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const board = await getBoardById(params.id, orgId);
       if (!board) {
         set.status = 404;
@@ -575,8 +575,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .get(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const board = await getBoardById(params.id, orgId);
 
       if (!board) {
@@ -598,8 +598,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .patch(
     "/:id",
-    async ({ params, body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const board = await updateBoard(orgId, params.id, {
         name: body.name,
         description: body.description,
@@ -638,8 +638,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .delete(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const deleted = await deleteBoard(orgId, params.id);
 
       if (!deleted) {
@@ -661,8 +661,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .get(
     "/:id/columns",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const board = await getBoardById(params.id, orgId);
 
       if (!board) {
@@ -685,8 +685,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .post(
     "/:id/columns",
-    async ({ params, body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const board = await getBoardById(params.id, orgId);
 
       if (!board) {
@@ -743,8 +743,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .patch(
     "/:id/columns/reorder",
-    async ({ params, body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const board = await getBoardById(params.id, orgId);
 
       if (!board) {
@@ -775,8 +775,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .patch(
     "/:id/columns/:colId",
-    async ({ params, body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const board = await getBoardById(params.id, orgId);
       if (!board) {
         set.status = 404;
@@ -831,8 +831,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .delete(
     "/:id/columns/:colId",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const board = await getBoardById(params.id, orgId);
       if (!board) {
         set.status = 404;
@@ -861,8 +861,8 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
   // -------------------------------------------------------
   .get(
     "/:id/work-items",
-    async ({ params, query, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, query, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const filters: WorkItemBoardFilters = {};
 
       if (query.search) filters.search = query.search;

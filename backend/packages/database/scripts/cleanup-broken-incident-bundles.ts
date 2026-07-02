@@ -1,5 +1,5 @@
 /**
- * One-shot cleanup: delete incident_bundles rows with organization_id IS NULL.
+ * One-shot cleanup: delete incident_bundles rows with workspace_id IS NULL.
  *
  * These rows were created by a bug in the debug pipeline and HTTP handlers that
  * persisted bundles without owner attribution. They cannot be re-attributed and
@@ -19,25 +19,25 @@ import { writeFileSync } from "fs";
 import { join } from "path";
 
 const main = async () => {
-  console.log("[cleanup] Starting cleanup of incident_bundles with organization_id IS NULL...");
+  console.log("[cleanup] Starting cleanup of incident_bundles with workspace_id IS NULL...");
 
   // First: count and collect the rows to be deleted
   const toDelete = await db
     .select({ id: incidentBundles.id, createdAt: incidentBundles.createdAt })
     .from(incidentBundles)
-    .where(isNull(incidentBundles.organizationId));
+    .where(isNull(incidentBundles.workspaceId));
 
   if (toDelete.length === 0) {
-    console.log("[cleanup] No rows with organization_id IS NULL found. Nothing to delete.");
+    console.log("[cleanup] No rows with workspace_id IS NULL found. Nothing to delete.");
     return;
   }
 
-  console.log(`[cleanup] Found ${toDelete.length} row(s) with organization_id IS NULL.`);
+  console.log(`[cleanup] Found ${toDelete.length} row(s) with workspace_id IS NULL.`);
 
   // Delete
   const deleted = await db
     .delete(incidentBundles)
-    .where(isNull(incidentBundles.organizationId))
+    .where(isNull(incidentBundles.workspaceId))
     .returning({ id: incidentBundles.id });
 
   const logEntry = {

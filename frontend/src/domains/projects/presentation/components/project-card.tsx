@@ -20,7 +20,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
   clientName,
   techStack,
   github,
-  organizationName,
+  workspaceName,
   epicCount = 0,
   featureCount = 0,
   storyCount = 0,
@@ -89,9 +89,9 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
       </CardHeader>
       <CardContent className="flex flex-1 flex-col space-y-3 pb-6">
         <div className="flex min-h-6 flex-wrap items-center gap-1.5">
-          {organizationName ? (
+          {workspaceName ? (
             <Badge variant="outline" className="text-xs">
-              {organizationName}
+              {workspaceName}
             </Badge>
           ) : (
             <Badge variant="outline" className="text-xs text-muted-foreground">

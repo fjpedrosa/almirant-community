@@ -31,10 +31,10 @@ const resolveMonitoringRange = (range: string | undefined): MonitoringRange => {
 export const analyticsRoutes = new Elysia({ prefix: "/analytics" })
   .use(sessionContextTypes)
 
-  // GET /analytics/overview - KPIs for the active organization
-  .get("/overview", async ({ activeOrganization }) => {
+  // GET /analytics/overview - KPIs for the active workspace
+  .get("/overview", async ({ activeWorkspace }) => {
     try {
-      const orgId = activeOrganization!.id;
+      const orgId = activeWorkspace!.id;
 
       const [overview, usageSummary] = await Promise.all([
         getOrgAnalyticsOverview(orgId),
@@ -64,9 +64,9 @@ export const analyticsRoutes = new Elysia({ prefix: "/analytics" })
   // GET /analytics/users - Per-user consumption for the org
   .get(
     "/users",
-    async ({ query, activeOrganization }) => {
+    async ({ query, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
 
         const now = new Date();
         const period =
@@ -108,9 +108,9 @@ export const analyticsRoutes = new Elysia({ prefix: "/analytics" })
   // GET /analytics/users/:userId - Monthly detail for a specific user
   .get(
     "/users/:userId",
-    async ({ params, query, activeOrganization }) => {
+    async ({ params, query, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const months = query.months ?? 6;
         const clampedMonths = Math.min(24, Math.max(1, months));
 
@@ -154,9 +154,9 @@ export const analyticsRoutes = new Elysia({ prefix: "/analytics" })
   // GET /analytics/trends - Monthly trend data
   .get(
     "/trends",
-    async ({ query, activeOrganization }) => {
+    async ({ query, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const months = query.months ?? 12;
         const clampedMonths = Math.min(24, Math.max(1, months));
 
@@ -191,9 +191,9 @@ export const analyticsRoutes = new Elysia({ prefix: "/analytics" })
   // GET /analytics/token-usage - Token consumption grouped by period
   .get(
     "/token-usage",
-    async ({ query, activeOrganization }) => {
+    async ({ query, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const months = query.months ?? 12;
         const clampedMonths = Math.min(24, Math.max(1, months));
 
@@ -215,9 +215,9 @@ export const analyticsRoutes = new Elysia({ prefix: "/analytics" })
   // GET /analytics/model-usage - Model usage breakdown
   .get(
     "/model-usage",
-    async ({ query, activeOrganization }) => {
+    async ({ query, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const months = query.months ?? 12;
         const clampedMonths = Math.min(24, Math.max(1, months));
 
@@ -239,9 +239,9 @@ export const analyticsRoutes = new Elysia({ prefix: "/analytics" })
   // GET /analytics/agent-usage - Coding agent usage breakdown
   .get(
     "/agent-usage",
-    async ({ query, activeOrganization }) => {
+    async ({ query, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const months = Math.min(24, Math.max(1, query.months ?? 12));
         const data = await getCodingAgentUsage(orgId, months, query.userId);
         return successResponse(
@@ -268,9 +268,9 @@ export const analyticsRoutes = new Elysia({ prefix: "/analytics" })
   // GET /analytics/system-monitoring - Runner/system/process telemetry for analytics
   .get(
     "/system-monitoring",
-    async ({ query, activeOrganization }) => {
+    async ({ query, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const range = resolveMonitoringRange(query.range);
         const now = new Date();
         const from = new Date(now.getTime() - MONITORING_RANGE_MS[range]);

@@ -35,7 +35,7 @@ mock.module("@almirant/database", () =>
     getInstallations: async () => [],
     getLinkedReposByInstallation: async () => [],
     upsertInstallation: upsertInstallationSpy,
-    getUnlinkedGithubReposForOrganization: async () => [],
+    getUnlinkedGithubReposForWorkspace: async () => [],
   }),
 );
 
@@ -58,7 +58,7 @@ mock.module("@almirant/config", () => loggerMock);
 
 mock.module("../../../../shared/ws/ws-connection-manager", () => ({
   wsConnectionManager: {
-    broadcastToOrganization: () => {},
+    broadcastToWorkspace: () => {},
     sendToUser: () => {},
   },
 }));

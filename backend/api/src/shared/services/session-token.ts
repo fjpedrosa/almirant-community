@@ -13,12 +13,12 @@ export interface SessionTokenPayload {
   /**
    * Project the agent is working on.
    *
-   * Optional for organization-scoped MCP sessions such as ChatGPT connectors
+   * Optional for workspace-scoped MCP sessions such as ChatGPT connectors
    * that need to create/list projects before a specific project exists.
    */
   projectId?: string;
-  /** Organization owning the project or organization-scoped session */
-  organizationId: string;
+  /** Workspace owning the project or workspace-scoped session */
+  workspaceId: string;
   /** Optional actor user for audit/comment attribution inside MCP tools */
   userId?: string;
   /**
@@ -72,7 +72,7 @@ const MAX_TTL_SECONDS = 86400; // 24 hours
  */
 export function generateSessionToken(params: {
   projectId?: string;
-  organizationId: string;
+  workspaceId: string;
   userId?: string;
   jobId?: string;
   permissions: string[];
@@ -98,7 +98,7 @@ export function generateSessionToken(params: {
   const jti = randomBytes(16).toString("hex");
 
   const payload: SessionTokenPayload = {
-    organizationId: params.organizationId,
+    workspaceId: params.workspaceId,
     ...(params.projectId ? { projectId: params.projectId } : {}),
     ...(params.userId ? { userId: params.userId } : {}),
     ...(params.jobId ? { jobId: params.jobId } : {}),
@@ -111,7 +111,7 @@ export function generateSessionToken(params: {
     algorithm: "HS256",
     expiresIn: ttl,
     issuer: "almirant-api",
-    subject: `session:${params.organizationId}:${params.projectId ?? "org"}`,
+    subject: `session:${params.workspaceId}:${params.projectId ?? "org"}`,
   });
 
   return `${SESSION_TOKEN_PREFIX}${token}`;
@@ -142,7 +142,7 @@ export function verifySessionToken(
 
     // Validate required fields
     if (
-      !payload.organizationId ||
+      !payload.workspaceId ||
       !Array.isArray(payload.permissions) ||
       !payload.sessionType ||
       !payload.jti
@@ -161,7 +161,7 @@ export function verifySessionToken(
     }
 
     return {
-      organizationId: payload.organizationId,
+      workspaceId: payload.workspaceId,
       ...(typeof payload.projectId === "string" ? { projectId: payload.projectId } : {}),
       ...(typeof payload.userId === "string" ? { userId: payload.userId } : {}),
       ...(typeof payload.jobId === "string" ? { jobId: payload.jobId } : {}),

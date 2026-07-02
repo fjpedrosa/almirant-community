@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import {
   getProjectIdByRepoId,
-  getOrganizationIdByRepoId,
+  getWorkspaceIdByRepoId,
   getDocsPathByRepoId,
   getGithubInstallationIdByRepoFullName,
   getDocumentByFilePath,
@@ -144,7 +144,7 @@ const computeContentHash = (content: string): string => {
  * Files at the root of docsPath (no subfolder) return null.
  */
 export const resolveOrCreateCategoryForPath = async (
-  organizationId: string,
+  workspaceId: string,
   filePath: string,
   docsPath: string
 ): Promise<string | null> => {
@@ -166,11 +166,11 @@ export const resolveOrCreateCategoryForPath = async (
       .replace(/[-_]/g, " ")
       .replace(/\b\w/g, (c) => c.toUpperCase());
 
-    const existing = await getDocumentCategoryByNameAndParent(organizationId, folderName, parentId);
+    const existing = await getDocumentCategoryByNameAndParent(workspaceId, folderName, parentId);
     if (existing) {
       parentId = existing.id;
     } else {
-      const created = await createDocumentCategory(organizationId, {
+      const created = await createDocumentCategory(workspaceId, {
         name: folderName,
         parentId: parentId || undefined,
       });
@@ -213,12 +213,12 @@ export const handleDocSync = async (
     return;
   }
 
-  // ---- Resolve organizationId ----
-  const organizationId = await getOrganizationIdByRepoId(repoId);
-  if (!organizationId) {
+  // ---- Resolve workspaceId ----
+  const workspaceId = await getWorkspaceIdByRepoId(repoId);
+  if (!workspaceId) {
     logger.warn(
       { ...logCtx, repoId },
-      "[docs-sync] Could not resolve organizationId from repoId, skipping doc sync"
+      "[docs-sync] Could not resolve workspaceId from repoId, skipping doc sync"
     );
     return;
   }
@@ -283,11 +283,11 @@ export const handleDocSync = async (
   for (const [filePath, action] of fileActions) {
     try {
       if (action === "removed") {
-        await handleRemovedFile(organizationId, filePath, projectId, logCtx);
+        await handleRemovedFile(workspaceId, filePath, projectId, logCtx);
         result.archived++;
       } else {
         const outcome = await handleUpsertFile(
-          organizationId,
+          workspaceId,
           filePath,
           projectId,
           repoFullName,
@@ -391,12 +391,12 @@ export const handleDocSync = async (
 // ---- Per-file handlers ----
 
 const handleRemovedFile = async (
-  organizationId: string,
+  workspaceId: string,
   filePath: string,
   projectId: string,
   logCtx: Record<string, unknown>
 ): Promise<void> => {
-  const existing = await getDocumentByFilePath(organizationId, filePath, projectId);
+  const existing = await getDocumentByFilePath(workspaceId, filePath, projectId);
   if (!existing) {
     logger.debug(
       { ...logCtx, filePath },
@@ -405,7 +405,7 @@ const handleRemovedFile = async (
     return;
   }
 
-  await archiveDocument(organizationId, existing.id);
+  await archiveDocument(workspaceId, existing.id);
   logger.info(
     { ...logCtx, filePath, documentId: existing.id },
     "[docs-sync] Archived document"
@@ -413,7 +413,7 @@ const handleRemovedFile = async (
 };
 
 const handleUpsertFile = async (
-  organizationId: string,
+  workspaceId: string,
   filePath: string,
   projectId: string,
   repoFullName: string,
@@ -450,10 +450,10 @@ const handleUpsertFile = async (
     : `docs-sync/${projectId}/${filePath}`;
 
   // ---- Resolve category from folder structure ----
-  const categoryId = await resolveOrCreateCategoryForPath(organizationId, filePath, docsPath);
+  const categoryId = await resolveOrCreateCategoryForPath(workspaceId, filePath, docsPath);
 
   // ---- Check if document already exists ----
-  const existing = await getDocumentByFilePath(organizationId, filePath, projectId);
+  const existing = await getDocumentByFilePath(workspaceId, filePath, projectId);
 
   if (existing) {
     // If the document was previously archived, unarchive it (re-added file)
@@ -467,7 +467,7 @@ const handleUpsertFile = async (
     }
 
     // Update document content + category
-    await updateSyncedDocument(organizationId, existing.id, {
+    await updateSyncedDocument(workspaceId, existing.id, {
       title,
       content,
       contentHash,
@@ -478,7 +478,7 @@ const handleUpsertFile = async (
 
     // If it was archived, clear archivedAt (re-added)
     if (existing.archivedAt) {
-      await unarchiveDocument(organizationId, existing.id);
+      await unarchiveDocument(workspaceId, existing.id);
     }
 
     // Create a new version record
@@ -497,7 +497,7 @@ const handleUpsertFile = async (
   }
 
   // ---- Create new document ----
-  const newDoc = await createSyncedDocument(organizationId, {
+  const newDoc = await createSyncedDocument(workspaceId, {
     title,
     content,
     projectId,

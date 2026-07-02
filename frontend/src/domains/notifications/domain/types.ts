@@ -5,7 +5,7 @@ export type NotificationType = "assignment" | "comment" | "mention" | "status_ch
 export interface Notification {
   id: string;
   recipientUserId: string;
-  organizationId: string;
+  workspaceId: string;
   type: NotificationType;
   title: string;
   body: string | null;
@@ -27,7 +27,7 @@ export interface Notification {
 export interface NotificationPreference {
   id: string;
   userId: string;
-  organizationId: string;
+  workspaceId: string;
   notificationType: NotificationType;
   inAppEnabled: boolean;
   emailEnabled: boolean;

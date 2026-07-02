@@ -14,12 +14,12 @@ const generateProjectPrefix = (projectName: string | null): string => {
   return words.map((w) => w[0]!.toUpperCase()).join("").slice(0, 10);
 };
 
-const getNextTaskId = async (prefix: string, organizationId: string): Promise<string> => {
+const getNextTaskId = async (prefix: string, workspaceId: string): Promise<string> => {
   const [result] = await db
     .insert(schema.taskIdCounters)
-    .values({ prefix, organizationId, nextNumber: 2 })
+    .values({ prefix, workspaceId, nextNumber: 2 })
     .onConflictDoUpdate({
-      target: [schema.taskIdCounters.prefix, schema.taskIdCounters.organizationId],
+      target: [schema.taskIdCounters.prefix, schema.taskIdCounters.workspaceId],
       set: { nextNumber: sql`${schema.taskIdCounters.nextNumber} + 1` },
     })
     .returning({ currentNumber: sql<number>`${schema.taskIdCounters.nextNumber} - 1` });
@@ -43,37 +43,37 @@ async function backfill() {
   console.log(`Found ${items.length} work items without taskId`);
 
   // Cache project context to avoid repeated lookups
-  const projectContextCache = new Map<string, { name: string | null; organizationId: string | null }>();
+  const projectContextCache = new Map<string, { name: string | null; workspaceId: string | null }>();
 
   let count = 0;
   for (const item of items) {
     let projectName: string | null = null;
-    let organizationId: string | null = null;
+    let workspaceId: string | null = null;
 
     if (item.projectId) {
       if (projectContextCache.has(item.projectId)) {
         const cached = projectContextCache.get(item.projectId)!;
         projectName = cached.name;
-        organizationId = cached.organizationId;
+        workspaceId = cached.workspaceId;
       } else {
         const [proj] = await db
-          .select({ name: schema.projects.name, organizationId: schema.projects.organizationId })
+          .select({ name: schema.projects.name, workspaceId: schema.projects.workspaceId })
           .from(schema.projects)
           .where(eq(schema.projects.id, item.projectId))
           .limit(1);
         projectName = proj?.name ?? null;
-        organizationId = proj?.organizationId ?? null;
-        projectContextCache.set(item.projectId, { name: projectName, organizationId });
+        workspaceId = proj?.workspaceId ?? null;
+        projectContextCache.set(item.projectId, { name: projectName, workspaceId });
       }
     }
 
-    if (!organizationId) {
-      console.warn(`  Skipping ${item.id}: unable to resolve organization`);
+    if (!workspaceId) {
+      console.warn(`  Skipping ${item.id}: unable to resolve workspace`);
       continue;
     }
 
     const prefix = generateProjectPrefix(projectName);
-    const taskId = await getNextTaskId(prefix, organizationId);
+    const taskId = await getNextTaskId(prefix, workspaceId);
 
     await db
       .update(schema.workItems)

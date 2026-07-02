@@ -9,7 +9,7 @@ export interface NotificationWithActor extends NotificationDb {
 }
 
 /**
- * Get paginated notifications for a user within an organization.
+ * Get paginated notifications for a user within a workspace.
  * Joins with the user table to resolve actor name/image.
  */
 export const getNotifications = async (
@@ -23,7 +23,7 @@ export const getNotifications = async (
 
   const conditions = [
     eq(notifications.recipientUserId, userId),
-    eq(notifications.organizationId, orgId),
+    eq(notifications.workspaceId, orgId),
   ];
 
   if (filters?.type) {
@@ -41,7 +41,7 @@ export const getNotifications = async (
       .select({
         id: notifications.id,
         recipientUserId: notifications.recipientUserId,
-        organizationId: notifications.organizationId,
+        workspaceId: notifications.workspaceId,
         type: notifications.type,
         title: notifications.title,
         body: notifications.body,
@@ -72,7 +72,7 @@ export const getNotifications = async (
   const items: NotificationWithActor[] = rows.map((row) => ({
     id: row.id,
     recipientUserId: row.recipientUserId,
-    organizationId: row.organizationId,
+    workspaceId: row.workspaceId,
     type: row.type,
     title: row.title,
     body: row.body,
@@ -93,7 +93,7 @@ export const getNotifications = async (
 };
 
 /**
- * Get the count of unread notifications for a user in an organization.
+ * Get the count of unread notifications for a user in a workspace.
  * Optimized COUNT query -- will be called frequently from the UI.
  */
 export const getUnreadCount = async (
@@ -106,7 +106,7 @@ export const getUnreadCount = async (
     .where(
       and(
         eq(notifications.recipientUserId, userId),
-        eq(notifications.organizationId, orgId),
+        eq(notifications.workspaceId, orgId),
         eq(notifications.isRead, false)
       )
     );
@@ -137,7 +137,7 @@ export const markNotificationAsRead = async (
 };
 
 /**
- * Mark all unread notifications as read for a user in an organization.
+ * Mark all unread notifications as read for a user in a workspace.
  * Returns the count of notifications that were updated.
  */
 export const markAllNotificationsAsRead = async (
@@ -150,7 +150,7 @@ export const markAllNotificationsAsRead = async (
     .where(
       and(
         eq(notifications.recipientUserId, userId),
-        eq(notifications.organizationId, orgId),
+        eq(notifications.workspaceId, orgId),
         eq(notifications.isRead, false)
       )
     )
@@ -160,7 +160,7 @@ export const markAllNotificationsAsRead = async (
 };
 
 /**
- * Get all notification preferences for a user in an organization.
+ * Get all notification preferences for a user in a workspace.
  */
 export const getNotificationPreferences = async (
   userId: string,
@@ -172,14 +172,14 @@ export const getNotificationPreferences = async (
     .where(
       and(
         eq(notificationPreferences.userId, userId),
-        eq(notificationPreferences.organizationId, orgId)
+        eq(notificationPreferences.workspaceId, orgId)
       )
     );
 };
 
 /**
  * Upsert a notification preference for a specific notification type.
- * Uses the unique index (userId, organizationId, notificationType) for conflict resolution.
+ * Uses the unique index (userId, workspaceId, notificationType) for conflict resolution.
  */
 export const upsertNotificationPreference = async (
   userId: string,
@@ -193,7 +193,7 @@ export const upsertNotificationPreference = async (
     .insert(notificationPreferences)
     .values({
       userId,
-      organizationId: orgId,
+      workspaceId: orgId,
       notificationType: notificationType as NotificationPreference["notificationType"],
       inAppEnabled,
       emailEnabled,
@@ -202,7 +202,7 @@ export const upsertNotificationPreference = async (
     .onConflictDoUpdate({
       target: [
         notificationPreferences.userId,
-        notificationPreferences.organizationId,
+        notificationPreferences.workspaceId,
         notificationPreferences.notificationType,
       ],
       set: {

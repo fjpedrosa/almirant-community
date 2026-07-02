@@ -445,7 +445,7 @@ export const createBugFixAttemptFromClaim = async (args: {
   feedbackItemId: string;
   clusterId?: string | null;
   projectId: string;
-  organizationId: string;
+  workspaceId: string;
   domain: NonNullable<NewBugFixAttempt["domain"]>;
   claimToken: string;
 }): Promise<CreateClaimedBugFixAttemptResult> => {
@@ -546,7 +546,7 @@ export const createBugFixAttemptFromClaim = async (args: {
           feedbackItemId: args.feedbackItemId,
           clusterId,
           projectId: args.projectId,
-          organizationId: args.organizationId,
+          workspaceId: args.workspaceId,
           domain: args.domain,
           status: "analyzing",
           attemptNumber: budget.currentCount + 1,
@@ -610,7 +610,7 @@ export const createBugFixAttemptFromClaim = async (args: {
 export const updateBugFixAttempt = async (
   id: string,
   data: Partial<
-    Omit<NewBugFixAttempt, "id" | "createdAt" | "updatedAt" | "projectId" | "organizationId" | "feedbackItemId">
+    Omit<NewBugFixAttempt, "id" | "createdAt" | "updatedAt" | "projectId" | "workspaceId" | "feedbackItemId">
   >
 ): Promise<BugFixAttempt | null> => {
   const [updated] = await db

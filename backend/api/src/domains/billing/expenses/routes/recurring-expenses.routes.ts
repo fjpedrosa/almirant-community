@@ -35,15 +35,15 @@ const RECURRENCE_SCHEMA = t.Union([
 const normalizeErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Unexpected error";
 
-const getOrganizationIdFromContext = (ctx: unknown): string => {
-  const activeOrganization = (ctx as { activeOrganization?: { id?: string } }).activeOrganization;
-  if (!activeOrganization?.id) throw new Error("ACTIVE_ORGANIZATION_NOT_FOUND");
-  return activeOrganization.id;
+const getWorkspaceIdFromContext = (ctx: unknown): string => {
+  const activeWorkspace = (ctx as { activeWorkspace?: { id?: string } }).activeWorkspace;
+  if (!activeWorkspace?.id) throw new Error("ACTIVE_WORKSPACE_NOT_FOUND");
+  return activeWorkspace.id;
 };
 
 const mapRecurringExpenseErrorToHttp = (errorMessage: string): { status: number; message: string } => {
-  if (errorMessage === "ACTIVE_ORGANIZATION_NOT_FOUND") {
-    return { status: 403, message: "No active organization in session" };
+  if (errorMessage === "ACTIVE_WORKSPACE_NOT_FOUND") {
+    return { status: 403, message: "No active workspace in session" };
   }
   if (errorMessage === "RECURRING_EXPENSE_NOT_FOUND") {
     return { status: 404, message: "Recurring expense not found" };
@@ -61,7 +61,7 @@ export const recurringExpensesRoutes = new Elysia({ prefix: "/recurring-expenses
     async (ctx) => {
       try {
         const { query } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const items = await getRecurringExpenses(orgId, {
           isActive: query.isActive !== undefined ? query.isActive === "true" : undefined,
         });
@@ -83,7 +83,7 @@ export const recurringExpensesRoutes = new Elysia({ prefix: "/recurring-expenses
     "/summary",
     async (ctx) => {
       try {
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const summary = await getRecurringSummary(orgId);
         return successResponse(summary);
       } catch (error) {
@@ -99,7 +99,7 @@ export const recurringExpensesRoutes = new Elysia({ prefix: "/recurring-expenses
     async (ctx) => {
       try {
         const { query } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const daysAhead = query.daysAhead ? parseInt(query.daysAhead, 10) : 30;
         const items = await getUpcomingRenewals(orgId, daysAhead);
         return successResponse(items);
@@ -121,7 +121,7 @@ export const recurringExpensesRoutes = new Elysia({ prefix: "/recurring-expenses
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const item = await getRecurringExpenseById(orgId, params.id);
         if (!item) {
           set.status = 404;
@@ -142,7 +142,7 @@ export const recurringExpensesRoutes = new Elysia({ prefix: "/recurring-expenses
     async (ctx) => {
       try {
         const { body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const title = body.title?.trim();
         if (!title) {
           set.status = 400;
@@ -191,7 +191,7 @@ export const recurringExpensesRoutes = new Elysia({ prefix: "/recurring-expenses
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const updated = await updateRecurringExpense(orgId, params.id, {
           title: body.title,
           vendor: body.vendor,
@@ -241,7 +241,7 @@ export const recurringExpensesRoutes = new Elysia({ prefix: "/recurring-expenses
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const deleted = await deleteRecurringExpense(orgId, params.id);
         if (!deleted) {
           set.status = 404;

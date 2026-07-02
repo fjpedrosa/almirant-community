@@ -360,23 +360,23 @@ export const buildEmailUserActions = (args: {
 
 export const buildEmailMemberRemoved = (args: {
   memberName: string;
-  organizationName: string;
+  workspaceName: string;
   removedAt: string;
   locale?: Locale;
 }): EmailTemplate => {
   const locale = args.locale ?? 'en';
 
   const memberLabel = t(locale, 'emails.memberRemoval.meta.member');
-  const organizationLabel = t(locale, 'emails.memberRemoval.meta.organization');
+  const workspaceLabel = t(locale, 'emails.memberRemoval.meta.workspace');
   const removedOnLabel = t(locale, 'emails.memberRemoval.meta.removedOn');
 
   const body =
     `<p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.6;">
-      ${escapeHtml(t(locale, 'emails.memberRemoval.body.accessRevoked', { organization: args.organizationName }))}
+      ${escapeHtml(t(locale, 'emails.memberRemoval.body.accessRevoked', { workspace: args.workspaceName }))}
     </p>` +
     metaTable(
       metaRow(memberLabel, args.memberName) +
-      metaRow(organizationLabel, args.organizationName) +
+      metaRow(workspaceLabel, args.workspaceName) +
       metaRow(removedOnLabel, new Date(args.removedAt).toLocaleDateString(locale, { year: "numeric", month: "long", day: "numeric" }))
     ) +
     `<p style="margin:16px 0 0;font-size:13px;color:#6b7280;line-height:1.6;">
@@ -384,9 +384,9 @@ export const buildEmailMemberRemoved = (args: {
     </p>`;
 
   return {
-    subject: t(locale, 'emails.memberRemoval.subject', { organization: args.organizationName }),
+    subject: t(locale, 'emails.memberRemoval.subject', { workspace: args.workspaceName }),
     html: wrapInLayout({
-      preheader: t(locale, 'emails.memberRemoval.preheader', { organization: args.organizationName }),
+      preheader: t(locale, 'emails.memberRemoval.preheader', { workspace: args.workspaceName }),
       heading: t(locale, 'emails.memberRemoval.heading'),
       headingIcon: "&#128075;",
       body,

@@ -6,7 +6,7 @@ export type ColumnRole = "backlog" | "todo" | "in_progress" | "review" | "testin
 // Board entity
 export interface Board {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   name: string;
   description: string | null;
   area: BoardArea;

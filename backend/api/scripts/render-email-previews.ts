@@ -126,11 +126,11 @@ emails.push({
 
 // 7. Invitation
 emails.push({
-  title: 'Organization Invitation',
+  title: 'Workspace Invitation',
   subject: "You've been invited to Acme Corp",
   html: buildInvitationEmailHtml({
     acceptUrl: 'https://almirant.ai/accept-invite?token=xyz',
-    organizationName: 'Acme Corp',
+    workspaceName: 'Acme Corp',
     inviterName: 'Sam Rivera',
     inviterEmail: 'sam@acme.com',
     role: 'admin',
@@ -219,7 +219,7 @@ emails.push({ title: 'User Actions Required (EN)', ...userActions });
 // 15. Member Removed
 const memberRemoved = buildEmailMemberRemoved({
   memberName: 'Carlos Garcia',
-  organizationName: 'Acme Corp',
+  workspaceName: 'Acme Corp',
   removedAt: new Date().toISOString(),
   locale: 'en',
 });
@@ -227,7 +227,7 @@ emails.push({ title: 'Member Removed (EN)', ...memberRemoved });
 
 const memberRemovedEs = buildEmailMemberRemoved({
   memberName: 'Carlos Garcia',
-  organizationName: 'Acme Corp',
+  workspaceName: 'Acme Corp',
   removedAt: new Date().toISOString(),
   locale: 'es',
 });
@@ -275,14 +275,14 @@ emails.push({ title: 'Idea Mention — Multiple (EN)', ...mentionMulti });
 
 // 22. Idea Hub — Status Changed (single)
 const statusSingle = buildStatusChangedEmail('Sam', [
-  { title: 'AI quota limit reached (80%)', body: 'Your organization has used 80% of the monthly AI token quota. Consider upgrading or adjusting usage.', itemLink: '/settings/quota' },
+  { title: 'AI quota limit reached (80%)', body: 'Your workspace has used 80% of the monthly AI token quota. Consider upgrading or adjusting usage.', itemLink: '/settings/quota' },
 ], 'en');
 emails.push({ title: 'Status Changed — Single (EN)', ...statusSingle });
 
 // 23. Idea Hub — Status Changed (multiple)
 const statusMulti = buildStatusChangedEmail('Sam', [
-  { title: 'AI quota limit reached (80%)', body: 'Your organization has used 80% of the monthly AI token quota.', itemLink: '/settings/quota' },
-  { title: 'New member joined', body: 'Laura Perez has joined the organization as a member.', itemLink: '/settings/members' },
+  { title: 'AI quota limit reached (80%)', body: 'Your workspace has used 80% of the monthly AI token quota.', itemLink: '/settings/quota' },
+  { title: 'New member joined', body: 'Laura Perez has joined the workspace as a member.', itemLink: '/settings/members' },
 ], 'en');
 emails.push({ title: 'Status Changed — Multiple (EN)', ...statusMulti });
 

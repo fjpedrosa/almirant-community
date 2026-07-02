@@ -136,7 +136,7 @@ export interface ReleaseIntegrationConfig {
 }
 
 export interface TargetConfig {
-  /** Optional project scope for built-in automations. Empty/undefined means organization-wide. */
+  /** Optional project scope for built-in automations. Empty/undefined means workspace-wide. */
   projectIds?: string[];
   columnIds?: string[];
   statuses?: string[];
@@ -205,7 +205,7 @@ export interface BacklogDrainPreviewResult {
 // Entity type
 export interface ScheduledAgentConfig {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string | null;
   projectName: string | null;
   skillId: string | null;

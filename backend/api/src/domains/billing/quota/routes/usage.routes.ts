@@ -21,9 +21,9 @@ export const usageRoutes = new Elysia({ prefix: "/usage" })
   // Optional query param: projectId to filter by project
   .get(
     "/summary",
-    async ({ query, activeOrganization }) => {
+    async ({ query, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
 
         // Fetch quota limits for the org (all active quotas across providers)
         const quotaSummary = await quotaService.getUsageSummary(orgId);
@@ -75,7 +75,7 @@ export const usageRoutes = new Elysia({ prefix: "/usage" })
           }
 
           return successResponse({
-            organizationId: orgId,
+            workspaceId: orgId,
             projectId: query.projectId,
             period: `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`,
             totalSeconds,
@@ -92,7 +92,7 @@ export const usageRoutes = new Elysia({ prefix: "/usage" })
         const summary = await getCurrentUsageSummary(orgId);
 
         return successResponse({
-          organizationId: orgId,
+          workspaceId: orgId,
           period,
           totalSeconds: summary?.totalSeconds ?? 0,
           totalJobs: summary?.totalJobs ?? 0,
@@ -120,9 +120,9 @@ export const usageRoutes = new Elysia({ prefix: "/usage" })
   // GET /usage/history - Monthly usage history
   .get(
     "/history",
-    async ({ query, activeOrganization }) => {
+    async ({ query, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const months = query.months ?? 6;
         const clampedMonths = Math.min(24, Math.max(1, months));
 
@@ -158,9 +158,9 @@ export const usageRoutes = new Elysia({ prefix: "/usage" })
   // GET /usage/user-summary - Current month usage for the authenticated user
   .get(
     "/user-summary",
-    async ({ query, user, activeOrganization }) => {
+    async ({ query, user, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const userId = user!.id;
         const period = query.period ?? undefined;
 
@@ -204,9 +204,9 @@ export const usageRoutes = new Elysia({ prefix: "/usage" })
   // GET /usage/daily - Daily usage grouped by day
   .get(
     "/daily",
-    async ({ query, activeOrganization }) => {
+    async ({ query, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const days = Math.min(90, Math.max(1, query.days ?? 30));
 
         const dailyData = await getDailyUsage(orgId, {
@@ -233,9 +233,9 @@ export const usageRoutes = new Elysia({ prefix: "/usage" })
   // GET /usage/hourly - Usage frequency grouped by hour of day
   .get(
     "/hourly",
-    async ({ query, activeOrganization }) => {
+    async ({ query, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const days = Math.min(90, Math.max(1, query.days ?? 30));
 
         const hourlyData = await getHourlyUsage(orgId, {
@@ -262,9 +262,9 @@ export const usageRoutes = new Elysia({ prefix: "/usage" })
   // GET /usage/weekly - Weekly usage grouped by ISO week
   .get(
     "/weekly",
-    async ({ query, activeOrganization }) => {
+    async ({ query, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const weeks = Math.min(52, Math.max(1, query.weeks ?? 12));
 
         const weeklyData = await getWeeklyUsage(orgId, {
@@ -291,9 +291,9 @@ export const usageRoutes = new Elysia({ prefix: "/usage" })
   // GET /usage/user-history - Monthly usage history for the authenticated user
   .get(
     "/user-history",
-    async ({ query, user, activeOrganization }) => {
+    async ({ query, user, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const userId = user!.id;
         const months = query.months ?? 6;
         const clampedMonths = Math.min(24, Math.max(1, months));

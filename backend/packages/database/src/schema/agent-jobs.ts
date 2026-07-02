@@ -26,7 +26,7 @@ import { workItems } from "./work-items";
 import { boards } from "./boards";
 import { planningSessions } from "./planning-sessions";
 import { user } from "./auth";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import type { ProvenanceSource } from "./provenance";
 import type {
   AgentWorkspace,
@@ -174,7 +174,7 @@ export const agentJobs = pgTable(
     boardId: uuid("board_id").references(() => boards.id, { onDelete: "set null" }),
     planningSessionId: uuid("planning_session_id").references(() => planningSessions.id, { onDelete: "set null" }),
     createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
-    organizationId: text("organization_id").references(() => organization.id, { onDelete: "set null" }),
+    workspaceId: text("workspace_id").references(() => workspace.id, { onDelete: "set null" }),
 
     // Legacy columns (nullable — replaced by prompt + trigger model)
     jobType: agentJobTypeEnum("job_type").default("implementation"),
@@ -238,7 +238,7 @@ export const agentJobs = pgTable(
     index("agent_jobs_planning_session_idx").on(table.planningSessionId),
     index("agent_jobs_created_at_idx").on(table.createdAt),
     index("agent_jobs_created_by_user_idx").on(table.createdByUserId),
-    index("agent_jobs_organization_idx").on(table.organizationId),
+    index("agent_jobs_workspace_idx").on(table.workspaceId),
   ]
 );
 

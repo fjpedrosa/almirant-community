@@ -31,7 +31,7 @@ export const aiRoutes = new Elysia({ prefix: "/ai" })
       if (body.providerKeyId) {
         // Verify ownership of the provider key before resolving
         const userId = (ctx as unknown as { user: { id: string } }).user.id;
-        const orgId = (ctx as unknown as { activeOrganization: { id: string } }).activeOrganization.id;
+        const orgId = (ctx as unknown as { activeWorkspace: { id: string } }).activeWorkspace.id;
 
         const providerKey = await getAiProviderKeyById(body.providerKeyId);
         if (!providerKey) {

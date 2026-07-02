@@ -123,13 +123,13 @@ export const resolveSkillFromDb = async (
     skillId?: string;
     skillSlug?: string;
     projectId?: string;
-    organizationId?: string;
+    workspaceId?: string;
     containerId: string;
     runtimeType: string;
     eventLogger: RunnerJobEventLogger;
   },
 ): Promise<{ slug: string; content: string }> => {
-  const { skillId, skillSlug, projectId, organizationId, containerId, runtimeType, eventLogger } = params;
+  const { skillId, skillSlug, projectId, workspaceId, containerId, runtimeType, eventLogger } = params;
 
   const identifier = skillId ?? skillSlug ?? "unknown";
 
@@ -140,13 +140,13 @@ export const resolveSkillFromDb = async (
   }
 
   // Use the /resolve endpoint which supports both id and slug lookup with API key auth.
-  // Pass organizationId so the endpoint can scope to the job's org (runners are shared
+  // Pass workspaceId so the endpoint can scope to the job's org (runners are shared
   // infrastructure and their API key may belong to a different org than the job).
   const resolveUrl = new URL(`${deps.apiBaseUrl.replace(/\/+$/, "")}/api/skills/resolve`);
   if (skillId) resolveUrl.searchParams.set("id", skillId);
   if (skillSlug) resolveUrl.searchParams.set("slug", skillSlug);
   if (projectId) resolveUrl.searchParams.set("projectId", projectId);
-  if (organizationId) resolveUrl.searchParams.set("organizationId", organizationId);
+  if (workspaceId) resolveUrl.searchParams.set("workspaceId", workspaceId);
 
   eventLogger.info("skills", "skill.db_fetch_start", `Fetching skill ${identifier} from API`, { skillId: skillId ?? null, skillSlug: skillSlug ?? null });
 

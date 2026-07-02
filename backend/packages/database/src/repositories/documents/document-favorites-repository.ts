@@ -11,9 +11,9 @@ import { eq, and, sql, desc, isNull } from "drizzle-orm";
 export const toggleDocumentFavorite = async (
   userId: string,
   documentId: string,
-  organizationId: string
+  workspaceId: string
 ): Promise<{ isFavorite: boolean } | null> => {
-  // Defense-in-depth: document must be reachable from the active organization.
+  // Defense-in-depth: document must be reachable from the active workspace.
   const [documentInOrg] = await db
     .select({ id: documents.id })
     .from(documents)
@@ -21,7 +21,7 @@ export const toggleDocumentFavorite = async (
     .where(
       and(
         eq(documents.id, documentId),
-        sql`(${documents.projectId} IS NULL OR ${projects.organizationId} = ${organizationId})`
+        sql`(${documents.projectId} IS NULL OR ${projects.workspaceId} = ${workspaceId})`
       )
     )
     .limit(1);
@@ -73,11 +73,11 @@ export const getFavoriteDocumentIds = async (
 
 /**
  * Returns full document list for a user's favorites, joined with category and project info.
- * Filters by organization (via project) and excludes archived documents.
+ * Filters by workspace (via project) and excludes archived documents.
  */
 export const getFavoriteDocuments = async (
   userId: string,
-  organizationId: string
+  workspaceId: string
 ): Promise<
   Array<{
     id: string;
@@ -119,7 +119,7 @@ export const getFavoriteDocuments = async (
       and(
         eq(documentFavorites.userId, userId),
         isNull(documents.archivedAt),
-        sql`(${documents.projectId} IS NULL OR ${documents.projectId} IN (SELECT id FROM projects WHERE organization_id = ${organizationId}))`
+        sql`(${documents.projectId} IS NULL OR ${documents.projectId} IN (SELECT id FROM projects WHERE workspace_id = ${workspaceId}))`
       )
     )
     .orderBy(desc(documentFavorites.createdAt));

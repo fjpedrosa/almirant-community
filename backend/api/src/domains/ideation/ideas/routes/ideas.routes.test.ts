@@ -107,11 +107,11 @@ describe("ideasRoutes", () => {
       expect(body.error).toContain("Title is required");
     });
 
-    it("returns 400 when project does not belong to active organization", async () => {
+    it("returns 400 when project does not belong to active workspace", async () => {
       mock.module("@almirant/database", () =>
         createDatabaseMocks({
           createIdeaItem: async () => {
-            throw new Error("PROJECT_NOT_IN_ORGANIZATION");
+            throw new Error("PROJECT_NOT_IN_WORKSPACE");
           },
         })
       );
@@ -131,7 +131,7 @@ describe("ideasRoutes", () => {
 
       expect(status).toBe(400);
       expect(body.success).toBe(false);
-      expect(body.error).toContain("does not belong to active organization");
+      expect(body.error).toContain("does not belong to active workspace");
 
       mock.module("@almirant/database", () => createDatabaseMocks());
     });

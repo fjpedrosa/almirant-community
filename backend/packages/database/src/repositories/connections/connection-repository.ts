@@ -1,14 +1,14 @@
 import { db } from "../../client";
-import { providerConnections, organizationSettings, member } from "../../schema";
+import { providerConnections, workspaceSettings, member } from "../../schema";
 import { eq, and, asc, desc, sql, isNull, inArray, type SQL } from "drizzle-orm";
 import type {
   ProviderConnection,
   NewProviderConnection,
 } from "../../schema/provider-connections";
 import type {
-  OrganizationSettings,
-  NewOrganizationSettings,
-} from "../../schema/organization-settings";
+  WorkspaceSettings,
+  NewWorkspaceSettings,
+} from "../../schema/workspace-settings";
 import { logger } from "@almirant/config";
 
 // ---------------------------------------------------------------------------
@@ -147,10 +147,10 @@ export const decryptCredentials = (
  * Validates that the given scope is allowed for the given category.
  *
  * Rules:
- *  - code       -> user or organization (user = personal GitHub account)
- *  - ai         -> user or organization
- *  - deployment -> organization only
- *  - monitoring -> organization only
+ *  - code       -> user or workspace (user = personal GitHub account)
+ *  - ai         -> user or workspace
+ *  - deployment -> workspace only
+ *  - monitoring -> workspace only
  */
 export const validateScopeForCategory = (
   scope: ConnectionScope,
@@ -214,7 +214,7 @@ export const createConnection = async (
   if (!validateScopeForCategory(data.scope, data.category)) {
     throw new Error(
       `Invalid scope "${data.scope}" for category "${data.category}". ` +
-        `Code and deployment connections must be organization-scoped.`,
+        `Code and deployment connections must be workspace-scoped.`,
     );
   }
 
@@ -336,16 +336,16 @@ export const getConnectionById = async (
 };
 
 /**
- * Get all organization IDs a user belongs to.
+ * Get all workspace IDs a user belongs to.
  */
-export const getOrganizationIdsForUser = async (
+export const getWorkspaceIdsForUser = async (
   userId: string,
 ): Promise<string[]> => {
   const rows = await db
-    .select({ organizationId: member.organizationId })
+    .select({ workspaceId: member.workspaceId })
     .from(member)
     .where(eq(member.userId, userId));
-  return rows.map((r) => r.organizationId);
+  return rows.map((r) => r.workspaceId);
 };
 
 /**
@@ -429,7 +429,7 @@ export const updateConnection = async (
       if (!validateScopeForCategory(finalScope, finalCategory)) {
         throw new Error(
           `Invalid scope "${finalScope}" for category "${finalCategory}". ` +
-            `Code and deployment connections must be organization-scoped.`,
+            `Code and deployment connections must be workspace-scoped.`,
         );
       }
     }
@@ -1008,8 +1008,8 @@ export const updateConnectionEncryptedCredentials = async (
  * Used by worker routes as a global fallback for legacy/system jobs without org context.
  *
  * @deprecated Use `findActiveConnections(provider, scope, scopeId)` with explicit scope instead.
- * This function queries across ALL organizations and is a security risk for multi-tenant usage.
- * Only kept for legacy/system jobs that lack organization context.
+ * This function queries across ALL workspaces and is a security risk for multi-tenant usage.
+ * Only kept for legacy/system jobs that lack workspace context.
  */
 export const getLatestActiveAiKeyByProvider = async (
   provider: string,
@@ -1130,21 +1130,21 @@ export const deleteVercelConnectionByUser = async (
 };
 
 // ---------------------------------------------------------------------------
-// Organization Settings
+// Workspace Settings
 // ---------------------------------------------------------------------------
 
 const DEFAULT_AI_KEY_POLICY = "user_preferred" as const;
 
 /**
- * Get organization settings. Returns default values if no row exists yet.
+ * Get workspace settings. Returns default values if no row exists yet.
  */
 export const getOrgSettings = async (
-  organizationId: string,
-): Promise<OrganizationSettings> => {
+  workspaceId: string,
+): Promise<WorkspaceSettings> => {
   const [row] = await db
     .select()
-    .from(organizationSettings)
-    .where(eq(organizationSettings.organizationId, organizationId))
+    .from(workspaceSettings)
+    .where(eq(workspaceSettings.workspaceId, workspaceId))
     .limit(1);
 
   if (row) return row;
@@ -1152,7 +1152,7 @@ export const getOrgSettings = async (
   // Return in-memory defaults without persisting
   return {
     id: "",
-    organizationId,
+    workspaceId,
     aiKeyPolicy: DEFAULT_AI_KEY_POLICY,
     orchestrationStrategy: null,
     maxConcurrentJobs: 3,
@@ -1162,13 +1162,13 @@ export const getOrgSettings = async (
 };
 
 /**
- * Insert or update organization settings. Uses ON CONFLICT on the
- * unique `organizationId` column.
+ * Insert or update workspace settings. Uses ON CONFLICT on the
+ * unique `workspaceId` column.
  */
 export const upsertOrgSettings = async (
-  organizationId: string,
-  data: Pick<NewOrganizationSettings, "aiKeyPolicy"> & { orchestrationStrategy?: NewOrganizationSettings["orchestrationStrategy"] },
-): Promise<OrganizationSettings> => {
+  workspaceId: string,
+  data: Pick<NewWorkspaceSettings, "aiKeyPolicy"> & { orchestrationStrategy?: NewWorkspaceSettings["orchestrationStrategy"] },
+): Promise<WorkspaceSettings> => {
   const now = new Date();
 
   const setFields: Record<string, unknown> = {
@@ -1180,7 +1180,7 @@ export const upsertOrgSettings = async (
   }
 
   const insertValues: Record<string, unknown> = {
-    organizationId,
+    workspaceId,
     aiKeyPolicy: data.aiKeyPolicy,
     createdAt: now,
     updatedAt: now,
@@ -1190,15 +1190,15 @@ export const upsertOrgSettings = async (
   }
 
   const [upserted] = await db
-    .insert(organizationSettings)
-    .values(insertValues as NewOrganizationSettings)
+    .insert(workspaceSettings)
+    .values(insertValues as NewWorkspaceSettings)
     .onConflictDoUpdate({
-      target: organizationSettings.organizationId,
+      target: workspaceSettings.workspaceId,
       set: setFields,
     })
     .returning();
 
-  if (!upserted) throw new Error("Failed to upsert organization settings");
+  if (!upserted) throw new Error("Failed to upsert workspace settings");
 
   return upserted;
 };

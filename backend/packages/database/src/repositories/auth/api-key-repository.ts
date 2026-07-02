@@ -14,7 +14,7 @@ const hashKey = (raw: string): string => {
 
 // Create a new API key — returns the plaintext key (shown only once)
 export const createApiKey = async (
-  organizationId: string,
+  workspaceId: string,
   name: string,
   opts?: { userId?: string; serviceAccountId?: string; keyPrefix?: string; allowedIssuedPermissions?: string[] }
 ): Promise<{
@@ -36,7 +36,7 @@ export const createApiKey = async (
       name,
       keyHash,
       keyPrefix,
-      organizationId,
+      workspaceId,
       ...(opts?.userId ? { userId: opts.userId } : {}),
       ...(opts?.serviceAccountId ? { serviceAccountId: opts.serviceAccountId } : {}),
       ...(opts?.allowedIssuedPermissions ? { allowedIssuedPermissions: opts.allowedIssuedPermissions } : {}),
@@ -92,13 +92,13 @@ export const validateApiKey = async (
 
 // List all API keys (never exposes keyHash)
 export const listApiKeys = async (
-  organizationId: string,
+  workspaceId: string,
   userId?: string
 ): Promise<
   Omit<ApiKey, "keyHash">[]
 > => {
   const conditions = [
-    eq(apiKeys.organizationId, organizationId),
+    eq(apiKeys.workspaceId, workspaceId),
     eq(apiKeys.isActive, true),
   ];
   if (userId) {
@@ -113,7 +113,7 @@ export const listApiKeys = async (
       isActive: apiKeys.isActive,
       userId: apiKeys.userId,
       serviceAccountId: apiKeys.serviceAccountId,
-      organizationId: apiKeys.organizationId,
+      workspaceId: apiKeys.workspaceId,
       allowedIssuedPermissions: apiKeys.allowedIssuedPermissions,
       lastUsedAt: apiKeys.lastUsedAt,
       createdAt: apiKeys.createdAt,
@@ -126,11 +126,11 @@ export const listApiKeys = async (
 };
 
 // Revoke an API key (soft-delete by setting isActive = false)
-export const revokeApiKey = async (organizationId: string, id: string): Promise<boolean> => {
+export const revokeApiKey = async (workspaceId: string, id: string): Promise<boolean> => {
   const [updated] = await db
     .update(apiKeys)
     .set({ isActive: false })
-    .where(and(eq(apiKeys.id, id), eq(apiKeys.organizationId, organizationId)))
+    .where(and(eq(apiKeys.id, id), eq(apiKeys.workspaceId, workspaceId)))
     .returning();
 
   return !!updated;

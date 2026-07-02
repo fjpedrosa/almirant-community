@@ -60,7 +60,7 @@ afterEach(async () => {
   await wsConnectionManager.stopPubSubPublisher();
 });
 
-describe("wsConnectionManager.broadcastToOrganization", () => {
+describe("wsConnectionManager.broadcastToWorkspace", () => {
   it("broadcasts locally and publishes to Redis Pub/Sub for other instances", async () => {
     const sent: string[] = [];
     const ws = {
@@ -82,7 +82,7 @@ describe("wsConnectionManager.broadcastToOrganization", () => {
       },
     } as const;
 
-    wsConnectionManager.broadcastToOrganization("org-1", message);
+    wsConnectionManager.broadcastToWorkspace("org-1", message);
 
     await Promise.resolve();
 
@@ -91,12 +91,12 @@ describe("wsConnectionManager.broadcastToOrganization", () => {
     expect(redisState.publishCalls[0]?.channel).toBe("ws:broadcast");
 
     const published = JSON.parse(redisState.publishCalls[0]!.payload) as {
-      organizationId: string;
+      workspaceId: string;
       message: typeof message;
       originInstanceId?: string;
     };
 
-    expect(published.organizationId).toBe("org-1");
+    expect(published.workspaceId).toBe("org-1");
     expect(published.message).toEqual(message);
     expect(published.originInstanceId).toBe("instance-test");
 

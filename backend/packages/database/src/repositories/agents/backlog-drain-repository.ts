@@ -232,8 +232,8 @@ const markRepeatedDodRemediationAttemptsForHumanIntervention = async (
   }
 };
 
-const selectBacklogDrainForOrganization = async (params: {
-  organizationId: string;
+const selectBacklogDrainForWorkspace = async (params: {
+  workspaceId: string;
   mode?: BacklogDrainSelectionMode;
   rules: BacklogDrainProjectRule[];
   allProjects?: boolean;
@@ -249,7 +249,7 @@ const selectBacklogDrainForOrganization = async (params: {
 }): Promise<BacklogDrainCandidateResult> => {
   if (params.rules.length === 0 && !params.allProjects) return emptyCandidateResult();
   const requestedProjectIds = Array.from(new Set(params.rules.map((rule) => rule.projectId)));
-  const projectConditions = [eq(projects.organizationId, params.organizationId)];
+  const projectConditions = [eq(projects.workspaceId, params.workspaceId)];
   if (!params.allProjects) {
     if (requestedProjectIds.length === 0) return emptyCandidateResult();
     projectConditions.push(inArray(projects.id, requestedProjectIds));
@@ -302,7 +302,7 @@ const selectBacklogDrainForOrganization = async (params: {
       .leftJoin(boardColumns, eq(workItems.boardColumnId, boardColumns.id))
       .where(
         and(
-          eq(projects.organizationId, params.organizationId),
+          eq(projects.workspaceId, params.workspaceId),
           inArray(workItems.projectId, projectIds),
           isNull(workItems.archivedAt),
         ),
@@ -315,7 +315,7 @@ const selectBacklogDrainForOrganization = async (params: {
       .from(workItemDependencies)
       .innerJoin(workItems, eq(workItemDependencies.workItemId, workItems.id))
       .innerJoin(projects, eq(workItems.projectId, projects.id))
-      .where(and(eq(projects.organizationId, params.organizationId), inArray(workItems.projectId, projectIds))),
+      .where(and(eq(projects.workspaceId, params.workspaceId), inArray(workItems.projectId, projectIds))),
     db
       .select({
         projectId: agentJobs.projectId,
@@ -328,7 +328,7 @@ const selectBacklogDrainForOrganization = async (params: {
       .from(agentJobs)
       .where(
         and(
-          eq(agentJobs.organizationId, params.organizationId),
+          eq(agentJobs.workspaceId, params.workspaceId),
           inArray(agentJobs.projectId, projectIds),
           sql`${agentJobs.status} IN ('queued', 'running', 'finalizing', 'waiting_for_input', 'paused')`,
         ),
@@ -342,7 +342,7 @@ const selectBacklogDrainForOrganization = async (params: {
           .from(agentJobs)
           .where(
             and(
-              eq(agentJobs.organizationId, params.organizationId),
+              eq(agentJobs.workspaceId, params.workspaceId),
               inArray(agentJobs.projectId, projectIds),
               sql`${agentJobs.workItemId} IS NOT NULL`,
               sql`${agentJobs.status} IN ('completed', 'incomplete', 'failed', 'cancelled')`,
@@ -431,8 +431,8 @@ export const getBacklogDrainCandidatesForScheduledConfig = async (
   config: ScheduledAgentConfigDb,
 ): Promise<BacklogDrainCandidateResult> => {
   const { rules, allProjects, defaultMaxConcurrentJobs, minAgeMinutes } = resolveBacklogDrainRules(config);
-  return selectBacklogDrainForOrganization({
-    organizationId: config.organizationId,
+  return selectBacklogDrainForWorkspace({
+    workspaceId: config.workspaceId,
     mode: "implementation",
     rules,
     allProjects,
@@ -452,8 +452,8 @@ export const getDodRemediationCandidatesForScheduledConfig = async (
   config: ScheduledAgentConfigDb,
 ): Promise<BacklogDrainCandidateResult> => {
   const { rules, allProjects, defaultMaxConcurrentJobs, minAgeMinutes } = resolveDodRemediationRules(config);
-  return selectBacklogDrainForOrganization({
-    organizationId: config.organizationId,
+  return selectBacklogDrainForWorkspace({
+    workspaceId: config.workspaceId,
     mode: "dod-remediation",
     rules,
     allProjects,
@@ -471,12 +471,12 @@ export const getDodRemediationCandidatesForScheduledConfig = async (
 
 export const getBacklogDrainCandidatesForConfigId = async (
   configId: string,
-  organizationId: string,
+  workspaceId: string,
 ): Promise<BacklogDrainCandidateResult | null> => {
   const [config] = await db
     .select()
     .from(scheduledAgentConfigs)
-    .where(and(eq(scheduledAgentConfigs.id, configId), eq(scheduledAgentConfigs.organizationId, organizationId)))
+    .where(and(eq(scheduledAgentConfigs.id, configId), eq(scheduledAgentConfigs.workspaceId, workspaceId)))
     .limit(1);
 
   if (!config) return null;
@@ -485,12 +485,12 @@ export const getBacklogDrainCandidatesForConfigId = async (
 
 export const getDodRemediationCandidatesForConfigId = async (
   configId: string,
-  organizationId: string,
+  workspaceId: string,
 ): Promise<BacklogDrainCandidateResult | null> => {
   const [config] = await db
     .select()
     .from(scheduledAgentConfigs)
-    .where(and(eq(scheduledAgentConfigs.id, configId), eq(scheduledAgentConfigs.organizationId, organizationId)))
+    .where(and(eq(scheduledAgentConfigs.id, configId), eq(scheduledAgentConfigs.workspaceId, workspaceId)))
     .limit(1);
 
   if (!config) return null;
@@ -498,7 +498,7 @@ export const getDodRemediationCandidatesForConfigId = async (
 };
 
 export const previewBacklogDrainCandidates = async (params: {
-  organizationId: string;
+  workspaceId: string;
   targetConfig: TargetConfig;
   projectId?: string | null;
   codingAgent?: string | null;
@@ -511,8 +511,8 @@ export const previewBacklogDrainCandidates = async (params: {
     projectId: params.projectId ?? null,
     targetConfig: params.targetConfig,
   });
-  return selectBacklogDrainForOrganization({
-    organizationId: params.organizationId,
+  return selectBacklogDrainForWorkspace({
+    workspaceId: params.workspaceId,
     mode: isDodRemediation ? "dod-remediation" : "implementation",
     rules,
     allProjects,
@@ -528,7 +528,7 @@ export const previewBacklogDrainCandidates = async (params: {
 };
 
 export const listBacklogDrainWorkItems = async (
-  organizationId: string,
+  workspaceId: string,
   projectIds: string[],
 ): Promise<BacklogDrainWorkItemTreeItem[]> => {
   const uniqueProjectIds = Array.from(new Set(projectIds.filter(Boolean)));
@@ -551,7 +551,7 @@ export const listBacklogDrainWorkItems = async (
     .leftJoin(boardColumns, eq(workItems.boardColumnId, boardColumns.id))
     .where(
       and(
-        eq(projects.organizationId, organizationId),
+        eq(projects.workspaceId, workspaceId),
         inArray(workItems.projectId, uniqueProjectIds),
         isNull(workItems.archivedAt),
       ),

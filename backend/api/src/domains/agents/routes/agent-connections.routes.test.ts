@@ -5,28 +5,28 @@ import {
   createResponseMocks,
   withTestOrg,
 } from "../../../test/mocks";
-import { testOrganization, testProject, testUser } from "../../../test/fixtures";
+import { testWorkspace, testProject, testUser } from "../../../test/fixtures";
 
 const state = {
   createdKeys: [] as Array<{
-    organizationId: string;
+    workspaceId: string;
     name: string;
     opts: Record<string, unknown> | undefined;
   }>,
   revokedIds: [] as string[],
-  projectOrganizationId: testOrganization.id as string | null,
+  projectWorkspaceId: testWorkspace.id as string | null,
   publicUrl: "https://selfhost.tailnet.example.com",
 };
 
 mock.module("@almirant/database", () =>
   createDatabaseMocks({
-    resolveProjectOrganization: async () => state.projectOrganizationId,
+    resolveProjectWorkspace: async () => state.projectWorkspaceId,
     createApiKey: async (
-      organizationId: string,
+      workspaceId: string,
       name: string,
       opts?: Record<string, unknown>,
     ) => {
-      state.createdKeys.push({ organizationId, name, opts });
+      state.createdKeys.push({ workspaceId, name, opts });
       return {
         id: `key-${state.createdKeys.length}`,
         name,
@@ -43,7 +43,7 @@ mock.module("@almirant/database", () =>
         isActive: true,
         userId: testUser.id,
         serviceAccountId: null,
-        organizationId: testOrganization.id,
+        workspaceId: testWorkspace.id,
         allowedIssuedPermissions: ["mcp:read", "mcp:write"],
         lastUsedAt: null,
         createdAt: new Date("2026-04-26T10:00:00.000Z"),
@@ -55,13 +55,13 @@ mock.module("@almirant/database", () =>
         isActive: true,
         userId: testUser.id,
         serviceAccountId: null,
-        organizationId: testOrganization.id,
+        workspaceId: testWorkspace.id,
         allowedIssuedPermissions: ["mcp:read", "mcp:write"],
         lastUsedAt: null,
         createdAt: new Date("2026-04-26T09:00:00.000Z"),
       },
     ],
-    revokeApiKey: async (_organizationId: string, id: string) => {
+    revokeApiKey: async (_workspaceId: string, id: string) => {
       state.revokedIds.push(id);
       return id === "key-external";
     },
@@ -91,14 +91,14 @@ describe("agent connection routes", () => {
   beforeEach(async () => {
     state.createdKeys = [];
     state.revokedIds = [];
-    state.projectOrganizationId = testOrganization.id;
+    state.projectWorkspaceId = testWorkspace.id;
     state.publicUrl = "https://selfhost.tailnet.example.com";
 
     const store = await import("../services/agent-connection-link-token-store");
     store.clearAgentConnectionLinkTokensForTests();
   });
 
-  it("creates a short-lived claim prompt for a project owned by the active organization", async () => {
+  it("creates a short-lived claim prompt for a project owned by the active workspace", async () => {
     const app = await makeProtectedApp();
 
     const res = await app.handle(
@@ -160,8 +160,8 @@ describe("agent connection routes", () => {
     expect(body.data.prompt).toContain("explora la lista de proyectos disponibles");
   });
 
-  it("rejects link-token creation when the project does not belong to the current user organization", async () => {
-    state.projectOrganizationId = "other-org";
+  it("rejects link-token creation when the project does not belong to the current user workspace", async () => {
+    state.projectWorkspaceId = "other-org";
     const app = await makeProtectedApp();
 
     const res = await app.handle(
@@ -218,7 +218,7 @@ describe("agent connection routes", () => {
     expect(body.data.instructions.join("\n")).toContain("almirant");
     expect(state.createdKeys).toEqual([
       {
-        organizationId: testOrganization.id,
+        workspaceId: testWorkspace.id,
         name: "External agent: OpenClaw",
         opts: {
           userId: testUser.id,

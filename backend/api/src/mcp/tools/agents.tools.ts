@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
-  listScheduledAgentConfigsByOrganization,
+  listScheduledAgentConfigsByWorkspace,
   getScheduledAgentConfigById,
   createScheduledAgentConfig,
   updateScheduledAgentConfig,
@@ -110,7 +110,7 @@ export const registerAgentsTools = (server: McpServer) => {
   // -------------------------------------------------------
   server.tool(
     "list_agents",
-    "List scheduled / webhook-triggered agents for the active organization. Includes the project name and the linked skill name when present.",
+    "List scheduled / webhook-triggered agents for the active workspace. Includes the project name and the linked skill name when present.",
     {
       projectId: z.string().uuid().optional().describe("Filter by project; falls back to MCP session projectId"),
     },
@@ -118,10 +118,10 @@ export const registerAgentsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra) ?? undefined;
-        const agents = await listScheduledAgentConfigsByOrganization(organizationId, {
+        const agents = await listScheduledAgentConfigsByWorkspace(workspaceId, {
           projectId,
         });
 
@@ -155,9 +155,9 @@ export const registerAgentsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const agent = await getScheduledAgentConfigById(params.id, organizationId);
+        const agent = await getScheduledAgentConfigById(params.id, workspaceId);
         if (!agent) {
           return {
             content: [{ type: "text" as const, text: `Error: agent ${params.id} not found` }],
@@ -212,7 +212,7 @@ export const registerAgentsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
         const triggerInput = buildAgentInput(params);
         assertValidScheduledAgentRuntime({
@@ -223,7 +223,7 @@ export const registerAgentsTools = (server: McpServer) => {
         });
 
         const agent = await createScheduledAgentConfig({
-          organizationId,
+          workspaceId,
           name: params.name,
           prompt: params.prompt ?? null,
           description: params.description ?? null,
@@ -292,10 +292,10 @@ export const registerAgentsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
         const { id, ...rest } = params;
-        const existing = await getScheduledAgentConfigById(id, organizationId);
+        const existing = await getScheduledAgentConfigById(id, workspaceId);
         if (!existing) {
           return {
             content: [{ type: "text" as const, text: `Error: agent ${id} not found` }],
@@ -330,7 +330,7 @@ export const registerAgentsTools = (server: McpServer) => {
           });
         }
 
-        const updated = await updateScheduledAgentConfig(id, organizationId, {
+        const updated = await updateScheduledAgentConfig(id, workspaceId, {
           ...rest,
           ...(scheduleUpdate ?? {}),
         });
@@ -372,9 +372,9 @@ export const registerAgentsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const deleted = await deleteScheduledAgentConfig(params.id, organizationId);
+        const deleted = await deleteScheduledAgentConfig(params.id, workspaceId);
         if (!deleted) {
           return {
             content: [{ type: "text" as const, text: `Error: agent ${params.id} not found` }],
@@ -413,9 +413,9 @@ export const registerAgentsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const config = await getScheduledAgentConfigById(params.id, organizationId);
+        const config = await getScheduledAgentConfigById(params.id, workspaceId);
         if (!config) {
           return {
             content: [{ type: "text" as const, text: `Error: agent ${params.id} not found` }],

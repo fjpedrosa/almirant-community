@@ -253,17 +253,17 @@ const createThreadForCommand = async (params: {
   }
 };
 
-const resolveOrganizationIdForWorkItem = async (
+const resolveWorkspaceIdForWorkItem = async (
   workItemId: string
 ): Promise<string | null> => {
   const [row] = await db
-    .select({ organizationId: projects.organizationId })
+    .select({ workspaceId: projects.workspaceId })
     .from(workItems)
     .innerJoin(projects, eq(workItems.projectId, projects.id))
     .where(eq(workItems.id, workItemId))
     .limit(1);
 
-  return row?.organizationId ?? null;
+  return row?.workspaceId ?? null;
 };
 
 const parseAction = (customId: string): {
@@ -418,7 +418,7 @@ const queueCommandJob = async (params: {
     return;
   }
 
-  const organizationId = await resolveOrganizationIdForWorkItem(workItem.id);
+  const workspaceId = await resolveWorkspaceIdForWorkItem(workItem.id);
   const requesterDiscordUserId = getDiscordUserId(params.interaction);
 
   // Resolve provider: use the optional slash command option, falling back to DEFAULT_PROVIDER.
@@ -434,7 +434,7 @@ const queueCommandJob = async (params: {
   // Resolve target channel: project override > org default > env var > interaction channel
   const resolved = await resolveDiscordChannel({
     projectId: workItem.projectId,
-    organizationId,
+    workspaceId,
   });
   const targetChannelId = resolved?.channelId ?? params.interaction.channel_id;
 
@@ -477,7 +477,7 @@ const queueCommandJob = async (params: {
     projectId: workItem.projectId,
     boardId: workItem.boardId,
     workItemId: workItem.id,
-    organizationId,
+    workspaceId,
     provider,
     priority: "medium",
     jobType: params.commandName === "plan" ? "planning" : "implementation",
@@ -489,7 +489,7 @@ const queueCommandJob = async (params: {
   });
 
   broadcastAgentJobStatusChanged({
-    organizationId: createdJob.organizationId,
+    workspaceId: createdJob.workspaceId,
     jobId: createdJob.id,
     status: createdJob.status,
     workItemId: createdJob.workItemId ?? null,

@@ -8,7 +8,7 @@ const makeJob = (overrides: Partial<ClaimedJob> = {}): ClaimedJob => ({
   projectId: null,
   boardId: null,
   createdByUserId: null,
-  organizationId: null,
+  workspaceId: null,
   provider: "codex",
   priority: "medium",
   status: "queued",

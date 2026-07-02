@@ -15,13 +15,13 @@ export interface WsConnection {
 
 export interface WsConnectionEntry {
   ws: WsConnection;
-  organizationId: string | null;
+  workspaceId: string | null;
   lastActivity: number;
   awaitingPong: boolean;
 }
 
 type WsPubSubEnvelope = {
-  organizationId: string;
+  workspaceId: string;
   message: WsServerMessage;
   originInstanceId?: string;
 };
@@ -102,20 +102,20 @@ export const createWsConnectionManager = (deps?: {
     return pubSubPublisher;
   };
 
-  const broadcastLocallyToOrganization = (
-    organizationId: string,
+  const broadcastLocallyToWorkspace = (
+    workspaceId: string,
     message: WsServerMessage
   ) => {
     const payload = JSON.stringify(message);
     for (const [userId, userConnections] of connections) {
       for (const entry of userConnections) {
-        if (entry.organizationId !== organizationId) continue;
+        if (entry.workspaceId !== workspaceId) continue;
         try {
           entry.ws.send(payload);
         } catch (err) {
           logger.error(
-            { userId, organizationId, err },
-            "Failed to broadcast WS message to organization"
+            { userId, workspaceId, err },
+            "Failed to broadcast WS message to workspace"
           );
         }
       }
@@ -126,7 +126,7 @@ export const createWsConnectionManager = (deps?: {
     addConnection: (
       userId: string,
       ws: WsConnection,
-      organizationId: string | null = null
+      workspaceId: string | null = null
     ) => {
       let userConnections = connections.get(userId);
       if (!userConnections) {
@@ -135,14 +135,14 @@ export const createWsConnectionManager = (deps?: {
       }
       userConnections.add({
         ws,
-        organizationId,
+        workspaceId,
         lastActivity: Date.now(),
         awaitingPong: false,
       });
       logger.debug(
         {
           userId,
-          organizationId,
+          workspaceId,
           totalConnections: wsConnectionManager.getConnectionCount(),
         },
         "WS connection added"
@@ -195,30 +195,30 @@ export const createWsConnectionManager = (deps?: {
       }
     },
 
-    broadcastToOrganization: (
-      organizationId: string,
+    broadcastToWorkspace: (
+      workspaceId: string,
       message: WsServerMessage
     ) => {
-      broadcastLocallyToOrganization(organizationId, message);
+      broadcastLocallyToWorkspace(workspaceId, message);
 
       const redis = getPubSubPublisher();
       if (!redis) return;
 
       const payload = JSON.stringify({
-        organizationId,
+        workspaceId,
         message,
         originInstanceId: instanceId,
       } satisfies WsPubSubEnvelope);
 
       void redis.publish(env.WS_PUBSUB_CHANNEL, payload).catch((err) => {
         logger.error(
-          { organizationId, err, channel: env.WS_PUBSUB_CHANNEL },
+          { workspaceId, err, channel: env.WS_PUBSUB_CHANNEL },
           "Failed to publish WS message to Redis Pub/Sub"
         );
       });
     },
 
-    broadcastLocallyToOrganization,
+    broadcastLocallyToWorkspace,
 
     getInstanceId: (): string => instanceId,
 
@@ -273,7 +273,7 @@ export const createWsConnectionManager = (deps?: {
           logger.info(
             {
               userId,
-              organizationId: entry.organizationId,
+              workspaceId: entry.workspaceId,
               staleSinceMs: now - entry.lastActivity,
               totalConnections: wsConnectionManager.getConnectionCount(),
             },
@@ -291,7 +291,7 @@ export const createWsConnectionManager = (deps?: {
               logger.info(
                 {
                   userId,
-                  organizationId: entry.organizationId,
+                  workspaceId: entry.workspaceId,
                   totalConnections: wsConnectionManager.getConnectionCount(),
                 },
                 "Removed dead WS connection (send failed)"

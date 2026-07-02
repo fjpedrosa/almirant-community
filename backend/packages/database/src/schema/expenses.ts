@@ -1,13 +1,13 @@
 import { pgTable, uuid, text, varchar, numeric, timestamp, integer, jsonb, index } from "drizzle-orm/pg-core";
 import { expenseStatusEnum, invoiceProcessingStatusEnum, currencyCodeEnum } from "./enums";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { projects } from "./projects";
 import { expenseCategories } from "./expense-categories";
 import { user } from "./auth";
 
 export const expenses = pgTable("expenses", {
   id: uuid("id").defaultRandom().primaryKey(),
-  organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull().references(() => workspace.id, { onDelete: "cascade" }),
   projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
   categoryId: uuid("category_id").references(() => expenseCategories.id, { onDelete: "set null" }),
   paidByUserId: text("paid_by_user_id").references(() => user.id, { onDelete: "set null" }),
@@ -32,7 +32,7 @@ export const expenses = pgTable("expenses", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
-  index("expenses_org_idx").on(table.organizationId),
+  index("expenses_org_idx").on(table.workspaceId),
   index("expenses_project_idx").on(table.projectId),
   index("expenses_category_idx").on(table.categoryId),
   index("expenses_paid_by_idx").on(table.paidByUserId),
@@ -42,7 +42,7 @@ export const expenses = pgTable("expenses", {
   index("expenses_vendor_idx").on(table.vendor),
   index("expenses_recurring_idx").on(table.recurringExpenseId),
   index("expenses_archived_idx").on(table.archivedAt),
-  index("expenses_org_status_date_idx").on(table.organizationId, table.status, table.expenseDate),
+  index("expenses_org_status_date_idx").on(table.workspaceId, table.status, table.expenseDate),
 ]);
 
 export type Expense = typeof expenses.$inferSelect;

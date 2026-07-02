@@ -30,10 +30,10 @@ export const session = pgTable("session", {
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-  activeOrganizationId: text("active_organization_id"),
+  activeWorkspaceId: text("active_workspace_id"),
 });
 
-export const organization = pgTable("organization", {
+export const workspace = pgTable("workspace", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").unique(),
@@ -44,9 +44,9 @@ export const organization = pgTable("organization", {
 
 export const member = pgTable("member", {
   id: text("id").primaryKey(),
-  organizationId: text("organization_id")
+  workspaceId: text("workspace_id")
     .notNull()
-    .references(() => organization.id, { onDelete: "cascade" }),
+    .references(() => workspace.id, { onDelete: "cascade" }),
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
@@ -56,9 +56,9 @@ export const member = pgTable("member", {
 
 export const invitation = pgTable("invitation", {
   id: text("id").primaryKey(),
-  organizationId: text("organization_id")
+  workspaceId: text("workspace_id")
     .notNull()
-    .references(() => organization.id, { onDelete: "cascade" }),
+    .references(() => workspace.id, { onDelete: "cascade" }),
   email: text("email").notNull(),
   role: text("role"),
   status: text("status").notNull().default("pending"),

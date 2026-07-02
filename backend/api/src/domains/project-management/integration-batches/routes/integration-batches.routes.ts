@@ -56,8 +56,8 @@ export const integrationBatchesRoutes = new Elysia({ prefix: "/integration-batch
   // -------------------------------------------------------
   .post(
     "/",
-    async ({ body, set, activeOrganization, user }) => {
-      const orgId = activeOrganization!.id;
+    async ({ body, set, activeWorkspace, user }) => {
+      const orgId = activeWorkspace!.id;
 
       const releaseCandidates = await getValidatingReleaseCandidates(orgId, body.projectId);
       const repositoryCandidates = releaseCandidates.candidates.filter(
@@ -103,7 +103,7 @@ export const integrationBatchesRoutes = new Elysia({ prefix: "/integration-batch
 
         // Re-enqueue process job so the runner picks up the new items.
         await createJob({
-          organizationId: orgId,
+          workspaceId: orgId,
           projectId: body.projectId,
           boardId: body.boardId,
           provider: "claude-code",
@@ -135,7 +135,7 @@ export const integrationBatchesRoutes = new Elysia({ prefix: "/integration-batch
       const releaseNumber = await getNextReleaseNumber(orgId, body.repositoryId);
       const integrationBranch = `release/main-v${releaseNumber}`;
       const batch = await createIntegrationBatch({
-        organizationId: orgId,
+        workspaceId: orgId,
         projectId: body.projectId,
         repositoryId: body.repositoryId,
         boardId: body.boardId ?? null,
@@ -160,7 +160,7 @@ export const integrationBatchesRoutes = new Elysia({ prefix: "/integration-batch
       );
 
       await createJob({
-        organizationId: orgId,
+        workspaceId: orgId,
         projectId: body.projectId,
         boardId: body.boardId,
         provider: "claude-code",
@@ -204,8 +204,8 @@ export const integrationBatchesRoutes = new Elysia({ prefix: "/integration-batch
   // -------------------------------------------------------
   .get(
     "/active",
-    async ({ query, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ query, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const batches = await listActiveBatchesByProject(orgId, query.projectId);
       return successResponse(batches);
     },
@@ -219,10 +219,10 @@ export const integrationBatchesRoutes = new Elysia({ prefix: "/integration-batch
   // -------------------------------------------------------
   // GET /integration-batches/:id — get batch with items
   // -------------------------------------------------------
-  .get("/:id", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const batch = await getBatchByIdWithItems(params.id);
-    if (!batch || batch.organizationId !== orgId) {
+    if (!batch || batch.workspaceId !== orgId) {
       set.status = 404;
       return notFoundResponse("Integration batch");
     }
@@ -232,10 +232,10 @@ export const integrationBatchesRoutes = new Elysia({ prefix: "/integration-batch
   // -------------------------------------------------------
   // POST /integration-batches/:id/approve — release the batch to main
   // -------------------------------------------------------
-  .post("/:id/approve", async ({ params, set, activeOrganization, user }) => {
-    const orgId = activeOrganization!.id;
+  .post("/:id/approve", async ({ params, set, activeWorkspace, user }) => {
+    const orgId = activeWorkspace!.id;
     const batch = await getBatchByIdWithItems(params.id);
-    if (!batch || batch.organizationId !== orgId) {
+    if (!batch || batch.workspaceId !== orgId) {
       set.status = 404;
       return notFoundResponse("Integration batch");
     }
@@ -249,7 +249,7 @@ export const integrationBatchesRoutes = new Elysia({ prefix: "/integration-batch
     const repositoryFullName = await getGithubRepoFullNameByRepoId(batch.repositoryId);
 
     await createJob({
-      organizationId: orgId,
+      workspaceId: orgId,
       projectId: batch.projectId,
       boardId: batch.boardId ?? undefined,
       provider: "claude-code",
@@ -280,10 +280,10 @@ export const integrationBatchesRoutes = new Elysia({ prefix: "/integration-batch
   // -------------------------------------------------------
   // POST /integration-batches/:id/reject — abort the batch entirely
   // -------------------------------------------------------
-  .post("/:id/reject", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .post("/:id/reject", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const batch = await getBatchByIdWithItems(params.id);
-    if (!batch || batch.organizationId !== orgId) {
+    if (!batch || batch.workspaceId !== orgId) {
       set.status = 404;
       return notFoundResponse("Integration batch");
     }

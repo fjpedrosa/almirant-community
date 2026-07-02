@@ -14,7 +14,7 @@ const makeEvent = (
 ): AgentOutputEvent => ({
   jobId: "job-1",
   sessionId: "session-1",
-  organizationId: "org-1",
+  workspaceId: "org-1",
   threadId: "thread-1",
   timestamp: Date.now(),
   sequenceNumber: 1,
@@ -173,7 +173,7 @@ describeWithRedis("StreamReader", () => {
 
     expect(event.jobId).toBe(sourceEvent.jobId);
     expect(event.sessionId).toBe(sourceEvent.sessionId);
-    expect(event.organizationId).toBe(sourceEvent.organizationId);
+    expect(event.workspaceId).toBe(sourceEvent.workspaceId);
     expect(event.threadId).toBe(sourceEvent.threadId);
     expect(event.type).toBe("wave_start");
     expect(event.description).toBe("Starting wave");
@@ -678,7 +678,7 @@ describe("parseEvent", () => {
       "job-1",
       "sessionId",
       "session-1",
-      "organizationId",
+      "workspaceId",
       "org-1",
       "threadId",
       "thread-1",
@@ -692,7 +692,7 @@ describe("parseEvent", () => {
 
     expect(event.jobId).toBe("job-1");
     expect(event.sessionId).toBe("session-1");
-    expect(event.organizationId).toBe("org-1");
+    expect(event.workspaceId).toBe("org-1");
     expect(event.threadId).toBe("thread-1");
     expect(event.type).toBe("message");
     expect(event.content).toBe("Hello");
@@ -704,7 +704,7 @@ describe("parseEvent", () => {
       "job-1",
       "sessionId",
       "session-1",
-      "organizationId",
+      "workspaceId",
       "org-1",
       "threadId",
       "thread-1",
@@ -743,7 +743,7 @@ describe("parseEvent", () => {
       "job-1",
       "sessionId",
       "session-1",
-      "organizationId",
+      "workspaceId",
       "org-1",
       "threadId",
       "thread-1",

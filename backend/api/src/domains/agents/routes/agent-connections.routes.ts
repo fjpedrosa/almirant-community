@@ -3,7 +3,7 @@ import {
   createApiKey,
   getProjectById,
   listApiKeys,
-  resolveProjectOrganization,
+  resolveProjectWorkspace,
   revokeApiKey,
 } from "@almirant/database";
 import { sessionContextTypes } from "../../../shared/middleware/session-context-types.plugin";
@@ -104,15 +104,15 @@ const protectedRoutes = () =>
     .use(sessionContextTypes)
     .post(
       "/link-token",
-      async ({ body, request, set, user, activeOrganization }) => {
+      async ({ body, request, set, user, activeWorkspace }) => {
         try {
-          const orgId = activeOrganization!.id;
+          const orgId = activeWorkspace!.id;
           const userId = (user as { id: string }).id;
           const projectId = body.projectId?.trim() || null;
           let projectName: string | null = null;
 
           if (projectId) {
-            const projectOrgId = await resolveProjectOrganization(projectId, userId);
+            const projectOrgId = await resolveProjectWorkspace(projectId, userId);
 
             if (projectOrgId !== orgId) {
               set.status = 404;
@@ -127,7 +127,7 @@ const protectedRoutes = () =>
           const agentName = sanitizeAgentName(body.agentName);
           const entry = createAgentConnectionLinkToken({
             userId,
-            organizationId: orgId,
+            workspaceId: orgId,
             projectId,
             projectName,
             agentName,
@@ -160,8 +160,8 @@ const protectedRoutes = () =>
         }),
       },
     )
-    .get("/", async ({ activeOrganization, user }) => {
-      const orgId = activeOrganization!.id;
+    .get("/", async ({ activeWorkspace, user }) => {
+      const orgId = activeWorkspace!.id;
       const userId = (user as { id: string }).id;
       const keys = await listApiKeys(orgId, userId);
 
@@ -181,8 +181,8 @@ const protectedRoutes = () =>
     })
     .delete(
       "/:id",
-      async ({ params, set, activeOrganization, user }) => {
-        const orgId = activeOrganization!.id;
+      async ({ params, set, activeWorkspace, user }) => {
+        const orgId = activeWorkspace!.id;
         const userId = (user as { id: string }).id;
         const keys = await listApiKeys(orgId, userId);
         const connection = keys.find(
@@ -228,7 +228,7 @@ const claimHandler = async ({ params, set }: { params: { token: string }; set: {
   try {
     const { entry } = result;
     const apiKey = await createApiKey(
-      entry.organizationId,
+      entry.workspaceId,
       `${EXTERNAL_AGENT_KEY_PREFIX} ${entry.agentName}`,
       {
         userId: entry.userId,

@@ -84,8 +84,8 @@ const calculateMaturityLevel = (data: {
   return 1;
 };
 
-const ensureOwnerBelongsToOrganization = async (
-  organizationId: string,
+const ensureOwnerBelongsToWorkspace = async (
+  workspaceId: string,
   ownerUserId: string
 ): Promise<void> => {
   const [ownerMembership] = await db
@@ -93,7 +93,7 @@ const ensureOwnerBelongsToOrganization = async (
     .from(member)
     .where(
       and(
-        eq(member.organizationId, organizationId),
+        eq(member.workspaceId, workspaceId),
         eq(member.userId, ownerUserId)
       )
     )
@@ -104,8 +104,8 @@ const ensureOwnerBelongsToOrganization = async (
   }
 };
 
-const ensureProjectBelongsToOrganization = async (
-  organizationId: string,
+const ensureProjectBelongsToWorkspace = async (
+  workspaceId: string,
   projectId: string
 ): Promise<void> => {
   const [projectRow] = await db
@@ -114,18 +114,18 @@ const ensureProjectBelongsToOrganization = async (
     .where(
       and(
         eq(projects.id, projectId),
-        eq(projects.organizationId, organizationId)
+        eq(projects.workspaceId, workspaceId)
       )
     )
     .limit(1);
 
   if (!projectRow) {
-    throw new Error("PROJECT_NOT_IN_ORGANIZATION");
+    throw new Error("PROJECT_NOT_IN_WORKSPACE");
   }
 };
 
-const ensureFeedbackBelongsToOrganization = async (
-  _organizationId: string,
+const ensureFeedbackBelongsToWorkspace = async (
+  _workspaceId: string,
   feedbackItemId: string
 ): Promise<void> => {
   // Feedback is no longer project-scoped, so we just verify the item exists
@@ -140,8 +140,8 @@ const ensureFeedbackBelongsToOrganization = async (
   }
 };
 
-const ensureWorkItemBelongsToOrganization = async (
-  organizationId: string,
+const ensureWorkItemBelongsToWorkspace = async (
+  workspaceId: string,
   workItemId: string
 ): Promise<void> => {
   const [row] = await db
@@ -149,7 +149,7 @@ const ensureWorkItemBelongsToOrganization = async (
     .from(workItems)
     .innerJoin(projects, eq(workItems.projectId, projects.id))
     .where(
-      and(eq(workItems.id, workItemId), eq(projects.organizationId, organizationId))
+      and(eq(workItems.id, workItemId), eq(projects.workspaceId, workspaceId))
     )
     .limit(1);
 
@@ -207,7 +207,7 @@ export const hydrateSeedRelations = async (
 
   const seedBase: Seed = {
     id: item.id,
-    organizationId: item.organizationId,
+    workspaceId: item.workspaceId,
     projectId: item.projectId,
     status: item.status as SeedStatus,
     title: item.title,
@@ -303,13 +303,13 @@ export const hydrateSeedRelations = async (
 // ── CRUD ──────────────────────────────────────────────────────────────────
 
 export const getSeeds = async (
-  organizationId: string,
+  workspaceId: string,
   pagination: PaginationParams,
   filters?: SeedFilters
 ): Promise<{ items: SeedWithRelations[]; total: number }> => {
   const conditions = [
-    eq(seeds.organizationId, organizationId),
-    sql`(${seeds.projectId} IS NULL OR ${seeds.projectId} IN (SELECT id FROM projects WHERE organization_id = ${organizationId} AND status != 'archived'))`,
+    eq(seeds.workspaceId, workspaceId),
+    sql`(${seeds.projectId} IS NULL OR ${seeds.projectId} IN (SELECT id FROM projects WHERE workspace_id = ${workspaceId} AND status != 'archived'))`,
   ];
 
   if (filters?.statusGroup) {
@@ -425,13 +425,13 @@ export const getSeeds = async (
 };
 
 export const getSeedById = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<SeedWithRelations | null> => {
   const [item] = await db
     .select()
     .from(seeds)
-    .where(and(eq(seeds.id, id), eq(seeds.organizationId, organizationId)))
+    .where(and(eq(seeds.id, id), eq(seeds.workspaceId, workspaceId)))
     .limit(1);
 
   if (!item) return null;
@@ -439,23 +439,23 @@ export const getSeedById = async (
 };
 
 export const createSeed = async (
-  organizationId: string,
+  workspaceId: string,
   data: CreateSeedInput,
   context: SeedEventContext = defaultEventContext
 ): Promise<SeedWithRelations> => {
   const eventContext = resolveEventContext(context);
 
   if (data.ownerUserId) {
-    await ensureOwnerBelongsToOrganization(organizationId, data.ownerUserId);
+    await ensureOwnerBelongsToWorkspace(workspaceId, data.ownerUserId);
   }
   if (data.projectId) {
-    await ensureProjectBelongsToOrganization(organizationId, data.projectId);
+    await ensureProjectBelongsToWorkspace(workspaceId, data.projectId);
   }
 
   const [created] = await db
     .insert(seeds)
     .values({
-      organizationId,
+      workspaceId,
       projectId: data.projectId ?? null,
       title: data.title.trim(),
       description: data.description ?? null,
@@ -493,11 +493,11 @@ export const createSeed = async (
     },
   ]);
 
-  return getSeedById(organizationId, created.id) as Promise<SeedWithRelations>;
+  return getSeedById(workspaceId, created.id) as Promise<SeedWithRelations>;
 };
 
 export const updateSeed = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: UpdateSeedInput,
   context: SeedEventContext = defaultEventContext
@@ -506,7 +506,7 @@ export const updateSeed = async (
   const [current] = await db
     .select()
     .from(seeds)
-    .where(and(eq(seeds.id, id), eq(seeds.organizationId, organizationId)))
+    .where(and(eq(seeds.id, id), eq(seeds.workspaceId, workspaceId)))
     .limit(1);
 
   if (!current) return null;
@@ -516,10 +516,10 @@ export const updateSeed = async (
   }
 
   if (data.ownerUserId) {
-    await ensureOwnerBelongsToOrganization(organizationId, data.ownerUserId);
+    await ensureOwnerBelongsToWorkspace(workspaceId, data.ownerUserId);
   }
   if (data.projectId !== undefined && data.projectId !== null) {
-    await ensureProjectBelongsToOrganization(organizationId, data.projectId);
+    await ensureProjectBelongsToWorkspace(workspaceId, data.projectId);
   }
 
   const updateValues: Partial<typeof seeds.$inferInsert> = {
@@ -549,7 +549,7 @@ export const updateSeed = async (
   const [updated] = await db
     .update(seeds)
     .set(updateValues)
-    .where(and(eq(seeds.id, id), eq(seeds.organizationId, organizationId)))
+    .where(and(eq(seeds.id, id), eq(seeds.workspaceId, workspaceId)))
     .returning();
 
   if (!updated) return null;
@@ -587,16 +587,16 @@ export const updateSeed = async (
 
   await insertEntityEvents(fieldEvents);
 
-  return getSeedById(organizationId, id);
+  return getSeedById(workspaceId, id);
 };
 
 export const deleteSeed = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<boolean> => {
   const deleted = await db
     .delete(seeds)
-    .where(and(eq(seeds.id, id), eq(seeds.organizationId, organizationId)))
+    .where(and(eq(seeds.id, id), eq(seeds.workspaceId, workspaceId)))
     .returning({ id: seeds.id });
 
   return deleted.length > 0;
@@ -605,32 +605,32 @@ export const deleteSeed = async (
 // ── Status & Assignment ───────────────────────────────────────────────────
 
 export const setSeedStatus = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   status: SeedStatus,
   context: SeedEventContext = defaultEventContext
 ): Promise<SeedWithRelations | null> =>
-  updateSeed(organizationId, id, { status }, context);
+  updateSeed(workspaceId, id, { status }, context);
 
 export const assignSeedOwner = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   ownerUserId: string | null,
   context: SeedEventContext = defaultEventContext
 ): Promise<SeedWithRelations | null> =>
-  updateSeed(organizationId, id, { ownerUserId }, context);
+  updateSeed(workspaceId, id, { ownerUserId }, context);
 
 // ── Selected for Ideation ─────────────────────────────────────────────────
 
 export const toggleSeedSelectedForIdeation = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   selected: boolean
 ): Promise<SeedWithRelations | null> => {
   const [current] = await db
     .select()
     .from(seeds)
-    .where(and(eq(seeds.id, id), eq(seeds.organizationId, organizationId)))
+    .where(and(eq(seeds.id, id), eq(seeds.workspaceId, workspaceId)))
     .limit(1);
 
   if (!current) return null;
@@ -638,13 +638,13 @@ export const toggleSeedSelectedForIdeation = async (
   await db
     .update(seeds)
     .set({ selectedForIdeation: selected, updatedAt: new Date() })
-    .where(and(eq(seeds.id, id), eq(seeds.organizationId, organizationId)));
+    .where(and(eq(seeds.id, id), eq(seeds.workspaceId, workspaceId)));
 
-  return getSeedById(organizationId, id);
+  return getSeedById(workspaceId, id);
 };
 
 export const bulkSelectSeedsForIdeation = async (
-  organizationId: string,
+  workspaceId: string,
   ids: string[],
   selected: boolean
 ): Promise<number> => {
@@ -658,7 +658,7 @@ export const bulkSelectSeedsForIdeation = async (
     })
     .where(
       and(
-        eq(seeds.organizationId, organizationId),
+        eq(seeds.workspaceId, workspaceId),
         inArray(seeds.id, ids)
       )
     )
@@ -672,7 +672,7 @@ export const bulkSelectSeedsForIdeation = async (
  * Used when a planning session completes to mark the seeds as ready for review.
  */
 export const markSeedsAsToReview = async (
-  organizationId: string,
+  workspaceId: string,
   ids: string[]
 ): Promise<number> => {
   if (ids.length === 0) return 0;
@@ -686,7 +686,7 @@ export const markSeedsAsToReview = async (
     })
     .where(
       and(
-        eq(seeds.organizationId, organizationId),
+        eq(seeds.workspaceId, workspaceId),
         inArray(seeds.id, ids)
       )
     )
@@ -696,11 +696,11 @@ export const markSeedsAsToReview = async (
 };
 
 export const getSelectedSeedsForIdeation = async (
-  organizationId: string,
+  workspaceId: string,
   projectId?: string
 ): Promise<SeedWithRelations[]> => {
   const conditions = [
-    eq(seeds.organizationId, organizationId),
+    eq(seeds.workspaceId, workspaceId),
     eq(seeds.selectedForIdeation, true),
     eq(seeds.status, "active"),
   ];
@@ -721,16 +721,16 @@ export const getSelectedSeedsForIdeation = async (
 // ── Feedback Links ────────────────────────────────────────────────────────
 
 export const linkFeedbackToSeed = async (
-  organizationId: string,
+  workspaceId: string,
   seedId: string,
   feedbackItemId: string,
   context: SeedEventContext = defaultEventContext
 ): Promise<{ id: string; seedId: string; feedbackItemId: string; createdAt: Date }> => {
   const eventContext = resolveEventContext(context);
-  const seed = await getSeedById(organizationId, seedId);
+  const seed = await getSeedById(workspaceId, seedId);
   if (!seed) throw new Error("SEED_NOT_FOUND");
 
-  await ensureFeedbackBelongsToOrganization(organizationId, feedbackItemId);
+  await ensureFeedbackBelongsToWorkspace(workspaceId, feedbackItemId);
 
   const [inserted] = await db
     .insert(seedFeedbackLinks)
@@ -773,13 +773,13 @@ export const linkFeedbackToSeed = async (
 };
 
 export const unlinkFeedbackFromSeed = async (
-  organizationId: string,
+  workspaceId: string,
   seedId: string,
   feedbackItemId: string,
   context: SeedEventContext = defaultEventContext
 ): Promise<boolean> => {
   const eventContext = resolveEventContext(context);
-  const seed = await getSeedById(organizationId, seedId);
+  const seed = await getSeedById(workspaceId, seedId);
   if (!seed) throw new Error("SEED_NOT_FOUND");
 
   const deleted = await db
@@ -812,7 +812,7 @@ export const unlinkFeedbackFromSeed = async (
 // ── Work Item Links ───────────────────────────────────────────────────────
 
 export const linkWorkItemToSeed = async (
-  organizationId: string,
+  workspaceId: string,
   seedId: string,
   workItemId: string,
   linkType: "promoted_to" | "related_to" = "related_to",
@@ -824,10 +824,10 @@ export const linkWorkItemToSeed = async (
     triggeredByUserId: context.triggeredByUserId ?? createdBy,
     triggeredBy: context.triggeredBy ?? (createdBy ? "user" : undefined),
   });
-  const seed = await getSeedById(organizationId, seedId);
+  const seed = await getSeedById(workspaceId, seedId);
   if (!seed) throw new Error("SEED_NOT_FOUND");
 
-  await ensureWorkItemBelongsToOrganization(organizationId, workItemId);
+  await ensureWorkItemBelongsToWorkspace(workspaceId, workItemId);
 
   const [inserted] = await db
     .insert(seedWorkItemLinks)
@@ -915,7 +915,7 @@ export const getTagsBySeed = async (
 // ── Events ────────────────────────────────────────────────────────────────
 
 export const getSeedEvents = async (
-  _organizationId: string,
+  _workspaceId: string,
   seedId: string,
   pagination: PaginationParams,
   filters?: EntityEventFilters

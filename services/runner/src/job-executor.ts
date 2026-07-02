@@ -193,7 +193,7 @@ type JobExecutionContext = {
   streamPublisher?: StreamPublisher;
   threadId?: string;
   webSessionId?: string;
-  webOrganizationId?: string;
+  webWorkspaceId?: string;
   containerId: string | null;
   containerServeBaseUrl: string | null;
   extractedBranchName: string | null;
@@ -456,7 +456,7 @@ export const createJobExecutor = (
       typeof initialJobConfig.planningSessionId === "string"
         ? initialJobConfig.planningSessionId
         : undefined;
-    const webOrganizationId = job.organizationId ?? undefined;
+    const webWorkspaceId = job.workspaceId ?? undefined;
 
     eventLogger.info("claim", "job.claimed", "Job claimed by runner", {
       workerId: config.workerId,
@@ -468,7 +468,7 @@ export const createJobExecutor = (
 
     return {
       job,
-      orgId: job.organizationId ?? job.id,
+      orgId: job.workspaceId ?? job.id,
       startedAtMs: Date.now(),
       initialJobConfig,
       jobConfig: normalizeJobConfig(job),
@@ -478,7 +478,7 @@ export const createJobExecutor = (
       streamPublisher,
       threadId,
       webSessionId,
-      webOrganizationId,
+      webWorkspaceId,
       containerId: null,
       containerServeBaseUrl: null,
       extractedBranchName: null,
@@ -566,7 +566,7 @@ export const createJobExecutor = (
     await publishCanonicalEvent(ctx.streamPublisher, {
       jobId: job.id,
       sessionId: ctx.webSessionId ?? "",
-      organizationId: ctx.webOrganizationId ?? "",
+      workspaceId: ctx.webWorkspaceId ?? "",
       threadId: ctx.threadId ?? "",
       timestamp: Date.now(),
       sequenceNumber: nextSequence(),
@@ -684,7 +684,7 @@ export const createJobExecutor = (
               },
               body: JSON.stringify({
                 projectId: params.projectId,
-                organizationId: params.organizationId,
+                workspaceId: params.workspaceId,
                 jobId: params.jobId,
                 permissions: params.permissions ?? ["mcp:read", "mcp:write"],
                 ttlSeconds: 7200, // 2 hours — covers most job durations
@@ -785,7 +785,7 @@ export const createJobExecutor = (
             await publishCanonicalEvent(ctx.streamPublisher, {
               jobId: job.id,
               sessionId: ctx.webSessionId ?? "",
-              organizationId: ctx.webOrganizationId ?? "",
+              workspaceId: ctx.webWorkspaceId ?? "",
               threadId: ctx.threadId ?? "",
               timestamp: Date.now(),
               sequenceNumber: nextSequence(),
@@ -970,7 +970,7 @@ export const createJobExecutor = (
         await publishCanonicalEvent(ctx.streamPublisher, {
           jobId: job.id,
           sessionId: ctx.webSessionId ?? "",
-          organizationId: ctx.webOrganizationId ?? "",
+          workspaceId: ctx.webWorkspaceId ?? "",
           threadId: ctx.threadId,
           timestamp: Date.now(),
           sequenceNumber: nextSequence(),
@@ -995,7 +995,7 @@ export const createJobExecutor = (
           jobId: job.id,
           threadId: ctx.threadId,
           sessionId: ctx.webSessionId ?? "",
-          organizationId: ctx.webOrganizationId ?? "",
+          workspaceId: ctx.webWorkspaceId ?? "",
           payload: {
             embeds: [{
               title: "Remote Agent session started",
@@ -1008,11 +1008,11 @@ export const createJobExecutor = (
           timestamp: Date.now(),
         });
       }
-      if (ctx.webSessionId && ctx.webOrganizationId) {
+      if (ctx.webSessionId && ctx.webWorkspaceId) {
         await publishCanonicalEvent(ctx.streamPublisher, {
           jobId: job.id,
           sessionId: ctx.webSessionId,
-          organizationId: ctx.webOrganizationId,
+          workspaceId: ctx.webWorkspaceId,
           threadId: ctx.threadId ?? "",
           timestamp: Date.now(),
           sequenceNumber: nextSequence(),
@@ -1048,7 +1048,7 @@ export const createJobExecutor = (
     await publishCanonicalEvent(ctx.streamPublisher, {
       jobId: job.id,
       sessionId: ctx.webSessionId ?? "",
-      organizationId: ctx.webOrganizationId ?? "",
+      workspaceId: ctx.webWorkspaceId ?? "",
       threadId: ctx.threadId ?? "",
       timestamp: Date.now(),
       sequenceNumber: nextSequence(),
@@ -1290,7 +1290,7 @@ export const createJobExecutor = (
         publishCanonicalEvent(heartbeatPublisher, {
           jobId: heartbeatJobId,
           sessionId: ctx.webSessionId ?? "",
-          organizationId: ctx.webOrganizationId ?? "",
+          workspaceId: ctx.webWorkspaceId ?? "",
           threadId: ctx.threadId ?? "",
           timestamp: Date.now(),
           sequenceNumber: nextSequence(),
@@ -1376,7 +1376,7 @@ export const createJobExecutor = (
     await publishCanonicalEvent(ctx.streamPublisher, {
       jobId: job.id,
       sessionId: ctx.webSessionId ?? "",
-      organizationId: ctx.webOrganizationId ?? "",
+      workspaceId: ctx.webWorkspaceId ?? "",
       threadId: ctx.threadId ?? "",
       timestamp: Date.now(),
       sequenceNumber: nextSequence(),
@@ -1394,7 +1394,7 @@ export const createJobExecutor = (
         await publishCanonicalEvent(ctx.streamPublisher, {
           jobId: job.id,
           sessionId: ctx.webSessionId ?? "",
-          organizationId: ctx.webOrganizationId ?? "",
+          workspaceId: ctx.webWorkspaceId ?? "",
           threadId: ctx.threadId ?? "",
           timestamp: Date.now(),
           sequenceNumber: nextSequence(),
@@ -1454,7 +1454,7 @@ export const createJobExecutor = (
             await publishCanonicalEvent(ctx.streamPublisher, {
               jobId: job.id,
               sessionId: ctx.webSessionId ?? "",
-              organizationId: ctx.webOrganizationId ?? "",
+              workspaceId: ctx.webWorkspaceId ?? "",
               threadId: ctx.threadId,
               timestamp: Date.now(),
               sequenceNumber: nextSequence(),
@@ -1489,7 +1489,7 @@ export const createJobExecutor = (
       resolvedModel: ctx.resolvedModel,
       completedTaskIds: ctx.prFirstResult?.completedTaskIds,
       webSessionId: ctx.webSessionId,
-      webOrganizationId: ctx.webOrganizationId,
+      webWorkspaceId: ctx.webWorkspaceId,
       runtimeConfig: ctx.runtimeConfig!,
       runtimeExecutor: ctx.runtimeExecutor!,
     });
@@ -1524,7 +1524,7 @@ export const createJobExecutor = (
           await publishCanonicalEvent(ctx.streamPublisher, {
             jobId: job.id,
             sessionId: ctx.webSessionId ?? "",
-            organizationId: ctx.webOrganizationId ?? "",
+            workspaceId: ctx.webWorkspaceId ?? "",
             threadId: ctx.threadId,
             timestamp: Date.now(),
             sequenceNumber: nextSequence(),
@@ -1534,7 +1534,7 @@ export const createJobExecutor = (
         await publishCanonicalEvent(ctx.streamPublisher, {
           jobId: job.id,
           sessionId: ctx.webSessionId ?? "",
-          organizationId: ctx.webOrganizationId ?? "",
+          workspaceId: ctx.webWorkspaceId ?? "",
           threadId: ctx.threadId ?? "",
           timestamp: Date.now(),
           sequenceNumber: nextSequence(),
@@ -1555,7 +1555,7 @@ export const createJobExecutor = (
         durationMs: Date.now() - ctx.startedAtMs,
         status: "cancelled",
         retryCount: job.retryCount ?? 0,
-        organizationId: ctx.orgId,
+        workspaceId: ctx.orgId,
       });
 
       return {
@@ -1580,7 +1580,7 @@ export const createJobExecutor = (
         await publishCanonicalEvent(ctx.streamPublisher, {
           jobId: job.id,
           sessionId: ctx.webSessionId ?? "",
-          organizationId: ctx.webOrganizationId ?? "",
+          workspaceId: ctx.webWorkspaceId ?? "",
           threadId: ctx.threadId,
           timestamp: Date.now(),
           sequenceNumber: nextSequence(),
@@ -1591,7 +1591,7 @@ export const createJobExecutor = (
       await publishCanonicalEvent(ctx.streamPublisher, {
         jobId: job.id,
         sessionId: ctx.webSessionId ?? "",
-        organizationId: ctx.webOrganizationId ?? "",
+        workspaceId: ctx.webWorkspaceId ?? "",
         threadId: ctx.threadId ?? "",
         timestamp: Date.now(),
         sequenceNumber: nextSequence(),
@@ -1636,7 +1636,7 @@ export const createJobExecutor = (
         status: "paused",
         errorCategory: "quota",
         retryCount: job.retryCount ?? 0,
-        organizationId: ctx.orgId,
+        workspaceId: ctx.orgId,
       });
 
       return {
@@ -1759,7 +1759,7 @@ export const createJobExecutor = (
         injectedEnvRepoUrl: injectedEnv.REPO_URL,
         streamPublisher: ctx.streamPublisher,
         webSessionId: ctx.webSessionId,
-        webOrganizationId: ctx.webOrganizationId,
+        webWorkspaceId: ctx.webWorkspaceId,
         threadId: ctx.threadId,
         workerId: config.workerId,
         apiBaseUrl: config.apiBaseUrl,
@@ -1825,7 +1825,7 @@ export const createJobExecutor = (
       status: jobStatus,
       errorCategory: result.errorMessage ? classifyError(result.errorMessage) : undefined,
       retryCount: job.retryCount ?? 0,
-      organizationId: ctx.orgId,
+      workspaceId: ctx.orgId,
     });
 
     {
@@ -1835,7 +1835,7 @@ export const createJobExecutor = (
         await publishCanonicalEvent(ctx.streamPublisher, {
           jobId: job.id,
           sessionId: ctx.webSessionId ?? "",
-          organizationId: ctx.webOrganizationId ?? "",
+          workspaceId: ctx.webWorkspaceId ?? "",
           threadId: ctx.threadId,
           timestamp: Date.now(),
           sequenceNumber: nextSequence(),
@@ -1846,7 +1846,7 @@ export const createJobExecutor = (
         await publishCanonicalEvent(ctx.streamPublisher, {
           jobId: job.id,
           sessionId: ctx.webSessionId ?? "",
-          organizationId: ctx.webOrganizationId ?? "",
+          workspaceId: ctx.webWorkspaceId ?? "",
           threadId: ctx.threadId ?? "",
           timestamp: Date.now(),
           sequenceNumber: nextSequence(),
@@ -1860,7 +1860,7 @@ export const createJobExecutor = (
         await publishCanonicalEvent(ctx.streamPublisher, {
           jobId: job.id,
           sessionId: ctx.webSessionId ?? "",
-          organizationId: ctx.webOrganizationId ?? "",
+          workspaceId: ctx.webWorkspaceId ?? "",
           threadId: ctx.threadId ?? "",
           timestamp: Date.now(),
           sequenceNumber: nextSequence(),
@@ -1875,7 +1875,7 @@ export const createJobExecutor = (
         await publishCanonicalEvent(ctx.streamPublisher, {
           jobId: job.id,
           sessionId: ctx.webSessionId ?? "",
-          organizationId: ctx.webOrganizationId ?? "",
+          workspaceId: ctx.webWorkspaceId ?? "",
           threadId: ctx.threadId ?? "",
           timestamp: Date.now(),
           sequenceNumber: nextSequence(),
@@ -1974,7 +1974,7 @@ export const createJobExecutor = (
         await publishCanonicalEvent(ctx.streamPublisher, {
           jobId: job.id,
           sessionId: ctx.webSessionId ?? "",
-          organizationId: ctx.webOrganizationId ?? "",
+          workspaceId: ctx.webWorkspaceId ?? "",
           threadId: ctx.threadId,
           timestamp: Date.now(),
           sequenceNumber: nextSequence(),
@@ -1984,7 +1984,7 @@ export const createJobExecutor = (
       await publishCanonicalEvent(ctx.streamPublisher, {
         jobId: job.id,
         sessionId: ctx.webSessionId ?? "",
-        organizationId: ctx.webOrganizationId ?? "",
+        workspaceId: ctx.webWorkspaceId ?? "",
         threadId: ctx.threadId ?? "",
         timestamp: Date.now(),
         sequenceNumber: nextSequence(),
@@ -2006,7 +2006,7 @@ export const createJobExecutor = (
       status: errorClassification.startsWith("recoverable_timeout") ? "timeout" : "failed",
       errorCategory: errorClassification,
       retryCount: job.retryCount ?? 0,
-      organizationId: ctx.orgId,
+      workspaceId: ctx.orgId,
     });
 
     return {
@@ -2055,7 +2055,7 @@ export const createJobExecutor = (
           void publishCanonicalEvent(ctx.streamPublisher, {
             jobId: job.id,
             sessionId: ctx.webSessionId ?? "",
-            organizationId: ctx.webOrganizationId ?? "",
+            workspaceId: ctx.webWorkspaceId ?? "",
             threadId: ctx.threadId ?? "",
             timestamp: Date.now(),
             sequenceNumber: nextSequence(),
@@ -2070,7 +2070,7 @@ export const createJobExecutor = (
       // Log resource usage before teardown for capacity planning + PostHog
       await logTmpfsUsage(containerManager, ctx.containerId, job.id, eventLogger, {
         skillName: resolveSkillTag(job, ctx.initialJobConfig),
-        organizationId: ctx.orgId,
+        workspaceId: ctx.orgId,
         workerId: config.workerId,
         workspaceMountMode: ctx.workspaceMountMode,
       });
@@ -2108,7 +2108,7 @@ export const createJobExecutor = (
     resolvedModel?: string;
     completedTaskIds?: string[];
     webSessionId?: string;
-    webOrganizationId?: string;
+    webWorkspaceId?: string;
     runtimeConfig: RuntimeConfig;
     runtimeExecutor: RuntimeExecutor;
   }): Promise<SessionExecutionResult> => {
@@ -2168,7 +2168,7 @@ export const createJobExecutor = (
     skillId?: string;
     skillSlug?: string;
     projectId?: string;
-    organizationId?: string;
+    workspaceId?: string;
     containerId: string;
     runtimeType: string;
     eventLogger: RunnerJobEventLogger;

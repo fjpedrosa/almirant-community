@@ -20,10 +20,10 @@ export type ProviderType =
 // Logical grouping of providers
 export type ConnectionCategory = "code" | "ai" | "deployment" | "monitoring" | "communication";
 
-// Whether the connection is user-level or organization-level
+// Whether the connection is user-level or workspace-level
 export type ConnectionScope = "user" | "organization";
 
-// Organization-wide policy for AI key resolution
+// Workspace-wide policy for AI key resolution
 export type AiKeyPolicy =
   | "org_only"
   | "org_preferred"
@@ -57,9 +57,9 @@ export interface ProviderConnection {
   updatedAt: string;
 }
 
-export interface OrganizationSettings {
+export interface WorkspaceSettings {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   aiKeyPolicy: AiKeyPolicy;
   createdAt: string;
   updatedAt: string;
@@ -91,7 +91,7 @@ export interface UpdateConnectionInput {
   credentials?: Record<string, unknown>;
 }
 
-export interface UpdateOrganizationSettingsInput {
+export interface UpdateWorkspaceSettingsInput {
   aiKeyPolicy?: AiKeyPolicy;
 }
 

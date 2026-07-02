@@ -1,10 +1,10 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { organizationSettingsApi } from "@/lib/api/client";
+import { workspaceSettingsApi } from "@/lib/api/client";
 import type {
-  OrganizationSettings,
-  UpdateOrganizationSettingsInput,
+  WorkspaceSettings,
+  UpdateWorkspaceSettingsInput,
 } from "../../domain/types";
 
 // ---------------------------------------------------------------------------
@@ -12,7 +12,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 export const orgSettingsKeys = {
-  all: ["organization-settings"] as const,
+  all: ["workspace-settings"] as const,
   detail: (orgId: string) => [...orgSettingsKeys.all, orgId] as const,
 };
 
@@ -21,15 +21,15 @@ export const orgSettingsKeys = {
 // ---------------------------------------------------------------------------
 
 /**
- * Reads settings for the active organization.
- * The backend resolves the organization from the authenticated session,
+ * Reads settings for the active workspace.
+ * The backend resolves the workspace from the authenticated session,
  * so no explicit orgId parameter is needed for typical usage.
  */
-export const useOrganizationSettings = () => {
+export const useWorkspaceSettings = () => {
   return useQuery({
     queryKey: orgSettingsKeys.all,
     queryFn: () =>
-      organizationSettingsApi.get() as Promise<OrganizationSettings>,
+      workspaceSettingsApi.get() as Promise<WorkspaceSettings>,
   });
 };
 
@@ -37,12 +37,12 @@ export const useOrganizationSettings = () => {
 // Mutations
 // ---------------------------------------------------------------------------
 
-export const useUpdateOrganizationSettings = () => {
+export const useUpdateWorkspaceSettings = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: UpdateOrganizationSettingsInput) =>
-      organizationSettingsApi.update(data) as Promise<OrganizationSettings>,
+    mutationFn: (data: UpdateWorkspaceSettingsInput) =>
+      workspaceSettingsApi.update(data) as Promise<WorkspaceSettings>,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: orgSettingsKeys.all });
     },

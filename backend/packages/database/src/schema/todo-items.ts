@@ -9,16 +9,16 @@ import {
 } from "drizzle-orm/pg-core";
 import { todoItemStatusEnum, priorityEnum } from "./enums";
 import { projects } from "./projects";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { user } from "./auth";
 
 export const todoItems = pgTable(
   "todo_items",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     title: varchar("title", { length: 500 }).notNull(),
     description: text("description"),
@@ -33,7 +33,7 @@ export const todoItems = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    index("todo_items_organization_idx").on(table.organizationId),
+    index("todo_items_workspace_idx").on(table.workspaceId),
     index("todo_items_project_idx").on(table.projectId),
     index("todo_items_owner_user_idx").on(table.ownerUserId),
     index("todo_items_created_by_user_idx").on(table.createdByUserId),

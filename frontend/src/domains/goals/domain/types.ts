@@ -22,7 +22,7 @@ export interface Milestone {
   targetDate: string | null;
   completedAt: string | null;
   createdByUserId: string | null;
-  organizationId: string;
+  workspaceId: string;
   createdAt: string;
   updatedAt: string;
 }

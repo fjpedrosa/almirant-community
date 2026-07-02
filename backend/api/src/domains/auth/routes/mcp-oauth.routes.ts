@@ -246,7 +246,7 @@ export const mcpOAuthRoutes = new Elysia({ name: "mcp-oauth-routes" })
   .use(sessionContextTypes)
   .get(
     `${MCP_OAUTH_BASE_PATH}/authorize`,
-    async ({ request, user, activeOrganization }) => {
+    async ({ request, user, activeWorkspace }) => {
       const url = new URL(request.url);
       const params = url.searchParams;
       const responseType = params.get("response_type");
@@ -296,7 +296,7 @@ export const mcpOAuthRoutes = new Elysia({ name: "mcp-oauth-routes" })
         return redirectToFrontendSignIn(request);
       }
 
-      if (!activeOrganization) {
+      if (!activeWorkspace) {
         return redirectWithOAuthError(
           redirectUri,
           "access_denied",
@@ -313,7 +313,7 @@ export const mcpOAuthRoutes = new Elysia({ name: "mcp-oauth-routes" })
         const code = createMcpAuthorizationCode({
           clientId,
           redirectUri,
-          organizationId: activeOrganization.id,
+          workspaceId: activeWorkspace.id,
           userId: user.id,
           scope: params.get("scope") ?? MCP_OAUTH_SCOPES.join(" "),
           codeChallenge: params.get("code_challenge") ?? undefined,
@@ -389,7 +389,7 @@ export const mcpOAuthRoutes = new Elysia({ name: "mcp-oauth-routes" })
     }
 
     const token = generateSessionToken({
-      organizationId: consumed.organizationId,
+      workspaceId: consumed.workspaceId,
       ...(consumed.projectId ? { projectId: consumed.projectId } : {}),
       userId: consumed.userId,
       permissions: [...MCP_OAUTH_SCOPES],

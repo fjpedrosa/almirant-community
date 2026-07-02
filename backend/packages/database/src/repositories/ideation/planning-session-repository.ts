@@ -27,7 +27,7 @@ export type PlanningSessionStatus = "active" | "interrupted" | "completed" | "ar
 
 export interface PlanningSessionWithMeta {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string | null;
   boardId: string | null;
   title: string;
@@ -83,7 +83,7 @@ export interface UpdatePlanningSessionInput {
 
 const sessionSelectWithMeta = {
   id: planningSessions.id,
-  organizationId: planningSessions.organizationId,
+  workspaceId: planningSessions.workspaceId,
   projectId: planningSessions.projectId,
   boardId: planningSessions.boardId,
   title: planningSessions.title,
@@ -119,12 +119,12 @@ const sessionSelectWithMeta = {
 // ---------------------------------------------------------------------------
 
 export const getPlanningSessions = async (
-  organizationId: string,
+  workspaceId: string,
   projectId: string | undefined,
   pagination: PaginationParams,
   filters?: PlanningSessionFilters
 ): Promise<{ items: PlanningSessionWithMeta[]; total: number }> => {
-  const conditions = [eq(planningSessions.organizationId, organizationId)];
+  const conditions = [eq(planningSessions.workspaceId, workspaceId)];
 
   if (projectId) {
     conditions.push(eq(planningSessions.projectId, projectId));
@@ -187,11 +187,11 @@ export const getPlanningSessionById = async (
 // ---------------------------------------------------------------------------
 
 export const createPlanningSession = async (
-  organizationId: string,
+  workspaceId: string,
   data: CreatePlanningSessionInput
 ): Promise<PlanningSessionWithMeta> => {
-  // Check if user already has an active session in this organization
-  const existing = await getActiveSessionForUser(organizationId, data.createdByUserId);
+  // Check if user already has an active session in this workspace
+  const existing = await getActiveSessionForUser(workspaceId, data.createdByUserId);
   if (existing) {
     throw new Error("User already has an active planning session");
   }
@@ -199,7 +199,7 @@ export const createPlanningSession = async (
   const [created] = await db
     .insert(planningSessions)
     .values({
-      organizationId,
+      workspaceId,
       projectId: data.projectId ?? null,
       boardId: data.boardId ?? null,
       title: data.title.trim(),
@@ -437,7 +437,7 @@ export const updateSessionTokenUsage = async (
 // ---------------------------------------------------------------------------
 
 export const getActiveSessionForUser = async (
-  organizationId: string,
+  workspaceId: string,
   userId: string
 ): Promise<PlanningSessionWithMeta | null> => {
   const [result] = await db
@@ -448,7 +448,7 @@ export const getActiveSessionForUser = async (
     .leftJoin(boards, eq(planningSessions.boardId, boards.id))
     .where(
       and(
-        eq(planningSessions.organizationId, organizationId),
+        eq(planningSessions.workspaceId, workspaceId),
         eq(planningSessions.createdByUserId, userId),
         eq(planningSessions.status, "active")
       )

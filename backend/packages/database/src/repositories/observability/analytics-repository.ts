@@ -6,9 +6,9 @@ import { eq, and, sql, gte, count, countDistinct, desc } from "drizzle-orm";
 /**
  * Get org-level analytics overview KPIs.
  *
- * Returns entity counts and usage stats scoped to the given organization.
+ * Returns entity counts and usage stats scoped to the given workspace.
  */
-export const getOrgAnalyticsOverview = async (organizationId: string) => {
+export const getOrgAnalyticsOverview = async (workspaceId: string) => {
   const now = new Date();
   const thirtyDaysAgo = new Date(now);
   thirtyDaysAgo.setUTCDate(thirtyDaysAgo.getUTCDate() - 30);
@@ -26,7 +26,7 @@ export const getOrgAnalyticsOverview = async (organizationId: string) => {
     db
       .select({ count: count() })
       .from(usageRecords)
-      .where(eq(usageRecords.organizationId, organizationId)),
+      .where(eq(usageRecords.workspaceId, workspaceId)),
 
     // Active users: distinct users with usage records in last 30 days
     db
@@ -34,7 +34,7 @@ export const getOrgAnalyticsOverview = async (organizationId: string) => {
       .from(usageRecords)
       .where(
         and(
-          eq(usageRecords.organizationId, organizationId),
+          eq(usageRecords.workspaceId, workspaceId),
           gte(usageRecords.startedAt, thirtyDaysAgo)
         )
       ),
@@ -45,7 +45,7 @@ export const getOrgAnalyticsOverview = async (organizationId: string) => {
       .from(projects)
       .where(
         and(
-          eq(projects.organizationId, organizationId),
+          eq(projects.workspaceId, workspaceId),
           eq(projects.status, "active")
         )
       ),
@@ -54,14 +54,14 @@ export const getOrgAnalyticsOverview = async (organizationId: string) => {
     db
       .select({ count: count() })
       .from(boards)
-      .where(eq(boards.organizationId, organizationId)),
+      .where(eq(boards.workspaceId, workspaceId)),
 
     // Work items created (all, via boards belonging to the org)
     db
       .select({ count: count() })
       .from(workItems)
       .innerJoin(boards, eq(workItems.boardId, boards.id))
-      .where(eq(boards.organizationId, organizationId)),
+      .where(eq(boards.workspaceId, workspaceId)),
 
     // Work items completed (boardColumn.isDone = true)
     db
@@ -71,7 +71,7 @@ export const getOrgAnalyticsOverview = async (organizationId: string) => {
       .innerJoin(boardColumns, eq(workItems.boardColumnId, boardColumns.id))
       .where(
         and(
-          eq(boards.organizationId, organizationId),
+          eq(boards.workspaceId, workspaceId),
           eq(boardColumns.isDone, true)
         )
       ),
@@ -88,13 +88,13 @@ export const getOrgAnalyticsOverview = async (organizationId: string) => {
 };
 
 /**
- * Get token usage grouped by period (month) for the given organization.
+ * Get token usage grouped by period (month) for the given workspace.
  *
  * Returns an array sorted by period descending with totalTokens, totalCost,
  * and jobCount for each month. Only completed jobs are counted.
  */
 export const getTokenUsageByPeriod = async (
-  organizationId: string,
+  workspaceId: string,
   months: number = 12
 ) => {
   const cutoff = new Date();
@@ -110,7 +110,7 @@ export const getTokenUsageByPeriod = async (
     .from(agentJobs)
     .where(
       and(
-        eq(agentJobs.organizationId, organizationId),
+        eq(agentJobs.workspaceId, workspaceId),
         eq(agentJobs.status, "completed"),
         gte(agentJobs.createdAt, cutoff)
       )
@@ -133,12 +133,12 @@ export const getTokenUsageByPeriod = async (
 };
 
 /**
- * Get model usage breakdown for the organization.
+ * Get model usage breakdown for the workspace.
  *
  * Groups completed agent jobs by model and returns job count, total tokens, and total cost.
  */
 export const getModelUsage = async (
-  organizationId: string,
+  workspaceId: string,
   months: number = 12
 ) => {
   const cutoff = new Date();
@@ -154,7 +154,7 @@ export const getModelUsage = async (
     .from(agentJobs)
     .where(
       and(
-        eq(agentJobs.organizationId, organizationId),
+        eq(agentJobs.workspaceId, workspaceId),
         eq(agentJobs.status, "completed"),
         gte(agentJobs.createdAt, cutoff)
       )
@@ -171,13 +171,13 @@ export const getModelUsage = async (
 };
 
 /**
- * Get coding agent usage distribution (by codingAgent field) for the given organization.
+ * Get coding agent usage distribution (by codingAgent field) for the given workspace.
  *
  * Returns an array of { codingAgent, jobCount, totalTokens, totalCost }
  * grouped by coding agent (claude-code, codex, opencode, etc.). Only completed jobs are counted.
  */
 export const getCodingAgentUsage = async (
-  organizationId: string,
+  workspaceId: string,
   months: number = 12,
   userId?: string
 ) => {
@@ -185,7 +185,7 @@ export const getCodingAgentUsage = async (
   startDate.setUTCMonth(startDate.getUTCMonth() - months);
 
   const conditions = [
-    eq(agentJobs.organizationId, organizationId),
+    eq(agentJobs.workspaceId, workspaceId),
     eq(agentJobs.status, "completed"),
     gte(agentJobs.createdAt, startDate),
   ];

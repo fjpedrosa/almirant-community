@@ -4,7 +4,7 @@ export type SkillSource = "official" | "custom" | "repo";
 // Skill entity
 export interface Skill {
   id: string;
-  organizationId: string | null;
+  workspaceId: string | null;
   projectId: string | null;
   name: string;
   slug: string;

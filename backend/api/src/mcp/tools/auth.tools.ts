@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getUserById } from "@almirant/database";
-import { getUserIdFromExtra, getOrganizationIdFromExtra } from "../setup";
+import { getUserIdFromExtra, getWorkspaceIdFromExtra } from "../setup";
 
 export const registerAuthTools = (server: McpServer) => {
   // -------------------------------------------------------
@@ -8,12 +8,12 @@ export const registerAuthTools = (server: McpServer) => {
   // -------------------------------------------------------
   server.tool(
     "get_current_user",
-    "Get the profile of the authenticated user associated with the current API token. Returns id, name, email, and organizationId. Use this to resolve the userId needed for operations like assigning ownership of items.",
+    "Get the profile of the authenticated user associated with the current API token. Returns id, name, email, and workspaceId. Use this to resolve the userId needed for operations like assigning ownership of items.",
     {},
     async (_params, extra) => {
       try {
         const userId = getUserIdFromExtra(extra);
-        const organizationId = getOrganizationIdFromExtra(extra);
+        const workspaceId = getWorkspaceIdFromExtra(extra);
 
         if (!userId) {
           return {
@@ -52,7 +52,7 @@ export const registerAuthTools = (server: McpServer) => {
                 id: user.id,
                 name: user.name,
                 email: user.email,
-                organizationId,
+                workspaceId,
               }),
             },
           ],

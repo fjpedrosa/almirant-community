@@ -15,9 +15,9 @@ export const crudRoutes = (useCases: ExpenseCategoryUseCases) =>
     .use(sessionContextTypes)
 
     // GET /expense-categories - list all active categories
-    .get("/", async ({ activeOrganization }) => {
+    .get("/", async ({ activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const categories = await useCases.list(orgId);
         return successResponse(categories);
       } catch (error) {
@@ -26,9 +26,9 @@ export const crudRoutes = (useCases: ExpenseCategoryUseCases) =>
     })
 
     // GET /expense-categories/:id
-    .get("/:id", async ({ activeOrganization, params }) => {
+    .get("/:id", async ({ activeWorkspace, params }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const category = await useCases.getById(orgId, params.id);
         if (!category) return notFoundResponse("Expense category not found");
         return successResponse(category);
@@ -40,9 +40,9 @@ export const crudRoutes = (useCases: ExpenseCategoryUseCases) =>
     // POST /expense-categories
     .post(
       "/",
-      async ({ activeOrganization, body }) => {
+      async ({ activeWorkspace, body }) => {
         try {
-          const orgId = activeOrganization!.id;
+          const orgId = activeWorkspace!.id;
           const category = await useCases.create(orgId, {
             name: body.name,
             icon: body.icon,
@@ -69,9 +69,9 @@ export const crudRoutes = (useCases: ExpenseCategoryUseCases) =>
     // PATCH /expense-categories/:id
     .patch(
       "/:id",
-      async ({ activeOrganization, params, body }) => {
+      async ({ activeWorkspace, params, body }) => {
         try {
-          const orgId = activeOrganization!.id;
+          const orgId = activeWorkspace!.id;
           const category = await useCases.update(orgId, params.id, {
             name: body.name,
             icon: body.icon,
@@ -99,9 +99,9 @@ export const crudRoutes = (useCases: ExpenseCategoryUseCases) =>
     )
 
     // DELETE /expense-categories/:id
-    .delete("/:id", async ({ activeOrganization, params }) => {
+    .delete("/:id", async ({ activeWorkspace, params }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const deleted = await useCases.delete(orgId, params.id);
         if (!deleted) return notFoundResponse("Expense category not found");
         return successResponse({ deleted: true });

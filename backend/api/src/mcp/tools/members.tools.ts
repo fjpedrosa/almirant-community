@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getMembersByOrganizationId } from "@almirant/database";
-import { getOrganizationIdFromExtra } from "../setup";
+import { getMembersByWorkspaceId } from "@almirant/database";
+import { getWorkspaceIdFromExtra } from "../setup";
 
 export const registerMembersTools = (server: McpServer) => {
   server.tool(
@@ -9,14 +9,14 @@ export const registerMembersTools = (server: McpServer) => {
     {},
     async (_params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
-        const members = await getMembersByOrganizationId(organizationId);
+        const members = await getMembersByWorkspaceId(workspaceId);
         return { content: [{ type: "text" as const, text: JSON.stringify(members, null, 2) }] };
       } catch (error) {
         return {

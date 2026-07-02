@@ -1,7 +1,7 @@
 import { wsConnectionManager } from "./ws-connection-manager";
 
 type AgentJobStatusBroadcast = {
-  organizationId: string | null | undefined;
+  workspaceId: string | null | undefined;
   jobId: string;
   status: string;
   workItemId: string | null;
@@ -9,9 +9,9 @@ type AgentJobStatusBroadcast = {
 };
 
 export const broadcastAgentJobStatusChanged = (args: AgentJobStatusBroadcast): void => {
-  if (!args.organizationId) return;
+  if (!args.workspaceId) return;
 
-  wsConnectionManager.broadcastToOrganization(args.organizationId, {
+  wsConnectionManager.broadcastToWorkspace(args.workspaceId, {
     type: "agent-job:status-changed",
     payload: {
       jobId: args.jobId,

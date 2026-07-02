@@ -16,7 +16,7 @@ export const editProjectFormSchema = z.object({
   color: z.string(),
   status: z.enum(["active", "on_hold"]),
   clientName: z.string(),
-  organizationId: z.string(),
+  workspaceId: z.string(),
   productionUrl: z.string(),
   stagingUrl: z.string(),
   techStack: z.array(z.string()),
@@ -43,7 +43,7 @@ export const useEditProjectForm = (
       color: "#6366f1",
       status: "active",
       clientName: "",
-      organizationId: "",
+      workspaceId: "",
       productionUrl: "",
       stagingUrl: "",
       techStack: [],
@@ -61,7 +61,7 @@ export const useEditProjectForm = (
         color: project.color,
         status: project.status as "active" | "on_hold",
         clientName: project.clientName || "",
-        organizationId: project.organizationId || "",
+        workspaceId: project.workspaceId || "",
         productionUrl: project.productionUrl || "",
         stagingUrl: project.stagingUrl || "",
         techStack: project.techStack || [],
@@ -76,7 +76,7 @@ export const useEditProjectForm = (
   const executeUpdate = useCallback(
     async (data: EditProjectFormData) => {
       if (!project) return;
-      const previousOrganizationId = project.organizationId;
+      const previousWorkspaceId = project.workspaceId;
       try {
         await updateProject.mutateAsync({
           id: project.id,
@@ -86,7 +86,7 @@ export const useEditProjectForm = (
             color: data.color,
             status: data.status,
             clientName: data.clientName || null,
-            organizationId: data.organizationId || null,
+            workspaceId: data.workspaceId || null,
             productionUrl: data.productionUrl || null,
             stagingUrl: data.stagingUrl || null,
             startDate: data.startDate
@@ -100,7 +100,7 @@ export const useEditProjectForm = (
           },
         });
         showToast.success("Proyecto actualizado correctamente");
-        if (data.organizationId !== (previousOrganizationId ?? "")) {
+        if (data.workspaceId !== (previousWorkspaceId ?? "")) {
           router.push("/projects");
         }
         onSuccess?.();
@@ -115,7 +115,7 @@ export const useEditProjectForm = (
     async (data: EditProjectFormData) => {
       if (!project) return;
       const isTransfer =
-        data.organizationId !== (project.organizationId ?? "");
+        data.workspaceId !== (project.workspaceId ?? "");
       if (isTransfer) {
         setPendingSubmitData(data);
         return;
@@ -163,7 +163,7 @@ export const useEditProjectForm = (
     onSubmit,
     onConfirmTransfer,
     onCancelTransfer,
-    pendingTransferOrgId: pendingSubmitData?.organizationId ?? null,
+    pendingTransferOrgId: pendingSubmitData?.workspaceId ?? null,
     addTech,
     removeTech,
   };

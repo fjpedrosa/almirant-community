@@ -16,12 +16,12 @@ const state = {
   }>,
   releaseColumnMoves: [] as Array<{ batchId: string }>,
   aiProcessingCalls: [] as Array<{
-    organizationId: string;
+    workspaceId: string;
     workItemId: string;
     isAiProcessing: boolean;
   }>,
   broadcasts: [] as Array<{
-    organizationId: string;
+    workspaceId: string;
     message: Record<string, unknown>;
   }>,
 };
@@ -52,7 +52,7 @@ mock.module("@almirant/database", () =>
   createDatabaseMocks({
     validateApiKey: async (raw: string) =>
       raw === "valid-runner-key"
-        ? { id: "key-1", organizationId: "org-test-1" }
+        ? { id: "key-1", workspaceId: "org-test-1" }
         : null,
     getBatchByIdWithItems: async (id: string) =>
       state.batchOverride ??
@@ -77,12 +77,12 @@ mock.module("@almirant/database", () =>
       };
     },
     setWorkItemAiProcessing: async (
-      organizationId: string,
+      workspaceId: string,
       workItemId: string,
       isAiProcessing: boolean,
     ) => {
       state.aiProcessingCalls.push({
-        organizationId,
+        workspaceId,
         workItemId,
         isAiProcessing,
       });
@@ -98,11 +98,11 @@ mock.module("@almirant/database", () =>
 mock.module("../../../../shared/services/response", () => createResponseMocks());
 mock.module("../../../../shared/ws/ws-connection-manager", () => ({
   wsConnectionManager: {
-    broadcastToOrganization: (
-      organizationId: string,
+    broadcastToWorkspace: (
+      workspaceId: string,
       message: Record<string, unknown>,
     ) => {
-      state.broadcasts.push({ organizationId, message });
+      state.broadcasts.push({ workspaceId, message });
     },
     sendToUser: () => {},
   },
@@ -219,12 +219,12 @@ describe("internal-integration-batches.routes - PATCH /:id", () => {
     expect(res.status).toBe(200);
     expect(state.aiProcessingCalls).toEqual([
       {
-        organizationId: testIntegrationBatch.organizationId,
+        workspaceId: testIntegrationBatch.workspaceId,
         workItemId: testIntegrationBatchItem.workItemId,
         isAiProcessing: false,
       },
       {
-        organizationId: testIntegrationBatch.organizationId,
+        workspaceId: testIntegrationBatch.workspaceId,
         workItemId: "wi-test-2",
         isAiProcessing: false,
       },
@@ -269,7 +269,7 @@ describe("internal-integration-batches.routes - PATCH /:id/items/:itemId", () =>
     expect(res.status).toBe(200);
     expect(state.aiProcessingCalls).toEqual([
       {
-        organizationId: testIntegrationBatch.organizationId,
+        workspaceId: testIntegrationBatch.workspaceId,
         workItemId: testIntegrationBatchItem.workItemId,
         isAiProcessing: true,
       },
@@ -295,7 +295,7 @@ describe("internal-integration-batches.routes - PATCH /:id/items/:itemId", () =>
     expect(res.status).toBe(200);
     expect(state.aiProcessingCalls).toEqual([
       {
-        organizationId: testIntegrationBatch.organizationId,
+        workspaceId: testIntegrationBatch.workspaceId,
         workItemId: testIntegrationBatchItem.workItemId,
         isAiProcessing: false,
       },
@@ -320,7 +320,7 @@ describe("internal-integration-batches.routes - PATCH /:id/items/:itemId", () =>
     expect(res.status).toBe(200);
     expect(state.aiProcessingCalls).toEqual([
       {
-        organizationId: testIntegrationBatch.organizationId,
+        workspaceId: testIntegrationBatch.workspaceId,
         workItemId: testIntegrationBatchItem.workItemId,
         isAiProcessing: false,
       },

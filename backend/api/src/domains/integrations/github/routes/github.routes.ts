@@ -16,11 +16,11 @@ import {
   getRecentEventsByProject,
   getConnectionById,
   deactivateConnection,
-  getUnlinkedGithubReposForOrganization,
+  getUnlinkedGithubReposForWorkspace,
   extractGithubRepoFullName,
   getProjectIdsWithLinkedRepos,
   getProjectById,
-  getOrganizationIdByRepoId,
+  getWorkspaceIdByRepoId,
   db,
   eq,
   repoInstallationLinks,
@@ -69,8 +69,8 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
   // ──────────────────────────────────────────────
 
   // GET /github/status — Check GitHub integration status
-  .get("/status", async ({ activeOrganization }) => {
-    const orgId = (activeOrganization as { id: string }).id;
+  .get("/status", async ({ activeWorkspace }) => {
+    const orgId = (activeWorkspace as { id: string }).id;
     const configured = await isGithubConfiguredAsync();
     let installations = await getInstallations({ scopeId: orgId, isActive: true });
 
@@ -97,7 +97,7 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
         let autoLinked = 0;
 
         for (const installation of installations) {
-          const unlinkedRepos = await getUnlinkedGithubReposForOrganization(orgId);
+          const unlinkedRepos = await getUnlinkedGithubReposForWorkspace(orgId);
 
           for (const repo of unlinkedRepos) {
             const fullName = extractGithubRepoFullName(repo.url);
@@ -144,13 +144,13 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
   })
 
   // POST /github/sync-installations — Discover installations from GitHub API and persist them
-  .post("/sync-installations", async ({ activeOrganization, set }) => {
+  .post("/sync-installations", async ({ activeWorkspace, set }) => {
     if (!(await isGithubConfiguredAsync())) {
       set.status = 400;
       return errorResponse(GITHUB_APP_NOT_CONFIGURED_MESSAGE);
     }
 
-    const orgId = (activeOrganization as { id: string }).id;
+    const orgId = (activeWorkspace as { id: string }).id;
 
     try {
       const remoteInstallations = await syncInstallationsFromGithub();
@@ -166,7 +166,7 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
           accountAvatarUrl: inst.account.avatar_url || null,
           permissions: inst.permissions || {},
           repositorySelection: inst.repository_selection || "all",
-          organizationId: orgId,
+          workspaceId: orgId,
         });
         upsertedConnections.push({ upserted, installationId: inst.id });
       }
@@ -177,7 +177,7 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
         if (!upserted?.id) continue;
 
         try {
-          const unlinkedRepos = await getUnlinkedGithubReposForOrganization(orgId);
+          const unlinkedRepos = await getUnlinkedGithubReposForWorkspace(orgId);
           let autoLinked = 0;
 
           for (const repo of unlinkedRepos) {
@@ -250,7 +250,7 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
       const installations = await getInstallations({ scopeId: orgId, isActive: true });
 
       if (remoteInstallations.length > 0) {
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "connection:updated",
           payload: {
             provider: "github",
@@ -278,13 +278,13 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
 
   // GET /github/available-installations — Discover installations from GitHub API without persisting
   // Returns raw installations with a flag indicating which ones are already connected to this workspace
-  .get("/available-installations", async ({ activeOrganization, set }) => {
+  .get("/available-installations", async ({ activeWorkspace, set }) => {
     if (!(await isGithubConfiguredAsync())) {
       set.status = 400;
       return errorResponse(GITHUB_APP_NOT_CONFIGURED_MESSAGE);
     }
 
-    const orgId = (activeOrganization as { id: string }).id;
+    const orgId = (activeWorkspace as { id: string }).id;
 
     try {
       // Fetch raw installations from GitHub API (no persistence)
@@ -327,13 +327,13 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
   })
 
   // POST /github/connect-installation — Persist a specific GitHub installation for the current workspace
-  .post("/connect-installation", async ({ body, activeOrganization, set }) => {
+  .post("/connect-installation", async ({ body, activeWorkspace, set }) => {
     if (!(await isGithubConfiguredAsync())) {
       set.status = 400;
       return errorResponse(GITHUB_APP_NOT_CONFIGURED_MESSAGE);
     }
 
-    const orgId = (activeOrganization as { id: string }).id;
+    const orgId = (activeWorkspace as { id: string }).id;
 
     try {
       // Fetch raw installations from GitHub to validate the installationId exists
@@ -350,7 +350,7 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
       }
 
       // Upsert the installation as a provider connection scoped to this workspace.
-      // Passing organizationId ensures the lookup is scoped so that connecting the
+      // Passing workspaceId ensures the lookup is scoped so that connecting the
       // same GitHub App installation to workspace B does not overwrite workspace A.
       const upserted = await upsertInstallation({
         installationId: targetInstallation.id,
@@ -359,10 +359,10 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
         accountAvatarUrl: targetInstallation.account.avatar_url ?? null,
         permissions: targetInstallation.permissions ?? {},
         repositorySelection: targetInstallation.repository_selection ?? null,
-        organizationId: orgId,
+        workspaceId: orgId,
       });
 
-      wsConnectionManager.broadcastToOrganization(orgId, {
+      wsConnectionManager.broadcastToWorkspace(orgId, {
         type: "connection:updated",
         payload: {
           provider: "github",
@@ -373,10 +373,10 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
         },
       });
 
-      // Auto-link existing GitHub repos across all projects in this organization
+      // Auto-link existing GitHub repos across all projects in this workspace
       if (upserted?.id) {
         try {
-          const unlinkedRepos = await getUnlinkedGithubReposForOrganization(orgId);
+          const unlinkedRepos = await getUnlinkedGithubReposForWorkspace(orgId);
           let autoLinked = 0;
 
           for (const repo of unlinkedRepos) {
@@ -454,21 +454,21 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
   })
 
   // GET /github/installations — List all GitHub App installations connected to this workspace
-  .get("/installations", async ({ activeOrganization }) => {
-    const orgId = (activeOrganization as { id: string }).id;
+  .get("/installations", async ({ activeWorkspace }) => {
+    const orgId = (activeWorkspace as { id: string }).id;
     const installations = await getInstallations({ scopeId: orgId, isActive: true });
 
     return successResponse(installations);
   })
 
   // GET /github/installations/:installationId/repos — List repos available to an installation
-  .get("/installations/:installationId/repos", async ({ params, query, set, activeOrganization }) => {
+  .get("/installations/:installationId/repos", async ({ params, query, set, activeWorkspace }) => {
     if (!(await isGithubConfiguredAsync())) {
       set.status = 400;
       return errorResponse(GITHUB_APP_NOT_CONFIGURED_MESSAGE);
     }
 
-    const orgId = (activeOrganization as { id: string }).id;
+    const orgId = (activeWorkspace as { id: string }).id;
     const connection = await getInstallationByGithubId(
       Number(params.installationId), orgId
     );
@@ -504,13 +504,13 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
   })
 
   // POST /github/installations/:installationId/repos — Create a new repository
-  .post("/installations/:installationId/repos", async ({ params, body, set, user, activeOrganization }) => {
+  .post("/installations/:installationId/repos", async ({ params, body, set, user, activeWorkspace }) => {
     if (!(await isGithubConfiguredAsync())) {
       set.status = 400;
       return errorResponse(GITHUB_APP_NOT_CONFIGURED_MESSAGE);
     }
 
-    const orgId = (activeOrganization as { id: string }).id;
+    const orgId = (activeWorkspace as { id: string }).id;
     const userId = (user as { id: string }).id;
 
     // Validate repo name: only alphanumeric, hyphens, underscores, dots
@@ -680,8 +680,8 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
   })
 
   // POST /github/installations/:installationId/link — Link a repo to an installation
-  .post("/installations/:installationId/link", async ({ params, body, set, activeOrganization }) => {
-    const orgId = (activeOrganization as { id: string }).id;
+  .post("/installations/:installationId/link", async ({ params, body, set, activeWorkspace }) => {
+    const orgId = (activeWorkspace as { id: string }).id;
 
     if (!body.repoId || body.repoId.trim() === "") {
       set.status = 400;
@@ -724,10 +724,10 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
   })
 
   // DELETE /github/installations/:installationId/unlink/:repoId — Unlink a repo
-  .delete("/installations/:installationId/unlink/:repoId", async ({ params, set, activeOrganization }) => {
-    const orgId = (activeOrganization as { id: string }).id;
+  .delete("/installations/:installationId/unlink/:repoId", async ({ params, set, activeWorkspace }) => {
+    const orgId = (activeWorkspace as { id: string }).id;
 
-    const repoOrgId = await getOrganizationIdByRepoId(params.repoId);
+    const repoOrgId = await getWorkspaceIdByRepoId(params.repoId);
     if (!repoOrgId || repoOrgId !== orgId) {
       set.status = 404;
       return notFoundResponse("Linked repository");
@@ -753,8 +753,8 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
   // ──────────────────────────────────────────────
 
   // GET /github/projects/:id/summary — GitHub summary for a project
-  .get("/projects/:id/summary", async ({ params, set, activeOrganization }) => {
-    const orgId = (activeOrganization as { id: string }).id;
+  .get("/projects/:id/summary", async ({ params, set, activeWorkspace }) => {
+    const orgId = (activeWorkspace as { id: string }).id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
@@ -776,8 +776,8 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
   })
 
   // GET /github/projects/:id/prs — Pull requests for a project
-  .get("/projects/:id/prs", async ({ params, query, set, activeOrganization }) => {
-    const orgId = (activeOrganization as { id: string }).id;
+  .get("/projects/:id/prs", async ({ params, query, set, activeWorkspace }) => {
+    const orgId = (activeWorkspace as { id: string }).id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
@@ -797,8 +797,8 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
   })
 
   // GET /github/projects/:id/commits — Recent commits for a project
-  .get("/projects/:id/commits", async ({ params, query, set, activeOrganization }) => {
-    const orgId = (activeOrganization as { id: string }).id;
+  .get("/projects/:id/commits", async ({ params, query, set, activeWorkspace }) => {
+    const orgId = (activeWorkspace as { id: string }).id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
@@ -819,8 +819,8 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
   })
 
   // GET /github/projects/:id/actions — Workflow runs for a project
-  .get("/projects/:id/actions", async ({ params, query, set, activeOrganization }) => {
-    const orgId = (activeOrganization as { id: string }).id;
+  .get("/projects/:id/actions", async ({ params, query, set, activeWorkspace }) => {
+    const orgId = (activeWorkspace as { id: string }).id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
@@ -841,8 +841,8 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
   })
 
   // GET /github/projects/:id/contributors — Contributors for a project
-  .get("/projects/:id/contributors", async ({ params, set, activeOrganization }) => {
-    const orgId = (activeOrganization as { id: string }).id;
+  .get("/projects/:id/contributors", async ({ params, set, activeWorkspace }) => {
+    const orgId = (activeWorkspace as { id: string }).id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
@@ -859,8 +859,8 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
   })
 
   // GET /github/projects/:id/activity — Recent activity for a project
-  .get("/projects/:id/activity", async ({ params, query, set, activeOrganization }) => {
-    const orgId = (activeOrganization as { id: string }).id;
+  .get("/projects/:id/activity", async ({ params, query, set, activeWorkspace }) => {
+    const orgId = (activeWorkspace as { id: string }).id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
@@ -881,8 +881,8 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
   })
 
   // POST /github/projects/:id/sync — Trigger a manual sync for a project
-  .post("/projects/:id/sync", async ({ params, activeOrganization, set }) => {
-    const orgId = (activeOrganization as { id: string }).id;
+  .post("/projects/:id/sync", async ({ params, activeWorkspace, set }) => {
+    const orgId = (activeWorkspace as { id: string }).id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
       set.status = 404;
@@ -919,8 +919,8 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
 
   // DELETE /github/installations/:installationId — Soft-delete a GitHub installation
   // Deactivates the provider connection and cleans up associated repoInstallationLinks.
-  .delete("/installations/:installationId", async ({ params, activeOrganization, set }) => {
-    const orgId = (activeOrganization as { id: string }).id;
+  .delete("/installations/:installationId", async ({ params, activeWorkspace, set }) => {
+    const orgId = (activeWorkspace as { id: string }).id;
 
     // Look up the connection by its UUID (the param is the provider_connections.id)
     const connection = await getConnectionById(params.installationId);
@@ -936,7 +936,7 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
       return notFoundResponse("GitHub installation");
     }
 
-    // Verify ownership: the connection must belong to this organization
+    // Verify ownership: the connection must belong to this workspace
     const isOwner =
       connection.scope === "organization" && connection.scopeId === orgId;
 
@@ -958,7 +958,7 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
       return errorResponse("Failed to deactivate GitHub installation");
     }
 
-    wsConnectionManager.broadcastToOrganization(orgId, {
+    wsConnectionManager.broadcastToWorkspace(orgId, {
       type: "connection:updated",
       payload: {
         provider: "github",

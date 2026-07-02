@@ -338,7 +338,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
   // -------------------------------------------------------
   .get(
     "/",
-    async ({ user, activeOrganization, query }) => {
+    async ({ user, activeWorkspace, query }) => {
       try {
         const userId = (user as { id: string }).id;
 
@@ -360,9 +360,9 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
           ? query.isActive === "true"
           : true;
 
-        // Use the active organization only — not all orgs the user belongs to.
+        // Use the active workspace only — not all orgs the user belongs to.
         // This ensures workspace switching shows the correct providers.
-        const activeOrgId = (activeOrganization as { id: string } | null)?.id;
+        const activeOrgId = (activeWorkspace as { id: string } | null)?.id;
 
         if (query.scope === "organization") {
           const scopeIds = activeOrgId ? [activeOrgId] : [];
@@ -425,7 +425,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
   // -------------------------------------------------------
   .get(
     "/usage-summary",
-    async ({ query, user, activeOrganization, set }) => {
+    async ({ query, user, activeWorkspace, set }) => {
       try {
         const encryptionKey = env.ENCRYPTION_KEY;
         if (!encryptionKey) {
@@ -437,7 +437,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
         }
 
         const userId = (user as { id: string }).id;
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         const [orgConnections, userConnections] = await Promise.all([
           listConnections({
@@ -515,10 +515,10 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
   // -------------------------------------------------------
   .get(
     "/:id",
-    async ({ params, user, activeOrganization, set }) => {
+    async ({ params, user, activeWorkspace, set }) => {
       try {
         const userId = (user as { id: string }).id;
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         const connection = await getConnectionById(params.id);
 
@@ -557,7 +557,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
   // -------------------------------------------------------
   .post(
     "/",
-    async ({ body, user, activeOrganization, set }) => {
+    async ({ body, user, activeWorkspace, set }) => {
       try {
         const encryptionKey = env.ENCRYPTION_KEY;
         if (!encryptionKey) {
@@ -569,14 +569,14 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
         }
 
         const userId = (user as { id: string }).id;
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         // Validate scope/category combination
         if (!validateScopeForCategory(body.scope, body.category)) {
           set.status = 400;
           return errorResponse(
             `Invalid scope "${body.scope}" for category "${body.category}". ` +
-              `Code and deployment connections must be organization-scoped.`,
+              `Code and deployment connections must be workspace-scoped.`,
           );
         }
 
@@ -659,7 +659,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
   // -------------------------------------------------------
   .patch(
     "/:id",
-    async ({ params, body, user, activeOrganization, set }) => {
+    async ({ params, body, user, activeWorkspace, set }) => {
       try {
         const encryptionKey = env.ENCRYPTION_KEY;
         if (!encryptionKey) {
@@ -671,7 +671,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
         }
 
         const userId = (user as { id: string }).id;
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         // Verify the connection belongs to this user or org
         const existing = await getConnectionById(params.id);
@@ -799,10 +799,10 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
   // -------------------------------------------------------
   .delete(
     "/:id",
-    async ({ params, user, activeOrganization, set }) => {
+    async ({ params, user, activeWorkspace, set }) => {
       try {
         const userId = (user as { id: string }).id;
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         // Verify ownership before deactivating
         const existing = await getConnectionById(params.id);
@@ -885,7 +885,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
   // -------------------------------------------------------
   .post(
     "/:id/test",
-    async ({ params, user, activeOrganization, set }) => {
+    async ({ params, user, activeWorkspace, set }) => {
       try {
         const encryptionKey = env.ENCRYPTION_KEY;
         if (!encryptionKey) {
@@ -897,7 +897,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
         }
 
         const userId = (user as { id: string }).id;
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         // Fetch full connection with encrypted fields for decryption
         const connection = await getConnectionById(params.id, encryptionKey);
@@ -967,7 +967,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
   // -------------------------------------------------------
   .post(
     "/:id/reconnect",
-    async ({ params, body, user, activeOrganization, set }) => {
+    async ({ params, body, user, activeWorkspace, set }) => {
       try {
         const encryptionKey = env.ENCRYPTION_KEY;
         if (!encryptionKey) {
@@ -976,7 +976,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
         }
 
         const userId = (user as { id: string }).id;
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         const existing = await getConnectionById(params.id);
         if (!existing) {
@@ -1165,7 +1165,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
   // -------------------------------------------------------
   .get(
     "/:id/usage",
-    async ({ params, query, user, activeOrganization, set }) => {
+    async ({ params, query, user, activeWorkspace, set }) => {
       try {
         const encryptionKey = env.ENCRYPTION_KEY;
         if (!encryptionKey) {
@@ -1177,7 +1177,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
         }
 
         const userId = (user as { id: string }).id;
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         const connection = await getConnectionById(params.id, encryptionKey);
 
@@ -1248,10 +1248,10 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
   // -------------------------------------------------------
   .post(
     "/:id/set-default",
-    async ({ params, user, activeOrganization, set }) => {
+    async ({ params, user, activeWorkspace, set }) => {
       try {
         const userId = (user as { id: string }).id;
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         // Verify the connection exists and belongs to this user or org
         const existing = await getConnectionById(params.id);
@@ -1305,7 +1305,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
   // -------------------------------------------------------
   .post(
     "/:id/refresh",
-    async ({ params, user, activeOrganization, set }) => {
+    async ({ params, user, activeWorkspace, set }) => {
       try {
         const encryptionKey = env.ENCRYPTION_KEY;
         if (!encryptionKey) {
@@ -1317,7 +1317,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
         }
 
         const userId = (user as { id: string }).id;
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         const connection = await getConnectionById(params.id, encryptionKey);
 
@@ -1446,7 +1446,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
   // -------------------------------------------------------
   .get(
     "/oauth/:provider/auth-url",
-    async ({ params, user, activeOrganization, query, set }) => {
+    async ({ params, user, activeWorkspace, query, set }) => {
       try {
         const providerConfig = await getOAuthProvider(params.provider);
         if (!providerConfig) {
@@ -1457,7 +1457,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
         }
 
         const userId = (user as { id: string }).id;
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         // Determine scope: default to "user" for AI, "organization" for code/deployment
         const category = defaultCategoryForProvider(params.provider);
@@ -1538,7 +1538,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
   // -------------------------------------------------------
   .post(
     "/oauth/:provider/callback",
-    async ({ params, body, user, activeOrganization, set }) => {
+    async ({ params, body, user, activeWorkspace, set }) => {
       try {
         const providerConfig = await getOAuthProvider(params.provider);
         if (!providerConfig) {
@@ -1558,7 +1558,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
         }
 
         const userId = (user as { id: string }).id;
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         // Anthropic manual entry can return a plain code, a code#state pair,
         // or a full callback URL/query string depending on the browser flow.
@@ -1743,7 +1743,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
   // POST /connections/device-code/poll — check if user authorized
   .post(
     "/device-code/poll",
-    async ({ body, user, activeOrganization, set }) => {
+    async ({ body, user, activeWorkspace, set }) => {
       try {
         const { pollDeviceToken } = await import("../services/oauth/device-code");
         const result = await pollDeviceToken(body.deviceAuthId, body.userCode);
@@ -1760,7 +1760,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
         }
 
         const userId = (user as { id: string }).id;
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
         const scope = body.scope ?? "organization";
         const scopeId = scope === "organization" ? orgId : userId;
 
@@ -1836,14 +1836,14 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
   // -------------------------------------------------------
   .post(
     "/link-token",
-    async ({ body, user, activeOrganization }) => {
+    async ({ body, user, activeWorkspace }) => {
       try {
         const userId = (user as { id: string }).id;
-        const orgId = (activeOrganization as { id: string }).id;
+        const orgId = (activeWorkspace as { id: string }).id;
 
         const entry = createLinkToken({
           userId,
-          organizationId: orgId,
+          workspaceId: orgId,
           provider: body.provider,
           scope: body.scope,
         });

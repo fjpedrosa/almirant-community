@@ -25,13 +25,13 @@ export const createScheduledAgentRun = async (
 
 export const updateScheduledAgentRun = async (
   id: string,
-  organizationId: string,
+  workspaceId: string,
   data: Partial<Pick<NewScheduledAgentRun, "status" | "completedAt" | "itemsProcessed" | "itemsSucceeded" | "itemsFailed" | "errorMessage" | "metadata">>
 ): Promise<ScheduledAgentRunDb> => {
   const [updated] = await db
     .update(scheduledAgentRuns)
     .set({ ...data, updatedAt: new Date() })
-    .where(and(eq(scheduledAgentRuns.id, id), eq(scheduledAgentRuns.organizationId, organizationId)))
+    .where(and(eq(scheduledAgentRuns.id, id), eq(scheduledAgentRuns.workspaceId, workspaceId)))
     .returning();
 
   if (!updated) throw new Error("Scheduled agent run not found");
@@ -44,12 +44,12 @@ export const updateScheduledAgentRun = async (
 
 export const getScheduledAgentRunById = async (
   id: string,
-  organizationId: string,
+  workspaceId: string,
 ): Promise<ScheduledAgentRunDb | null> => {
   const [run] = await db
     .select()
     .from(scheduledAgentRuns)
-    .where(and(eq(scheduledAgentRuns.id, id), eq(scheduledAgentRuns.organizationId, organizationId)))
+    .where(and(eq(scheduledAgentRuns.id, id), eq(scheduledAgentRuns.workspaceId, workspaceId)))
     .limit(1);
 
   return run ?? null;

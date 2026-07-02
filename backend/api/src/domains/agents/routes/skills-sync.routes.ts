@@ -2,7 +2,7 @@ import { Elysia, t } from "elysia";
 import {
   validateApiKey,
   importSkillsFromRepo,
-  getOrganizationIdByProjectId,
+  getWorkspaceIdByProjectId,
   getSkillById,
   getSkillBySlug,
 } from "@almirant/database";
@@ -26,10 +26,10 @@ const requireSyncApiKey = async (request: Request): Promise<boolean> => {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolves the effective organizationId for a request.
+ * Resolves the effective workspaceId for a request.
  *
  * Service account API keys (used by runners) may override the org via the
- * `organizationId` parameter.  This is necessary because runners are shared
+ * `workspaceId` parameter.  This is necessary because runners are shared
  * infrastructure — a single runner can claim jobs from any org, but its own
  * API key belongs to a single org.  The override is only allowed when the
  * key has a serviceAccountId (i.e. is a trusted SA key).
@@ -39,7 +39,7 @@ const requireSyncApiKey = async (request: Request): Promise<boolean> => {
  */
 const resolveOrgFromApiKey = async (
   request: Request,
-  organizationIdOverride?: string,
+  workspaceIdOverride?: string,
 ): Promise<string | null> => {
   const authHeader = request.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) return null;
@@ -48,11 +48,11 @@ const resolveOrgFromApiKey = async (
   if (!apiKey) return null;
 
   // Allow org override only for service account keys (trusted infrastructure)
-  if (organizationIdOverride && apiKey.serviceAccountId) {
-    return organizationIdOverride;
+  if (workspaceIdOverride && apiKey.serviceAccountId) {
+    return workspaceIdOverride;
   }
 
-  return apiKey.organizationId;
+  return apiKey.workspaceId;
 };
 
 export const skillsSyncRoutes = new Elysia({ prefix: "/api/skills" })
@@ -63,7 +63,7 @@ export const skillsSyncRoutes = new Elysia({ prefix: "/api/skills" })
   .get(
     "/resolve",
     async ({ query, request, set }) => {
-      const orgId = await resolveOrgFromApiKey(request, query.organizationId);
+      const orgId = await resolveOrgFromApiKey(request, query.workspaceId);
       if (!orgId) {
         set.status = 401;
         return errorResponse("Unauthorized — valid API key required");
@@ -106,7 +106,7 @@ export const skillsSyncRoutes = new Elysia({ prefix: "/api/skills" })
         id: t.Optional(t.String()),
         slug: t.Optional(t.String()),
         projectId: t.Optional(t.String()),
-        organizationId: t.Optional(t.String()),
+        workspaceId: t.Optional(t.String()),
       }),
     },
   )
@@ -128,20 +128,20 @@ export const skillsSyncRoutes = new Elysia({ prefix: "/api/skills" })
         return successResponse({ created: 0, updated: 0, skipped: 0 });
       }
 
-      // Resolve organizationId from the projectId
+      // Resolve workspaceId from the projectId
       let orgId: string | null;
       try {
-        orgId = await getOrganizationIdByProjectId(projectId);
+        orgId = await getWorkspaceIdByProjectId(projectId);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logger.error(`[skills-sync] Failed to resolve orgId for project ${projectId}: ${msg}`);
         set.status = 400;
-        return errorResponse(`Could not resolve organization for project ${projectId}`);
+        return errorResponse(`Could not resolve workspace for project ${projectId}`);
       }
 
       if (!orgId) {
         set.status = 404;
-        return errorResponse(`Project ${projectId} not found or has no organization`);
+        return errorResponse(`Project ${projectId} not found or has no workspace`);
       }
 
       try {

@@ -37,7 +37,7 @@ export const createStreamChannelAdapter = (params: {
   jobId: string;
   threadId: string;
   sessionId: string;
-  organizationId: string;
+  workspaceId: string;
 }): Pick<DiscordRichChannelAdapter, "sendMessage" | "sendRichMessage"> => ({
   sendMessage: async (targetThreadId, content) => {
     await params.streamPublisher
@@ -46,7 +46,7 @@ export const createStreamChannelAdapter = (params: {
         jobId: params.jobId,
         threadId: targetThreadId || params.threadId,
         sessionId: params.sessionId,
-        organizationId: params.organizationId,
+        workspaceId: params.workspaceId,
         content: sanitizeLogContent(typeof content === "string" ? content : String(content)),
         timestamp: Date.now(),
         sequenceNumber: nextSequence(),
@@ -61,7 +61,7 @@ export const createStreamChannelAdapter = (params: {
         jobId: params.jobId,
         threadId: targetThreadId || params.threadId,
         sessionId: params.sessionId,
-        organizationId: params.organizationId,
+        workspaceId: params.workspaceId,
         payload: payload as Record<string, unknown>,
         timestamp: Date.now(),
         sequenceNumber: nextSequence(),

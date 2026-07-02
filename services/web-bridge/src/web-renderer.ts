@@ -25,7 +25,7 @@ export const createWebRenderer = (deps: WebRendererDeps): BridgeRenderer => {
     wsMessage: WsMessage,
   ): Promise<void> => {
     const payload = JSON.stringify({
-      organizationId: ctx.organizationId,
+      workspaceId: ctx.workspaceId,
       message: wsMessage,
     });
     await pubsubRedis.publish(pubsubChannel, payload);

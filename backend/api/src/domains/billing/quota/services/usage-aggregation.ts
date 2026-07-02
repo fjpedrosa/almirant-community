@@ -15,13 +15,13 @@ type UsageAggregationConfig = {
 };
 
 // Get all distinct org IDs that have usage records in the current month
-const getActiveOrganizations = async (period: string): Promise<string[]> => {
+const getActiveWorkspaces = async (period: string): Promise<string[]> => {
   const [year, month] = period.split("-").map(Number);
   const startDate = new Date(Date.UTC(year!, month! - 1, 1));
   const endDate = new Date(Date.UTC(year!, month!, 1));
 
   const rows = await db
-    .selectDistinct({ organizationId: usageRecords.organizationId })
+    .selectDistinct({ workspaceId: usageRecords.workspaceId })
     .from(usageRecords)
     .where(
       and(
@@ -30,7 +30,7 @@ const getActiveOrganizations = async (period: string): Promise<string[]> => {
       )
     );
 
-  return rows.map((r) => r.organizationId);
+  return rows.map((r) => r.workspaceId);
 };
 
 export const runUsageAggregationOnce = async (): Promise<void> => {
@@ -38,7 +38,7 @@ export const runUsageAggregationOnce = async (): Promise<void> => {
     const now = new Date();
     const period = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
 
-    const orgIds = await getActiveOrganizations(period);
+    const orgIds = await getActiveWorkspaces(period);
 
     for (const orgId of orgIds) {
       await aggregateUsageForPeriod(orgId, period);

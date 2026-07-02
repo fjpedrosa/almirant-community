@@ -253,8 +253,8 @@ export const getClusterItems = async (
 /**
  * Parameters for `listClusters`.
  *
- * - `organizationId`: accepted for future multi-tenant scoping. The
- *   `feedback_clusters` table does not yet carry an `organization_id` column,
+ * - `workspaceId`: accepted for future multi-tenant scoping. The
+ *   `feedback_clusters` table does not yet carry an `workspace_id` column,
  *   so the value is currently NOT applied as a WHERE clause; callers that
  *   need tenant isolation must compose it at a higher layer. Kept in the
  *   signature so the contract does not break when the column is added.
@@ -272,7 +272,7 @@ export const getClusterItems = async (
  *   DESC tiebreakers so the ordering is deterministic.
  */
 export interface ListClustersParams {
-  organizationId: string;
+  workspaceId: string;
   statuses?: readonly ClusterStatus[];
   minItemCount?: number;
   sortBy?: "itemCount" | "createdAt" | "updatedAt";
@@ -353,7 +353,7 @@ export const listClusters = async (
 ): Promise<{ groups: TriageClusterTopicGroup[]; total: number }> => {
   // Ignore the parameter for now (see doc comment) — referenced so TS does
   // not flag it as unused while the column lands in a follow-up migration.
-  void params.organizationId;
+  void params.workspaceId;
 
   const { statuses, minItemCount, sortBy } = resolveListClustersParams(params);
 
@@ -665,7 +665,7 @@ export const promoteClusterToWorkItem = async (
 ): Promise<PromoteClusterResponse & { alreadyPromoted: boolean }> => {
   const {
     clusterId,
-    organizationId,
+    workspaceId,
     boardId,
     boardColumnId,
     workItemType,
@@ -735,7 +735,7 @@ export const promoteClusterToWorkItem = async (
 
   // 5. Create the work item (outside tx because createWorkItem uses db internally)
   const newWorkItem = await createWorkItem(
-    organizationId,
+    workspaceId,
     {
       boardId,
       boardColumnId: boardColumnId ?? null,
@@ -1421,10 +1421,10 @@ export interface DismissClusterWithReasonInput {
   /** Optional free-text reason persisted to `cluster_status_history.reason`. */
   reason?: string;
   /**
-   * Current active organization — not persisted on the cluster but forwarded
+   * Current active workspace — not persisted on the cluster but forwarded
    * to future audit fields if needed. Today it's used only for logs.
    */
-  organizationId: string;
+  workspaceId: string;
 }
 
 export type DismissClusterWithReasonResult =
@@ -1719,7 +1719,7 @@ const BUG_FIX_ATTEMPTS_CLUSTER_ATTEMPT_NUMBER_UNIQUE_INDEX =
  * Input for `launchClusterInvestigation`.
  *
  * The core contract specified by A-1823 is `{ clusterId, userId, domain? }`.
- * `projectId` and `organizationId` are additionally required because the
+ * `projectId` and `workspaceId` are additionally required because the
  * `bug_fix_attempts` table enforces NOT NULL FKs to both — the caller (the
  * HTTP route in A-1827) is responsible for resolving them from the session
  * context before invoking the repository.
@@ -1728,7 +1728,7 @@ export interface LaunchInvestigationRequest {
   clusterId: string;
   userId: string;
   projectId: string;
-  organizationId: string;
+  workspaceId: string;
   domain?: "frontend" | "backend" | "coding-agent" | "infrastructure" | "unknown";
 }
 
@@ -1851,7 +1851,7 @@ const getBugFixAttemptUniqueViolationKind = (
 export const launchClusterInvestigation = async (
   req: LaunchInvestigationRequest
 ): Promise<LaunchInvestigationResult> => {
-  const { clusterId, userId, projectId, organizationId, domain } = req;
+  const { clusterId, userId, projectId, workspaceId, domain } = req;
 
   return db.transaction(async (tx) => {
     // 1. Lock the cluster row so concurrent launches serialise on this tx.
@@ -1973,7 +1973,7 @@ export const launchClusterInvestigation = async (
           feedbackItemId: primary.id,
           clusterId,
           projectId,
-          organizationId,
+          workspaceId,
           domain: domain ?? null,
           status: "analyzing",
           attemptNumber,

@@ -4,15 +4,15 @@ import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import type { AiConversationDb, NewAiConversation } from "../../schema/ai-conversations";
 import type { PaginationParams } from "../../domain/types";
 
-// Get all conversations with pagination, filtered by projectId and organizationId
+// Get all conversations with pagination, filtered by projectId and workspaceId
 export const getAiConversations = async (
-  organizationId: string,
+  workspaceId: string,
   projectId: string,
   pagination: PaginationParams
 ): Promise<{ conversations: AiConversationDb[]; total: number }> => {
   const whereClause = and(
     eq(aiConversations.projectId, projectId),
-    eq(projects.organizationId, organizationId)
+    eq(projects.workspaceId, workspaceId)
   );
 
   const [conversations, countResult] = await Promise.all([
@@ -47,9 +47,9 @@ export const getAiConversations = async (
   };
 };
 
-// Get a single conversation by ID, verified against organizationId
+// Get a single conversation by ID, verified against workspaceId
 export const getAiConversationById = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<AiConversationDb | null> => {
   const [conversation] = await db
@@ -69,7 +69,7 @@ export const getAiConversationById = async (
     .where(
       and(
         eq(aiConversations.id, id),
-        eq(projects.organizationId, organizationId)
+        eq(projects.workspaceId, workspaceId)
       )
     )
     .limit(1);
@@ -88,9 +88,9 @@ export const createAiConversation = async (
   return conversation;
 };
 
-// Update a conversation, verified against organizationId
+// Update a conversation, verified against workspaceId
 export const updateAiConversation = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: Partial<Pick<NewAiConversation, "title" | "status" | "messages" | "generatedWorkItemIds" | "boardId">>
 ): Promise<AiConversationDb | null> => {
@@ -98,7 +98,7 @@ export const updateAiConversation = async (
   const orgProjectIds = db
     .select({ id: projects.id })
     .from(projects)
-    .where(eq(projects.organizationId, organizationId));
+    .where(eq(projects.workspaceId, workspaceId));
 
   const [updated] = await db
     .update(aiConversations)
@@ -116,16 +116,16 @@ export const updateAiConversation = async (
   return updated ?? null;
 };
 
-// Delete a conversation, verified against organizationId
+// Delete a conversation, verified against workspaceId
 export const deleteAiConversation = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<boolean> => {
   // Subquery: only delete if conversation belongs to a project owned by the org
   const orgProjectIds = db
     .select({ id: projects.id })
     .from(projects)
-    .where(eq(projects.organizationId, organizationId));
+    .where(eq(projects.workspaceId, workspaceId));
 
   const result = await db
     .delete(aiConversations)

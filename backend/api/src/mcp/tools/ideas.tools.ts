@@ -25,7 +25,7 @@ import {
 import { wsConnectionManager } from "../../shared/ws/ws-connection-manager";
 import {
   getManagedByAgentFromExtra,
-  getOrganizationIdFromExtra,
+  getWorkspaceIdFromExtra,
   getProjectIdFromExtra,
   getUserIdFromExtra,
 } from "../setup";
@@ -47,7 +47,7 @@ const mapErrorMessage = (error: unknown): string => {
   const message = error instanceof Error ? error.message : String(error);
 
   if (message === "OWNER_NOT_MEMBER") {
-    return "Selected owner does not belong to active organization";
+    return "Selected owner does not belong to active workspace";
   }
   if (message === "INVALID_STATUS_FOR_TYPE") {
     return "Invalid status for selected idea item type";
@@ -64,8 +64,8 @@ const mapErrorMessage = (error: unknown): string => {
   if (message === "FEEDBACK_NOT_FOUND") {
     return "Feedback item not found";
   }
-  if (message === "PROJECT_NOT_IN_ORGANIZATION") {
-    return "Selected project does not belong to active organization";
+  if (message === "PROJECT_NOT_IN_WORKSPACE") {
+    return "Selected project does not belong to active workspace";
   }
 
   return message;
@@ -97,10 +97,10 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
@@ -111,7 +111,7 @@ export const registerIdeasTools = (server: McpServer) => {
         const defaultProjectId = getProjectIdFromExtra(extra);
 
         const { items, total } = await getIdeaItems(
-          organizationId,
+          workspaceId,
           { page, limit, offset },
           {
             type: params.type,
@@ -162,15 +162,15 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
-        const item = await getIdeaItemById(organizationId, params.id);
+        const item = await getIdeaItemById(workspaceId, params.id);
         if (!item) {
           return {
             content: [{ type: "text" as const, text: `Error: idea item '${params.id}' not found` }],
@@ -203,10 +203,10 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
@@ -214,7 +214,7 @@ export const registerIdeasTools = (server: McpServer) => {
         const defaultProjectId = getProjectIdFromExtra(extra);
 
         const item = await createIdeaItem(
-          organizationId,
+          workspaceId,
           {
             title: params.title,
             type: params.type,
@@ -228,7 +228,7 @@ export const registerIdeasTools = (server: McpServer) => {
           getEventContextFromExtra(extra)
         );
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "idea-item:created",
           payload: { ideaItemId: item.id, type: item.type, title: item.title, projectId: item.projectId },
         });
@@ -260,16 +260,16 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
         const updated = await updateIdeaItem(
-          organizationId,
+          workspaceId,
           params.id,
           {
             title: params.title,
@@ -293,7 +293,7 @@ export const registerIdeasTools = (server: McpServer) => {
         }
 
         const { id: _id, ...changes } = params;
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "idea-item:updated",
           payload: { ideaItemId: params.id, changes: changes as Record<string, unknown> },
         });
@@ -316,15 +316,15 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
-        const deleted = await deleteIdeaItem(organizationId, params.id);
+        const deleted = await deleteIdeaItem(workspaceId, params.id);
         if (!deleted) {
           return {
             content: [{ type: "text" as const, text: `Error: idea item '${params.id}' not found` }],
@@ -332,7 +332,7 @@ export const registerIdeasTools = (server: McpServer) => {
           };
         }
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "idea-item:deleted",
           payload: { ideaItemId: params.id },
         });
@@ -356,16 +356,16 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
         const updated = await setIdeaItemStatus(
-          organizationId,
+          workspaceId,
           params.id,
           params.status,
           getEventContextFromExtra(extra)
@@ -377,7 +377,7 @@ export const registerIdeasTools = (server: McpServer) => {
           };
         }
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "idea-item:updated",
           payload: { ideaItemId: params.id, changes: { status: params.status } },
         });
@@ -401,16 +401,16 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
         const updated = await assignIdeaItemOwner(
-          organizationId,
+          workspaceId,
           params.id,
           params.ownerUserId,
           getEventContextFromExtra(extra)
@@ -422,7 +422,7 @@ export const registerIdeasTools = (server: McpServer) => {
           };
         }
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "idea-item:updated",
           payload: { ideaItemId: params.id, changes: { ownerUserId: params.ownerUserId } },
         });
@@ -446,16 +446,16 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
         const updated = await setIdeaItemDueDate(
-          organizationId,
+          workspaceId,
           params.id,
           params.dueDate,
           getEventContextFromExtra(extra)
@@ -467,7 +467,7 @@ export const registerIdeasTools = (server: McpServer) => {
           };
         }
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "idea-item:updated",
           payload: { ideaItemId: params.id, changes: { dueDate: params.dueDate } },
         });
@@ -491,16 +491,16 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
         const updated = await toggleIdeaItemDiscussed(
-          organizationId,
+          workspaceId,
           params.id,
           params.discussed,
           getEventContextFromExtra(extra)
@@ -512,7 +512,7 @@ export const registerIdeasTools = (server: McpServer) => {
           };
         }
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "idea-item:updated",
           payload: { ideaItemId: params.id, changes: { discussed: params.discussed } },
         });
@@ -545,15 +545,15 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
-        const source = await getIdeaItemById(organizationId, params.id);
+        const source = await getIdeaItemById(workspaceId, params.id);
         if (!source) {
           return {
             content: [{ type: "text" as const, text: `Error: idea item '${params.id}' not found` }],
@@ -570,7 +570,7 @@ export const registerIdeasTools = (server: McpServer) => {
           };
         }
 
-        const workItem = await createWorkItem(organizationId, {
+        const workItem = await createWorkItem(workspaceId, {
           projectId,
           boardId: params.boardId,
           boardColumnId: params.boardColumnId ?? null,
@@ -585,7 +585,7 @@ export const registerIdeasTools = (server: McpServer) => {
         });
 
         const link = await linkWorkItemToIdeaItem(
-          organizationId,
+          workspaceId,
           params.id,
           workItem.id,
           "promoted_to",
@@ -599,7 +599,7 @@ export const registerIdeasTools = (server: McpServer) => {
             : getEventContextFromExtra(extra)
         );
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "work-item:created",
           payload: {
             workItemId: workItem.id,
@@ -657,15 +657,15 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
-        const traceability = await getIdeaItemTraceability(organizationId, params.id);
+        const traceability = await getIdeaItemTraceability(workspaceId, params.id);
         if (!traceability) {
           return {
             content: [{ type: "text" as const, text: `Error: idea item '${params.id}' not found` }],
@@ -693,16 +693,16 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
         const link = await linkFeedbackToIdeaItem(
-          organizationId,
+          workspaceId,
           params.ideaItemId,
           params.feedbackItemId,
           params.metadata ?? {},
@@ -728,16 +728,16 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
         const deleted = await unlinkFeedbackFromIdeaItem(
-          organizationId,
+          workspaceId,
           params.ideaItemId,
           params.feedbackItemId,
           getEventContextFromExtra(extra)
@@ -763,15 +763,15 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
-        const comments = await getCommentsByIdeaItem(organizationId, params.ideaItemId);
+        const comments = await getCommentsByIdeaItem(workspaceId, params.ideaItemId);
         return { content: [{ type: "text" as const, text: JSON.stringify(comments, null, 2) }] };
       } catch (error) {
         return {
@@ -791,10 +791,10 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
@@ -808,7 +808,7 @@ export const registerIdeasTools = (server: McpServer) => {
         }
 
         const comment = await createIdeaItemComment(
-          organizationId,
+          workspaceId,
           params.ideaItemId,
           userId,
           params.content
@@ -835,15 +835,15 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
-        const item = await getIdeaItemById(organizationId, params.ideaItemId);
+        const item = await getIdeaItemById(workspaceId, params.ideaItemId);
         if (!item) {
           return {
             content: [{ type: "text" as const, text: `Error: idea item '${params.ideaItemId}' not found` }],
@@ -851,7 +851,7 @@ export const registerIdeasTools = (server: McpServer) => {
           };
         }
 
-        const tag = await getTagById(organizationId, params.tagId);
+        const tag = await getTagById(workspaceId, params.tagId);
         if (!tag) {
           return {
             content: [{ type: "text" as const, text: `Error: tag '${params.tagId}' not found` }],
@@ -861,7 +861,7 @@ export const registerIdeasTools = (server: McpServer) => {
 
         await addTagToIdeaItem(params.ideaItemId, params.tagId);
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "idea-item:updated",
           payload: { ideaItemId: params.ideaItemId, changes: { tagAdded: params.tagId } },
         });
@@ -887,15 +887,15 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
-        const item = await getIdeaItemById(organizationId, params.ideaItemId);
+        const item = await getIdeaItemById(workspaceId, params.ideaItemId);
         if (!item) {
           return {
             content: [{ type: "text" as const, text: `Error: idea item '${params.ideaItemId}' not found` }],
@@ -911,7 +911,7 @@ export const registerIdeasTools = (server: McpServer) => {
           };
         }
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "idea-item:updated",
           payload: { ideaItemId: params.ideaItemId, changes: { tagRemoved: params.tagId } },
         });
@@ -936,15 +936,15 @@ export const registerIdeasTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
-        const item = await getIdeaItemById(organizationId, params.ideaItemId);
+        const item = await getIdeaItemById(workspaceId, params.ideaItemId);
         if (!item) {
           return {
             content: [{ type: "text" as const, text: `Error: idea item '${params.ideaItemId}' not found` }],

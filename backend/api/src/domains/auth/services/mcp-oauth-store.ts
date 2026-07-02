@@ -11,7 +11,7 @@ interface AuthorizationCodeEntry {
   code: string;
   clientId: string;
   redirectUri: string;
-  organizationId: string;
+  workspaceId: string;
   userId: string;
   projectId?: string;
   scope: string;
@@ -156,7 +156,7 @@ export const validateMcpOAuthClient = (input: {
 export const createMcpAuthorizationCode = (input: {
   clientId: string;
   redirectUri: string;
-  organizationId: string;
+  workspaceId: string;
   userId: string;
   projectId?: string;
   scope?: string;
@@ -175,7 +175,7 @@ export const createMcpAuthorizationCode = (input: {
     code,
     clientId: input.clientId,
     redirectUri: input.redirectUri,
-    organizationId: input.organizationId,
+    workspaceId: input.workspaceId,
     userId: input.userId,
     ...(input.projectId ? { projectId: input.projectId } : {}),
     scope: input.scope ?? MCP_OAUTH_SCOPES.join(" "),

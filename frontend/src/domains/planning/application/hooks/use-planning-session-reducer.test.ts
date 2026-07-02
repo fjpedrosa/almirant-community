@@ -37,7 +37,7 @@ const buildStreamingDoneState = (
   sessionId: "test-session",
   session: {
     id: "test-session",
-    organizationId: "org-1",
+    workspaceId: "org-1",
     status: "active",
     title: "Test",
     projectId: "proj-1",

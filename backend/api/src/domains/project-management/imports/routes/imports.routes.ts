@@ -19,9 +19,9 @@ export const importsRoutes = new Elysia({ prefix: "/imports" })
   // -------------------------------------------------------
   // GET /imports - List all import jobs
   // -------------------------------------------------------
-  .get("/", async ({ activeOrganization }) => {
+  .get("/", async ({ activeWorkspace }) => {
     try {
-      const orgId = activeOrganization!.id;
+      const orgId = activeWorkspace!.id;
       const jobs = await getImportJobs(orgId);
       return successResponse(jobs);
     } catch (error) {
@@ -93,7 +93,7 @@ export const importsRoutes = new Elysia({ prefix: "/imports" })
           name: [/^name$/i, /^full\s*name$/i, /^nombre$/i],
           email: [/^email$/i, /^e-mail$/i, /^correo$/i],
           phone: [/^phone$/i, /^tel$/i, /^telephone$/i, /^mobile$/i, /^telefono$/i],
-          company: [/^company$/i, /^empresa$/i, /^organization$/i],
+          company: [/^company$/i, /^empresa$/i, /^workspace$/i],
           position: [/^position$/i, /^title$/i, /^job\s*title$/i, /^cargo$/i, /^puesto$/i],
           source: [/^source$/i, /^origen$/i, /^from$/i],
           profileUrl: [/^profile$/i, /^url$/i, /^linkedin$/i, /^link$/i],
@@ -199,9 +199,9 @@ export const importsRoutes = new Elysia({ prefix: "/imports" })
   // -------------------------------------------------------
   .get(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
+    async ({ params, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const job = await getImportJobById(orgId, params.id);
 
         if (!job) {

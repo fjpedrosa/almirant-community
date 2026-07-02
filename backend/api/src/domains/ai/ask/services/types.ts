@@ -63,7 +63,7 @@ export const ASK_ABSTENTION_THRESHOLD = 0.3;
  *
  * - INSUFFICIENT_EVIDENCE: not enough data to answer the question
  * - RATE_LIMITED:          caller exceeded the per-minute/hour rate limit
- * - QUOTA_EXCEEDED:        organization has exhausted its Ask quota
+ * - QUOTA_EXCEEDED:        workspace has exhausted its Ask quota
  * - INVALID_PROJECT:       the referenced projectId does not exist or the
  *                          caller has no access
  * - INTERNAL_ERROR:        unexpected server-side failure

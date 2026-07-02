@@ -52,7 +52,7 @@ export const executeScheduledAgentConfig = async (
   config: ScheduledAgentConfigDb,
   options: ExecuteScheduledAgentConfigOptions,
 ) => {
-  const orgId = config.organizationId;
+  const orgId = config.workspaceId;
 
   let repoUrl: string | undefined;
   let repositoryId: string | undefined;
@@ -95,7 +95,7 @@ export const executeScheduledAgentConfig = async (
 
   const job = await createJob({
     projectId: resolvedProjectId ?? null,
-    organizationId: config.organizationId,
+    workspaceId: config.workspaceId,
     createdByUserId: options.createdByUserId,
     jobType: config.jobType,
     provider: config.provider,
@@ -126,7 +126,7 @@ export const executeScheduledAgentConfig = async (
 
   await updateScheduledAgentConfigLastRunAt(config.id);
 
-  wsConnectionManager.broadcastToOrganization(orgId, {
+  wsConnectionManager.broadcastToWorkspace(orgId, {
     type: "agent-job:status-changed",
     payload: {
       jobId: job.id,

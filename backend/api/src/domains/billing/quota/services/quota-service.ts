@@ -51,10 +51,10 @@ type UsageSummary = {
 };
 
 type QuotaService = {
-  checkQuotaForProvider: (organizationId: string, provider: AiProvider) => Promise<QuotaAvailability>;
-  recordUsage: (organizationId: string, provider: AiProvider, tokens: number, costUsd: number) => Promise<void>;
-  getUsageSummary: (organizationId: string, provider?: AiProvider) => Promise<UsageSummary>;
-  evaluateAlerts: (organizationId: string, provider: AiProvider) => Promise<void>;
+  checkQuotaForProvider: (workspaceId: string, provider: AiProvider) => Promise<QuotaAvailability>;
+  recordUsage: (workspaceId: string, provider: AiProvider, tokens: number, costUsd: number) => Promise<void>;
+  getUsageSummary: (workspaceId: string, provider?: AiProvider) => Promise<UsageSummary>;
+  evaluateAlerts: (workspaceId: string, provider: AiProvider) => Promise<void>;
   stop: () => void;
 };
 
@@ -74,18 +74,18 @@ const ALERT_THRESHOLDS = [
 // ---------------------------------------------------------------------------
 
 const createQuotaNotifications = async (
-  organizationId: string,
+  workspaceId: string,
   provider: string,
   quotaType: string,
   alertType: string,
   percent: number,
   periodStart: Date,
 ): Promise<void> => {
-  // Get all members of the organization
+  // Get all members of the workspace
   const orgMembers = await db
     .select({ userId: member.userId })
     .from(member)
-    .where(eq(member.organizationId, organizationId));
+    .where(eq(member.workspaceId, workspaceId));
 
   if (orgMembers.length === 0) return;
 
@@ -95,7 +95,7 @@ const createQuotaNotifications = async (
 
   const paramsList = orgMembers.map((m) => ({
     recipientUserId: m.userId,
-    organizationId,
+    workspaceId,
     type: "status_changed" as const,
     title,
     body,
@@ -114,7 +114,7 @@ const createQuotaNotifications = async (
   const queueResults = await Promise.allSettled(
     orgMembers.map((m) =>
       enqueueNotification(
-        organizationId,
+        workspaceId,
         m.userId,
         "status_changed",
         `quota-alert:${m.userId}:${provider}:${quotaType}:${alertType}:${periodKey}`,
@@ -131,7 +131,7 @@ const createQuotaNotifications = async (
   for (const result of queueResults) {
     if (result.status === "rejected") {
       logger.warn(
-        { organizationId, provider, quotaType, alertType, err: result.reason },
+        { workspaceId, provider, quotaType, alertType, err: result.reason },
         "quota-service: failed to enqueue quota alert email"
       );
     }
@@ -146,7 +146,7 @@ export const createQuotaService = (config?: QuotaServiceConfig): QuotaService =>
   const cacheTtlMs = config?.cacheTtlMs ?? 30_000;
   const cleanupIntervalMs = config?.cleanupIntervalMs ?? 60_000;
 
-  // In-memory cache keyed by `${organizationId}:${provider}`
+  // In-memory cache keyed by `${workspaceId}:${provider}`
   const cache = new Map<string, CacheEntry<QuotaAvailability>>();
 
   // Background cleanup state
@@ -192,37 +192,37 @@ export const createQuotaService = (config?: QuotaServiceConfig): QuotaService =>
   // ------- Service methods -------
 
   const checkQuotaForProvider = async (
-    organizationId: string,
+    workspaceId: string,
     provider: AiProvider
   ): Promise<QuotaAvailability> => {
-    const cacheKey = `${organizationId}:${provider}`;
+    const cacheKey = `${workspaceId}:${provider}`;
     const cached = getCached(cacheKey);
     if (cached) {
       return cached;
     }
 
-    const availability = await checkQuotaAvailable(organizationId, provider);
+    const availability = await checkQuotaAvailable(workspaceId, provider);
     setCache(cacheKey, availability);
     return availability;
   };
 
   const recordUsage = async (
-    organizationId: string,
+    workspaceId: string,
     provider: AiProvider,
     tokens: number,
     costUsd: number,
   ): Promise<void> => {
     await incrementUsage(provider, tokens, costUsd, 1);
-    invalidateCache(`${organizationId}:${provider}`);
+    invalidateCache(`${workspaceId}:${provider}`);
 
     // Fire-and-forget alert evaluation; errors are logged but not propagated
-    evaluateAlerts(organizationId, provider).catch((err) => {
+    evaluateAlerts(workspaceId, provider).catch((err) => {
       logger.error({ provider, err }, "quota-service: failed to evaluate alerts after recording usage");
     });
   };
 
   const getUsageSummary = async (
-    organizationId: string,
+    workspaceId: string,
     provider?: AiProvider
   ): Promise<UsageSummary> => {
     const providers: AiProvider[] = provider
@@ -231,7 +231,7 @@ export const createQuotaService = (config?: QuotaServiceConfig): QuotaService =>
     const items: UsageSummaryItem[] = [];
 
     for (const p of providers) {
-      const usageEntries: CurrentUsage[] = await getCurrentUsage(organizationId, p);
+      const usageEntries: CurrentUsage[] = await getCurrentUsage(workspaceId, p);
 
       for (const entry of usageEntries) {
         const { quota, usage } = entry;
@@ -277,14 +277,14 @@ export const createQuotaService = (config?: QuotaServiceConfig): QuotaService =>
   };
 
   const evaluateAlerts = async (
-    organizationId: string,
+    workspaceId: string,
     provider: AiProvider
   ): Promise<void> => {
-    const usageEntries = await getCurrentUsage(organizationId, provider);
+    const usageEntries = await getCurrentUsage(workspaceId, provider);
     if (usageEntries.length === 0) return;
 
     // Fetch existing unacknowledged alerts once to avoid duplicates
-    const existingAlerts = await getUnacknowledgedAlerts(organizationId);
+    const existingAlerts = await getUnacknowledgedAlerts(workspaceId);
 
     for (const entry of usageEntries) {
       const { quota, usage } = entry;
@@ -341,7 +341,7 @@ export const createQuotaService = (config?: QuotaServiceConfig): QuotaService =>
 
         // Create in-app notifications for all org members (fire-and-forget)
         createQuotaNotifications(
-          organizationId,
+          workspaceId,
           provider,
           quota.quotaType,
           threshold.alertType,

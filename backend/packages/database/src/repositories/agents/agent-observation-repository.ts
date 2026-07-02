@@ -96,7 +96,7 @@ const activeLifecycleConditions = (filters?: ObservationFilters) => {
 
 const buildBaseConditions = (orgId: string, filters?: ObservationFilters) => {
   const conditions: ReturnType<typeof eq>[] | any[] = [
-    eq(agentObservations.organizationId, orgId),
+    eq(agentObservations.workspaceId, orgId),
     ...activeLifecycleConditions(filters),
   ];
 
@@ -161,7 +161,7 @@ const buildBaseConditions = (orgId: string, filters?: ObservationFilters) => {
 const findActiveDuplicate = async (
   data: Pick<
     NewAgentObservation,
-    | "organizationId"
+    | "workspaceId"
     | "contentHash"
     | "visibility"
     | "projectId"
@@ -170,7 +170,7 @@ const findActiveDuplicate = async (
 ) => {
   const visibility = data.visibility ?? "project";
   const conditions: ReturnType<typeof eq>[] | any[] = [
-    eq(agentObservations.organizationId, data.organizationId),
+    eq(agentObservations.workspaceId, data.workspaceId),
     eq(agentObservations.contentHash, data.contentHash),
     eq(agentObservations.visibility, visibility),
     isNull(agentObservations.archivedAt),
@@ -228,7 +228,7 @@ export const createObservation = async (
     if (dbError?.code !== "23505") throw error;
 
     const duplicateId = await findActiveDuplicate({
-      organizationId: data.organizationId,
+      workspaceId: data.workspaceId,
       contentHash: data.contentHash,
       visibility: data.visibility,
       projectId: data.projectId,
@@ -363,7 +363,7 @@ export const searchObservations = async (
   const queryBuilder = db
     .select({
       id: agentObservations.id,
-      organizationId: agentObservations.organizationId,
+      workspaceId: agentObservations.workspaceId,
       projectId: agentObservations.projectId,
       agentJobId: agentObservations.agentJobId,
       ownerUserId: agentObservations.ownerUserId,

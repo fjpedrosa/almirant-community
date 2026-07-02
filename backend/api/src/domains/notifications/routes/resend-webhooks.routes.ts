@@ -62,9 +62,9 @@ async function processInboundEmail(payload: ResendInboundPayload): Promise<void>
     return;
   }
 
-  // We cannot resolve organizationId from the sender email without a user→org mapping.
+  // We cannot resolve workspaceId from the sender email without a user→org mapping.
   // Log a warning and skip — this is a future enhancement.
-  // TODO: resolve organizationId via sender email lookup once user→org lookup is available.
+  // TODO: resolve workspaceId via sender email lookup once user→org lookup is available.
   logger.warn({ from, subject }, "Inbound email received but org resolution not yet implemented; skipping expense creation");
 }
 

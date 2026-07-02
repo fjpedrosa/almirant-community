@@ -36,8 +36,8 @@ export const skillsRoutes = new Elysia({ prefix: "/skills" })
   // GET /skills - List with pagination + filters
   .get(
     "/",
-    async ({ query, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ query, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const pagination = parsePaginationParams(query);
 
       const filters = {
@@ -68,8 +68,8 @@ export const skillsRoutes = new Elysia({ prefix: "/skills" })
   // MUST be defined before /:id to avoid matching "selector" as an id
   .get(
     "/selector",
-    async ({ query, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ query, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const projectId = query.projectId || undefined;
 
       const items = await getSkillsForSelector(orgId, projectId);
@@ -85,8 +85,8 @@ export const skillsRoutes = new Elysia({ prefix: "/skills" })
   // GET /skills/:id - Detail
   .get(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const skill = await getSkillById(orgId, params.id);
 
       if (!skill) {
@@ -107,8 +107,8 @@ export const skillsRoutes = new Elysia({ prefix: "/skills" })
   .post(
     "/",
     async (ctx) => {
-      const { body, set, activeOrganization } = ctx;
-      const orgId = activeOrganization!.id;
+      const { body, set, activeWorkspace } = ctx;
+      const orgId = activeWorkspace!.id;
       const user = (ctx as unknown as Record<string, unknown>).user as {
         id: string;
       } | null;
@@ -152,8 +152,8 @@ export const skillsRoutes = new Elysia({ prefix: "/skills" })
   // PATCH /skills/:id - Update (reject official skills)
   .patch(
     "/:id",
-    async ({ params, body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
 
       // Fetch existing skill to check source
       const existing = await getSkillById(orgId, params.id);
@@ -206,8 +206,8 @@ export const skillsRoutes = new Elysia({ prefix: "/skills" })
   // DELETE /skills/:id - Soft delete (reject official skills)
   .delete(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
 
       // Fetch existing skill to check source
       const existing = await getSkillById(orgId, params.id);

@@ -12,16 +12,16 @@ import {
 import { sql } from "drizzle-orm";
 import { ideaItemTypeEnum, ideaItemStatusEnum } from "./enums";
 import { projects } from "./projects";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { user } from "./auth";
 
 export const ideaItems = pgTable(
   "idea_items",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     type: ideaItemTypeEnum("type").notNull().default("idea"),
     status: ideaItemStatusEnum("status").notNull().default("active"),
@@ -37,7 +37,7 @@ export const ideaItems = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    index("idea_items_organization_idx").on(table.organizationId),
+    index("idea_items_workspace_idx").on(table.workspaceId),
     index("idea_items_project_idx").on(table.projectId),
     index("idea_items_owner_user_idx").on(table.ownerUserId),
     index("idea_items_created_by_user_idx").on(table.createdByUserId),

@@ -9,8 +9,8 @@ import {
 } from "@almirant/database";
 import { assertOrgScope } from "../setup";
 
-// Helper: list boards scoped to organizationId
-const listBoards = async (organizationId: string) => {
+// Helper: list boards scoped to workspaceId
+const listBoards = async (workspaceId: string) => {
   const boardsResult = await db
     .select({
       id: boards.id,
@@ -22,7 +22,7 @@ const listBoards = async (organizationId: string) => {
       updatedAt: boards.updatedAt,
     })
     .from(boards)
-    .where(eq(boards.organizationId, organizationId))
+    .where(eq(boards.workspaceId, workspaceId))
     .orderBy(desc(boards.createdAt));
 
   return boardsResult.map((b) => ({
@@ -37,15 +37,15 @@ export const registerBoardsTools = (server: McpServer) => {
   // -------------------------------------------------------
   server.tool(
     "list_boards",
-    "List all boards in the workspace, including area. Boards are organization-scoped.",
+    "List all boards in the workspace, including area. Boards are workspace-scoped.",
     {},
     async (_params, extra) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const allBoards = await listBoards(organizationId);
+        const allBoards = await listBoards(workspaceId);
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify(allBoards, null, 2) }],
@@ -72,9 +72,9 @@ export const registerBoardsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const board = await getBoardById(params.id, organizationId);
+        const board = await getBoardById(params.id, workspaceId);
 
         if (!board) {
           return {

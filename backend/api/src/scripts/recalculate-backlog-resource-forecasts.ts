@@ -7,7 +7,7 @@
  *   bun run --env-file .env src/scripts/recalculate-backlog-resource-forecasts.ts
  *
  * Optional filters:
- *   --organization-id <orgId>
+ *   --workspace-id <orgId>
  *   --project-id <projectId>
  *   --limit <n>
  */
@@ -27,7 +27,7 @@ import {
 import { refreshResourceForecastForAffectedBlocks } from "../domains/agents/services/resource-forecast";
 
 interface CliOptions {
-  organizationId?: string;
+  workspaceId?: string;
   projectId?: string;
   limit?: number;
 }
@@ -46,7 +46,7 @@ const parseOptions = (): CliOptions => {
   }
 
   return {
-    organizationId: readFlag("--organization-id"),
+    workspaceId: readFlag("--workspace-id"),
     projectId: readFlag("--project-id"),
     limit,
   };
@@ -57,11 +57,11 @@ const main = async () => {
   const conditions = [
     sql`${boardColumns.role} = 'backlog'::column_role`,
     isNull(workItems.archivedAt),
-    isNotNull(projects.organizationId),
+    isNotNull(projects.workspaceId),
   ];
 
-  if (options.organizationId) {
-    conditions.push(eq(projects.organizationId, options.organizationId));
+  if (options.workspaceId) {
+    conditions.push(eq(projects.workspaceId, options.workspaceId));
   }
   if (options.projectId) {
     conditions.push(eq(projects.id, options.projectId));
@@ -73,7 +73,7 @@ const main = async () => {
       taskId: workItems.taskId,
       title: workItems.title,
       projectId: workItems.projectId,
-      organizationId: projects.organizationId,
+      workspaceId: projects.workspaceId,
     })
     .from(workItems)
     .innerJoin(boardColumns, eq(workItems.boardColumnId, boardColumns.id))
@@ -85,8 +85,8 @@ const main = async () => {
     ? rawBacklogItems.slice(0, options.limit)
     : rawBacklogItems;
   const backlogItems = limitedBacklogItems.flatMap((item) =>
-    typeof item.organizationId === "string" && item.organizationId.length > 0
-      ? [{ ...item, organizationId: item.organizationId }]
+    typeof item.workspaceId === "string" && item.workspaceId.length > 0
+      ? [{ ...item, workspaceId: item.workspaceId }]
       : [],
   );
 
@@ -94,17 +94,17 @@ const main = async () => {
 
   const byOrg = new Map<string, string[]>();
   for (const item of backlogItems) {
-    const ids = byOrg.get(item.organizationId) ?? [];
+    const ids = byOrg.get(item.workspaceId) ?? [];
     ids.push(item.id);
-    byOrg.set(item.organizationId, ids);
+    byOrg.set(item.workspaceId, ids);
   }
 
   let totalRefreshed = 0;
   let totalFailed = 0;
 
-  for (const [organizationId, ids] of byOrg) {
-    console.log(`\nOrganization ${organizationId}: ${ids.length} backlog item(s)`);
-    const result = await refreshResourceForecastForAffectedBlocks(organizationId, ids);
+  for (const [workspaceId, ids] of byOrg) {
+    console.log(`\nWorkspace ${workspaceId}: ${ids.length} backlog item(s)`);
+    const result = await refreshResourceForecastForAffectedBlocks(workspaceId, ids);
     totalRefreshed += result.refreshed.length;
     totalFailed += result.failed.length;
 

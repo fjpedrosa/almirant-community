@@ -73,14 +73,14 @@ const toISOStringOrNull = (date: Date | null | undefined): string | null =>
   date instanceof Date ? date.toISOString() : null;
 
 export async function getWorkItemProvenance(
-  organizationId: string,
+  workspaceId: string,
   workItemId: string
 ): Promise<WorkItemProvenance> {
   // Fetch all data sources in parallel
   const [activeJob, jobs, sessionData, events] = await Promise.all([
     getActiveJobForWorkItem(workItemId),
     getJobsByWorkItem(workItemId),
-    getAiSessionsSummaryByWorkItemId(organizationId, workItemId),
+    getAiSessionsSummaryByWorkItemId(workspaceId, workItemId),
     getWorkItemEventsByWorkItemId(workItemId, { limit: 20 }),
   ]);
 

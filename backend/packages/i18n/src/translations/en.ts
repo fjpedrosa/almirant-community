@@ -107,16 +107,16 @@ export const en: Translations = {
       },
     },
     memberRemoval: {
-      subject: "You've been removed from {organization}",
+      subject: "You've been removed from {workspace}",
       heading: 'Membership Removed',
-      preheader: 'Your access to {organization} has been revoked',
+      preheader: 'Your access to {workspace} has been revoked',
       body: {
-        accessRevoked: 'Your access to {organization} has been revoked.',
-        disclaimer: 'If you believe this was a mistake, please contact your organization administrator.',
+        accessRevoked: 'Your access to {workspace} has been revoked.',
+        disclaimer: 'If you believe this was a mistake, please contact your workspace administrator.',
       },
       meta: {
         member: 'Member',
-        organization: 'Organization',
+        workspace: 'Organization',
         removedOn: 'Removed on',
       },
       cta: 'Visit Almirant',

@@ -16,28 +16,28 @@ const stripUndefined = (
     Object.entries(changes).filter(([, value]) => value !== undefined)
   );
 
-export const resolveFeedbackOrganizationId = (
+export const resolveFeedbackWorkspaceId = (
   item: FeedbackMetadataCarrier | null | undefined,
-  fallbackOrganizationId?: string | null
+  fallbackWorkspaceId?: string | null
 ): string | null => {
-  if (fallbackOrganizationId) return fallbackOrganizationId;
-  const rawOrganizationId = item?.metadata?.organizationId;
-  return typeof rawOrganizationId === "string" && rawOrganizationId.trim().length > 0
-    ? rawOrganizationId
+  if (fallbackWorkspaceId) return fallbackWorkspaceId;
+  const rawWorkspaceId = item?.metadata?.workspaceId;
+  return typeof rawWorkspaceId === "string" && rawWorkspaceId.trim().length > 0
+    ? rawWorkspaceId
     : null;
 };
 
 export const broadcastFeedbackItemCreated = (args: {
   item: FeedbackItemCarrier;
-  organizationId?: string | null;
+  workspaceId?: string | null;
 }) => {
-  const organizationId = resolveFeedbackOrganizationId(
+  const workspaceId = resolveFeedbackWorkspaceId(
     args.item,
-    args.organizationId
+    args.workspaceId
   );
-  if (!organizationId) return;
+  if (!workspaceId) return;
 
-  wsConnectionManager.broadcastToOrganization(organizationId, {
+  wsConnectionManager.broadcastToWorkspace(workspaceId, {
     type: "feedback-item:created",
     payload: {
       feedbackItemId: args.item.id,
@@ -49,15 +49,15 @@ export const broadcastFeedbackItemCreated = (args: {
 export const broadcastFeedbackItemUpdated = (args: {
   item: FeedbackItemCarrier;
   changes: Record<string, unknown>;
-  organizationId?: string | null;
+  workspaceId?: string | null;
 }) => {
-  const organizationId = resolveFeedbackOrganizationId(
+  const workspaceId = resolveFeedbackWorkspaceId(
     args.item,
-    args.organizationId
+    args.workspaceId
   );
-  if (!organizationId) return;
+  if (!workspaceId) return;
 
-  wsConnectionManager.broadcastToOrganization(organizationId, {
+  wsConnectionManager.broadcastToWorkspace(workspaceId, {
     type: "feedback-item:updated",
     payload: {
       feedbackItemId: args.item.id,
@@ -68,11 +68,11 @@ export const broadcastFeedbackItemUpdated = (args: {
 
 export const broadcastFeedbackItemDeleted = (args: {
   feedbackItemId: string;
-  organizationId?: string | null;
+  workspaceId?: string | null;
 }) => {
-  if (!args.organizationId) return;
+  if (!args.workspaceId) return;
 
-  wsConnectionManager.broadcastToOrganization(args.organizationId, {
+  wsConnectionManager.broadcastToWorkspace(args.workspaceId, {
     type: "feedback-item:deleted",
     payload: {
       feedbackItemId: args.feedbackItemId,
@@ -83,11 +83,11 @@ export const broadcastFeedbackItemDeleted = (args: {
 export const broadcastFeedbackCommentCreated = (args: {
   feedbackItemId: string;
   commentId: string;
-  organizationId?: string | null;
+  workspaceId?: string | null;
 }) => {
-  if (!args.organizationId) return;
+  if (!args.workspaceId) return;
 
-  wsConnectionManager.broadcastToOrganization(args.organizationId, {
+  wsConnectionManager.broadcastToWorkspace(args.workspaceId, {
     type: "feedback-comment:created",
     payload: {
       feedbackItemId: args.feedbackItemId,
@@ -99,11 +99,11 @@ export const broadcastFeedbackCommentCreated = (args: {
 export const broadcastFeedbackCommentUpdated = (args: {
   feedbackItemId: string;
   commentId: string;
-  organizationId?: string | null;
+  workspaceId?: string | null;
 }) => {
-  if (!args.organizationId) return;
+  if (!args.workspaceId) return;
 
-  wsConnectionManager.broadcastToOrganization(args.organizationId, {
+  wsConnectionManager.broadcastToWorkspace(args.workspaceId, {
     type: "feedback-comment:updated",
     payload: {
       feedbackItemId: args.feedbackItemId,
@@ -115,11 +115,11 @@ export const broadcastFeedbackCommentUpdated = (args: {
 export const broadcastFeedbackCommentDeleted = (args: {
   feedbackItemId: string;
   commentId: string;
-  organizationId?: string | null;
+  workspaceId?: string | null;
 }) => {
-  if (!args.organizationId) return;
+  if (!args.workspaceId) return;
 
-  wsConnectionManager.broadcastToOrganization(args.organizationId, {
+  wsConnectionManager.broadcastToWorkspace(args.workspaceId, {
     type: "feedback-comment:deleted",
     payload: {
       feedbackItemId: args.feedbackItemId,

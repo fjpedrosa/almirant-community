@@ -153,18 +153,18 @@ const computeParentDates = (
 export const getProjectRoadmap = async (
   projectId: string
 ): Promise<ProjectRoadmap> => {
-  // Step 1: Get the project's organization, then find boards in that org
+  // Step 1: Get the project's workspace, then find boards in that org
   const [project] = await db
-    .select({ organizationId: projects.organizationId })
+    .select({ workspaceId: projects.workspaceId })
     .from(projects)
     .where(eq(projects.id, projectId))
     .limit(1);
 
-  const projectBoards = project?.organizationId
+  const projectBoards = project?.workspaceId
     ? await db
         .select({ id: boards.id })
         .from(boards)
-        .where(eq(boards.organizationId, project.organizationId))
+        .where(eq(boards.workspaceId, project.workspaceId))
     : [];
 
   const boardIds = projectBoards.map((b) => b.id);

@@ -4,7 +4,7 @@ export type HandbookCaptureProposalStatus = "pending" | "approved" | "rejected";
 
 export interface HandbookEntry {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   title: string;
   slug: string;
   summary: string | null;
@@ -41,7 +41,7 @@ export interface HandbookCategorySummary {
 
 export interface HandbookCaptureProposal {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   title: string;
   slug: string;
   summary: string | null;

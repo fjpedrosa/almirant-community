@@ -85,7 +85,7 @@ export const ProjectDiscordChannelCard: React.FC<ProjectDiscordChannelCardProps>
                 </span>
               ) : (
                 <span>
-                  Using organization default:{" "}
+                  Using workspace default:{" "}
                   <strong>#{effectiveChannelName ?? "none"}</strong>
                 </span>
               )}

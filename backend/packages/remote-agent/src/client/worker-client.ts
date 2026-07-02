@@ -238,7 +238,7 @@ export const createAlmirantWorkerClient = (
       context?: {
         jobId?: string;
         createdByUserId?: string;
-        organizationId?: string;
+        workspaceId?: string;
         preferredConnectionId?: string;
       }
     ) => {
@@ -253,8 +253,8 @@ export const createAlmirantWorkerClient = (
       if (context?.createdByUserId) {
         params.set("createdByUserId", context.createdByUserId);
       }
-      if (context?.organizationId) {
-        params.set("organizationId", context.organizationId);
+      if (context?.workspaceId) {
+        params.set("workspaceId", context.workspaceId);
       }
       if (context?.preferredConnectionId) {
         params.set("preferredConnectionId", context.preferredConnectionId);
@@ -291,10 +291,10 @@ export const createAlmirantWorkerClient = (
       );
     },
 
-    checkQuota: async (provider: string, organizationId?: string) => {
+    checkQuota: async (provider: string, workspaceId?: string) => {
       const params = new URLSearchParams({ provider });
-      if (organizationId?.trim()) {
-        params.set("organizationId", organizationId.trim());
+      if (workspaceId?.trim()) {
+        params.set("workspaceId", workspaceId.trim());
       }
       const query = `?${params.toString()}`;
       return requestJson<QuotaCheckResponse>(config, `/workers/quota-check${query}`, {
@@ -379,14 +379,14 @@ export const createAlmirantWorkerClient = (
     },
 
     getValidationCandidates: async (params?: {
-      organizationId?: string;
+      workspaceId?: string;
       projectId?: string;
       limit?: number;
       requireDodApproved?: boolean;
     }) => {
       const queryParams = new URLSearchParams();
-      if (params?.organizationId) {
-        queryParams.set("organizationId", params.organizationId);
+      if (params?.workspaceId) {
+        queryParams.set("workspaceId", params.workspaceId);
       }
       if (params?.projectId) {
         queryParams.set("projectId", params.projectId);
@@ -408,15 +408,15 @@ export const createAlmirantWorkerClient = (
     },
 
     getDodReviewCandidates: async (params?: {
-      organizationId?: string;
+      workspaceId?: string;
       projectId?: string;
       limit?: number;
       maxActiveJobs?: number;
       minAgeMinutes?: number;
     }) => {
       const queryParams = new URLSearchParams();
-      if (params?.organizationId) {
-        queryParams.set("organizationId", params.organizationId);
+      if (params?.workspaceId) {
+        queryParams.set("workspaceId", params.workspaceId);
       }
       if (params?.projectId) {
         queryParams.set("projectId", params.projectId);
@@ -440,10 +440,10 @@ export const createAlmirantWorkerClient = (
       );
     },
 
-    getFixCandidates: async (params?: { organizationId?: string; projectId?: string }) => {
+    getFixCandidates: async (params?: { workspaceId?: string; projectId?: string }) => {
       const queryParams = new URLSearchParams();
-      if (params?.organizationId) {
-        queryParams.set("organizationId", params.organizationId);
+      if (params?.workspaceId) {
+        queryParams.set("workspaceId", params.workspaceId);
       }
       if (params?.projectId) {
         queryParams.set("projectId", params.projectId);
@@ -483,15 +483,15 @@ export const createAlmirantWorkerClient = (
     },
 
     queueReleaseIntegration: async (params?: {
-      organizationId?: string;
+      workspaceId?: string;
       projectId?: string;
       limit?: number;
       maxActiveItems?: number;
       minAgeMinutes?: number;
     }) => {
       const queryParams = new URLSearchParams();
-      if (params?.organizationId) {
-        queryParams.set("organizationId", params.organizationId);
+      if (params?.workspaceId) {
+        queryParams.set("workspaceId", params.workspaceId);
       }
       if (params?.projectId) {
         queryParams.set("projectId", params.projectId);

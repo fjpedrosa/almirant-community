@@ -27,7 +27,7 @@ import { createSequenceGuard } from "./sequence-guard";
 /** Bridge-specific context fields spread into every coalesced batch. */
 type WebBridgeBatchContext = {
   sessionId: string;
-  organizationId: string;
+  workspaceId: string;
 };
 
 type WebBridgeBatch = CoalescedBatch<WebBridgeBatchContext>;
@@ -72,7 +72,7 @@ export const createWebBridgeConsumer = (
         if (!wsMessage) continue;
 
         const payload = JSON.stringify({
-          organizationId: batch.organizationId,
+          workspaceId: batch.workspaceId,
           message: wsMessage,
         });
 
@@ -141,7 +141,7 @@ export const createWebBridgeConsumer = (
         coalesceableTypes: COALESCEABLE_EVENT_TYPES,
         buildContext: (event) => ({
           sessionId: event.sessionId,
-          organizationId: event.organizationId,
+          workspaceId: event.workspaceId,
         }),
         now: nowFn,
       });
@@ -194,7 +194,7 @@ export const createWebBridgeConsumer = (
           } else if (streamEvent.format === "canonical") {
             const canonicalEvent = streamEvent.envelope.event;
             const sessionId = streamEvent.envelope.sessionId;
-            const organizationId = streamEvent.envelope.organizationId;
+            const workspaceId = streamEvent.envelope.workspaceId;
 
             // DEBUG: log all canonical event kinds to verify tool calls flow
             if (!["agent.text", "agent.thinking", "heartbeat"].includes(canonicalEvent.kind)) {

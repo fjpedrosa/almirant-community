@@ -135,7 +135,7 @@ describe("connectionUsageService", () => {
           end_time: 1_741_571_199,
           results: [
             {
-              object: "organization.usage.completions.result",
+              object: "workspace.usage.completions.result",
               model: "gpt-4o",
               input_tokens: 2_000_000,
               input_cached_tokens: 100_000,
@@ -143,7 +143,7 @@ describe("connectionUsageService", () => {
               num_model_requests: 400,
             },
             {
-              object: "organization.usage.completions.result",
+              object: "workspace.usage.completions.result",
               model: "o3-mini",
               input_tokens: 1_000_000,
               input_cached_tokens: 0,
@@ -164,7 +164,7 @@ describe("connectionUsageService", () => {
           end_time: 1_741_571_199,
           results: [
             {
-              object: "organization.costs.result",
+              object: "workspace.costs.result",
               amount: { value: 14.32, currency: "USD" },
               line_item: "completions",
             },
@@ -239,7 +239,7 @@ describe("connectionUsageService", () => {
     });
   });
 
-  it("returns admin_key_required when OpenAI usage lacks organization permissions", async () => {
+  it("returns admin_key_required when OpenAI usage lacks workspace permissions", async () => {
     getConnectionByIdSpy.mockResolvedValue({
       id: "conn-openai-2",
       provider: "openai",

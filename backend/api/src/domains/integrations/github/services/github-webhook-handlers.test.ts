@@ -28,7 +28,7 @@ type ClusterTransitionCall = {
 
 const state = {
   notificationCalls: [] as Array<Record<string, unknown>>,
-  authorLookupCalls: [] as Array<{ organizationId: string; githubLogin: string }>,
+  authorLookupCalls: [] as Array<{ workspaceId: string; githubLogin: string }>,
   authorUserId: "user-pr-author" as string | null,
   bugFixAttemptsByPrUrl: [] as Array<MockBugFixAttempt>,
   latestAttemptByFeedbackId: {} as Record<string, MockBugFixAttempt | null>,
@@ -113,7 +113,7 @@ mock.module("@almirant/database", () =>
     deleteInstallationByGithubId: async () => false,
     getInstallationByGithubId: async () => null,
     getRepoIdByGithubFullName: async () => "repo-1",
-    getOrganizationIdByRepoId: async () => "org-1",
+    getWorkspaceIdByRepoId: async () => "org-1",
     getProjectIdByRepoId: async () => "project-1",
     updatePullRequestReviewStatus: async () => null,
     updatePullRequestCiStatus: async () => [],
@@ -174,15 +174,15 @@ mock.module("@almirant/database", () =>
       return { id: workItemId, ...data };
     },
     linkCommitToWorkItem: async () => null,
-    getMembersByOrganizationId: async () => [
+    getMembersByWorkspaceId: async () => [
       { userId: "user-pr-author" },
       { userId: "user-other-member" },
     ],
-    getOrganizationMemberUserIdByGithubLogin: async (
-      organizationId: string,
+    getWorkspaceMemberUserIdByGithubLogin: async (
+      workspaceId: string,
       githubLogin: string
     ) => {
-      state.authorLookupCalls.push({ organizationId, githubLogin });
+      state.authorLookupCalls.push({ workspaceId, githubLogin });
       return state.authorUserId;
     },
     updateBatchStatus: async (
@@ -300,7 +300,7 @@ describe("github-webhook-handlers", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(state.authorLookupCalls).toEqual([
-      { organizationId: "org-1", githubLogin: "author-login" },
+      { workspaceId: "org-1", githubLogin: "author-login" },
     ]);
     expect(state.notificationCalls).toHaveLength(1);
     expect(state.notificationCalls[0]?.recipientUserId).toBe("user-pr-author");

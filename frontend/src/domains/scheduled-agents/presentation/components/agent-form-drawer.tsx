@@ -467,7 +467,7 @@ export const AgentFormDrawer = ({
             </FormControl>
             <SelectContent>
               <SelectItem value={NO_PROJECT_VALUE}>
-                No project — organization-wide
+                No project — workspace-wide
               </SelectItem>
               {projects.map((project) => (
                 <SelectItem key={project.id} value={project.id}>
@@ -566,7 +566,7 @@ export const AgentFormDrawer = ({
         </div>
       ) : (
         <p className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-          No project chips selected. This automation is organization-wide.
+          No project chips selected. This automation is workspace-wide.
         </p>
       )}
 

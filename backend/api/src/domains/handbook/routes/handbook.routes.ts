@@ -75,8 +75,8 @@ export const handbookRoutes = new Elysia({ prefix: "/handbook" })
 
   .get(
     "/",
-    async ({ query, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ query, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const pagination = parsePaginationParams(query);
       const { items, total } = await listHandbookEntries(orgId, pagination, {
         search: query.search || undefined,
@@ -97,14 +97,14 @@ export const handbookRoutes = new Elysia({ prefix: "/handbook" })
     },
   )
 
-  .get("/categories", async ({ activeOrganization }) => {
-    const categories = await listHandbookCategories(activeOrganization!.id);
+  .get("/categories", async ({ activeWorkspace }) => {
+    const categories = await listHandbookCategories(activeWorkspace!.id);
     return successResponse(categories);
   })
 
   .get(
     "/search",
-    async ({ query, set, activeOrganization }) => {
+    async ({ query, set, activeWorkspace }) => {
       const q = query.q?.trim();
       if (!q) {
         set.status = 400;
@@ -118,8 +118,8 @@ export const handbookRoutes = new Elysia({ prefix: "/handbook" })
       };
       const queryEmbedding = await generateHandbookEmbeddingsIfConfigured([q]);
       const results = queryEmbedding?.[0]
-        ? await searchHandbookChunksByEmbedding(activeOrganization!.id, queryEmbedding[0], searchOptions)
-        : await searchHandbookChunks(activeOrganization!.id, q, searchOptions);
+        ? await searchHandbookChunksByEmbedding(activeWorkspace!.id, queryEmbedding[0], searchOptions)
+        : await searchHandbookChunks(activeWorkspace!.id, q, searchOptions);
 
       return successResponse(results);
     },
@@ -135,8 +135,8 @@ export const handbookRoutes = new Elysia({ prefix: "/handbook" })
 
   .post(
     "/import",
-    async ({ body, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ body, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       const rootPath = normalizeRootPath(body.rootPath);
       const candidates = await loadHandbookImportCandidates(rootPath);
 
@@ -181,7 +181,7 @@ export const handbookRoutes = new Elysia({ prefix: "/handbook" })
   .post(
     "/",
     async (ctx) => {
-      const { body, set, activeOrganization } = ctx;
+      const { body, set, activeWorkspace } = ctx;
       if (!body.title.trim() || !body.content.trim()) {
         set.status = 400;
         return errorResponse("Title and content are required");
@@ -189,7 +189,7 @@ export const handbookRoutes = new Elysia({ prefix: "/handbook" })
 
       const slug = body.slug?.trim() || slugifyHandbookTitle(body.title);
       const chunks = await attachEmbeddingsToHandbookChunks(chunkMarkdownContent(body.content));
-      const created = await createHandbookEntry(activeOrganization!.id, {
+      const created = await createHandbookEntry(activeWorkspace!.id, {
         title: body.title.trim(),
         slug,
         summary: body.summary ?? null,
@@ -211,9 +211,9 @@ export const handbookRoutes = new Elysia({ prefix: "/handbook" })
 
   .get(
     "/proposals",
-    async ({ query, activeOrganization }) => {
+    async ({ query, activeWorkspace }) => {
       const proposals = await listHandbookCaptureProposals(
-        activeOrganization!.id,
+        activeWorkspace!.id,
         query.status as "pending" | "approved" | "rejected" | undefined,
       );
       return successResponse(proposals);
@@ -226,13 +226,13 @@ export const handbookRoutes = new Elysia({ prefix: "/handbook" })
   .post(
     "/proposals",
     async (ctx) => {
-      const { body, set, activeOrganization } = ctx;
+      const { body, set, activeWorkspace } = ctx;
       if (!body.title.trim() || !body.proposedContent.trim()) {
         set.status = 400;
         return errorResponse("Title and proposedContent are required");
       }
 
-      const proposal = await createHandbookCaptureProposal(activeOrganization!.id, {
+      const proposal = await createHandbookCaptureProposal(activeWorkspace!.id, {
         title: body.title.trim(),
         slug: body.slug?.trim() || slugifyHandbookTitle(body.title),
         summary: body.summary ?? null,
@@ -267,7 +267,7 @@ export const handbookRoutes = new Elysia({ prefix: "/handbook" })
     "/proposals/:id/approve",
     async (ctx) => {
       const approved = await approveHandbookCaptureProposal(
-        ctx.activeOrganization!.id,
+        ctx.activeWorkspace!.id,
         ctx.params.id,
         currentUserId(ctx),
       );
@@ -284,7 +284,7 @@ export const handbookRoutes = new Elysia({ prefix: "/handbook" })
     "/proposals/:id/reject",
     async (ctx) => {
       const rejected = await rejectHandbookCaptureProposal(
-        ctx.activeOrganization!.id,
+        ctx.activeWorkspace!.id,
         ctx.params.id,
         currentUserId(ctx),
       );
@@ -299,8 +299,8 @@ export const handbookRoutes = new Elysia({ prefix: "/handbook" })
 
   .get(
     "/:id/chunks",
-    async ({ params, activeOrganization }) => {
-      const chunks = await getHandbookEntryChunks(activeOrganization!.id, params.id);
+    async ({ params, activeWorkspace }) => {
+      const chunks = await getHandbookEntryChunks(activeWorkspace!.id, params.id);
       return successResponse(chunks);
     },
     { params: t.Object({ id: t.String() }) },
@@ -308,8 +308,8 @@ export const handbookRoutes = new Elysia({ prefix: "/handbook" })
 
   .get(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
-      const entry = await getHandbookEntryById(activeOrganization!.id, params.id);
+    async ({ params, set, activeWorkspace }) => {
+      const entry = await getHandbookEntryById(activeWorkspace!.id, params.id);
       if (!entry) {
         set.status = 404;
         return notFoundResponse("Handbook entry");
@@ -322,7 +322,7 @@ export const handbookRoutes = new Elysia({ prefix: "/handbook" })
   .patch(
     "/:id",
     async (ctx) => {
-      const { body, params, set, activeOrganization } = ctx;
+      const { body, params, set, activeWorkspace } = ctx;
       if (body.title !== undefined && !body.title.trim()) {
         set.status = 400;
         return errorResponse("Title cannot be empty");
@@ -335,7 +335,7 @@ export const handbookRoutes = new Elysia({ prefix: "/handbook" })
       const chunks = body.content !== undefined
         ? await attachEmbeddingsToHandbookChunks(chunkMarkdownContent(body.content))
         : undefined;
-      const updated = await updateHandbookEntry(activeOrganization!.id, params.id, {
+      const updated = await updateHandbookEntry(activeWorkspace!.id, params.id, {
         title: body.title?.trim(),
         slug: body.slug?.trim(),
         summary: body.summary,
@@ -363,8 +363,8 @@ export const handbookRoutes = new Elysia({ prefix: "/handbook" })
 
   .delete(
     "/:id",
-    async ({ params, set, activeOrganization }) => {
-      const archived = await archiveHandbookEntry(activeOrganization!.id, params.id);
+    async ({ params, set, activeWorkspace }) => {
+      const archived = await archiveHandbookEntry(activeWorkspace!.id, params.id);
       if (!archived) {
         set.status = 404;
         return notFoundResponse("Handbook entry");

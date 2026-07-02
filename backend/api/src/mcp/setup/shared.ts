@@ -14,7 +14,7 @@ export type McpToolResult = {
 };
 
 /**
- * Extracts `organizationId` from MCP authInfo extra, returning it as a string
+ * Extracts `workspaceId` from MCP authInfo extra, returning it as a string
  * if present. When absent, returns an MCP error result that the handler can
  * return directly — no exceptions are thrown.
  *
@@ -22,16 +22,16 @@ export type McpToolResult = {
  * ```ts
  * const orgResult = assertOrgScope(extra);
  * if (typeof orgResult !== "string") return orgResult;
- * const organizationId = orgResult;
+ * const workspaceId = orgResult;
  * ```
  */
 export const assertOrgScope = (
   extra: { authInfo?: { extra?: Record<string, unknown> } }
 ): string | McpToolResult => {
-  const orgId = getOrganizationIdFromExtra(extra);
+  const orgId = getWorkspaceIdFromExtra(extra);
   if (!orgId) {
     return {
-      content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+      content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
       isError: true,
     };
   }
@@ -52,11 +52,11 @@ export const getUserIdFromExtra = (
   return typeof userId === "string" ? userId : undefined;
 };
 
-export const getOrganizationIdFromExtra = (
+export const getWorkspaceIdFromExtra = (
   extra: { authInfo?: { extra?: Record<string, unknown> } }
 ): string | undefined => {
-  const organizationId = extra.authInfo?.extra?.organizationId;
-  return typeof organizationId === "string" ? organizationId : undefined;
+  const workspaceId = extra.authInfo?.extra?.workspaceId;
+  return typeof workspaceId === "string" ? workspaceId : undefined;
 };
 
 /**

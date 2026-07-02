@@ -143,7 +143,7 @@ export interface EmailTranslations {
     };
     meta: {
       member: string;
-      organization: string;
+      workspace: string;
       removedOn: string;
     };
     cta: string;

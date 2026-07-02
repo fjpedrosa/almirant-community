@@ -15,7 +15,7 @@ import { bugFixAttemptStatusEnum, bugDomainEnum } from "./enums";
 import { feedbackItems } from "./feedback-items";
 import { feedbackClusters } from "./feedback-clusters";
 import { projects } from "./projects";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { agentJobs } from "./agent-jobs";
 
 export const bugFixAttempts = pgTable(
@@ -31,9 +31,9 @@ export const bugFixAttempts = pgTable(
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     agentJobId: uuid("agent_job_id")
       .references(() => agentJobs.id, { onDelete: "set null" }),
     domain: bugDomainEnum("domain"),

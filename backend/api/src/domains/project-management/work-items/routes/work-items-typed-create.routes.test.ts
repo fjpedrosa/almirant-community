@@ -52,7 +52,7 @@ const makeApp = async () => {
         eventType: "created",
         triggeredBy: "user",
       }).catch(() => {});
-      ws.wsConnectionManager.broadcastToOrganization("test-org", {
+      ws.wsConnectionManager.broadcastToWorkspace("test-org", {
         type: "work-item:created",
         payload: { workItemId: item.id },
       });

@@ -8,7 +8,7 @@ const createJob = (overrides: Partial<ClaimedJob> = {}): ClaimedJob => ({
   projectId: null,
   boardId: null,
   createdByUserId: null,
-  organizationId: null,
+  workspaceId: null,
   jobType: "implementation",
   provider: "zipu",
   priority: "medium",

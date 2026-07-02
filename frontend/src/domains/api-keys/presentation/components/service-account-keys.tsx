@@ -55,7 +55,7 @@ export const ServiceAccountKeys: React.FC<ServiceAccountKeysProps> = ({
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground text-sm">
-            No service accounts configured for this organization.
+            No service accounts configured for this workspace.
           </p>
         </CardContent>
       </Card>

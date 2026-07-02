@@ -34,13 +34,13 @@ const renderSql = (fragment: unknown): string =>
 
 describe("resolveListClustersParams — defaults (A-F-437)", () => {
   test("sortBy defaults to 'updatedAt' when omitted", () => {
-    const resolved = resolveListClustersParams({ organizationId: "org-1" });
+    const resolved = resolveListClustersParams({ workspaceId: "org-1" });
     expect(resolved.sortBy).toBe("updatedAt");
   });
 
   test("sortBy='itemCount' is preserved when explicitly requested", () => {
     const resolved = resolveListClustersParams({
-      organizationId: "org-1",
+      workspaceId: "org-1",
       sortBy: "itemCount",
     });
     expect(resolved.sortBy).toBe("itemCount");
@@ -48,33 +48,33 @@ describe("resolveListClustersParams — defaults (A-F-437)", () => {
 
   test("sortBy='createdAt' is preserved when explicitly requested", () => {
     const resolved = resolveListClustersParams({
-      organizationId: "org-1",
+      workspaceId: "org-1",
       sortBy: "createdAt",
     });
     expect(resolved.sortBy).toBe("createdAt");
   });
 
   test("statuses defaults to ACTIVE_CLUSTER_STATUSES when omitted", () => {
-    const resolved = resolveListClustersParams({ organizationId: "org-1" });
+    const resolved = resolveListClustersParams({ workspaceId: "org-1" });
     expect(resolved.statuses).toEqual(ACTIVE_CLUSTER_STATUSES);
   });
 
   test("statuses filter is honoured when every value is in the enum", () => {
     const resolved = resolveListClustersParams({
-      organizationId: "org-1",
+      workspaceId: "org-1",
       statuses: ["open", "investigating"],
     });
     expect(resolved.statuses).toEqual(["open", "investigating"]);
   });
 
   test("minItemCount defaults to 1 when omitted", () => {
-    const resolved = resolveListClustersParams({ organizationId: "org-1" });
+    const resolved = resolveListClustersParams({ workspaceId: "org-1" });
     expect(resolved.minItemCount).toBe(1);
   });
 
   test("minItemCount clamps non-positive values back to the default of 1", () => {
     const resolved = resolveListClustersParams({
-      organizationId: "org-1",
+      workspaceId: "org-1",
       minItemCount: 0,
     });
     expect(resolved.minItemCount).toBe(1);
@@ -82,7 +82,7 @@ describe("resolveListClustersParams — defaults (A-F-437)", () => {
 
   test("minItemCount honours explicit positive values so low-count clusters are hidden", () => {
     const resolved = resolveListClustersParams({
-      organizationId: "org-1",
+      workspaceId: "org-1",
       minItemCount: 3,
     });
     expect(resolved.minItemCount).toBe(3);
@@ -332,7 +332,7 @@ describe("LaunchInvestigationRequest shape", () => {
       clusterId: "00000000-0000-0000-0000-000000000001",
       userId: "user-123",
       projectId: "proj-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
     };
 
     expect(req.clusterId).toBe("00000000-0000-0000-0000-000000000001");
@@ -353,7 +353,7 @@ describe("LaunchInvestigationRequest shape", () => {
         clusterId: "c",
         userId: "u",
         projectId: "p",
-        organizationId: "o",
+        workspaceId: "o",
         domain,
       };
       expect(req.domain).toBe(domain);

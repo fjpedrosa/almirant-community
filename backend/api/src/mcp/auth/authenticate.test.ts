@@ -17,7 +17,7 @@ let validateApiKeyResult: unknown = null;
 
 mock.module("@almirant/database", () => ({
   validateApiKey: async () => validateApiKeyResult,
-  resolveProjectOrganization: async () => null,
+  resolveProjectWorkspace: async () => null,
 }));
 
 // ── Helper: build a fake API key row ─────────────────────────────────────────
@@ -29,7 +29,7 @@ const buildApiKeyRow = (overrides: Record<string, unknown> = {}) => ({
   isActive: true,
   userId: "user-1",
   serviceAccountId: null,
-  organizationId: "org-1",
+  workspaceId: "org-1",
   allowedIssuedPermissions: ["mcp:read", "mcp:write"],
   lastUsedAt: null,
   createdAt: new Date("2025-01-01"),
@@ -45,7 +45,7 @@ describe("createMcpAuthenticator session-token user propagation", () => {
 
     const token = generateSessionToken({
       projectId: "proj-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       userId: "auto-fix-bot",
       permissions: ["mcp:read", "mcp:write"],
       signingSecret:
@@ -78,7 +78,7 @@ describe("createMcpAuthenticator session-token user propagation", () => {
     const jobId = "80b8f8ec-4eb9-43e6-a325-9bdf58e5c2a5";
     const token = generateSessionToken({
       projectId: "proj-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       jobId,
       permissions: ["mcp:read", "mcp:write"],
       signingSecret:
@@ -100,14 +100,14 @@ describe("createMcpAuthenticator session-token user propagation", () => {
     expect(result.authInfo?.extra?.jobId).toBe(jobId);
   });
 
-  it("accepts organization-scoped session tokens without projectId for ChatGPT MCP connectors", async () => {
+  it("accepts workspace-scoped session tokens without projectId for ChatGPT MCP connectors", async () => {
     const [{ createMcpAuthenticator }, { generateSessionToken }] = await Promise.all([
       import("./authenticate"),
       import("../../shared/services/session-token"),
     ]);
 
     const token = generateSessionToken({
-      organizationId: "org-1",
+      workspaceId: "org-1",
       userId: "user-1",
       permissions: ["mcp:read", "mcp:write"],
       signingSecret:
@@ -126,7 +126,7 @@ describe("createMcpAuthenticator session-token user propagation", () => {
     });
 
     expect(result).toHaveProperty("authInfo");
-    expect(result.authInfo?.extra?.organizationId).toBe("org-1");
+    expect(result.authInfo?.extra?.workspaceId).toBe("org-1");
     expect(result.authInfo?.extra?.projectId).toBeUndefined();
   });
 });
@@ -367,7 +367,7 @@ describe("createMcpAuthenticator internal mount authorization", () => {
 
     const token = generateSessionToken({
       projectId: "proj-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       userId: "user-1",
       permissions: ["mcp:read", "mcp:write"],
       signingSecret:
@@ -396,7 +396,7 @@ describe("createMcpAuthenticator internal mount authorization", () => {
 
     const token = generateSessionToken({
       projectId: "proj-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       userId: "user-1",
       permissions: ["mcp:read", "mcp:write", "mcp:internal"],
       signingSecret:

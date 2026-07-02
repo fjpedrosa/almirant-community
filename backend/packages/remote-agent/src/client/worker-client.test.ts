@@ -108,17 +108,17 @@ describe("createAlmirantWorkerClient", () => {
     await client.getProviderKeys(["openai-compatible"], {
       jobId: "job-1",
       createdByUserId: "user-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
     });
 
     expect(requestedUrl).toContain("/workers/provider-keys?");
     expect(requestedUrl).toContain("providers=openai-compatible");
     expect(requestedUrl).toContain("jobId=job-1");
     expect(requestedUrl).toContain("createdByUserId=user-1");
-    expect(requestedUrl).toContain("organizationId=org-1");
+    expect(requestedUrl).toContain("workspaceId=org-1");
   });
 
-  it("encodes quota-check provider and organization query params", async () => {
+  it("encodes quota-check provider and workspace query params", async () => {
     let requestedUrl = "";
 
     setMockFetch(async (input: RequestInfo | URL) => {
@@ -144,7 +144,7 @@ describe("createAlmirantWorkerClient", () => {
 
     expect(requestedUrl).toContain("/workers/quota-check?");
     expect(requestedUrl).toContain("provider=openai");
-    expect(requestedUrl).toContain("organizationId=org-1");
+    expect(requestedUrl).toContain("workspaceId=org-1");
     expect(result).toMatchObject({
       allowed: false,
       blockingQuotaType: "weekly",

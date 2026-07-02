@@ -13,7 +13,7 @@ type WsUser = { id: string; name: string; email: string };
 type WsData = {
   query: { token: string };
   user?: WsUser;
-  organizationId?: string | null;
+  workspaceId?: string | null;
   /** Messages received before auth completes — replayed after validation. */
   pendingMessages?: unknown[];
   /** Set to true once authentication completes (success or failure). */
@@ -36,8 +36,8 @@ const processMessage = (ws: any, message: unknown, data: WsData) => {
       logger.info(`[WS] <- ${parsed.type} from ${user.name}`);
     }
 
-    const organizationId = data.organizationId ?? null;
-    routeMessage(user.id, organizationId, parsed, (msg) => {
+    const workspaceId = data.workspaceId ?? null;
+    routeMessage(user.id, workspaceId, parsed, (msg) => {
       if (msg.type !== "pong") {
         logger.info(`[WS] -> ${msg.type} to ${user.name}`);
       }
@@ -77,11 +77,11 @@ export const wsHandler = new Elysia({ name: "ws-handler" }).ws("/ws", {
         return;
       }
 
-      const { user, organizationId } = result;
+      const { user, workspaceId } = result;
       data.user = user;
-      data.organizationId = organizationId;
+      data.workspaceId = workspaceId;
       data.authResolved = true;
-      wsConnectionManager.addConnection(user.id, ws.raw, organizationId);
+      wsConnectionManager.addConnection(user.id, ws.raw, workspaceId);
       const total = wsConnectionManager.getConnectionCount();
       logger.info(`[WS] User ${user.name} connected (${total} total connections)`);
 

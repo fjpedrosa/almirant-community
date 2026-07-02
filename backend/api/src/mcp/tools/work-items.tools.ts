@@ -36,7 +36,7 @@ import { formatText, isAiConfigured } from "../../domains/ai/shared/services/ai-
 import { calculateCostUsd, type AiProvider } from "../../domains/billing/quota/services/ai-model-pricing";
 import { uploadBufferToS3, generateAttachmentKey, isS3Configured } from "../../shared/services/s3-service";
 import { writeLocalAttachment } from "../../shared/services/local-attachments";
-import { getProjectIdFromExtra, getOrganizationIdFromExtra, getManagedByAgentFromExtra, getUserIdFromExtra, getPlanningSessionIdFromExtra, getPlanningMetadataFromExtra, getJobIdFromExtra } from "../setup";
+import { getProjectIdFromExtra, getWorkspaceIdFromExtra, getManagedByAgentFromExtra, getUserIdFromExtra, getPlanningSessionIdFromExtra, getPlanningMetadataFromExtra, getJobIdFromExtra } from "../setup";
 import { quotaService } from "../../domains/billing/quota/services/quota-service-instance";
 import { propagateProviderToParent } from "../../domains/connections/services/propagate-provider";
 import {
@@ -137,11 +137,11 @@ const getMetadataNumber = (
 };
 
 const refreshForecastsForChangedWorkItems = async (
-  organizationId: string,
+  workspaceId: string,
   workItemIds: Array<string | null | undefined>,
 ): Promise<void> => {
   await refreshResourceForecastForAffectedBlocks(
-    organizationId,
+    workspaceId,
     workItemIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0),
   );
 };
@@ -205,21 +205,21 @@ const inferAiProvider = (model: string, provider?: string): AiProvider => {
 };
 
 const recordQuotaUsage = async (
-  organizationId: string,
+  workspaceId: string,
   provider: AiProvider,
   totalTokens: number,
   estimatedCost: number,
 ): Promise<void> => {
   try {
     await quotaService.recordUsage(
-      organizationId,
+      workspaceId,
       provider,
       totalTokens,
       estimatedCost,
     );
   } catch (error) {
     logger.warn(
-      { organizationId, provider, totalTokens, estimatedCost, error },
+      { workspaceId, provider, totalTokens, estimatedCost, error },
       "work-items.tools: failed to record quota usage"
     );
   }
@@ -303,7 +303,7 @@ const mergeManagedByMetadata = (
  * Failures are logged as warnings but never block the work item creation.
  */
 const linkPlanningContext = async (
-  organizationId: string,
+  workspaceId: string,
   workItemId: string,
   planningSessionId: string | undefined,
   fromSeedIds: string[] | undefined,
@@ -324,7 +324,7 @@ const linkPlanningContext = async (
     for (const seedId of fromSeedIds) {
       try {
         await linkWorkItemToSeed(
-          organizationId,
+          workspaceId,
           seedId,
           workItemId,
           "promoted_to",
@@ -333,7 +333,7 @@ const linkPlanningContext = async (
         );
       } catch (error) {
         logger.warn(
-          { seedId, workItemId, organizationId, error },
+          { seedId, workItemId, workspaceId, error },
           "MCP: failed to link work item to seed"
         );
       }
@@ -362,9 +362,9 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const page = params.page ?? 1;
@@ -384,7 +384,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           assignee: params.assignee,
         };
 
-        const { items, total } = await getWorkItems(organizationId, { page, limit, offset }, filters);
+        const { items, total } = await getWorkItems(workspaceId, { page, limit, offset }, filters);
 
         const result = {
           workItems: items,
@@ -419,12 +419,12 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
-        const workItem = await getWorkItemById(params.id, organizationId);
+        const workItem = await getWorkItemById(params.id, workspaceId);
         if (!workItem) {
           return {
             content: [{ type: "text" as const, text: `Error: Work item with ID '${params.id}' not found` }],
@@ -464,9 +464,9 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const managedBy = getManagedByAgentFromExtra(extra);
@@ -490,7 +490,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         if (planningProvider) planningMeta.planningProvider = planningProvider;
         if (fromSeedIds && fromSeedIds.length > 0) planningMeta.fromSeedIds = fromSeedIds;
 
-        const item = await createWorkItem(organizationId, {
+        const item = await createWorkItem(workspaceId, {
           title: params.title,
           description: params.description,
           type: params.type,
@@ -504,10 +504,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
           metadata: mergeManagedByMetadata(undefined, { ...planningMeta, ...params.metadata }, managedBy),
         });
 
-        await linkPlanningContext(organizationId, item.id, planningSessionId, fromSeedIds, userId);
-        await refreshForecastsForChangedWorkItems(organizationId, [item.id]);
+        await linkPlanningContext(workspaceId, item.id, planningSessionId, fromSeedIds, userId);
+        await refreshForecastsForChangedWorkItems(workspaceId, [item.id]);
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "work-item:created",
           payload: {
             workItemId: item.id,
@@ -530,11 +530,11 @@ export const registerWorkItemsTools = (server: McpServer) => {
   );
 
   const resolveBoardAndDefaultColumn = async (
-    organizationId: string,
+    workspaceId: string,
     projectId: string,
     preferredColumnName: string
   ) => {
-    const boards = await getAllBoards(organizationId);
+    const boards = await getAllBoards(workspaceId);
     if (boards.length === 0) {
       throw new Error(`No boards found for project '${projectId}'`);
     }
@@ -571,9 +571,9 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const managedBy = getManagedByAgentFromExtra(extra);
@@ -594,8 +594,8 @@ export const registerWorkItemsTools = (server: McpServer) => {
         if (planningProvider) planningMeta.planningProvider = planningProvider;
         if (fromSeedIds && fromSeedIds.length > 0) planningMeta.fromSeedIds = fromSeedIds;
 
-        const { boardId, boardColumnId } = await resolveBoardAndDefaultColumn(organizationId, projectId, "Backlog");
-        const item = await createWorkItem(organizationId, {
+        const { boardId, boardColumnId } = await resolveBoardAndDefaultColumn(workspaceId, projectId, "Backlog");
+        const item = await createWorkItem(workspaceId, {
           title: params.title,
           description: params.description,
           type: "task",
@@ -608,10 +608,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
           metadata: mergeManagedByMetadata(undefined, { ...planningMeta, ...params.metadata }, managedBy),
         });
 
-        await linkPlanningContext(organizationId, item.id, planningSessionId, fromSeedIds, userId);
-        await refreshForecastsForChangedWorkItems(organizationId, [item.id]);
+        await linkPlanningContext(workspaceId, item.id, planningSessionId, fromSeedIds, userId);
+        await refreshForecastsForChangedWorkItems(workspaceId, [item.id]);
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "work-item:created",
           payload: { workItemId: item.id, boardId, title: item.title, taskId: item.taskId ?? undefined },
         });
@@ -638,9 +638,9 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const managedBy = getManagedByAgentFromExtra(extra);
@@ -661,8 +661,8 @@ export const registerWorkItemsTools = (server: McpServer) => {
         if (planningProvider) planningMeta.planningProvider = planningProvider;
         if (fromSeedIds && fromSeedIds.length > 0) planningMeta.fromSeedIds = fromSeedIds;
 
-        const { boardId } = await resolveBoardAndDefaultColumn(organizationId, projectId, "Backlog");
-        const item = await createWorkItem(organizationId, {
+        const { boardId } = await resolveBoardAndDefaultColumn(workspaceId, projectId, "Backlog");
+        const item = await createWorkItem(workspaceId, {
           title: params.title,
           description: params.description,
           type: "story",
@@ -675,10 +675,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
           metadata: mergeManagedByMetadata(undefined, { ...planningMeta, ...params.metadata }, managedBy),
         });
 
-        await linkPlanningContext(organizationId, item.id, planningSessionId, fromSeedIds, userId);
-        await refreshForecastsForChangedWorkItems(organizationId, [item.id]);
+        await linkPlanningContext(workspaceId, item.id, planningSessionId, fromSeedIds, userId);
+        await refreshForecastsForChangedWorkItems(workspaceId, [item.id]);
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "work-item:created",
           payload: { workItemId: item.id, boardId, title: item.title, taskId: item.taskId ?? undefined },
         });
@@ -705,9 +705,9 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const managedBy = getManagedByAgentFromExtra(extra);
@@ -728,8 +728,8 @@ export const registerWorkItemsTools = (server: McpServer) => {
         if (planningProvider) planningMeta.planningProvider = planningProvider;
         if (fromSeedIds && fromSeedIds.length > 0) planningMeta.fromSeedIds = fromSeedIds;
 
-        const { boardId } = await resolveBoardAndDefaultColumn(organizationId, projectId, "Backlog");
-        const item = await createWorkItem(organizationId, {
+        const { boardId } = await resolveBoardAndDefaultColumn(workspaceId, projectId, "Backlog");
+        const item = await createWorkItem(workspaceId, {
           title: params.title,
           description: params.description,
           type: "feature",
@@ -742,10 +742,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
           metadata: mergeManagedByMetadata(undefined, { ...planningMeta, ...params.metadata }, managedBy),
         });
 
-        await linkPlanningContext(organizationId, item.id, planningSessionId, fromSeedIds, userId);
-        await refreshForecastsForChangedWorkItems(organizationId, [item.id]);
+        await linkPlanningContext(workspaceId, item.id, planningSessionId, fromSeedIds, userId);
+        await refreshForecastsForChangedWorkItems(workspaceId, [item.id]);
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "work-item:created",
           payload: { workItemId: item.id, boardId, title: item.title, taskId: item.taskId ?? undefined },
         });
@@ -771,9 +771,9 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const managedBy = getManagedByAgentFromExtra(extra);
@@ -794,8 +794,8 @@ export const registerWorkItemsTools = (server: McpServer) => {
         if (planningProvider) planningMeta.planningProvider = planningProvider;
         if (fromSeedIds && fromSeedIds.length > 0) planningMeta.fromSeedIds = fromSeedIds;
 
-        const { boardId } = await resolveBoardAndDefaultColumn(organizationId, projectId, "Backlog");
-        const item = await createWorkItem(organizationId, {
+        const { boardId } = await resolveBoardAndDefaultColumn(workspaceId, projectId, "Backlog");
+        const item = await createWorkItem(workspaceId, {
           title: params.title,
           description: params.description,
           type: "epic",
@@ -807,10 +807,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
           metadata: mergeManagedByMetadata(undefined, { ...planningMeta, ...params.metadata }, managedBy),
         });
 
-        await linkPlanningContext(organizationId, item.id, planningSessionId, fromSeedIds, userId);
-        await refreshForecastsForChangedWorkItems(organizationId, [item.id]);
+        await linkPlanningContext(workspaceId, item.id, planningSessionId, fromSeedIds, userId);
+        await refreshForecastsForChangedWorkItems(workspaceId, [item.id]);
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "work-item:created",
           payload: { workItemId: item.id, boardId, title: item.title, taskId: item.taskId ?? undefined },
         });
@@ -844,14 +844,14 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const { id, metadata: newMetadata, boardColumnId, ...updateFields } = params;
         const managedBy = getManagedByAgentFromExtra(extra);
-        const before = await getWorkItemById(id, organizationId);
+        const before = await getWorkItemById(id, workspaceId);
 
         if (!before) {
           return {
@@ -897,7 +897,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         // Only call updateWorkItem if there are fields to update beyond boardColumnId
         const hasFieldsToUpdate = Object.keys(updateData).length > 0;
         if (hasFieldsToUpdate) {
-          const item = await updateWorkItem(organizationId, id, updateData);
+          const item = await updateWorkItem(workspaceId, id, updateData);
           if (!item) {
             return {
               content: [{ type: "text" as const, text: `Error: Work item with ID '${id}' not found` }],
@@ -907,7 +907,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         }
 
         // Return the final state of the work item
-        const result = await getWorkItemById(id, organizationId);
+        const result = await getWorkItemById(id, workspaceId);
         if (!result) {
           return {
             content: [{ type: "text" as const, text: `Error: Work item with ID '${id}' not found` }],
@@ -915,7 +915,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           };
         }
 
-        await refreshForecastsForChangedWorkItems(organizationId, [
+        await refreshForecastsForChangedWorkItems(workspaceId, [
           id,
           before.parentId,
           result.parentId,
@@ -956,7 +956,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           }
         }
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "work-item:updated",
           payload: {
             workItemId: id,
@@ -988,15 +988,15 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         // Fetch before deleting to get boardId for the broadcast
-        const existing = await getWorkItemById(params.id, organizationId);
+        const existing = await getWorkItemById(params.id, workspaceId);
 
-        const deleted = await deleteWorkItem(organizationId, params.id);
+        const deleted = await deleteWorkItem(workspaceId, params.id);
 
         if (!deleted) {
           return {
@@ -1005,9 +1005,9 @@ export const registerWorkItemsTools = (server: McpServer) => {
           };
         }
 
-        await refreshForecastsForChangedWorkItems(organizationId, [existing?.parentId]);
+        await refreshForecastsForChangedWorkItems(workspaceId, [existing?.parentId]);
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "work-item:deleted",
           payload: {
             workItemId: params.id,
@@ -1038,9 +1038,9 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         if (!isAiConfigured()) {
@@ -1050,7 +1050,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           };
         }
 
-        const context = await gatherWorkItemContext(params.id, organizationId);
+        const context = await gatherWorkItemContext(params.id, workspaceId);
         if (!context) {
           return {
             content: [{ type: "text" as const, text: `Error: Work item with ID '${params.id}' not found` }],
@@ -1061,10 +1061,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
         const enrichedInput = buildEnrichedPromptInput(context);
         const generatedPrompt = await formatText(enrichedInput, "prompt");
 
-        const saved = await saveGeneratedPrompt(organizationId, params.id, generatedPrompt);
+        const saved = await saveGeneratedPrompt(workspaceId, params.id, generatedPrompt);
 
         if (saved) {
-          wsConnectionManager.broadcastToOrganization(organizationId, {
+          wsConnectionManager.broadcastToWorkspace(workspaceId, {
             type: "work-item:updated",
             payload: {
               workItemId: params.id,
@@ -1110,12 +1110,12 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
-        const workItem = await getWorkItemById(params.id, organizationId);
+        const workItem = await getWorkItemById(params.id, workspaceId);
 
         if (!workItem) {
           return {
@@ -1171,13 +1171,13 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         // Validate work item exists
-        const workItem = await getWorkItemById(params.workItemId, organizationId);
+        const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
           return {
             content: [{ type: "text" as const, text: `Error: Work item with ID '${params.workItemId}' not found` }],
@@ -1209,7 +1209,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
             };
           }
 
-          const success = await bulkMoveWorkItems(organizationId, leafIds, params.boardColumnId);
+          const success = await bulkMoveWorkItems(workspaceId, leafIds, params.boardColumnId);
           if (!success) {
             return {
               content: [{ type: "text" as const, text: `Error: Failed to cascade move descendant tasks to column '${column.name}'` }],
@@ -1218,7 +1218,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           }
 
           for (const leafId of leafIds) {
-            wsConnectionManager.broadcastToOrganization(organizationId, {
+            wsConnectionManager.broadcastToWorkspace(workspaceId, {
               type: "work-item:updated",
               payload: {
                 workItemId: leafId,
@@ -1228,7 +1228,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           }
 
           // Broadcast parent update so UI refreshes virtual column
-          wsConnectionManager.broadcastToOrganization(organizationId, {
+          wsConnectionManager.broadcastToWorkspace(workspaceId, {
             type: "work-item:updated",
             payload: {
               workItemId: params.workItemId,
@@ -1237,7 +1237,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
             },
           });
 
-          const updatedParent = await getWorkItemById(params.workItemId, organizationId);
+          const updatedParent = await getWorkItemById(params.workItemId, workspaceId);
           return {
             content: [{ type: "text" as const, text: JSON.stringify({ ...updatedParent, cascadedLeafCount: leafIds.length }, null, 2) }],
           };
@@ -1259,7 +1259,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         }
 
         // Fetch updated work item
-        const updated = await getWorkItemById(params.workItemId, organizationId);
+        const updated = await getWorkItemById(params.workItemId, workspaceId);
 
         // Toggle AI processing flag for MCP-driven moves.
         // Start when moving into In Progress, stop when moving into Reviewing/Validating/Release/Done.
@@ -1275,7 +1275,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           || column.isDone === true;
 
         if (params.setAiProcessing === true) {
-          await setWorkItemAiProcessing(organizationId, params.workItemId, true);
+          await setWorkItemAiProcessing(workspaceId, params.workItemId, true);
 
           // Auto-set provider metadata for icon display when aiProvider is specified
           if (params.aiProvider) {
@@ -1289,14 +1289,14 @@ export const registerWorkItemsTools = (server: McpServer) => {
             };
             const merged = mergeManagedByMetadata(existingMeta, providerMeta, inferredManagedBy);
             if (merged) {
-              await updateWorkItem(organizationId, params.workItemId, { metadata: merged });
-              void propagateProviderToParent(organizationId, params.workItemId, merged);
+              await updateWorkItem(workspaceId, params.workItemId, { metadata: merged });
+              void propagateProviderToParent(workspaceId, params.workItemId, merged);
             }
           }
         } else if (params.setAiProcessing === false) {
-          await setWorkItemAiProcessing(organizationId, params.workItemId, false);
+          await setWorkItemAiProcessing(workspaceId, params.workItemId, false);
           const existingMeta = (updated?.metadata as Record<string, unknown> | undefined) ?? {};
-          await updateWorkItem(organizationId, params.workItemId, {
+          await updateWorkItem(workspaceId, params.workItemId, {
             metadata: {
               ...existingMeta,
               aiReserved: false,
@@ -1304,9 +1304,9 @@ export const registerWorkItemsTools = (server: McpServer) => {
             },
           });
         } else if (isInProgress) {
-          await setWorkItemAiProcessing(organizationId, params.workItemId, true);
+          await setWorkItemAiProcessing(workspaceId, params.workItemId, true);
         } else if (shouldClearAiProcessing) {
-          await setWorkItemAiProcessing(organizationId, params.workItemId, false);
+          await setWorkItemAiProcessing(workspaceId, params.workItemId, false);
         }
 
         if (updated && workItem.boardColumnId !== updated.boardColumnId) {
@@ -1327,7 +1327,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           }
         }
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "work-item:updated",
           payload: {
             workItemId: params.workItemId,
@@ -1363,13 +1363,13 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         // Fetch the work item
-        const workItem = await getWorkItemById(params.workItemId, organizationId);
+        const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
           return {
             content: [{ type: "text" as const, text: `Error: Work item with ID '${params.workItemId}' not found` }],
@@ -1437,14 +1437,14 @@ export const registerWorkItemsTools = (server: McpServer) => {
           reviewMetadata.lastReviewedFiles = params.reviewedFiles;
         }
 
-        await setWorkItemAiProcessing(organizationId, params.workItemId, false);
-        await updateWorkItem(organizationId, params.workItemId, { metadata: reviewMetadata });
+        await setWorkItemAiProcessing(workspaceId, params.workItemId, false);
+        await updateWorkItem(workspaceId, params.workItemId, { metadata: reviewMetadata });
 
         // Record agent action event
         const reviewUserId = getUserIdFromExtra(extra);
         getActivityLogger().log({
           actorUserId: (reviewUserId ?? null) as string,
-          organizationId,
+          workspaceId,
           action: 'ai_session',
           resourceType: 'work_item',
           resourceId: params.workItemId,
@@ -1460,7 +1460,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         });
 
         // Fetch the final updated work item
-        const updated = await getWorkItemById(params.workItemId, organizationId);
+        const updated = await getWorkItemById(params.workItemId, workspaceId);
 
         notifyReviewCompleted({
           workItemId: params.workItemId,
@@ -1474,7 +1474,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         });
 
         // Broadcast WebSocket event
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "work-item:review-completed",
           payload: {
             workItemId: params.workItemId,
@@ -1515,12 +1515,12 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
-        const workItem = await getWorkItemById(params.workItemId, organizationId);
+        const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
           return {
             content: [{ type: "text" as const, text: `Error: Work item '${params.workItemId}' not found` }],
@@ -1599,7 +1599,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           }
 
           const moved = isParentBlock
-            ? await bulkMoveWorkItems(organizationId, descendantLeafIds, targetColumn.id)
+            ? await bulkMoveWorkItems(workspaceId, descendantLeafIds, targetColumn.id)
             : await moveWorkItem(params.workItemId, targetColumn.id, 0);
           if (!moved) {
             return {
@@ -1618,11 +1618,11 @@ export const registerWorkItemsTools = (server: McpServer) => {
         const definitionOfDoneChecklistUpdatedIds: string[] = [];
 
         for (const affectedWorkItemId of affectedWorkItemIds) {
-          await setWorkItemAiProcessing(organizationId, affectedWorkItemId, false);
+          await setWorkItemAiProcessing(workspaceId, affectedWorkItemId, false);
 
           const affectedWorkItem = affectedWorkItemId === params.workItemId
             ? workItem
-            : await getWorkItemById(affectedWorkItemId, organizationId);
+            : await getWorkItemById(affectedWorkItemId, workspaceId);
           if (!affectedWorkItem) continue;
 
           const existingMeta = (affectedWorkItem.metadata as Record<string, unknown> | undefined) ?? {};
@@ -1662,13 +1662,13 @@ export const registerWorkItemsTools = (server: McpServer) => {
             definitionOfDoneChecklistUpdatedIds.push(affectedWorkItemId);
           }
 
-          await updateWorkItem(organizationId, affectedWorkItemId, { metadata: updatedMeta });
+          await updateWorkItem(workspaceId, affectedWorkItemId, { metadata: updatedMeta });
         }
 
         const userId = getUserIdFromExtra(extra);
         getActivityLogger().log({
           actorUserId: (userId ?? null) as string,
-          organizationId,
+          workspaceId,
           action: "ai_session",
           resourceType: "work_item",
           resourceId: params.workItemId,
@@ -1720,7 +1720,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
 
             logger.warn(
               {
-                organizationId,
+                workspaceId,
                 workItemId: params.workItemId,
                 userId: userId ?? null,
                 error: commentError,
@@ -1730,7 +1730,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           }
         }
 
-        const updated = await getWorkItemById(params.workItemId, organizationId);
+        const updated = await getWorkItemById(params.workItemId, workspaceId);
 
         // Broadcast a work-item:updated event for EVERY affected work item, not
         // just the primary. For parent-block reviews the descendants get their
@@ -1749,7 +1749,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         );
         const broadcastBoardId = updated?.boardId ?? workItem.boardId ?? undefined;
         for (const affectedId of affectedWorkItemIds) {
-          wsConnectionManager.broadcastToOrganization(organizationId, {
+          wsConnectionManager.broadcastToWorkspace(workspaceId, {
             type: "work-item:updated",
             payload: {
               workItemId: affectedId,
@@ -1829,12 +1829,12 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
-        const workItem = await getWorkItemById(params.workItemId, organizationId);
+        const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
           return {
             content: [{ type: "text" as const, text: `Error: Work item with ID '${params.workItemId}' not found` }],
@@ -1902,7 +1902,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           storageMetadata.key = key;
         }
 
-        const attachment = await createAttachment(organizationId, {
+        const attachment = await createAttachment(workspaceId, {
           workItemId: params.workItemId,
           fileName,
           fileUrl,
@@ -1949,12 +1949,12 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
-        const workItem = await getWorkItemById(params.workItemId, organizationId);
+        const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
           return {
             content: [{ type: "text" as const, text: `Error: Work item with ID '${params.workItemId}' not found` }],
@@ -1999,7 +1999,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         }
 
         // Create the attachment record
-        const attachment = await createAttachment(organizationId, {
+        const attachment = await createAttachment(workspaceId, {
           workItemId: params.workItemId,
           fileName,
           fileUrl,
@@ -2051,7 +2051,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           walkthrough: updatedWalkthrough,
         };
 
-        await updateWorkItem(organizationId, params.workItemId, { metadata: updatedMeta });
+        await updateWorkItem(workspaceId, params.workItemId, { metadata: updatedMeta });
 
         const result = {
           attachmentId: attachment.id,
@@ -2088,13 +2088,13 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         // Validate work item exists
-        const workItem = await getWorkItemById(params.workItemId, organizationId);
+        const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
           return {
             content: [{ type: "text" as const, text: `Error: Work item with ID '${params.workItemId}' not found` }],
@@ -2147,9 +2147,9 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const provider = inferAiProvider(params.model, params.provider);
@@ -2168,7 +2168,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           ...(mcpUserId ? { requestedByUserId: mcpUserId } : {}),
         };
 
-        const session = await createAiSession(organizationId, {
+        const session = await createAiSession(workspaceId, {
           workItemId: params.workItemId,
           model: params.model,
           provider,
@@ -2182,7 +2182,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         });
 
         await recordQuotaUsage(
-          organizationId,
+          workspaceId,
           provider,
           params.totalTokens,
           estimatedCost,
@@ -2190,7 +2190,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
 
         // Persist provider/model on the work item for correct provider icon rendering.
         const inferredManagedBy = getManagedByFromProvider(provider);
-        const existing = await getWorkItemById(params.workItemId, organizationId);
+        const existing = await getWorkItemById(params.workItemId, workspaceId);
         const existingMeta = (existing?.metadata as Record<string, unknown> | undefined) ?? undefined;
         const merged = mergeManagedByMetadata(
           existingMeta,
@@ -2201,10 +2201,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
           inferredManagedBy
         );
         if (merged) {
-          await updateWorkItem(organizationId, params.workItemId, { metadata: merged });
+          await updateWorkItem(workspaceId, params.workItemId, { metadata: merged });
         }
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "ai:session-recorded",
           payload: {
             workItemId: params.workItemId,
@@ -2225,7 +2225,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         });
 
         // Ensure the "AI processing" flag is cleared when the session ends.
-        await setWorkItemAiProcessing(organizationId, params.workItemId, false);
+        await setWorkItemAiProcessing(workspaceId, params.workItemId, false);
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify({ recorded: true, sessionId: session.id, workItemId: params.workItemId }, null, 2) }],
@@ -2265,15 +2265,15 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const provider = inferAiProvider(params.model, params.provider);
 
         // 1. Validate work item exists
-        const workItem = await getWorkItemById(params.workItemId, organizationId);
+        const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
           return {
             content: [{ type: "text" as const, text: `Error: Work item '${params.workItemId}' not found` }],
@@ -2316,7 +2316,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         }
 
         // 4. Clear AI processing flag
-        await setWorkItemAiProcessing(organizationId, params.workItemId, false);
+        await setWorkItemAiProcessing(workspaceId, params.workItemId, false);
 
         // 5. Update metadata: clear aiReserved, set userActions, merge provider info
         const existingMeta = (workItem.metadata as Record<string, unknown> | undefined) ?? {};
@@ -2350,7 +2350,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         if (params.aiModel !== undefined) updateData.aiModel = params.aiModel;
         if (params.requestedByUserId !== undefined) updateData.requestedByUserId = params.requestedByUserId;
         if (Object.keys(updateData).length > 0) {
-          await updateWorkItem(organizationId, params.workItemId, updateData);
+          await updateWorkItem(workspaceId, params.workItemId, updateData);
         }
 
         // 6. Record AI session with cost calculation.
@@ -2380,7 +2380,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
 
         const completeValidationUserId = getUserIdFromExtra(extra);
         const jobIdFromSession = getJobIdFromExtra(extra);
-        const session = await createAiSession(organizationId, {
+        const session = await createAiSession(workspaceId, {
           workItemId: params.workItemId,
           agentJobId: jobIdFromSession ?? null,
           model: params.model,
@@ -2403,7 +2403,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         });
 
         await recordQuotaUsage(
-          organizationId,
+          workspaceId,
           provider,
           params.totalTokens,
           estimatedCost,
@@ -2412,7 +2412,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         // Record agent action event
         getActivityLogger().log({
           actorUserId: (completeValidationUserId ?? null) as string,
-          organizationId,
+          workspaceId,
           action: 'ai_session',
           resourceType: 'work_item',
           resourceId: params.workItemId,
@@ -2434,8 +2434,8 @@ export const registerWorkItemsTools = (server: McpServer) => {
         // Without it, listeners that look at `changes` to decide whether to
         // refresh DoD-derived UI (badges, action buttons) think only the
         // column moved and keep showing stale flags.
-        const updatedItem = await getWorkItemById(params.workItemId, organizationId);
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        const updatedItem = await getWorkItemById(params.workItemId, workspaceId);
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "work-item:updated",
           payload: {
             workItemId: params.workItemId,
@@ -2449,7 +2449,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         });
 
         // 8. Broadcast WebSocket: ai:session-recorded
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "ai:session-recorded",
           payload: {
             workItemId: params.workItemId,
@@ -2522,13 +2522,13 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         // Validate that the work item exists
-        const workItem = await getWorkItemById(params.workItemId, organizationId);
+        const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
           return {
             content: [{ type: "text" as const, text: `Error: Work item '${params.workItemId}' not found` }],
@@ -2537,7 +2537,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         }
 
         if (params.includeSummary) {
-          const result = await getAiSessionsSummaryByWorkItemId(organizationId, params.workItemId);
+          const result = await getAiSessionsSummaryByWorkItemId(workspaceId, params.workItemId);
           return {
             content: [{
               type: "text" as const,
@@ -2552,7 +2552,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           };
         }
 
-        const sessions = await getAiSessionsByWorkItemId(organizationId, params.workItemId);
+        const sessions = await getAiSessionsByWorkItemId(workspaceId, params.workItemId);
         return {
           content: [{
             type: "text" as const,
@@ -2603,15 +2603,15 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const provider = inferAiProvider(params.model, params.provider);
 
         // 1. Validate work item exists
-        const workItem = await getWorkItemById(params.workItemId, organizationId);
+        const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
           return {
             content: [{ type: "text" as const, text: `Error: Work item '${params.workItemId}' not found` }],
@@ -2687,7 +2687,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         }
 
         // 4. Clear AI processing flag
-        await setWorkItemAiProcessing(organizationId, params.workItemId, false);
+        await setWorkItemAiProcessing(workspaceId, params.workItemId, false);
 
         // 5. Merge metadata: documentation, testResults, provider info
         const existingMeta = (workItem.metadata as Record<string, unknown> | undefined) ?? {};
@@ -2718,7 +2718,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
 
         const merged = mergeManagedByMetadata(existingMeta, updatedMeta, inferredManagedBy);
         if (merged) {
-          await updateWorkItem(organizationId, params.workItemId, { metadata: merged });
+          await updateWorkItem(workspaceId, params.workItemId, { metadata: merged });
         }
 
         // 6. Record AI session with cost calculation
@@ -2728,7 +2728,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         const estimatedCost = computedCost ?? 0;
 
         const completeReviewUserId = getUserIdFromExtra(extra);
-        const session = await createAiSession(organizationId, {
+        const session = await createAiSession(workspaceId, {
           workItemId: params.workItemId,
           model: params.model,
           provider,
@@ -2750,7 +2750,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         // 6b. Record agent action event
         getActivityLogger().log({
           actorUserId: (completeReviewUserId ?? null) as string,
-          organizationId,
+          workspaceId,
           action: 'ai_session',
           resourceType: 'work_item',
           resourceId: params.workItemId,
@@ -2767,7 +2767,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         });
 
         await recordQuotaUsage(
-          organizationId,
+          workspaceId,
           provider,
           params.totalTokens,
           estimatedCost,
@@ -2778,8 +2778,8 @@ export const registerWorkItemsTools = (server: McpServer) => {
         // lastValidationPassedAt, documentation, testResults, etc. Without it,
         // listeners scanning `changes` would only react to the column move
         // and keep showing stale validation/DoD-derived state.
-        const updatedItem = await getWorkItemById(params.workItemId, organizationId);
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        const updatedItem = await getWorkItemById(params.workItemId, workspaceId);
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "work-item:updated",
           payload: {
             workItemId: params.workItemId,
@@ -2792,7 +2792,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           },
         });
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "ai:session-recorded",
           payload: {
             workItemId: params.workItemId,
@@ -2867,15 +2867,15 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const provider = inferAiProvider(params.model, params.provider);
 
         // 1. Validate work item exists
-        const workItem = await getWorkItemById(params.workItemId, organizationId);
+        const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
           return {
             content: [{ type: "text" as const, text: `Error: Work item '${params.workItemId}' not found` }],
@@ -2939,7 +2939,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         }
 
         // 4. Clear AI processing flag
-        await setWorkItemAiProcessing(organizationId, params.workItemId, false);
+        await setWorkItemAiProcessing(workspaceId, params.workItemId, false);
 
         // 5. Update metadata: clear aiReserved, merge provider info, increment fixAttempts
         const existingMeta = (workItem.metadata as Record<string, unknown> | undefined) ?? {};
@@ -2959,14 +2959,14 @@ export const registerWorkItemsTools = (server: McpServer) => {
 
         const merged = mergeManagedByMetadata(existingMeta, updatedMeta, inferredManagedBy);
         if (merged) {
-          await updateWorkItem(organizationId, params.workItemId, { metadata: merged });
+          await updateWorkItem(workspaceId, params.workItemId, { metadata: merged });
         }
 
         // 6. Create work_item_event with structured diagnosis
         const userId = getUserIdFromExtra(extra);
         getActivityLogger().log({
           actorUserId: (userId ?? null) as string,
-          organizationId,
+          workspaceId,
           action: 'ai_session',
           resourceType: 'work_item',
           resourceId: params.workItemId,
@@ -2999,7 +2999,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         const computedCost = calculateCostUsd({ provider, model: params.model, inputTokens, outputTokens });
         const estimatedCost = computedCost ?? 0;
 
-        const session = await createAiSession(organizationId, {
+        const session = await createAiSession(workspaceId, {
           workItemId: params.workItemId,
           model: params.model,
           provider,
@@ -3025,8 +3025,8 @@ export const registerWorkItemsTools = (server: McpServer) => {
         // Without it, listeners scanning `changes` would only react to the
         // column move back to In Progress and keep showing the stale
         // validation/DoD-derived state from before the failure.
-        const updatedItem = await getWorkItemById(params.workItemId, organizationId);
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        const updatedItem = await getWorkItemById(params.workItemId, workspaceId);
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "work-item:updated",
           payload: {
             workItemId: params.workItemId,
@@ -3039,7 +3039,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           },
         });
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "ai:session-recorded",
           payload: {
             workItemId: params.workItemId,
@@ -3117,15 +3117,15 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         const provider = inferAiProvider(params.model, params.provider);
 
         // 1. Validate work item exists
-        const workItem = await getWorkItemById(params.workItemId, organizationId);
+        const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
           return {
             content: [{ type: "text" as const, text: `Error: Work item '${params.workItemId}' not found` }],
@@ -3157,12 +3157,12 @@ export const registerWorkItemsTools = (server: McpServer) => {
         }
 
         // 4. Clear AI processing flag
-        await setWorkItemAiProcessing(organizationId, params.workItemId, false);
+        await setWorkItemAiProcessing(workspaceId, params.workItemId, false);
 
         // 5. Create document in Almirant and link to work item
         let documentId: string | null = null;
         try {
-          const doc = await createDocument(organizationId, {
+          const doc = await createDocument(workspaceId, {
             title: params.documentTitle,
             content: params.documentContent,
             categoryId: params.documentCategoryId,
@@ -3200,7 +3200,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
 
         const merged = mergeManagedByMetadata(existingMeta, updatedMeta, inferredManagedBy);
         if (merged) {
-          await updateWorkItem(organizationId, params.workItemId, { metadata: merged });
+          await updateWorkItem(workspaceId, params.workItemId, { metadata: merged });
         }
 
         // 7. Record AI session with cost calculation
@@ -3210,7 +3210,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         const estimatedCost = computedCost ?? 0;
 
         const documentUserId = getUserIdFromExtra(extra);
-        const session = await createAiSession(organizationId, {
+        const session = await createAiSession(workspaceId, {
           workItemId: params.workItemId,
           model: params.model,
           provider,
@@ -3232,7 +3232,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         // 7b. Record agent action event
         getActivityLogger().log({
           actorUserId: (documentUserId ?? null) as string,
-          organizationId,
+          workspaceId,
           action: 'ai_session',
           resourceType: 'work_item',
           resourceId: params.workItemId,
@@ -3250,8 +3250,8 @@ export const registerWorkItemsTools = (server: McpServer) => {
         });
 
         // 8. Broadcast WebSocket events
-        const updatedItem = await getWorkItemById(params.workItemId, organizationId);
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        const updatedItem = await getWorkItemById(params.workItemId, workspaceId);
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "work-item:updated",
           payload: {
             workItemId: params.workItemId,
@@ -3260,7 +3260,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           },
         });
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "ai:session-recorded",
           payload: {
             workItemId: params.workItemId,
@@ -3321,15 +3321,15 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
-        const workItem = await getWorkItemById(params.workItemId, organizationId);
+        const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
           return {
             content: [{ type: "text" as const, text: `Work item ${params.workItemId} not found` }],
@@ -3357,10 +3357,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
@@ -3373,7 +3373,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           };
         }
 
-        const workItem = await getWorkItemById(params.workItemId, organizationId);
+        const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
           return {
             content: [{ type: "text" as const, text: `Work item ${params.workItemId} not found` }],
@@ -3391,7 +3391,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         // Also create a work item event so the comment appears in the event timeline
         getActivityLogger().log({
           actorUserId: userId,
-          organizationId,
+          workspaceId,
           action: "comment",
           resourceType: "work_item",
           resourceId: params.workItemId,
@@ -3425,15 +3425,15 @@ export const registerWorkItemsTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
-            content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
             isError: true,
           };
         }
 
-        const workItem = await getWorkItemById(params.workItemId, organizationId);
+        const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
           return {
             content: [{ type: "text" as const, text: `Error: Work item '${params.workItemId}' not found` }],
@@ -3467,10 +3467,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
 
         const merged = mergeManagedByMetadata(existingMeta, updatedMeta, undefined);
         if (merged) {
-          await updateWorkItem(organizationId, params.workItemId, { metadata: merged });
+          await updateWorkItem(workspaceId, params.workItemId, { metadata: merged });
         }
 
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "work-item:updated",
           payload: {
             workItemId: params.workItemId,

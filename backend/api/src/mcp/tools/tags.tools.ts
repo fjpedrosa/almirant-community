@@ -15,9 +15,9 @@ export const registerTagsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const tags = await getTags(organizationId);
+        const tags = await getTags(workspaceId);
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify(tags, null, 2) }],
@@ -45,9 +45,9 @@ export const registerTagsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const tag = await createTag(organizationId, {
+        const tag = await createTag(workspaceId, {
           name: params.name.trim(),
           color: params.color,
         });
@@ -84,9 +84,9 @@ export const registerTagsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const deleted = await deleteTag(organizationId, params.id);
+        const deleted = await deleteTag(workspaceId, params.id);
 
         if (!deleted) {
           return {

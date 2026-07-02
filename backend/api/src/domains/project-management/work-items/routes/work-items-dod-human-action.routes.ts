@@ -29,12 +29,12 @@ export const workItemsDodHumanActionRoutes = new Elysia({ prefix: "/work-items" 
   .post(
     "/:id/dod-human-action/apply",
     async (ctx) => {
-      const { params, body, set, activeOrganization } = ctx;
+      const { params, body, set, activeWorkspace } = ctx;
       const user = (ctx as { user?: { id?: string } }).user ?? null;
-      const orgId = activeOrganization?.id;
+      const orgId = activeWorkspace?.id;
       if (!orgId) {
         set.status = 401;
-        return errorResponse("Missing active organization");
+        return errorResponse("Missing active workspace");
       }
 
       const workItem = await getWorkItemById(params.id, orgId);

@@ -10,7 +10,7 @@ describe("completion snapshot expected work items", () => {
       resolveExpectedWorkItemIdsForCompletion(
         {
           rootWorkItemId: "root-1",
-          organizationId: "org-1",
+          workspaceId: "org-1",
           job: {
             skillName: "runner-fix-dod",
             promptTemplate: "runner-fix-dod",
@@ -36,7 +36,7 @@ describe("completion snapshot expected work items", () => {
       resolveExpectedWorkItemIdsForCompletion(
         {
           rootWorkItemId: "root-1",
-          organizationId: "org-1",
+          workspaceId: "org-1",
           job: {
             skillName: "runner-implement",
             promptTemplate: "runner-implement",
@@ -59,7 +59,7 @@ describe("completion snapshot expected work items", () => {
       resolveExpectedWorkItemIdsForCompletion(
         {
           rootWorkItemId: null,
-          organizationId: "org-1",
+          workspaceId: "org-1",
           job: {
             skillName: "runner-fix-dod",
             promptTemplate: "runner-fix-dod",

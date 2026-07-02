@@ -129,7 +129,7 @@ export async function routeTelegramCommand(
         return { text: "Usa `/board <nombre>` para seleccionar un board primero." };
       }
       const board = await getBoardByIdInternal(st.activeBoardId);
-      const sprint = board ? await getActiveSprint(board.organizationId, board.id) : null;
+      const sprint = board ? await getActiveSprint(board.workspaceId, board.id) : null;
       if (!board || !sprint) return { text: "No hay sprint activo." };
       const baseUrl = getFrontendBaseUrl();
       const link = `${baseUrl}/boards/${board.area}/sprints/${sprint.id}`;

@@ -14,7 +14,7 @@ const state = {
 
 const webhookAgent = {
   id: "agent-webhook-1",
-  organizationId: "org-test-1",
+  workspaceId: "org-test-1",
   projectId: testProject.id,
   name: "Webhook fixer",
   prompt: "Fix any bugs you find in the repo.",
@@ -71,7 +71,7 @@ mock.module("@almirant/database", () => dbMocks);
 mock.module("../../../shared/services/response", () => createResponseMocks());
 mock.module("../../../shared/ws/ws-connection-manager", () => ({
   wsConnectionManager: {
-    broadcastToOrganization: (orgId: string, message: Record<string, unknown>) => {
+    broadcastToWorkspace: (orgId: string, message: Record<string, unknown>) => {
       state.broadcasts.push({ orgId, message });
     },
     sendToUser: () => {},

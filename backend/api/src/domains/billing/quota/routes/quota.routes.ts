@@ -98,9 +98,9 @@ export const quotaRoutes = new Elysia({ prefix: "/quotas" })
   .use(sessionContextTypes)
 
   // GET /quotas - List all quota configurations
-  .get("/", async ({ activeOrganization }) => {
+  .get("/", async ({ activeWorkspace }) => {
     try {
-      const orgId = activeOrganization!.id;
+      const orgId = activeWorkspace!.id;
       const quotas = await listProviderQuotas(orgId);
       return successResponse(quotas);
     } catch (error) {
@@ -112,9 +112,9 @@ export const quotaRoutes = new Elysia({ prefix: "/quotas" })
   // POST /quotas - Create a new quota configuration
   .post(
     "/",
-    async ({ body, set, activeOrganization }) => {
+    async ({ body, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const quota = await createProviderQuota(orgId, {
           provider: body.provider,
           quotaType: body.quotaType,
@@ -155,9 +155,9 @@ export const quotaRoutes = new Elysia({ prefix: "/quotas" })
   // PATCH /quotas/:id - Update a quota configuration
   .patch(
     "/:id",
-    async ({ params, body, set, activeOrganization }) => {
+    async ({ params, body, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const updateData: Record<string, unknown> = {};
         if (body.maxTokens !== undefined) updateData.maxTokens = body.maxTokens;
         if (body.maxCostUsd !== undefined)
@@ -195,9 +195,9 @@ export const quotaRoutes = new Elysia({ prefix: "/quotas" })
   // GET /quotas/usage - Get usage summary for all providers
   .get(
     "/usage",
-    async ({ activeOrganization }) => {
+    async ({ activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const summary = await buildUsageSummary(orgId);
         return successResponse(summary);
       } catch (error) {
@@ -210,9 +210,9 @@ export const quotaRoutes = new Elysia({ prefix: "/quotas" })
   // GET /quotas/usage/:provider - Get usage summary for a specific provider
   .get(
     "/usage/:provider",
-    async ({ params, set, activeOrganization }) => {
+    async ({ params, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const summary = await buildUsageSummary(orgId, params.provider);
         return successResponse(summary);
       } catch (error) {
@@ -228,9 +228,9 @@ export const quotaRoutes = new Elysia({ prefix: "/quotas" })
   )
 
   // GET /quotas/alerts - Get unacknowledged alerts
-  .get("/alerts", async ({ activeOrganization }) => {
+  .get("/alerts", async ({ activeWorkspace }) => {
     try {
-      const orgId = activeOrganization!.id;
+      const orgId = activeWorkspace!.id;
       const alerts = await getUnacknowledgedAlerts(orgId);
       return successResponse(alerts);
     } catch (error) {
@@ -242,9 +242,9 @@ export const quotaRoutes = new Elysia({ prefix: "/quotas" })
   // POST /quotas/alerts/:id/ack - Acknowledge an alert
   .post(
     "/alerts/:id/ack",
-    async ({ params, set, activeOrganization }) => {
+    async ({ params, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const alert = await acknowledgeAlert(orgId, params.id);
         return successResponse(alert);
       } catch (error) {

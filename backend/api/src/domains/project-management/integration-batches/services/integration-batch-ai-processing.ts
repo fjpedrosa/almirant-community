@@ -32,18 +32,18 @@ export const shouldClearReleaseIntegrationBatchItems = (
 ): boolean => BATCH_STATUSES_WITHOUT_CURRENT_ITEM.has(status);
 
 const applyAiProcessingFlag = async (
-  organizationId: string,
+  workspaceId: string,
   workItemId: string,
   isAiProcessing: boolean,
 ): Promise<boolean> => {
   const updated = await setWorkItemAiProcessing(
-    organizationId,
+    workspaceId,
     workItemId,
     isAiProcessing,
   );
 
   if (updated) {
-    wsConnectionManager.broadcastToOrganization(organizationId, {
+    wsConnectionManager.broadcastToWorkspace(workspaceId, {
       type: "work-item:updated",
       payload: {
         workItemId,
@@ -64,12 +64,12 @@ const applyAiProcessingFlag = async (
  * actually moving through `Validating` while the runner integrates them.
  */
 export const setReleaseIntegrationWorkItemAiProcessing = async (args: {
-  organizationId: string;
+  workspaceId: string;
   workItemId: string;
   isAiProcessing: boolean;
 }): Promise<boolean> => {
   const ownerUpdated = await applyAiProcessingFlag(
-    args.organizationId,
+    args.workspaceId,
     args.workItemId,
     args.isAiProcessing,
   );
@@ -83,7 +83,7 @@ export const setReleaseIntegrationWorkItemAiProcessing = async (args: {
   const leafIds = [...new Set(leaves.map((leaf) => leaf.id))];
   const leafResults = await Promise.all(
     leafIds.map((leafId) =>
-      applyAiProcessingFlag(args.organizationId, leafId, args.isAiProcessing),
+      applyAiProcessingFlag(args.workspaceId, leafId, args.isAiProcessing),
     ),
   );
 
@@ -91,18 +91,18 @@ export const setReleaseIntegrationWorkItemAiProcessing = async (args: {
 };
 
 export const syncReleaseIntegrationItemAiProcessing = async (args: {
-  organizationId: string;
+  workspaceId: string;
   workItemId: string;
   status: IntegrationBatchItemStatus;
 }): Promise<boolean> =>
   setReleaseIntegrationWorkItemAiProcessing({
-    organizationId: args.organizationId,
+    workspaceId: args.workspaceId,
     workItemId: args.workItemId,
     isAiProcessing: isReleaseIntegrationItemProcessingStatus(args.status),
   });
 
 export const clearReleaseIntegrationBatchItemsAiProcessing = async (args: {
-  organizationId: string;
+  workspaceId: string;
   items: Array<Pick<IntegrationBatchItem, "workItemId">>;
 }): Promise<boolean[]> => {
   const workItemIds = [...new Set(args.items.map((item) => item.workItemId))];
@@ -110,7 +110,7 @@ export const clearReleaseIntegrationBatchItemsAiProcessing = async (args: {
   return Promise.all(
     workItemIds.map((workItemId) =>
       setReleaseIntegrationWorkItemAiProcessing({
-        organizationId: args.organizationId,
+        workspaceId: args.workspaceId,
         workItemId,
         isAiProcessing: false,
       }),

@@ -21,13 +21,13 @@ export interface UpdateExpenseCategoryRequest {
   isActive?: boolean;
 }
 
-export const getExpenseCategories = async (organizationId: string): Promise<ExpenseCategory[]> => {
+export const getExpenseCategories = async (workspaceId: string): Promise<ExpenseCategory[]> => {
   return db
     .select()
     .from(expenseCategories)
     .where(
       and(
-        eq(expenseCategories.organizationId, organizationId),
+        eq(expenseCategories.workspaceId, workspaceId),
         eq(expenseCategories.isActive, true)
       )
     )
@@ -35,7 +35,7 @@ export const getExpenseCategories = async (organizationId: string): Promise<Expe
 };
 
 export const getExpenseCategoryById = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<ExpenseCategory | null> => {
   const [category] = await db
@@ -44,7 +44,7 @@ export const getExpenseCategoryById = async (
     .where(
       and(
         eq(expenseCategories.id, id),
-        eq(expenseCategories.organizationId, organizationId)
+        eq(expenseCategories.workspaceId, workspaceId)
       )
     )
     .limit(1);
@@ -53,13 +53,13 @@ export const getExpenseCategoryById = async (
 };
 
 export const createExpenseCategory = async (
-  organizationId: string,
+  workspaceId: string,
   data: CreateExpenseCategoryRequest
 ): Promise<ExpenseCategory> => {
   const [created] = await db
     .insert(expenseCategories)
     .values({
-      organizationId,
+      workspaceId,
       name: data.name.trim(),
       icon: data.icon ?? null,
       color: data.color ?? null,
@@ -76,7 +76,7 @@ export const createExpenseCategory = async (
 };
 
 export const updateExpenseCategory = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: UpdateExpenseCategoryRequest
 ): Promise<ExpenseCategory | null> => {
@@ -97,7 +97,7 @@ export const updateExpenseCategory = async (
     .where(
       and(
         eq(expenseCategories.id, id),
-        eq(expenseCategories.organizationId, organizationId)
+        eq(expenseCategories.workspaceId, workspaceId)
       )
     )
     .returning();
@@ -106,7 +106,7 @@ export const updateExpenseCategory = async (
 };
 
 export const deleteExpenseCategory = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<boolean> => {
   const deleted = await db
@@ -114,7 +114,7 @@ export const deleteExpenseCategory = async (
     .where(
       and(
         eq(expenseCategories.id, id),
-        eq(expenseCategories.organizationId, organizationId)
+        eq(expenseCategories.workspaceId, workspaceId)
       )
     )
     .returning({ id: expenseCategories.id });

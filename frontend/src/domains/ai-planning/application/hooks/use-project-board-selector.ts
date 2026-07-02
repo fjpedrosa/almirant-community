@@ -27,8 +27,8 @@ export const useProjectBoardSelector = () => {
     [rawProjects],
   );
 
-  // Boards are organization-level (not project-scoped), so we expose all of them.
-  // This matches the data model where boards belong to the organization, not to
+  // Boards are workspace-level (not project-scoped), so we expose all of them.
+  // This matches the data model where boards belong to the workspace, not to
   // individual projects.
   const boards: PlanSelectorBoard[] = useMemo(
     () =>

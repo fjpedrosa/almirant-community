@@ -8,7 +8,7 @@ import {
   searchObservations,
 } from "@almirant/database";
 import {
-  getOrganizationIdFromExtra,
+  getWorkspaceIdFromExtra,
   getProjectIdFromExtra,
 } from "../setup";
 import {
@@ -127,13 +127,13 @@ export const registerMemoryTools = (server: McpServer) => {
     async (params, extra) => {
       const startedAt = Date.now();
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: "Error: could not resolve organizationId from API key",
+                text: "Error: could not resolve workspaceId from API key",
               },
             ],
             isError: true,
@@ -150,7 +150,7 @@ export const registerMemoryTools = (server: McpServer) => {
         const metadata = assertSafeMemoryPayload(params.metadata);
 
         const observation = await createObservation({
-          organizationId,
+          workspaceId,
           projectId:
             params.visibility === "org" ? null : (projectId ?? null),
           agentJobId: params.agentJobId ?? null,
@@ -173,7 +173,7 @@ export const registerMemoryTools = (server: McpServer) => {
         });
 
         await createMemoryTelemetry({
-          organizationId,
+          workspaceId,
           agentJobId: params.agentJobId ?? null,
           event: "save",
           resultCount: 1,
@@ -274,13 +274,13 @@ export const registerMemoryTools = (server: McpServer) => {
     async (params, extra) => {
       const startedAt = Date.now();
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: "Error: could not resolve organizationId from API key",
+                text: "Error: could not resolve workspaceId from API key",
               },
             ],
             isError: true,
@@ -290,7 +290,7 @@ export const registerMemoryTools = (server: McpServer) => {
         const safeQuery = assertSafeMemoryText(params.query, "query");
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
 
-        const results = await searchObservations(organizationId, safeQuery, {
+        const results = await searchObservations(workspaceId, safeQuery, {
           projectId,
           agentJobId: params.agentJobId,
           workItemId: params.workItemId,
@@ -305,7 +305,7 @@ export const registerMemoryTools = (server: McpServer) => {
         const serialized = serializeSearchResults(safeQuery, results);
 
         await createMemoryTelemetry({
-          organizationId,
+          workspaceId,
           agentJobId: params.agentJobId ?? null,
           event: "search",
           query: safeQuery,
@@ -401,13 +401,13 @@ export const registerMemoryTools = (server: McpServer) => {
     async (params, extra) => {
       const startedAt = Date.now();
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: "Error: could not resolve organizationId from API key",
+                text: "Error: could not resolve workspaceId from API key",
               },
             ],
             isError: true,
@@ -416,7 +416,7 @@ export const registerMemoryTools = (server: McpServer) => {
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
 
-        const results = await getRecentObservations(organizationId, {
+        const results = await getRecentObservations(workspaceId, {
           projectId,
           agentJobId: params.agentJobId,
           workItemId: params.workItemId,
@@ -455,7 +455,7 @@ export const registerMemoryTools = (server: McpServer) => {
         );
 
         await createMemoryTelemetry({
-          organizationId,
+          workspaceId,
           agentJobId: params.agentJobId ?? null,
           event: "context",
           resultCount: results.length,

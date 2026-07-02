@@ -6,14 +6,14 @@ import type { IncidentBundle, NewIncidentBundle, IncidentBundleData } from "../.
 const NULL_UUID = "00000000-0000-0000-0000-000000000000";
 
 /**
- * Create an incident bundle. organizationId is mandatory — never null, never the nil UUID.
+ * Create an incident bundle. workspaceId is mandatory — never null, never the nil UUID.
  * Throws if the caller attempts to create an ownerless bundle.
  */
 export const createIncidentBundle = async (
-  data: Omit<NewIncidentBundle, "id" | "createdAt" | "updatedAt"> & { organizationId: string }
+  data: Omit<NewIncidentBundle, "id" | "createdAt" | "updatedAt"> & { workspaceId: string }
 ): Promise<IncidentBundle> => {
-  if (!data.organizationId || data.organizationId === NULL_UUID) {
-    throw new Error("createIncidentBundle: organizationId is required and must not be the nil UUID");
+  if (!data.workspaceId || data.workspaceId === NULL_UUID) {
+    throw new Error("createIncidentBundle: workspaceId is required and must not be the nil UUID");
   }
   const [bundle] = await db.insert(incidentBundles).values(data).returning();
   if (!bundle) throw new Error("Failed to create incident bundle");
@@ -21,11 +21,11 @@ export const createIncidentBundle = async (
 };
 
 /**
- * Retrieve a bundle by ID, scoped to the caller's organization.
+ * Retrieve a bundle by ID, scoped to the caller's workspace.
  * Returns null if the bundle does not exist OR belongs to a different org.
  */
-export const getIncidentBundleForOrganization = async (
-  organizationId: string,
+export const getIncidentBundleForWorkspace = async (
+  workspaceId: string,
   bundleId: string
 ): Promise<IncidentBundle | null> => {
   const [bundle] = await db
@@ -34,7 +34,7 @@ export const getIncidentBundleForOrganization = async (
     .where(
       and(
         eq(incidentBundles.id, bundleId),
-        eq(incidentBundles.organizationId, organizationId)
+        eq(incidentBundles.workspaceId, workspaceId)
       )
     )
     .limit(1);
@@ -42,11 +42,11 @@ export const getIncidentBundleForOrganization = async (
 };
 
 /**
- * Update a bundle's data payload, scoped to the caller's organization.
+ * Update a bundle's data payload, scoped to the caller's workspace.
  * Returns null if the bundle does not exist OR belongs to a different org.
  */
-export const updateIncidentBundleDataForOrganization = async (
-  organizationId: string,
+export const updateIncidentBundleDataForWorkspace = async (
+  workspaceId: string,
   bundleId: string,
   data: IncidentBundleData
 ): Promise<IncidentBundle | null> => {
@@ -56,7 +56,7 @@ export const updateIncidentBundleDataForOrganization = async (
     .where(
       and(
         eq(incidentBundles.id, bundleId),
-        eq(incidentBundles.organizationId, organizationId)
+        eq(incidentBundles.workspaceId, workspaceId)
       )
     )
     .returning();
@@ -64,11 +64,11 @@ export const updateIncidentBundleDataForOrganization = async (
 };
 
 /**
- * List bundles for a feedback item, scoped to the caller's organization.
+ * List bundles for a feedback item, scoped to the caller's workspace.
  * Ordered newest-first.
  */
-export const listBundlesForFeedbackItemInOrganization = async (
-  organizationId: string,
+export const listBundlesForFeedbackItemInWorkspace = async (
+  workspaceId: string,
   feedbackItemId: string
 ): Promise<IncidentBundle[]> => {
   return db
@@ -77,7 +77,7 @@ export const listBundlesForFeedbackItemInOrganization = async (
     .where(
       and(
         eq(incidentBundles.feedbackItemId, feedbackItemId),
-        eq(incidentBundles.organizationId, organizationId)
+        eq(incidentBundles.workspaceId, workspaceId)
       )
     )
     .orderBy(desc(incidentBundles.createdAt));

@@ -8,7 +8,7 @@ const noop = () => {};
 
 const baseScheduledAgent: ScheduledAgentConfig = {
   id: "scheduled-agent-1",
-  organizationId: "org-1",
+  workspaceId: "org-1",
   projectId: "project-1",
   projectName: "Proyecto Demo",
   skillId: null,

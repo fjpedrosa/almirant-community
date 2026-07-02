@@ -11,7 +11,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { agentJobs } from "./agent-jobs";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { workItems } from "./work-items";
 
 export type AgentJobLogLevel = "debug" | "info" | "warn" | "error";
@@ -25,7 +25,7 @@ export const agentJobLogs = pgTable(
       .references(() => agentJobs.id, { onDelete: "cascade" }),
     orgId: text("org_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     workItemId: uuid("work_item_id").references(() => workItems.id, { onDelete: "set null" }),
     seq: integer("seq").notNull(),
     level: varchar("level", { length: 16 }).$type<AgentJobLogLevel>().notNull().default("info"),

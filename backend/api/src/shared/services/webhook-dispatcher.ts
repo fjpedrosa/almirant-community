@@ -24,7 +24,7 @@ interface WebhookPayload {
 }
 
 interface WebhookDispatchOptions {
-  organizationId: string;
+  workspaceId: string;
   trigger: WebhookTrigger;
   data: Record<string, unknown>;
 }
@@ -126,11 +126,11 @@ const executeWebhook = async (
 export const dispatchWebhooks = async (
   options: WebhookDispatchOptions
 ): Promise<void> => {
-  const { organizationId, trigger } = options;
+  const { workspaceId, trigger } = options;
 
   // Get matching webhooks
   const webhooksToDispatch = await getWebhooksByTrigger(
-    organizationId,
+    workspaceId,
     trigger
   );
 

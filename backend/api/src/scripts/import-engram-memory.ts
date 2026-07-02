@@ -4,7 +4,7 @@
  * Defaults to a SAFE migration strategy:
  * - reusable technical memory stays active
  * - session summaries / passive / preference / feedback are imported archived
- * - target organization/project ownership is verified before any write
+ * - target workspace/project ownership is verified before any write
  * - source records are filtered by BOTH Engram project name and source directory
  * - dry-run by default; use --apply to persist
  *
@@ -12,13 +12,13 @@
  *   cd backend/api
  *   bun run --env-file .env.local src/scripts/import-engram-memory.ts \
  *     --source-project almirant \
- *     --organization-id <orgId> \
+ *     --workspace-id <orgId> \
  *     --project-id <projectId>
  *
  *   # Apply the import
  *   bun run --env-file .env.local src/scripts/import-engram-memory.ts \
  *     --source-project almirant \
- *     --organization-id <orgId> \
+ *     --workspace-id <orgId> \
  *     --project-id <projectId> \
  *     --apply
  */
@@ -36,7 +36,7 @@ const REPO_ROOT = resolve(import.meta.dir, "../../../..");
 
 interface CliOptions {
   sourceProject: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string;
   engramDbPath: string;
   sourceDirectory?: string;
@@ -51,7 +51,7 @@ const printUsage = () => {
 Usage:
   bun run --env-file .env.local src/scripts/import-engram-memory.ts \
     --source-project <engramProject> \
-    --organization-id <orgId> \
+    --workspace-id <orgId> \
     --project-id <projectId> \
     [--source-directory <repoPath>] \
     [--owner-user-id <userId>] \
@@ -112,13 +112,13 @@ const parseArgs = (argv: string[]): CliOptions => {
   }
 
   const sourceProject = values.get("source-project");
-  const organizationId = values.get("organization-id");
+  const workspaceId = values.get("workspace-id");
   const projectId = values.get("project-id");
 
-  if (!sourceProject || !organizationId || !projectId) {
+  if (!sourceProject || !workspaceId || !projectId) {
     printUsage();
     throw new Error(
-      "Missing required arguments: --source-project, --organization-id, and --project-id are mandatory"
+      "Missing required arguments: --source-project, --workspace-id, and --project-id are mandatory"
     );
   }
 
@@ -130,7 +130,7 @@ const parseArgs = (argv: string[]): CliOptions => {
 
   return {
     sourceProject,
-    organizationId,
+    workspaceId,
     projectId,
     engramDbPath: values.get("engram-db") ?? resolve(homedir(), ".engram/engram.db"),
     sourceDirectory: values.get("source-directory") ?? REPO_ROOT,
@@ -157,7 +157,7 @@ const main = async () => {
   console.log(`Source project: ${options.sourceProject}`);
   console.log(`Source directory: ${options.sourceDirectory ?? "(not filtered)"}`);
   console.log(`Engram DB: ${options.engramDbPath}`);
-  console.log(`Target org: ${options.organizationId}`);
+  console.log(`Target org: ${options.workspaceId}`);
   console.log(`Target project: ${options.projectId}`);
   if (options.ownerUserId) {
     console.log(`Owner user for personal scope: ${options.ownerUserId}`);

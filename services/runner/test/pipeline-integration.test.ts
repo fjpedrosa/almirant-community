@@ -47,7 +47,7 @@ const wrapInEnvelope = (
 ): CanonicalEventEnvelope => ({
   jobId: "test-job-001",
   sessionId: "test-session-001",
-  organizationId: "test-org-001",
+  workspaceId: "test-org-001",
   threadId: "test-thread-001",
   timestamp: 1700000000000 + seq * 100,
   sequenceNumber: seq,
@@ -295,7 +295,7 @@ describe("Pipeline: Serialization round-trip", () => {
       expect(deserialized).not.toBeNull();
       expect(deserialized!.jobId).toBe(envelope.jobId);
       expect(deserialized!.sessionId).toBe(envelope.sessionId);
-      expect(deserialized!.organizationId).toBe(envelope.organizationId);
+      expect(deserialized!.workspaceId).toBe(envelope.workspaceId);
       expect(deserialized!.threadId).toBe(envelope.threadId);
       expect(deserialized!.timestamp).toBe(envelope.timestamp);
       expect(deserialized!.sequenceNumber).toBe(envelope.sequenceNumber);
@@ -624,7 +624,7 @@ describe("Pipeline: Canonical Router → BridgeRenderer dispatch", () => {
     const ctx = calls[0].ctx;
     expect(ctx.jobId).toBe("test-job-001");
     expect(ctx.sessionId).toBe("test-session-001");
-    expect(ctx.organizationId).toBe("test-org-001");
+    expect(ctx.workspaceId).toBe("test-org-001");
     expect(ctx.threadId).toBe("test-thread-001");
     expect(ctx.sequenceNumber).toBe(42);
   });

@@ -9,7 +9,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { importStatusEnum } from "./enums";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 
 // Import jobs
 export const importJobs = pgTable("import_jobs", {
@@ -22,11 +22,11 @@ export const importJobs = pgTable("import_jobs", {
   errorCount: integer("error_count").default(0),
   errors: jsonb("errors").default([]).$type<Array<{ row: number; error: string }>>(),
   columnMapping: jsonb("column_mapping").default({}).$type<Record<string, string>>(),
-  organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull().references(() => workspace.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 }, (table) => [
-  index("import_jobs_organization_id_idx").on(table.organizationId),
+  index("import_jobs_workspace_id_idx").on(table.workspaceId),
 ]);
 
 // Type exports

@@ -4,21 +4,21 @@ import { eq, and, desc } from "drizzle-orm";
 import type { ImportJob, NewImportJob } from "../../schema";
 
 // Get all import jobs
-export const getImportJobs = async (organizationId: string, limit = 20): Promise<ImportJob[]> => {
+export const getImportJobs = async (workspaceId: string, limit = 20): Promise<ImportJob[]> => {
   return db
     .select()
     .from(importJobs)
-    .where(eq(importJobs.organizationId, organizationId))
+    .where(eq(importJobs.workspaceId, workspaceId))
     .orderBy(desc(importJobs.createdAt))
     .limit(limit);
 };
 
 // Get import job by ID
-export const getImportJobById = async (organizationId: string, id: string): Promise<ImportJob | null> => {
+export const getImportJobById = async (workspaceId: string, id: string): Promise<ImportJob | null> => {
   const [job] = await db
     .select()
     .from(importJobs)
-    .where(and(eq(importJobs.id, id), eq(importJobs.organizationId, organizationId)))
+    .where(and(eq(importJobs.id, id), eq(importJobs.workspaceId, workspaceId)))
     .limit(1);
 
   return job || null;
@@ -26,14 +26,14 @@ export const getImportJobById = async (organizationId: string, id: string): Prom
 
 // Create import job
 export const createImportJob = async (
-  organizationId: string,
-  data: Omit<NewImportJob, "id" | "createdAt" | "organizationId">
+  workspaceId: string,
+  data: Omit<NewImportJob, "id" | "createdAt" | "workspaceId">
 ): Promise<ImportJob> => {
   const [job] = await db
     .insert(importJobs)
     .values({
       ...data,
-      organizationId,
+      workspaceId,
     })
     .returning();
 
@@ -43,14 +43,14 @@ export const createImportJob = async (
 
 // Update import job
 export const updateImportJob = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: Partial<ImportJob>
 ): Promise<ImportJob | null> => {
   const [updated] = await db
     .update(importJobs)
     .set(data)
-    .where(and(eq(importJobs.id, id), eq(importJobs.organizationId, organizationId)))
+    .where(and(eq(importJobs.id, id), eq(importJobs.workspaceId, workspaceId)))
     .returning();
 
   return updated || null;

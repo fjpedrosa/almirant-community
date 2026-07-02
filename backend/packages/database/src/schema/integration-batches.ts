@@ -9,7 +9,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { integrationBatchStatusEnum } from "./enums";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { projects, projectRepositories } from "./projects";
 import { boards } from "./boards";
 import { user } from "./auth";
@@ -18,9 +18,9 @@ export const integrationBatches = pgTable(
   "integration_batches",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
@@ -46,7 +46,7 @@ export const integrationBatches = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    index("integration_batches_organization_idx").on(table.organizationId),
+    index("integration_batches_workspace_idx").on(table.workspaceId),
     index("integration_batches_project_idx").on(table.projectId),
     index("integration_batches_repository_idx").on(table.repositoryId),
     index("integration_batches_board_idx").on(table.boardId),

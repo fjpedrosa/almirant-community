@@ -30,7 +30,7 @@ export interface MilestoneWithProgress {
   targetDate: Date | null;
   completedAt: Date | null;
   createdByUserId: string | null;
-  organizationId: string;
+  workspaceId: string;
   createdAt: Date;
   updatedAt: Date;
   totalItems: number;
@@ -79,7 +79,7 @@ const getMilestoneBaseById = async (orgId: string, milestoneId: string) => {
       targetDate: milestones.targetDate,
       completedAt: milestones.completedAt,
       createdByUserId: milestones.createdByUserId,
-      organizationId: milestones.organizationId,
+      workspaceId: milestones.workspaceId,
       createdAt: milestones.createdAt,
       updatedAt: milestones.updatedAt,
     })
@@ -88,8 +88,8 @@ const getMilestoneBaseById = async (orgId: string, milestoneId: string) => {
     .where(
       and(
         eq(milestones.id, milestoneId),
-        eq(milestones.organizationId, orgId),
-        eq(projects.organizationId, orgId)
+        eq(milestones.workspaceId, orgId),
+        eq(projects.workspaceId, orgId)
       )
     )
     .limit(1);
@@ -132,7 +132,7 @@ export const getMilestonesByProject = async (
   const projectScope = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.organizationId, orgId)))
+    .where(and(eq(projects.id, projectId), eq(projects.workspaceId, orgId)))
     .limit(1);
 
   if (projectScope.length === 0) {
@@ -150,12 +150,12 @@ export const getMilestonesByProject = async (
       targetDate: milestones.targetDate,
       completedAt: milestones.completedAt,
       createdByUserId: milestones.createdByUserId,
-      organizationId: milestones.organizationId,
+      workspaceId: milestones.workspaceId,
       createdAt: milestones.createdAt,
       updatedAt: milestones.updatedAt,
     })
     .from(milestones)
-    .where(and(eq(milestones.organizationId, orgId), eq(milestones.projectId, projectId)))
+    .where(and(eq(milestones.workspaceId, orgId), eq(milestones.projectId, projectId)))
     .orderBy(milestones.targetDate, milestones.createdAt);
 
   if (milestoneRows.length === 0) {
@@ -243,7 +243,7 @@ export const createMilestone = async (
   const [projectScope] = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.id, data.projectId), eq(projects.organizationId, orgId)))
+    .where(and(eq(projects.id, data.projectId), eq(projects.workspaceId, orgId)))
     .limit(1);
 
   if (!projectScope) {
@@ -261,7 +261,7 @@ export const createMilestone = async (
       targetDate: data.targetDate ?? null,
       completedAt: data.completedAt ?? null,
       createdByUserId: data.createdByUserId ?? null,
-      organizationId: orgId,
+      workspaceId: orgId,
     })
     .returning();
 
@@ -294,7 +294,7 @@ export const updateMilestone = async (
       ...(data.completedAt !== undefined ? { completedAt: data.completedAt } : {}),
       updatedAt: new Date(),
     })
-    .where(and(eq(milestones.id, id), eq(milestones.organizationId, orgId)))
+    .where(and(eq(milestones.id, id), eq(milestones.workspaceId, orgId)))
     .returning();
 
   if (!updated) return null;
@@ -315,7 +315,7 @@ export const deleteMilestone = async (
 ): Promise<boolean> => {
   const deleted = await db
     .delete(milestones)
-    .where(and(eq(milestones.id, id), eq(milestones.organizationId, orgId)))
+    .where(and(eq(milestones.id, id), eq(milestones.workspaceId, orgId)))
     .returning({ id: milestones.id });
 
   return deleted.length > 0;

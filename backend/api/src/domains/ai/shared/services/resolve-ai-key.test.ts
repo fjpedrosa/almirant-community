@@ -170,7 +170,7 @@ describe("resolveAiKey", () => {
     const resolved = await resolveAiKey({
       provider: "openai",
       userId: "user-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       encryptionKey: "enc-key",
     });
 
@@ -192,7 +192,7 @@ describe("resolveAiKey", () => {
     const resolved = await resolveAiKey({
       provider: "anthropic",
       userId: "user-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       encryptionKey: "enc-key",
     });
 
@@ -205,7 +205,7 @@ describe("resolveAiKey", () => {
     });
   });
 
-  it("falls back to organization scope when policy prefers user but no userId is available", async () => {
+  it("falls back to workspace scope when policy prefers user but no userId is available", async () => {
     state.connections.set("openai:organization:org-1", {
       id: "conn-org-fallback",
     });
@@ -214,7 +214,7 @@ describe("resolveAiKey", () => {
     const resolved = await resolveAiKey({
       provider: "openai",
       userId: null,
-      organizationId: "org-1",
+      workspaceId: "org-1",
       encryptionKey: "enc-key",
     });
 
@@ -238,7 +238,7 @@ describe("resolveAiKey", () => {
     const resolved = await resolveAiKey({
       provider: "zai",
       userId: "user-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       encryptionKey: "enc-key",
     });
 
@@ -292,7 +292,7 @@ describe("resolveAiKey", () => {
     const resolved = await resolveAiKey({
       provider: "anthropic",
       userId: "user-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       encryptionKey: "enc-key",
     });
 
@@ -334,7 +334,7 @@ describe("resolveAiKey", () => {
     const resolved = await resolveAiKey({
       provider: "anthropic",
       userId: "user-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       encryptionKey: "enc-key",
     });
 
@@ -372,7 +372,7 @@ describe("resolveAiKey", () => {
     const resolved = await resolveAiKey({
       provider: "openai",
       userId: "user-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       encryptionKey: "enc-key",
     });
 

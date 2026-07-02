@@ -11,7 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { askSourceTypeEnum } from "./enums";
 import { projects } from "./projects";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { workItems } from "./work-items";
 
 // Custom type for PostgreSQL tsvector (full-text search)
@@ -30,9 +30,9 @@ export const askDocuments = pgTable(
   "ask_documents",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     projectId: uuid("project_id").references(() => projects.id, {
       onDelete: "set null",
     }),
@@ -63,7 +63,7 @@ export const askDocuments = pgTable(
     index("ask_documents_feature_idx").on(table.featureId),
     index("ask_documents_source_type_idx").on(table.sourceType),
     index("ask_documents_source_timestamp_idx").on(table.sourceTimestamp),
-    index("ask_documents_organization_idx").on(table.organizationId),
+    index("ask_documents_workspace_idx").on(table.workspaceId),
   ]
 );
 

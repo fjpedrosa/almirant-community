@@ -7,7 +7,7 @@ import {
 
 const completedSession = {
   id: "ps-1",
-  organizationId: "org-1",
+  workspaceId: "org-1",
   projectId: "project-1",
   boardId: "board-1",
   title: "Archived planning session",

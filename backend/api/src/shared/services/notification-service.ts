@@ -15,7 +15,7 @@ type NotificationType = "assignment" | "comment" | "mention" | "status_changed";
 
 interface SendNotificationParams {
   recipientUserId: string;
-  organizationId: string;
+  workspaceId: string;
   type: NotificationType;
   title: string;
   body?: string | null;
@@ -54,7 +54,7 @@ const emitRealtimeNotification = (
 
 const getNotificationPreference = async (
   recipientUserId: string,
-  organizationId: string,
+  workspaceId: string,
   type: NotificationType
 ) => {
   const [pref] = await db
@@ -63,7 +63,7 @@ const getNotificationPreference = async (
     .where(
       and(
         eq(notificationPreferences.userId, recipientUserId),
-        eq(notificationPreferences.organizationId, organizationId),
+        eq(notificationPreferences.workspaceId, workspaceId),
         eq(notificationPreferences.notificationType, type)
       )
     )
@@ -129,7 +129,7 @@ export const sendNotification = async (
 ): Promise<NotificationDb | null> => {
   const pref = await getNotificationPreference(
     params.recipientUserId,
-    params.organizationId,
+    params.workspaceId,
     params.type
   );
   if (!(pref?.inAppEnabled ?? true)) {
@@ -148,7 +148,7 @@ export const sendNotification = async (
   // 2. Insert notification into database
   const insertValues: NewNotification = {
     recipientUserId: params.recipientUserId,
-    organizationId: params.organizationId,
+    workspaceId: params.workspaceId,
     type: params.type,
     title: params.title,
     body: params.body ?? null,
@@ -203,7 +203,7 @@ export const upsertNotificationBySource = async (
 
   const pref = await getNotificationPreference(
     params.recipientUserId,
-    params.organizationId,
+    params.workspaceId,
     params.type
   );
   if (!(pref?.inAppEnabled ?? true)) {
@@ -223,7 +223,7 @@ export const upsertNotificationBySource = async (
     .where(
       and(
         eq(notifications.recipientUserId, params.recipientUserId),
-        eq(notifications.organizationId, params.organizationId),
+        eq(notifications.workspaceId, params.workspaceId),
         eq(notifications.type, params.type),
         eq(notifications.sourceEntityType, params.sourceEntityType),
         eq(notifications.sourceEntityId, params.sourceEntityId)
@@ -305,7 +305,7 @@ export const sendNotificationBatch = async (
 export const sendMentionNotification = async (params: {
   mentionedUserId: string;
   actorUserId: string;
-  organizationId: string;
+  workspaceId: string;
   entityType: string;
   entityId: string;
   entityTitle: string;
@@ -316,7 +316,7 @@ export const sendMentionNotification = async (params: {
 
   return sendNotification({
     recipientUserId: params.mentionedUserId,
-    organizationId: params.organizationId,
+    workspaceId: params.workspaceId,
     type: "mention",
     title: `Te mencionaron en "${params.entityTitle}"`,
     link: params.link,

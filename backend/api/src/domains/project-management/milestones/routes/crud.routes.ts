@@ -14,8 +14,8 @@ export const crudRoutes = (useCases: MilestoneUseCases) =>
     // GET /milestones?projectId=...
     .get(
       "/",
-      async ({ query, set, activeOrganization }) => {
-        const orgId = activeOrganization!.id;
+      async ({ query, set, activeWorkspace }) => {
+        const orgId = activeWorkspace!.id;
         if (!query.projectId) {
           set.status = 400;
           return errorResponse("projectId is required");
@@ -34,8 +34,8 @@ export const crudRoutes = (useCases: MilestoneUseCases) =>
     // GET /milestones/:id
     .get(
       "/:id",
-      async ({ params, set, activeOrganization }) => {
-        const orgId = activeOrganization!.id;
+      async ({ params, set, activeWorkspace }) => {
+        const orgId = activeWorkspace!.id;
         const milestone = await useCases.getById(orgId, params.id);
 
         if (!milestone) {
@@ -56,9 +56,9 @@ export const crudRoutes = (useCases: MilestoneUseCases) =>
     .post(
       "/",
       async (ctx) => {
-        const { body, set, activeOrganization } = ctx;
+        const { body, set, activeWorkspace } = ctx;
         const user = (ctx as { user?: { id?: string } }).user;
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
 
         const result = await useCases.create(
           orgId,
@@ -101,8 +101,8 @@ export const crudRoutes = (useCases: MilestoneUseCases) =>
     // PATCH /milestones/:id
     .patch(
       "/:id",
-      async ({ params, body, set, activeOrganization }) => {
-        const orgId = activeOrganization!.id;
+      async ({ params, body, set, activeWorkspace }) => {
+        const orgId = activeWorkspace!.id;
 
         const result = await useCases.update(orgId, params.id, {
           title: body.title,
@@ -153,8 +153,8 @@ export const crudRoutes = (useCases: MilestoneUseCases) =>
     // DELETE /milestones/:id
     .delete(
       "/:id",
-      async ({ params, set, activeOrganization }) => {
-        const orgId = activeOrganization!.id;
+      async ({ params, set, activeWorkspace }) => {
+        const orgId = activeWorkspace!.id;
         const deleted = await useCases.delete(orgId, params.id);
 
         if (!deleted) {
@@ -174,8 +174,8 @@ export const crudRoutes = (useCases: MilestoneUseCases) =>
     // POST /milestones/:id/work-items
     .post(
       "/:id/work-items",
-      async ({ params, body, set, activeOrganization }) => {
-        const orgId = activeOrganization!.id;
+      async ({ params, body, set, activeWorkspace }) => {
+        const orgId = activeWorkspace!.id;
         if (body.workItemIds.length === 0) {
           set.status = 400;
           return errorResponse("workItemIds is required");
@@ -202,8 +202,8 @@ export const crudRoutes = (useCases: MilestoneUseCases) =>
     // DELETE /milestones/:id/work-items/:workItemId
     .delete(
       "/:id/work-items/:workItemId",
-      async ({ params, set, activeOrganization }) => {
-        const orgId = activeOrganization!.id;
+      async ({ params, set, activeWorkspace }) => {
+        const orgId = activeWorkspace!.id;
 
         const result = await useCases.removeWorkItem(orgId, params.id, params.workItemId);
         if (!result) {

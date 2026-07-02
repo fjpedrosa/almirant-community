@@ -8,6 +8,10 @@ import { and, eq, desc, sql, isNotNull } from 'drizzle-orm';
 import { db } from './db';
 import * as schema from './schema';
 import {
+  betterAuthOrganizationColumns,
+  betterAuthOrganizationPluginSchema,
+} from './better-auth-organization-schema';
+import {
   ensureInitialAdminUser,
   getAuthBootstrapStatus,
   hasPendingInvitation,
@@ -97,7 +101,7 @@ const provisionDefaultServiceAccount = async (
   // Check if a runner SA already exists
   const existing = await db.execute<{ id: string }>(sql`
     SELECT id FROM service_accounts
-    WHERE organization_id = ${organizationId}
+    WHERE workspace_id = ${organizationId}
       AND type = 'runner'
       AND is_active = true
     LIMIT 1
@@ -107,7 +111,7 @@ const provisionDefaultServiceAccount = async (
 
   // Create the service account and its API key in a single transaction-like block
   const [sa] = await db.execute<{ id: string }>(sql`
-    INSERT INTO service_accounts (organization_id, name, type, is_active, created_at, updated_at)
+    INSERT INTO service_accounts (workspace_id, name, type, is_active, created_at, updated_at)
     VALUES (${organizationId}, 'Default Runner', 'runner', true, NOW(), NOW())
     RETURNING id
   `);
@@ -119,7 +123,7 @@ const provisionDefaultServiceAccount = async (
   const keyPrefix = `${SA_KEY_PREFIX}${rawHex.slice(0, 8)}`;
 
   await db.execute(sql`
-    INSERT INTO api_keys (name, key_hash, key_prefix, organization_id, service_account_id)
+    INSERT INTO api_keys (name, key_hash, key_prefix, workspace_id, service_account_id)
     VALUES (
       'Default Runner API Key',
       ${keyHash},
@@ -136,7 +140,7 @@ const provisionDefaultServiceAccount = async (
  */
 const createDefaultBoard = async (organizationId: string): Promise<void> => {
   const [board] = await db.execute<{ id: string }>(sql`
-    INSERT INTO boards (organization_id, name, description, area, is_default)
+    INSERT INTO boards (workspace_id, name, description, area, is_default)
     VALUES (${organizationId}, 'Desarrollo', 'Board de desarrollo', 'desarrollo', true)
     RETURNING id
   `);
@@ -179,7 +183,7 @@ const createPersonalOrganization = async (user: {
   const slug = slugFromEmail(user.email);
   const name = workspaceName(user.name, user.email);
 
-  await db.insert(schema.organization).values({
+  await db.insert(schema.workspace).values({
     id: orgId,
     name,
     slug,
@@ -188,7 +192,7 @@ const createPersonalOrganization = async (user: {
 
   await db.insert(schema.member).values({
     id: memberId,
-    organizationId: orgId,
+    workspaceId: orgId,
     userId: user.id,
     role: 'owner',
     createdAt: new Date(),
@@ -539,13 +543,16 @@ const createAuthInstance = (runtimePublicUrl: string | null) =>
             // 1. Try to inherit activeOrganizationId from the user's most recent session
             const [previousSession] = await db
               .select({
-                activeOrganizationId: schema.session.activeOrganizationId,
+                activeOrganizationId:
+                  betterAuthOrganizationColumns.sessionActiveOrganizationId,
               })
               .from(schema.session)
               .where(
                 and(
                   eq(schema.session.userId, session.userId),
-                  isNotNull(schema.session.activeOrganizationId),
+                  isNotNull(
+                    betterAuthOrganizationColumns.sessionActiveOrganizationId,
+                  ),
                 ),
               )
               .orderBy(desc(schema.session.updatedAt))
@@ -560,7 +567,7 @@ const createAuthInstance = (runtimePublicUrl: string | null) =>
                   and(
                     eq(schema.member.userId, session.userId),
                     eq(
-                      schema.member.organizationId,
+                      betterAuthOrganizationColumns.memberOrganizationId,
                       previousSession.activeOrganizationId,
                     ),
                   ),
@@ -580,7 +587,10 @@ const createAuthInstance = (runtimePublicUrl: string | null) =>
 
             // 2. Fallback: pick the oldest membership (deterministic)
             const [firstMembership] = await db
-              .select({ organizationId: schema.member.organizationId })
+              .select({
+                organizationId:
+                  betterAuthOrganizationColumns.memberOrganizationId,
+              })
               .from(schema.member)
               .where(eq(schema.member.userId, session.userId))
               .orderBy(schema.member.createdAt)
@@ -608,6 +618,9 @@ const createAuthInstance = (runtimePublicUrl: string | null) =>
         },
         allowUserToCreateOrganization: true,
         creatorRole: 'owner',
+        // The DB table was renamed to "workspace"; Better-Auth maps the logical
+        // "organization" model / fields to the Drizzle schema keys below.
+        schema: betterAuthOrganizationPluginSchema,
         sendInvitationEmail: async (data: {
           id: string;
           email: string;

@@ -18,7 +18,7 @@ import {
   testBoardColumn,
   testProject,
   testRepository,
-  testOrganization,
+  testWorkspace,
   testIntegrationBatch,
   testIntegrationBatchItem,
 } from "./fixtures";
@@ -46,13 +46,13 @@ const __realAgentJobEnrichment = { ...agentJobEnrichmentExports };
 const __realFeedbackEvents = { ...feedbackEventsExports };
 
 /**
- * Elysia plugin that injects test user + organization context.
+ * Elysia plugin that injects test user + workspace context.
  * Use: `new Elysia().use(withTestOrg).use(yourRoutes)`
  */
 export const withTestOrg = (app: import("elysia").Elysia) =>
   app.derive(() => ({
     user: testUser,
-    activeOrganization: testOrganization,
+    activeWorkspace: testWorkspace,
     memberRole: "owner" as const,
   }));
 
@@ -133,7 +133,7 @@ export const createDatabaseMocks = (overrides: Record<string, unknown> = {}) => 
   // Worker interactions
   getInteractionsByWorkItemId: async () => [],
   getUserById: async () => null,
-  getMembersByOrganizationId: async () => [
+  getMembersByWorkspaceId: async () => [
     {
       memberId: "member-test-1",
       userId: testUser.id,
@@ -294,7 +294,7 @@ export const createDatabaseMocks = (overrides: Record<string, unknown> = {}) => 
 
     return null;
   },
-  getGithubConnectionForOrganization: async () => null,
+  getGithubConnectionForWorkspace: async () => null,
   linkRepoToInstallation: async () => ({ id: "repo-installation-link-1" }),
   getUnlinkedGithubRepos: async () => [],
   getAllGithubRepoUrls: async () => [],
@@ -341,7 +341,7 @@ export const createDatabaseMocks = (overrides: Record<string, unknown> = {}) => 
   removeTagFromSeed: async () => true,
   getSeedEvents: async () => ({ items: [], total: 0 }),
   createTagIfNotExists: async () => ({ id: "tag-1", name: "test-tag" }),
-  getTagById: async () => ({ id: "tag-1", name: "test-tag", organizationId: "org-test-1" }),
+  getTagById: async () => ({ id: "tag-1", name: "test-tag", workspaceId: "org-test-1" }),
   enqueueNotification: async () => {},
   parseMentionsFromHtml: () => [],
   getEntityComments: async () => [],
@@ -368,8 +368,8 @@ export const createDatabaseMocks = (overrides: Record<string, unknown> = {}) => 
     return id === testIdeaItem.id ? testIdeaItem : null;
   },
   createIdeaItem: async (...args: unknown[]) => {
-    const organizationId =
-      typeof args[0] === "string" ? (args[0] as string) : testIdeaItem.organizationId;
+    const workspaceId =
+      typeof args[0] === "string" ? (args[0] as string) : testIdeaItem.workspaceId;
     const input =
       args[1] && typeof args[1] === "object" && !Array.isArray(args[1])
         ? (args[1] as Record<string, unknown>)
@@ -377,7 +377,7 @@ export const createDatabaseMocks = (overrides: Record<string, unknown> = {}) => 
     return {
       ...testIdeaItem,
       ...input,
-      organizationId,
+      workspaceId,
       id: testIdeaItem.id,
       title: String(input.title ?? testIdeaItem.title).trim(),
       type: (input.type as "idea" | "seed" | undefined) ?? testIdeaItem.type,
@@ -422,7 +422,7 @@ export const createDatabaseMocks = (overrides: Record<string, unknown> = {}) => 
     return {
       ideaItem: {
         id: testIdeaItem.id,
-        organizationId: testIdeaItem.organizationId,
+        workspaceId: testIdeaItem.workspaceId,
         projectId: testIdeaItem.projectId,
         type: testIdeaItem.type,
         status: testIdeaItem.status,
@@ -497,7 +497,7 @@ export const createDatabaseMocks = (overrides: Record<string, unknown> = {}) => 
   deleteIdeaItemComment: async () => true,
   getCommentCountByIdeaItem: async () => 0,
   getEntityCommentVersions: async () => [],
-  getOrganizationMemberUserIdByGithubLogin: async () => testUser.id,
+  getWorkspaceMemberUserIdByGithubLogin: async () => testUser.id,
   unlinkFeedbackFromIdeaItem: async (...args: unknown[]) =>
     (typeof args[1] === "string" ? args[1] : getLastStringArg(args)) === testIdeaItem.id,
   linkWorkItemToIdeaItem: async (...args: unknown[]) => ({
@@ -517,7 +517,7 @@ export const createDatabaseMocks = (overrides: Record<string, unknown> = {}) => 
 /** WebSocket connection manager mock */
 export const createWsMock = () => ({
   wsConnectionManager: {
-    broadcastToOrganization: () => {},
+    broadcastToWorkspace: () => {},
     sendToUser: () => {},
   },
 });
@@ -592,10 +592,10 @@ export const createS3Mock = () => ({
   downloadBufferFromS3: async () => new Uint8Array(),
   deleteFromS3: async () => {},
   generateAttachmentKey: (_workItemId: string, fileName: string) => `work-items/test/${fileName}`,
-  generateEditorImageKey: (_organizationId: string, fileName: string) => `editor-images/test/${fileName}`,
-  generateEditorFileKey: (_organizationId: string, fileName: string) => `editor-files/test/${fileName}`,
+  generateEditorImageKey: (_workspaceId: string, fileName: string) => `editor-images/test/${fileName}`,
+  generateEditorFileKey: (_workspaceId: string, fileName: string) => `editor-files/test/${fileName}`,
   generateFeedbackScreenshotKey: (fileName: string) => `feedback-screenshots/test-${fileName}`,
-  generateInvoiceKey: (_organizationId: string, fileName: string) => `invoices/test/${fileName}`,
+  generateInvoiceKey: (_workspaceId: string, fileName: string) => `invoices/test/${fileName}`,
   extractKeyFromUrl: () => "test-key",
   isS3Configured: () => false,
   getEditorUploadsBucket: () => null,

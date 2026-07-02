@@ -1,5 +1,5 @@
 import { db } from "../../client";
-import { agentJobs, workItems, projects, boards, planningSessions, user, workerRegistrations, organizationSettings, organization, feedbackItems } from "../../schema";
+import { agentJobs, workItems, projects, boards, planningSessions, user, workerRegistrations, workspaceSettings, workspace, feedbackItems } from "../../schema";
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, isNotNull, lte, or, sql, notInArray, count } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { AgentJobConfig } from "../../schema/agent-jobs";
@@ -124,7 +124,7 @@ export type CreateAgentJobInput = {
   boardId?: string | null;
   planningSessionId?: string | null;
   createdByUserId?: string | null;
-  organizationId?: string | null;
+  workspaceId?: string | null;
   jobType?: AgentJobType;
   provider: AgentProvider;
   priority?: "low" | "medium" | "high" | "urgent";
@@ -195,7 +195,7 @@ export const createJob = async (input: CreateAgentJobInput): Promise<typeof agen
       boardId: input.boardId ?? null,
       planningSessionId: input.planningSessionId ?? null,
       createdByUserId: input.createdByUserId ?? null,
-      organizationId: input.organizationId ?? null,
+      workspaceId: input.workspaceId ?? null,
       // Old model (kept for backward compat)
       jobType: resolvedJobType,
       skillName: resolvedSkillName,
@@ -257,7 +257,7 @@ export const createBatchJobs = async (
         boardId: j.boardId ?? null,
         planningSessionId: j.planningSessionId ?? null,
         createdByUserId: j.createdByUserId ?? null,
-        organizationId: j.organizationId ?? null,
+        workspaceId: j.workspaceId ?? null,
         jobType: jt,
         skillName: resolvedSkillName,
         prompt: resolvedPrompt,
@@ -393,7 +393,7 @@ export const getJobsByBoard = async (
 };
 
 export type ListAgentJobsFilters = {
-  organizationId: string;
+  workspaceId: string;
   status?: AgentJobStatus | AgentJobStatus[];
   projectId?: string | string[];
   boardId?: string;
@@ -423,7 +423,7 @@ export const listAgentJobs = async (
 ): Promise<{ jobs: typeof agentJobs.$inferSelect[]; total: number }> => {
   const conditions = [];
 
-  if (filters?.organizationId) conditions.push(eq(agentJobs.organizationId, filters.organizationId));
+  if (filters?.workspaceId) conditions.push(eq(agentJobs.workspaceId, filters.workspaceId));
   const statusFilters = toFilterArray(filters?.status);
   if (statusFilters.length === 1) conditions.push(eq(agentJobs.status, statusFilters[0]!));
   if (statusFilters.length > 1) conditions.push(inArray(agentJobs.status, statusFilters));
@@ -479,7 +479,7 @@ export const listAgentJobs = async (
  * Used by auto-debug-failed skill to find jobs to diagnose.
  */
 export const listRecentFailedJobs = async (
-  organizationId: string,
+  workspaceId: string,
   options?: {
     sinceMinutes?: number;
     limit?: number;
@@ -491,7 +491,7 @@ export const listRecentFailedJobs = async (
   const since = new Date(Date.now() - sinceMinutes * 60 * 1000);
 
   const conditions = [
-    eq(agentJobs.organizationId, organizationId),
+    eq(agentJobs.workspaceId, workspaceId),
     eq(agentJobs.status, "failed"),
     gte(agentJobs.failedAt, since),
   ];
@@ -675,7 +675,7 @@ export const hasAnyJobForPlanningSession = async (
 };
 
 /**
- * Get the number of currently running jobs for an organization.
+ * Get the number of currently running jobs for a workspace.
  */
 export const getOrgRunningJobCount = async (orgId: string): Promise<number> => {
   const [row] = await db
@@ -683,7 +683,7 @@ export const getOrgRunningJobCount = async (orgId: string): Promise<number> => {
     .from(agentJobs)
     .where(
       and(
-        eq(agentJobs.organizationId, orgId),
+        eq(agentJobs.workspaceId, orgId),
         inArray(agentJobs.status, EXECUTING_AGENT_JOB_STATUSES)
       )
     );
@@ -740,18 +740,18 @@ export const claimJobs = async (
 
     // Raw SQL is required for FOR UPDATE SKIP LOCKED.
     // RETURNING * returns snake_case column names, so we select explicitly with camelCase aliases.
-    // The picked CTE also excludes jobs from organizations that have reached their
-    // max_concurrent_jobs limit (from organization_settings). A max_concurrent_jobs of 0
+    // The picked CTE also excludes jobs from workspaces that have reached their
+    // max_concurrent_jobs limit (from workspace_settings). A max_concurrent_jobs of 0
     // or NULL means no limit.
     const rows = (await tx.execute(sql`
       WITH orgs_at_limit AS (
-        SELECT os.organization_id
-        FROM organization_settings os
+        SELECT os.workspace_id
+        FROM workspace_settings os
         WHERE os.max_concurrent_jobs > 0
           AND (
             SELECT COUNT(*)
             FROM agent_jobs aj2
-            WHERE aj2.organization_id = os.organization_id
+            WHERE aj2.workspace_id = os.workspace_id
               AND aj2.status IN ('running', 'finalizing')
           ) >= os.max_concurrent_jobs
       ),
@@ -761,8 +761,8 @@ export const claimJobs = async (
         WHERE status = 'queued'
           AND (available_at IS NULL OR available_at <= ${now})
           AND (
-            organization_id IS NULL
-            OR organization_id NOT IN (SELECT organization_id FROM orgs_at_limit)
+            workspace_id IS NULL
+            OR workspace_id NOT IN (SELECT workspace_id FROM orgs_at_limit)
           )
           ${codingAgentFilter}
         ORDER BY created_at ASC
@@ -783,7 +783,7 @@ export const claimJobs = async (
         board_id AS "boardId",
         planning_session_id AS "planningSessionId",
         created_by_user_id AS "createdByUserId",
-        organization_id AS "organizationId",
+        workspace_id AS "workspaceId",
         job_type AS "jobType",
         status,
         provider,
@@ -858,14 +858,14 @@ export const getExecutingJobCount = async (): Promise<number> => {
 };
 
 export const countActiveAgentJobsForLane = async (params: {
-  organizationId: string;
+  workspaceId: string;
   projectId?: string | null;
   sources?: string[];
   skillNames?: string[];
   promptTemplates?: string[];
 }): Promise<number> => {
   const conditions = [
-    eq(agentJobs.organizationId, params.organizationId),
+    eq(agentJobs.workspaceId, params.workspaceId),
     inArray(agentJobs.status, ACTIVE_AGENT_JOB_STATUSES),
   ];
 
@@ -918,10 +918,10 @@ export const getQueuedJobCountByAgent = async (): Promise<Record<string, number>
 };
 
 export const getJobStats = async (
-  organizationId: string,
+  workspaceId: string,
   projectId?: string
 ): Promise<Record<AgentJobStatus, number>> => {
-  const conditions = [eq(agentJobs.organizationId, organizationId)];
+  const conditions = [eq(agentJobs.workspaceId, workspaceId)];
   if (projectId) conditions.push(eq(agentJobs.projectId, projectId));
 
   const rows = await db
@@ -958,10 +958,10 @@ export const getJobStats = async (
  * - isAiProcessing = true, OR
  * - metadata.aiReserved = true
  * but have NO active agent jobs (queued/running/waiting_for_input).
- * Optionally filter by organizationId via project membership.
+ * Optionally filter by workspaceId via project membership.
  */
 export const getStuckAiWorkItems = async (
-  organizationId: string
+  workspaceId: string
 ): Promise<Array<{ id: string; isAiProcessing: boolean; metadata: Record<string, unknown> | null }>> => {
   // Subquery: work item IDs that DO have active jobs
   const activeJobWorkItemIds = db
@@ -984,7 +984,7 @@ export const getStuckAiWorkItems = async (
 
   conditions.push(
     sql`${workItems.projectId} IN (
-      SELECT id FROM projects WHERE organization_id = ${organizationId}
+      SELECT id FROM projects WHERE workspace_id = ${workspaceId}
     )`
   );
 
@@ -1083,7 +1083,7 @@ export type ListAdminAgentJobsFilters = {
   jobType?: AgentJobType;
   codingAgent?: CodingAgent;
   model?: string;
-  organizationId?: string;
+  workspaceId?: string;
   createdByUserId?: string;
   dateFrom?: string; // ISO date string
   dateTo?: string;   // ISO date string
@@ -1091,7 +1091,7 @@ export type ListAdminAgentJobsFilters = {
 
 export type AdminAgentJobRow = {
   job: typeof agentJobs.$inferSelect;
-  organizationName: string | null;
+  workspaceName: string | null;
   createdByUserName: string | null;
   createdByUserImage: string | null;
   projectName: string | null;
@@ -1109,7 +1109,7 @@ export const listAdminAgentJobs = async (
   if (filters?.jobType) conditions.push(eq(agentJobs.jobType, filters.jobType));
   if (filters?.codingAgent) conditions.push(eq(agentJobs.codingAgent, filters.codingAgent));
   if (filters?.model) conditions.push(eq(agentJobs.model, filters.model));
-  if (filters?.organizationId) conditions.push(eq(agentJobs.organizationId, filters.organizationId));
+  if (filters?.workspaceId) conditions.push(eq(agentJobs.workspaceId, filters.workspaceId));
   if (filters?.createdByUserId) conditions.push(eq(agentJobs.createdByUserId, filters.createdByUserId));
   if (filters?.dateFrom) conditions.push(gte(agentJobs.createdAt, new Date(filters.dateFrom)));
   if (filters?.dateTo) conditions.push(lte(agentJobs.createdAt, new Date(filters.dateTo)));
@@ -1118,7 +1118,7 @@ export const listAdminAgentJobs = async (
 
   const selectFields = {
     job: agentJobs,
-    organizationName: organization.name,
+    workspaceName: workspace.name,
     createdByUserName: user.name,
     createdByUserImage: user.image,
     projectName: projects.name,
@@ -1128,7 +1128,7 @@ export const listAdminAgentJobs = async (
   const baseQuery = db
     .select(selectFields)
     .from(agentJobs)
-    .leftJoin(organization, eq(agentJobs.organizationId, organization.id))
+    .leftJoin(workspace, eq(agentJobs.workspaceId, workspace.id))
     .leftJoin(user, eq(agentJobs.createdByUserId, user.id))
     .leftJoin(projects, eq(agentJobs.projectId, projects.id))
     .leftJoin(workItems, eq(agentJobs.workItemId, workItems.id));
@@ -1147,7 +1147,7 @@ export const listAdminAgentJobs = async (
 
   const jobs: AdminAgentJobRow[] = rows.map((row) => ({
     job: row.job,
-    organizationName: row.organizationName ?? null,
+    workspaceName: row.workspaceName ?? null,
     createdByUserName: row.createdByUserName ?? null,
     createdByUserImage: row.createdByUserImage ?? null,
     projectName: row.projectName ?? null,

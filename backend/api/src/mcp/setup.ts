@@ -10,7 +10,7 @@ export {
   assertOrgScope,
   getProjectIdFromExtra,
   getUserIdFromExtra,
-  getOrganizationIdFromExtra,
+  getWorkspaceIdFromExtra,
   getPermissionsFromExtra,
   getPlanningSessionIdFromExtra,
   getJobIdFromExtra,

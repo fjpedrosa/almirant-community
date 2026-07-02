@@ -9,7 +9,7 @@ import {
 } from "@almirant/database";
 import { anthropicUsageClient } from "./anthropic-usage-client";
 import { quotaService } from "./quota-service-instance";
-import { getOrganizationIdsWithActiveQuotas } from "@almirant/database";
+import { getWorkspaceIdsWithActiveQuotas } from "@almirant/database";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -114,8 +114,8 @@ export const runUsageReconciliationOnce = async (
             eq(quotaUsagePeriods.periodStart, periodStart)
           )
         );
-      // Evaluate quota alerts for all organizations with active anthropic quotas
-      const orgIds = await getOrganizationIdsWithActiveQuotas("anthropic");
+      // Evaluate quota alerts for all workspaces with active anthropic quotas
+      const orgIds = await getWorkspaceIdsWithActiveQuotas("anthropic");
       for (const orgId of orgIds) {
         quotaService.evaluateAlerts(orgId, "anthropic").catch((alertErr) => {
           logger.warn({ orgId, err: alertErr }, "usage-reconciliation: failed to evaluate alerts after correction");

@@ -24,7 +24,7 @@ import {
 } from "@almirant/database";
 import { dodHumanActionV2Schema } from "@almirant/shared";
 import { eq } from "drizzle-orm";
-import { getOrganizationIdFromExtra } from "../setup";
+import { getWorkspaceIdFromExtra } from "../setup";
 import {
   ensureReleasePullRequest,
   refreshReleasePullRequestBody,
@@ -85,18 +85,18 @@ const requireOrgScope = async (
   | { ok: true; batch: NonNullable<Awaited<ReturnType<typeof getBatchByIdWithItems>>> }
   | { ok: false; result: ReturnType<typeof errorText> }
 > => {
-  const organizationId = getOrganizationIdFromExtra(extra);
-  if (!organizationId) {
-    return { ok: false, result: errorText("could not resolve organizationId from API key") };
+  const workspaceId = getWorkspaceIdFromExtra(extra);
+  if (!workspaceId) {
+    return { ok: false, result: errorText("could not resolve workspaceId from API key") };
   }
   const batch = await getBatchByIdWithItems(batchId);
   if (!batch) {
     return { ok: false, result: errorText(`Integration batch ${batchId} not found`) };
   }
-  if (batch.organizationId !== organizationId) {
+  if (batch.workspaceId !== workspaceId) {
     return {
       ok: false,
-      result: errorText(`Integration batch ${batchId} does not belong to your organization`),
+      result: errorText(`Integration batch ${batchId} does not belong to your workspace`),
     };
   }
   return { ok: true, batch };
@@ -111,18 +111,18 @@ const requireOrgScopeForItem = async (
       ok: true;
       itemId: string;
       batchId: string;
-      organizationId: string;
+      workspaceId: string;
       workItemId: string;
     }
   | { ok: false; result: ReturnType<typeof errorText> }
 > => {
-  const organizationId = getOrganizationIdFromExtra(extra);
-  if (!organizationId) {
-    return { ok: false, result: errorText("could not resolve organizationId from API key") };
+  const workspaceId = getWorkspaceIdFromExtra(extra);
+  if (!workspaceId) {
+    return { ok: false, result: errorText("could not resolve workspaceId from API key") };
   }
   const [row] = await db
     .select({
-      orgId: integrationBatches.organizationId,
+      orgId: integrationBatches.workspaceId,
       batchId: integrationBatchItems.batchId,
       workItemId: integrationBatchItems.workItemId,
     })
@@ -136,17 +136,17 @@ const requireOrgScopeForItem = async (
   if (!row) {
     return { ok: false, result: errorText(`Integration batch item ${itemId} not found`) };
   }
-  if (row.orgId !== organizationId) {
+  if (row.orgId !== workspaceId) {
     return {
       ok: false,
-      result: errorText(`Integration batch item ${itemId} does not belong to your organization`),
+      result: errorText(`Integration batch item ${itemId} does not belong to your workspace`),
     };
   }
   return {
     ok: true,
     itemId,
     batchId: row.batchId,
-    organizationId,
+    workspaceId,
     workItemId: row.workItemId,
   };
 };
@@ -196,7 +196,7 @@ export const registerIntegrationBatchesTools = (server: McpServer) => {
         shouldClearReleaseIntegrationBatchItems(params.status as IntegrationBatchStatus)
       ) {
         await clearReleaseIntegrationBatchItemsAiProcessing({
-          organizationId: guard.batch.organizationId,
+          workspaceId: guard.batch.workspaceId,
           items: guard.batch.items,
         });
       }
@@ -231,7 +231,7 @@ export const registerIntegrationBatchesTools = (server: McpServer) => {
       );
       if (!updated) return errorText(`Item ${params.itemId} not found`);
       await syncReleaseIntegrationItemAiProcessing({
-        organizationId: guard.organizationId,
+        workspaceId: guard.workspaceId,
         workItemId: guard.workItemId,
         status: params.status as IntegrationBatchItemStatus,
       });
@@ -299,7 +299,7 @@ Other categories (merge_conflict, migration_apply_failed, type_check_failed, tes
       );
       if (!updated) return errorText(`Item ${params.itemId} not found`);
       await syncReleaseIntegrationItemAiProcessing({
-        organizationId: guard.organizationId,
+        workspaceId: guard.workspaceId,
         workItemId: guard.workItemId,
         status: "failed",
       });

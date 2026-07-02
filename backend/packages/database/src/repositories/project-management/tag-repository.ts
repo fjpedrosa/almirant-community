@@ -8,30 +8,30 @@ import type {
 } from "../../domain/types";
 
 // Get all tags
-export const getTags = async (organizationId: string): Promise<Tag[]> => {
-  return db.select().from(tags).where(eq(tags.organizationId, organizationId)).orderBy(asc(tags.name));
+export const getTags = async (workspaceId: string): Promise<Tag[]> => {
+  return db.select().from(tags).where(eq(tags.workspaceId, workspaceId)).orderBy(asc(tags.name));
 };
 
 // Get tag by ID
-export const getTagById = async (organizationId: string, id: string): Promise<Tag | null> => {
-  const [tag] = await db.select().from(tags).where(and(eq(tags.id, id), eq(tags.organizationId, organizationId))).limit(1);
+export const getTagById = async (workspaceId: string, id: string): Promise<Tag | null> => {
+  const [tag] = await db.select().from(tags).where(and(eq(tags.id, id), eq(tags.workspaceId, workspaceId))).limit(1);
   return tag || null;
 };
 
 // Get tag by name
-export const getTagByName = async (organizationId: string, name: string): Promise<Tag | null> => {
-  const [tag] = await db.select().from(tags).where(and(eq(tags.name, name), eq(tags.organizationId, organizationId))).limit(1);
+export const getTagByName = async (workspaceId: string, name: string): Promise<Tag | null> => {
+  const [tag] = await db.select().from(tags).where(and(eq(tags.name, name), eq(tags.workspaceId, workspaceId))).limit(1);
   return tag || null;
 };
 
 // Create tag
-export const createTag = async (organizationId: string, data: CreateTagRequest): Promise<Tag> => {
+export const createTag = async (workspaceId: string, data: CreateTagRequest): Promise<Tag> => {
   const [newTag] = await db
     .insert(tags)
     .values({
       name: data.name,
       color: data.color || "#6366f1",
-      organizationId,
+      workspaceId,
     })
     .returning();
 
@@ -41,33 +41,33 @@ export const createTag = async (organizationId: string, data: CreateTagRequest):
 
 // Update tag
 export const updateTag = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: UpdateTagRequest
 ): Promise<Tag | null> => {
   const [updated] = await db
     .update(tags)
     .set(data)
-    .where(and(eq(tags.id, id), eq(tags.organizationId, organizationId)))
+    .where(and(eq(tags.id, id), eq(tags.workspaceId, workspaceId)))
     .returning();
 
   return updated || null;
 };
 
 // Delete tag
-export const deleteTag = async (organizationId: string, id: string): Promise<boolean> => {
-  const result = await db.delete(tags).where(and(eq(tags.id, id), eq(tags.organizationId, organizationId))).returning();
+export const deleteTag = async (workspaceId: string, id: string): Promise<boolean> => {
+  const result = await db.delete(tags).where(and(eq(tags.id, id), eq(tags.workspaceId, workspaceId))).returning();
   return result.length > 0;
 };
 
 // Create tag if not exists
 export const createTagIfNotExists = async (
-  organizationId: string,
+  workspaceId: string,
   name: string,
   color?: string
 ): Promise<Tag> => {
-  const existing = await getTagByName(organizationId, name);
+  const existing = await getTagByName(workspaceId, name);
   if (existing) return existing;
 
-  return createTag(organizationId, { name, color });
+  return createTag(workspaceId, { name, color });
 };

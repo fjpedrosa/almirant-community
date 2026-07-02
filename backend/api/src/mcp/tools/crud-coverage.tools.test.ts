@@ -35,7 +35,7 @@ type ToolHandler = (
 const withOrg = {
   authInfo: {
     extra: {
-      organizationId: "org-test-1",
+      workspaceId: "org-test-1",
       projectId: "proj-test-1",
       userId: "user-test-1",
     },

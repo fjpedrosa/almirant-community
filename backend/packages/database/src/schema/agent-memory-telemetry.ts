@@ -9,7 +9,7 @@ import {
   index,
   primaryKey,
 } from "drizzle-orm/pg-core";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { agentJobs } from "./agent-jobs";
 import { agentObservations } from "./agent-observations";
 import { memoryTelemetryEventEnum } from "./enums";
@@ -18,9 +18,9 @@ export const agentMemoryTelemetry = pgTable(
   "agent_memory_telemetry",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     agentJobId: uuid("agent_job_id").references(() => agentJobs.id, {
       onDelete: "cascade",
     }),
@@ -34,7 +34,7 @@ export const agentMemoryTelemetry = pgTable(
       .notNull(),
   },
   (table) => [
-    index("agent_memory_telemetry_org_idx").on(table.organizationId),
+    index("agent_memory_telemetry_org_idx").on(table.workspaceId),
     index("agent_memory_telemetry_job_idx").on(table.agentJobId),
     index("agent_memory_telemetry_event_idx").on(table.event),
     index("agent_memory_telemetry_created_at_idx").on(table.createdAt),

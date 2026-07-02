@@ -6,12 +6,12 @@
  * - feedback-topic-split-detector   (every Sunday at 03:00)
  * - feedback-topic-rename-detector  (1st and 15th of each month at 03:00)
  *
- * The script is idempotent for a given organization + project scope + config name.
+ * The script is idempotent for a given workspace + project scope + config name.
  * Existing configs are left untouched to avoid overwriting operator customizations.
  *
  * Usage:
- *   cd backend/packages/database && ORGANIZATION_ID=<org-id> bun run db:seed:feedback-topic-detectors
- *   cd backend/packages/database && ORGANIZATION_ID=<org-id> PROJECT_ID=<project-id> bun run db:seed:feedback-topic-detectors
+ *   cd backend/packages/database && WORKSPACE_ID=<org-id> bun run db:seed:feedback-topic-detectors
+ *   cd backend/packages/database && WORKSPACE_ID=<org-id> PROJECT_ID=<project-id> bun run db:seed:feedback-topic-detectors
  *
  * Optional env vars:
  *   ENABLED=true|false   (default: true)
@@ -79,7 +79,7 @@ const parseBooleanEnv = (value: string | undefined, fallback: boolean): boolean 
 };
 
 export const seedFeedbackTopicDetectorConfigs = async (
-  organizationId: string,
+  workspaceId: string,
   projectId?: string,
   options?: {
     enabled?: boolean;
@@ -103,12 +103,12 @@ export const seedFeedbackTopicDetectorConfigs = async (
       .where(
         projectId
           ? and(
-              eq(scheduledAgentConfigs.organizationId, organizationId),
+              eq(scheduledAgentConfigs.workspaceId, workspaceId),
               eq(scheduledAgentConfigs.projectId, projectId),
               eq(scheduledAgentConfigs.name, detector.name),
             )
           : and(
-              eq(scheduledAgentConfigs.organizationId, organizationId),
+              eq(scheduledAgentConfigs.workspaceId, workspaceId),
               isNull(scheduledAgentConfigs.projectId),
               eq(scheduledAgentConfigs.name, detector.name),
             ),
@@ -127,7 +127,7 @@ export const seedFeedbackTopicDetectorConfigs = async (
     const [created] = await db
       .insert(scheduledAgentConfigs)
       .values({
-        organizationId,
+        workspaceId,
         projectId: projectId ?? null,
         name: detector.name,
         prompt: detector.prompt,
@@ -157,27 +157,27 @@ export const seedFeedbackTopicDetectorConfigs = async (
 };
 
 const main = async () => {
-  const organizationId = process.env.ORGANIZATION_ID;
+  const workspaceId = process.env.WORKSPACE_ID;
   const projectId = process.env.PROJECT_ID;
   const enabled = parseBooleanEnv(process.env.ENABLED, true);
   const aiModel = process.env.AI_MODEL ?? DEFAULT_AI_MODEL;
   const timezone = process.env.TIMEZONE ?? DEFAULT_TIMEZONE;
 
-  if (!organizationId) {
+  if (!workspaceId) {
     console.error(
-      "Error: ORGANIZATION_ID environment variable is required.\n" +
-        "Usage: ORGANIZATION_ID=<uuid> [PROJECT_ID=<uuid>] [ENABLED=true|false] [AI_MODEL=<model>] [TIMEZONE=<tz>] bun run db:seed:feedback-topic-detectors",
+      "Error: WORKSPACE_ID environment variable is required.\n" +
+        "Usage: WORKSPACE_ID=<uuid> [PROJECT_ID=<uuid>] [ENABLED=true|false] [AI_MODEL=<model>] [TIMEZONE=<tz>] bun run db:seed:feedback-topic-detectors",
     );
     process.exit(1);
   }
 
   console.log("Seeding feedback topic detector scheduled configs...");
   console.log(
-    `Scope: organizationId=${organizationId} projectId=${projectId ?? "<all-projects>"} enabled=${enabled} aiModel=${aiModel} timezone=${timezone}`,
+    `Scope: workspaceId=${workspaceId} projectId=${projectId ?? "<all-projects>"} enabled=${enabled} aiModel=${aiModel} timezone=${timezone}`,
   );
 
   try {
-    const results = await seedFeedbackTopicDetectorConfigs(organizationId, projectId, {
+    const results = await seedFeedbackTopicDetectorConfigs(workspaceId, projectId, {
       enabled,
       aiModel,
       timezone,

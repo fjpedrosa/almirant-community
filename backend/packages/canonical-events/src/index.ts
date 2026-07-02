@@ -293,7 +293,7 @@ export type CanonicalEventKind = CanonicalEvent["kind"];
 export type CanonicalEventEnvelope = {
   jobId: string;
   sessionId: string;
-  organizationId: string;
+  workspaceId: string;
   threadId: string;
   timestamp: number;
   sequenceNumber: number;
@@ -304,7 +304,7 @@ export type CanonicalEventEnvelope = {
 export type NativeEventEnvelope = {
   jobId: string;
   sessionId: string;
-  organizationId: string;
+  workspaceId: string;
   threadId: string;
   timestamp: number;
   sequenceNumber: number;
@@ -324,7 +324,7 @@ export const serializeNativeEnvelope = (
 
   fields.push("jobId", envelope.jobId);
   fields.push("sessionId", envelope.sessionId);
-  fields.push("organizationId", envelope.organizationId);
+  fields.push("workspaceId", envelope.workspaceId);
   fields.push("threadId", envelope.threadId);
   fields.push("timestamp", String(envelope.timestamp));
   fields.push("sequenceNumber", String(envelope.sequenceNumber));
@@ -378,7 +378,7 @@ export const deserializeNativeEnvelope = (
   return {
     jobId: map.get("jobId") ?? "",
     sessionId: map.get("sessionId") ?? "",
-    organizationId: map.get("organizationId") ?? "",
+    workspaceId: map.get("workspaceId") ?? "",
     threadId: map.get("threadId") ?? "",
     timestamp: Number(map.get("timestamp") ?? 0),
     sequenceNumber: Number(map.get("sequenceNumber") ?? 0),
@@ -411,7 +411,7 @@ export const serializeCanonicalEnvelope = (
 
   fields.push("jobId", envelope.jobId);
   fields.push("sessionId", envelope.sessionId);
-  fields.push("organizationId", envelope.organizationId);
+  fields.push("workspaceId", envelope.workspaceId);
   fields.push("threadId", envelope.threadId);
   fields.push("timestamp", String(envelope.timestamp));
   fields.push("sequenceNumber", String(envelope.sequenceNumber));
@@ -449,7 +449,7 @@ export const deserializeCanonicalEnvelope = (
   return {
     jobId: map.get("jobId") ?? "",
     sessionId: map.get("sessionId") ?? "",
-    organizationId: map.get("organizationId") ?? "",
+    workspaceId: map.get("workspaceId") ?? "",
     threadId: map.get("threadId") ?? "",
     timestamp: Number(map.get("timestamp") ?? 0),
     // Absent sequence numbers must NOT collapse to 0: the web-bridge dedup

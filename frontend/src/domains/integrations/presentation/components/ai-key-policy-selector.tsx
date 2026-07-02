@@ -15,13 +15,13 @@ interface PolicyOption {
 const POLICY_OPTIONS: PolicyOption[] = [
   {
     value: "org_only",
-    title: "Organization only",
+    title: "Workspace only",
     description:
       "Only workspace-level API keys are used. Personal keys are ignored.",
   },
   {
     value: "org_preferred",
-    title: "Organization preferred",
+    title: "Workspace preferred",
     description:
       "Workspace keys are used when available, falls back to personal keys.",
   },

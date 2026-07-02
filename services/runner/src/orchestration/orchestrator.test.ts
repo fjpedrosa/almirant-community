@@ -17,7 +17,7 @@ const createClaimedJob = (
   projectId: null,
   boardId: null,
   createdByUserId: null,
-  organizationId: "org-1",
+  workspaceId: "org-1",
   jobType: "implementation",
   provider: "zipu",
   priority: "medium",
@@ -41,7 +41,7 @@ const createScheduledBacklogConfig = (
   overrides: Partial<ScheduledAgentConfig> = {},
 ): ScheduledAgentConfig => ({
   id: "cfg-1",
-  organizationId: "org-1",
+  workspaceId: "org-1",
   projectId: null,
   projectName: null,
   name: "Nightly Backlog Implementation",
@@ -350,7 +350,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
       maxActiveJobs?: number;
       minAgeMinutes?: number;
       projectId?: string;
-      organizationId?: string;
+      workspaceId?: string;
     }> = [];
     const orchestrator = new RunnerOrchestrator(
       {
@@ -367,7 +367,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
       {
         workerClient: {
           getDodReviewCandidates: async (params?: {
-            organizationId?: string;
+            workspaceId?: string;
             projectId?: string;
             limit?: number;
             maxActiveJobs?: number;
@@ -385,7 +385,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
                 parentId: null,
                 boardId: "board-1",
                 projectId: "project-1",
-                organizationId: "org-1",
+                workspaceId: "org-1",
                 columnName: "To Review",
                 definitionOfDone: "- Works",
                 dodReport: null,
@@ -419,7 +419,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
     expect(dodCandidateCalls).toEqual([
       {
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         limit: 1,
         maxActiveJobs: 1,
         minAgeMinutes: 15,
@@ -445,7 +445,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
       maxActiveJobs?: number;
       minAgeMinutes?: number;
       projectId?: string;
-      organizationId?: string;
+      workspaceId?: string;
     }> = [];
     const orchestrator = new RunnerOrchestrator(
       {
@@ -462,7 +462,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
       {
         workerClient: {
           getDodReviewCandidates: async (params?: {
-            organizationId?: string;
+            workspaceId?: string;
             projectId?: string;
             limit?: number;
             maxActiveJobs?: number;
@@ -481,7 +481,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
                 parentId: null,
                 boardId: "board-1",
                 projectId: params.projectId,
-                organizationId: "org-1",
+                workspaceId: "org-1",
                 columnName: "To Review",
                 definitionOfDone: "- Works",
                 dodReport: null,
@@ -518,14 +518,14 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
     expect(dodCandidateCalls).toEqual([
       {
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         limit: 1,
         maxActiveJobs: 1,
         minAgeMinutes: 15,
       },
       {
         projectId: "project-2",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         limit: 1,
         maxActiveJobs: 1,
         minAgeMinutes: 15,
@@ -543,7 +543,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
       maxActiveJobs?: number;
       minAgeMinutes?: number;
       projectId?: string;
-      organizationId?: string;
+      workspaceId?: string;
     }> = [];
     const orchestrator = new RunnerOrchestrator(
       {
@@ -560,7 +560,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
       {
         workerClient: {
           getDodReviewCandidates: async (params?: {
-            organizationId?: string;
+            workspaceId?: string;
             projectId?: string;
             limit?: number;
             maxActiveJobs?: number;
@@ -600,14 +600,14 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
     expect(dodCandidateCalls).toEqual([
       {
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         limit: 1,
         maxActiveJobs: 1,
         minAgeMinutes: 15,
       },
       {
         projectId: "project-2",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         limit: 2,
         maxActiveJobs: 2,
         minAgeMinutes: 15,
@@ -620,7 +620,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
   it("delegates validating work item batching to the release integration worker endpoint", async () => {
     const queueCalls: Array<{
       projectId?: string;
-      organizationId?: string;
+      workspaceId?: string;
       limit?: number;
       maxActiveItems?: number;
       minAgeMinutes?: number;
@@ -641,7 +641,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
       {
         workerClient: {
           queueReleaseIntegration: async (params?: {
-            organizationId?: string;
+            workspaceId?: string;
             projectId?: string;
             limit?: number;
             maxActiveItems?: number;
@@ -692,7 +692,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
     expect(queueCalls).toEqual([
       {
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         limit: 1,
         maxActiveItems: 1,
         minAgeMinutes: 15,
@@ -704,7 +704,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
   it("queues release integration per configured project scope", async () => {
     const queueCalls: Array<{
       projectId?: string;
-      organizationId?: string;
+      workspaceId?: string;
       limit?: number;
       maxActiveItems?: number;
       minAgeMinutes?: number;
@@ -724,7 +724,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
       {
         workerClient: {
           queueReleaseIntegration: async (params?: {
-            organizationId?: string;
+            workspaceId?: string;
             projectId?: string;
             limit?: number;
             maxActiveItems?: number;
@@ -775,14 +775,14 @@ describe("RunnerOrchestrator scheduled release integration", () => {
     expect(queueCalls).toEqual([
       {
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         limit: 1,
         maxActiveItems: 1,
         minAgeMinutes: 15,
       },
       {
         projectId: "project-2",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         limit: 1,
         maxActiveItems: 1,
         minAgeMinutes: 15,
@@ -793,7 +793,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
   it("caps release integration queueing by per-project open ticket limits", async () => {
     const queueCalls: Array<{
       projectId?: string;
-      organizationId?: string;
+      workspaceId?: string;
       limit?: number;
       maxActiveItems?: number;
       minAgeMinutes?: number;
@@ -813,7 +813,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
       {
         workerClient: {
           queueReleaseIntegration: async (params?: {
-            organizationId?: string;
+            workspaceId?: string;
             projectId?: string;
             limit?: number;
             maxActiveItems?: number;
@@ -863,14 +863,14 @@ describe("RunnerOrchestrator scheduled release integration", () => {
     expect(queueCalls).toEqual([
       {
         projectId: "project-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         limit: 1,
         maxActiveItems: 1,
         minAgeMinutes: 0,
       },
       {
         projectId: "project-2",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         limit: 3,
         maxActiveItems: 3,
         minAgeMinutes: 0,
@@ -1015,7 +1015,7 @@ describe("RunnerOrchestrator RAM budget claiming", () => {
     const quotaBlockedJob: ClaimedJob = {
       ...createClaimedJob("job-quota", 512),
       aiProvider: "openai",
-      organizationId: "org-1",
+      workspaceId: "org-1",
     };
 
     const orchestrator = new RunnerOrchestrator(
@@ -1032,9 +1032,9 @@ describe("RunnerOrchestrator RAM budget claiming", () => {
       },
       {
         workerClient: {
-          checkQuota: async (provider: string, organizationId?: string) => {
+          checkQuota: async (provider: string, workspaceId?: string) => {
             expect(provider).toBe("openai");
-            expect(organizationId).toBe("org-1");
+            expect(workspaceId).toBe("org-1");
             return {
               allowed: false,
               reason: "weekly token limit exceeded",

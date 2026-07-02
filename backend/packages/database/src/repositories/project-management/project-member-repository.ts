@@ -70,7 +70,7 @@ export async function getAccessibleProjectIds(
     .where(
       and(
         eq(projectMembers.userId, userId),
-        eq(projects.organizationId, orgId)
+        eq(projects.workspaceId, orgId)
       )
     );
 

@@ -11,7 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { usageSessionTypeEnum } from "./enums";
 import { user } from "./auth";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { projects } from "./projects";
 
 // Individual usage events
@@ -19,9 +19,9 @@ export const usageRecords = pgTable(
   "usage_records",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     userId: text("user_id").references(() => user.id, {
       onDelete: "set null",
     }),
@@ -39,7 +39,7 @@ export const usageRecords = pgTable(
       .notNull(),
   },
   (table) => [
-    index("usage_records_org_idx").on(table.organizationId),
+    index("usage_records_org_idx").on(table.workspaceId),
     index("usage_records_user_idx").on(table.userId),
     index("usage_records_project_idx").on(table.projectId),
     index("usage_records_session_type_idx").on(table.sessionType),
@@ -52,9 +52,9 @@ export const usageSummaries = pgTable(
   "usage_summaries",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     period: varchar("period", { length: 7 }).notNull(), // "2026-03" format
     totalSeconds: integer("total_seconds").notNull().default(0),
     totalJobs: integer("total_jobs").notNull().default(0),
@@ -72,10 +72,10 @@ export const usageSummaries = pgTable(
   },
   (table) => [
     uniqueIndex("usage_summaries_org_period_idx").on(
-      table.organizationId,
+      table.workspaceId,
       table.period
     ),
-    index("usage_summaries_org_idx").on(table.organizationId),
+    index("usage_summaries_org_idx").on(table.workspaceId),
   ]
 );
 
@@ -84,9 +84,9 @@ export const userUsageSummaries = pgTable(
   "user_usage_summaries",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -107,11 +107,11 @@ export const userUsageSummaries = pgTable(
   },
   (table) => [
     uniqueIndex("user_usage_summaries_org_user_period_idx").on(
-      table.organizationId,
+      table.workspaceId,
       table.userId,
       table.period
     ),
-    index("user_usage_summaries_org_idx").on(table.organizationId),
+    index("user_usage_summaries_org_idx").on(table.workspaceId),
     index("user_usage_summaries_user_idx").on(table.userId),
   ]
 );

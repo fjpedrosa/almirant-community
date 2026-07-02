@@ -13,7 +13,7 @@ import {
 
 import { documentCategoryStatusEnum } from "./enums";
 import { projects } from "./projects";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 
 // Custom type for PostgreSQL tsvector (full-text search)
 const tsvector = customType<{ data: string }>({
@@ -33,13 +33,13 @@ export const documentCategories = pgTable(
     icon: varchar("icon", { length: 50 }),
     order: integer("order").notNull().default(0),
     status: documentCategoryStatusEnum("status").notNull().default("active"),
-    organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id").notNull().references(() => workspace.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index("document_categories_parent_idx").on(table.parentId),
-    index("document_categories_organization_id_idx").on(table.organizationId),
+    index("document_categories_workspace_id_idx").on(table.workspaceId),
   ]
 );
 

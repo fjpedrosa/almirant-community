@@ -42,11 +42,11 @@ export const extractGithubRepoFullName = (url: string): string | null => {
 };
 
 /**
- * Find the first active GitHub provider connection for a given organization.
+ * Find the first active GitHub provider connection for a given workspace.
  * Returns the connection row or null if none exists.
  */
-export const getGithubConnectionForOrganization = async (
-  organizationId: string,
+export const getGithubConnectionForWorkspace = async (
+  workspaceId: string,
 ) => {
   const [row] = await db
     .select()
@@ -55,7 +55,7 @@ export const getGithubConnectionForOrganization = async (
       and(
         eq(providerConnections.provider, "github"),
         eq(providerConnections.scope, "organization"),
-        eq(providerConnections.scopeId, organizationId),
+        eq(providerConnections.scopeId, workspaceId),
         eq(providerConnections.isActive, true),
       ),
     )
@@ -67,11 +67,11 @@ export const getGithubConnectionForOrganization = async (
 
 /**
  * Find all GitHub-provider project repositories across ALL projects of an
- * organization that do NOT have a corresponding repo_installation_links record.
+ * workspace that do NOT have a corresponding repo_installation_links record.
  * Used to auto-link repos when a GitHub installation is connected.
  */
-export const getUnlinkedGithubReposForOrganization = async (
-  organizationId: string,
+export const getUnlinkedGithubReposForWorkspace = async (
+  workspaceId: string,
 ) => {
   const rows = await db
     .select({
@@ -87,7 +87,7 @@ export const getUnlinkedGithubReposForOrganization = async (
     )
     .where(
       and(
-        eq(projects.organizationId, organizationId),
+        eq(projects.workspaceId, workspaceId),
         eq(projectRepositories.provider, "github"),
         isNull(repoInstallationLinks.id),
       ),
@@ -146,7 +146,7 @@ export const getRepoIdsForProject = async (
  * Get a GitHub provider connection by the numeric GitHub installationId
  * stored in config->>installationId.
  *
- * When `scopeId` is provided the lookup is scoped to that organization,
+ * When `scopeId` is provided the lookup is scoped to that workspace,
  * allowing the same GitHub App installation to be connected to multiple
  * workspaces independently.  Without `scopeId` the first matching active
  * connection is returned (useful for webhook handlers and token caching).
@@ -428,14 +428,14 @@ export const upsertInstallation = async (data: {
   accountAvatarUrl?: string | null;
   permissions?: unknown;
   repositorySelection?: string | null;
-  organizationId?: string;
+  workspaceId?: string;
 }) => {
   // Check if a connection already exists for this GitHub installationId
-  // When organizationId is known, scope the lookup so that connecting the
+  // When workspaceId is known, scope the lookup so that connecting the
   // same GitHub App installation to a different workspace creates a separate
   // provider_connections row instead of overwriting the existing one.
-  const existing = data.organizationId
-    ? await getInstallationByGithubId(data.installationId, data.organizationId)
+  const existing = data.workspaceId
+    ? await getInstallationByGithubId(data.installationId, data.workspaceId)
     : await getInstallationByGithubId(data.installationId);
 
   if (existing) {
@@ -447,7 +447,7 @@ export const upsertInstallation = async (data: {
         name: `GitHub: ${data.accountLogin}`,
         accountIdentifier: data.accountLogin,
         // Always update scopeId when we have org context from the caller
-        ...(data.organizationId ? { scopeId: data.organizationId } : {}),
+        ...(data.workspaceId ? { scopeId: data.workspaceId } : {}),
         config: {
           ...existingConfig,
           installationId: data.installationId,
@@ -473,7 +473,7 @@ export const upsertInstallation = async (data: {
       provider: "github",
       category: "code",
       scope: "organization",
-      scopeId: data.organizationId ?? "pending",
+      scopeId: data.workspaceId ?? "pending",
       name: `GitHub: ${data.accountLogin}`,
       accountIdentifier: data.accountLogin,
       config: {
@@ -491,7 +491,7 @@ export const upsertInstallation = async (data: {
 };
 
 /**
- * Update the scopeId (organization) of a GitHub provider connection.
+ * Update the scopeId (workspace) of a GitHub provider connection.
  * Used when connecting an installation to a specific workspace.
  */
 export const updateInstallationScopeId = async (
@@ -561,29 +561,29 @@ export const getProjectIdByRepoId = async (
 };
 
 /**
- * Given a projectRepositories.id (repoId), resolve the organizationId
+ * Given a projectRepositories.id (repoId), resolve the workspaceId
  * by joining projectRepositories -> projects.
- * Returns null if the repo or project is not found, or if organizationId is not set.
+ * Returns null if the repo or project is not found, or if workspaceId is not set.
  */
-export const getOrganizationIdByRepoId = async (
+export const getWorkspaceIdByRepoId = async (
   repoId: string
 ): Promise<string | null> => {
   const [row] = await db
-    .select({ organizationId: projects.organizationId })
+    .select({ workspaceId: projects.workspaceId })
     .from(projectRepositories)
     .innerJoin(projects, eq(projectRepositories.projectId, projects.id))
     .where(eq(projectRepositories.id, repoId))
     .limit(1);
 
-  return row?.organizationId ?? null;
+  return row?.workspaceId ?? null;
 };
 
 /**
- * Resolve an organization member userId from a GitHub login (accountIdentifier)
+ * Resolve a workspace member userId from a GitHub login (accountIdentifier)
  * tied to a user-scoped GitHub provider connection.
  */
-export const getOrganizationMemberUserIdByGithubLogin = async (
-  organizationId: string,
+export const getWorkspaceMemberUserIdByGithubLogin = async (
+  workspaceId: string,
   githubLogin: string
 ): Promise<string | null> => {
   const normalizedLogin = githubLogin.trim().toLowerCase();
@@ -603,7 +603,7 @@ export const getOrganizationMemberUserIdByGithubLogin = async (
     )
     .where(
       and(
-        eq(member.organizationId, organizationId),
+        eq(member.workspaceId, workspaceId),
         sql`lower(${providerConnections.accountIdentifier}) = ${normalizedLogin}`
       )
     )
@@ -1019,7 +1019,7 @@ export const getWorkItemsWithStalePrState = async (
 ): Promise<
   Array<{
     workItemId: string;
-    organizationId: string;
+    workspaceId: string;
     currentMetadata: Record<string, unknown>;
     prNumber: number;
     prState: "open" | "closed" | "merged";
@@ -1030,7 +1030,7 @@ export const getWorkItemsWithStalePrState = async (
   const rows = await db
     .select({
       workItemId: workItems.id,
-      organizationId: projects.organizationId,
+      workspaceId: projects.workspaceId,
       currentMetadata: workItems.metadata,
       prNumber: githubPullRequests.number,
       prState: githubPullRequests.state,
@@ -1056,10 +1056,10 @@ export const getWorkItemsWithStalePrState = async (
     );
 
   return rows.flatMap((r) =>
-    r.organizationId
+    r.workspaceId
       ? [{
           workItemId: r.workItemId,
-          organizationId: r.organizationId,
+          workspaceId: r.workspaceId,
           currentMetadata: (r.currentMetadata ?? {}) as Record<string, unknown>,
           prNumber: r.prNumber,
           prState: r.prState as "open" | "closed" | "merged",

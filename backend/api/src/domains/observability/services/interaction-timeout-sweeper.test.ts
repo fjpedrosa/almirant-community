@@ -12,7 +12,7 @@ const state = {
   currentJob: {
     job: {
       id: "job-1",
-      organizationId: "org-1",
+      workspaceId: "org-1",
       workItemId: null,
       planningSessionId: "planning-1",
       status: "waiting_for_input",
@@ -22,7 +22,7 @@ const state = {
   } as {
     job: {
       id: string;
-      organizationId: string | null;
+      workspaceId: string | null;
       workItemId: string | null;
       planningSessionId: string | null;
       status: string;
@@ -82,7 +82,7 @@ mock.module("@almirant/database", () => ({
 
 mock.module("../../../shared/ws/ws-connection-manager", () => ({
   wsConnectionManager: {
-    broadcastToOrganization: (orgId: string, message: Record<string, unknown>) => {
+    broadcastToWorkspace: (orgId: string, message: Record<string, unknown>) => {
       state.broadcasts.push({ orgId, message });
     },
   },
@@ -102,7 +102,7 @@ describe("interaction-timeout-sweeper", () => {
     state.currentJob = {
       job: {
         id: "job-1",
-        organizationId: "org-1",
+        workspaceId: "org-1",
         workItemId: null,
         planningSessionId: "planning-1",
         status: "waiting_for_input",
@@ -148,7 +148,7 @@ describe("interaction-timeout-sweeper", () => {
     state.currentJob = {
       job: {
         id: "job-2",
-        organizationId: "org-2",
+        workspaceId: "org-2",
         workItemId: "work-item-1",
         planningSessionId: null,
         status: "waiting_for_input",

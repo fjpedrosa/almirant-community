@@ -90,14 +90,14 @@ export type JobTelemetryEvent = {
   errorCategory?: string;
   tokenCount?: number;
   retryCount?: number;
-  organizationId: string;
+  workspaceId: string;
 };
 
 export const emitJobTelemetry = (event: JobTelemetryEvent): void => {
   if (!posthogClient) return;
   try {
     posthogClient.capture({
-      distinctId: event.organizationId,
+      distinctId: event.workspaceId,
       event: "agent_job_completed",
       properties: {
         job_id: event.jobId,
@@ -121,7 +121,7 @@ export const emitJobTelemetry = (event: JobTelemetryEvent): void => {
 export type ResourceUsageEvent = {
   jobId: string;
   skillName: string;
-  organizationId: string;
+  workspaceId: string;
   workerId: string;
   workspaceMountMode: "bind" | "tmpfs";
   memoryLimitMb: number;
@@ -132,7 +132,7 @@ export const emitResourceUsage = (event: ResourceUsageEvent): void => {
   if (!posthogClient) return;
   try {
     posthogClient.capture({
-      distinctId: event.organizationId,
+      distinctId: event.workspaceId,
       event: "agent_resource_usage",
       properties: {
         job_id: event.jobId,

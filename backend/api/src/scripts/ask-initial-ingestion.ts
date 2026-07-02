@@ -22,11 +22,11 @@ const targetProjectId = process.argv[2];
 const main = async () => {
   console.log("=== Ask Initial Ingestion ===\n");
 
-  let projectRows: { id: string; name: string; organizationId: string | null }[];
+  let projectRows: { id: string; name: string; workspaceId: string | null }[];
 
   if (targetProjectId) {
     projectRows = await db
-      .select({ id: projects.id, name: projects.name, organizationId: projects.organizationId })
+      .select({ id: projects.id, name: projects.name, workspaceId: projects.workspaceId })
       .from(projects)
       .where(eq(projects.id, targetProjectId));
 
@@ -36,15 +36,15 @@ const main = async () => {
     }
   } else {
     projectRows = await db
-      .select({ id: projects.id, name: projects.name, organizationId: projects.organizationId })
+      .select({ id: projects.id, name: projects.name, workspaceId: projects.workspaceId })
       .from(projects);
   }
 
   const projectList = projectRows.filter(
     (
       project,
-    ): project is { id: string; name: string; organizationId: string } =>
-      typeof project.organizationId === "string" && project.organizationId.length > 0,
+    ): project is { id: string; name: string; workspaceId: string } =>
+      typeof project.workspaceId === "string" && project.workspaceId.length > 0,
   );
 
   console.log(`Found ${projectList.length} project(s) to ingest\n`);
@@ -54,7 +54,7 @@ const main = async () => {
   for (const project of projectList) {
     console.log(`--- ${project.name} (${project.id}) ---`);
 
-    const results = await runIncrementalIngestion(project.organizationId, project.id);
+    const results = await runIncrementalIngestion(project.workspaceId, project.id);
 
     let projectTotal = 0;
     for (const r of results) {

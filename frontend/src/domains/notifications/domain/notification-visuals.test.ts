@@ -11,7 +11,7 @@ const createNotification = (
 ): Notification => ({
   id: `notification-${prState}`,
   recipientUserId: "user-1",
-  organizationId: "org-1",
+  workspaceId: "org-1",
   type: "status_changed",
   title: `PR ${prState}`,
   body: null,

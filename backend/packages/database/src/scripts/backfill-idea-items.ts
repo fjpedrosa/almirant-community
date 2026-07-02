@@ -3,7 +3,7 @@
  *
  * Strategy:
  * 1. Read all legacy idea work items.
- * 2. Resolve organization scope from project, creator membership, or first org fallback.
+ * 2. Resolve workspace scope from project, creator membership, or first org fallback.
  * 3. Create one `idea_items` row per legacy work item (idempotent by metadata.legacyWorkItemId).
  * 4. Create traceability link in `idea_item_work_item_links` (linkType=related_to).
  *
@@ -18,7 +18,7 @@ import {
   ideaItems,
   ideaItemWorkItemLinks,
   member,
-  organization,
+  workspace,
   projects,
   workItemAssignees,
   workItems,
@@ -37,30 +37,30 @@ type LegacyIdeaRow = {
   archivedAt: Date | null;
 };
 
-const resolveOrganizationId = async (row: LegacyIdeaRow): Promise<string | null> => {
+const resolveWorkspaceId = async (row: LegacyIdeaRow): Promise<string | null> => {
   if (row.projectId) {
     const [project] = await db
-      .select({ organizationId: projects.organizationId })
+      .select({ workspaceId: projects.workspaceId })
       .from(projects)
       .where(eq(projects.id, row.projectId))
       .limit(1);
-    if (project?.organizationId) return project.organizationId;
+    if (project?.workspaceId) return project.workspaceId;
   }
 
   if (row.createdByUserId) {
     const [creatorMembership] = await db
-      .select({ organizationId: member.organizationId })
+      .select({ workspaceId: member.workspaceId })
       .from(member)
       .where(eq(member.userId, row.createdByUserId))
       .orderBy(asc(member.createdAt))
       .limit(1);
-    if (creatorMembership?.organizationId) return creatorMembership.organizationId;
+    if (creatorMembership?.workspaceId) return creatorMembership.workspaceId;
   }
 
   const [firstOrg] = await db
-    .select({ id: organization.id })
-    .from(organization)
-    .orderBy(asc(organization.createdAt))
+    .select({ id: workspace.id })
+    .from(workspace)
+    .orderBy(asc(workspace.createdAt))
     .limit(1);
 
   return firstOrg?.id ?? null;
@@ -120,9 +120,9 @@ const main = async () => {
 
       let ideaItemId = existingIdeaItemId;
       if (!ideaItemId) {
-        const organizationId = await resolveOrganizationId(legacy);
-        if (!organizationId) {
-          console.warn(`  [SKIP] ${legacy.id}: cannot resolve organizationId`);
+        const workspaceId = await resolveWorkspaceId(legacy);
+        if (!workspaceId) {
+          console.warn(`  [SKIP] ${legacy.id}: cannot resolve workspaceId`);
           skipped++;
           continue;
         }
@@ -130,7 +130,7 @@ const main = async () => {
         const [inserted] = await db
           .insert(ideaItems)
           .values({
-            organizationId,
+            workspaceId,
             projectId: legacy.projectId,
             type: "idea",
             status: legacy.archivedAt ? "archived" : "active",

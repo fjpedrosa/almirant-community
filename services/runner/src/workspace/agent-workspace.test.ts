@@ -12,7 +12,7 @@ const baseJob = (overrides: Partial<ClaimedJob> = {}): ClaimedJob => ({
   projectId: "project-1",
   boardId: null,
   createdByUserId: "user-1",
-  organizationId: "org-1",
+  workspaceId: "org-1",
   jobType: "implementation",
   provider: "codex",
   priority: "medium",

@@ -9,7 +9,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { feedbackItems } from "./feedback-items";
 import { agentJobs } from "./agent-jobs";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 
 export type IncidentBundleData = {
   version: 1;
@@ -70,7 +70,7 @@ export const incidentBundles = pgTable(
       onDelete: "set null",
     }),
     traceId: varchar("trace_id", { length: 64 }),
-    organizationId: text("organization_id").references(() => organization.id, {
+    workspaceId: text("workspace_id").references(() => workspace.id, {
       onDelete: "cascade",
     }),
     data: jsonb("data").$type<IncidentBundleData>().notNull(),

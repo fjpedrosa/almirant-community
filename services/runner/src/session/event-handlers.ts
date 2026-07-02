@@ -58,7 +58,7 @@ export type EventHandlerDeps = {
    */
   isInteractiveJob: boolean;
   webSessionId: string;
-  webOrganizationId: string;
+  webWorkspaceId: string;
   threadId: string;
   eventLogger: RunnerJobEventLogger;
   streamPublisher?: StreamPublisher;
@@ -330,7 +330,7 @@ export const handleSessionIdle: EventHandler = async (ctx, deps) => {
       await publishCanonicalEvent(deps.streamPublisher, {
         jobId: deps.jobId,
         sessionId: deps.webSessionId,
-        organizationId: deps.webOrganizationId,
+        workspaceId: deps.webWorkspaceId,
         threadId: deps.threadId,
         timestamp: Date.now(),
         sequenceNumber: nextSequence(),

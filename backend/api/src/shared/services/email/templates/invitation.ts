@@ -1,6 +1,6 @@
 interface InvitationEmailParams {
   acceptUrl: string;
-  organizationName: string;
+  workspaceName: string;
   inviterName: string;
   inviterEmail: string;
   role: string;
@@ -8,7 +8,7 @@ interface InvitationEmailParams {
 
 export const buildInvitationEmailHtml = ({
   acceptUrl,
-  organizationName,
+  workspaceName,
   inviterName,
   inviterEmail,
   role,
@@ -22,7 +22,7 @@ export const buildInvitationEmailHtml = ({
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>You've been invited to ${escapeHtml(organizationName)}</title>
+  <title>You've been invited to ${escapeHtml(workspaceName)}</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5;padding:40px 0;">
@@ -60,7 +60,7 @@ export const buildInvitationEmailHtml = ({
               <p style="margin:0 0 24px;font-size:15px;color:#71717a;line-height:1.6;">
                 <strong style="color:#18181b;">${escapeHtml(inviterName)}</strong>
                 (${escapeHtml(inviterEmail)}) has invited you to join
-                <strong style="color:#18181b;">${escapeHtml(organizationName)}</strong>.
+                <strong style="color:#18181b;">${escapeHtml(workspaceName)}</strong>.
               </p>
               <table role="presentation" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
                 <tr>

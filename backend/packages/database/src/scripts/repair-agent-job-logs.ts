@@ -53,7 +53,7 @@ const getConstraintCount = async () => {
     from pg_constraint
     where conname in (
       'agent_job_logs_job_id_agent_jobs_id_fk',
-      'agent_job_logs_org_id_organization_id_fk',
+      'agent_job_logs_org_id_workspace_id_fk',
       'agent_job_logs_work_item_id_work_items_id_fk'
     )
   `)) as unknown as CountRow[];
@@ -121,11 +121,11 @@ const main = async () => {
     begin
       if not exists (
         select 1 from pg_constraint
-        where conname = 'agent_job_logs_org_id_organization_id_fk'
+        where conname = 'agent_job_logs_org_id_workspace_id_fk'
       ) then
         alter table public.agent_job_logs
-          add constraint agent_job_logs_org_id_organization_id_fk
-          foreign key (org_id) references public.organization(id)
+          add constraint agent_job_logs_org_id_workspace_id_fk
+          foreign key (org_id) references public.workspace(id)
           on delete cascade on update no action;
       end if;
     end $$;

@@ -1,10 +1,10 @@
 /**
  * Repair inconsistent work items where:
- *   project.organization_id != board.organization_id
+ *   project.workspace_id != board.workspace_id
  *
  * Strategy:
  * 1) Detect mismatched rows.
- * 2) Move each item to a board in the project's organization with the same area.
+ * 2) Move each item to a board in the project's workspace with the same area.
  * 3) For leaf items (task/idea), map destination column by role.
  * 4) Leave parent items (epic/feature/story) with board_column_id = NULL.
  *
@@ -25,14 +25,14 @@ const main = async () => {
       wi.task_id,
       wi.type,
       wi.project_id,
-      p.organization_id as project_org_id,
+      p.workspace_id as project_org_id,
       wi.board_id,
-      b.organization_id as board_org_id,
+      b.workspace_id as board_org_id,
       b.area
     from work_items wi
     inner join projects p on p.id = wi.project_id
     inner join boards b on b.id = wi.board_id
-    where p.organization_id <> b.organization_id
+    where p.workspace_id <> b.workspace_id
     order by wi.task_id nulls last, wi.id
   `);
 
@@ -49,14 +49,14 @@ const main = async () => {
         wi.id,
         wi.task_id,
         wi.type,
-        p.organization_id as project_org_id,
+        p.workspace_id as project_org_id,
         b.area as source_area,
         bc.role as source_role
       from work_items wi
       inner join projects p on p.id = wi.project_id
       inner join boards b on b.id = wi.board_id
       left join board_columns bc on bc.id = wi.board_column_id
-      where p.organization_id <> b.organization_id
+      where p.workspace_id <> b.workspace_id
     ),
     target_board as (
       select
@@ -69,7 +69,7 @@ const main = async () => {
       inner join lateral (
         select b2.id
         from boards b2
-        where b2.organization_id = m.project_org_id
+        where b2.workspace_id = m.project_org_id
           and b2.area = m.source_area
         order by b2.is_default desc, b2.created_at asc
         limit 1
@@ -113,7 +113,7 @@ const main = async () => {
     from work_items wi
     inner join projects p on p.id = wi.project_id
     inner join boards b on b.id = wi.board_id
-    where p.organization_id <> b.organization_id
+    where p.workspace_id <> b.workspace_id
   `);
 
   console.log(`Rows fixed: ${fixedRows.length}`);

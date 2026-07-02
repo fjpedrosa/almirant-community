@@ -1,6 +1,6 @@
 /**
  * One-off script: Provision a default "runner" service account for every
- * organization that does not already have one.
+ * workspace that does not already have one.
  *
  * Usage:
  *   bun run backend/packages/database/scripts/provision-existing-orgs.ts
@@ -10,14 +10,14 @@
  */
 
 import { db, closeConnections } from "../src/client";
-import { organization } from "../src/schema/organization";
+import { workspace } from "../src/schema/workspace";
 import { provisionDefaultServiceAccount } from "../src/repositories/service-account-repository";
 
 const main = async () => {
   console.log("[provision-existing-orgs] Starting...");
 
-  const orgs = await db.select({ id: organization.id, name: organization.name }).from(organization);
-  console.log(`[provision-existing-orgs] Found ${orgs.length} organization(s).`);
+  const orgs = await db.select({ id: workspace.id, name: workspace.name }).from(workspace);
+  console.log(`[provision-existing-orgs] Found ${orgs.length} workspace(s).`);
 
   let provisioned = 0;
   let skipped = 0;

@@ -33,7 +33,7 @@ import {
   testBoard,
   testBoardColumn,
   testProject,
-  testOrganization,
+  testWorkspace,
 } from "../../test/fixtures";
 
 // ---------------------------------------------------------------------------
@@ -48,7 +48,7 @@ const ORG_B = "org-test-2";
 //
 // The default mocks from createDatabaseMocks return Org A data regardless of
 // which org calls. We override key repository functions so they check the
-// organizationId argument and only return data when it matches Org A.
+// workspaceId argument and only return data when it matches Org A.
 // When Org B calls, they return empty results / null.
 // ---------------------------------------------------------------------------
 
@@ -74,7 +74,7 @@ const orgAwareOverrides: Record<string, unknown> = {
       title: "New Work Item",
       type: "task",
       boardColumnId: "col-new-1",
-      organizationId: orgId ?? "unknown",
+      workspaceId: orgId ?? "unknown",
       createdAt: new Date("2025-01-01"),
       updatedAt: new Date("2025-01-01"),
     };
@@ -103,7 +103,7 @@ const orgAwareOverrides: Record<string, unknown> = {
       name: "New Project",
       description: null,
       status: "active" as const,
-      organizationId: orgId ?? "unknown",
+      workspaceId: orgId ?? "unknown",
       createdAt: new Date("2025-01-01"),
       updatedAt: new Date("2025-01-01"),
     };
@@ -122,7 +122,7 @@ const orgAwareOverrides: Record<string, unknown> = {
     return [];
   },
   getBoardById: async (...args: unknown[]) => {
-    // getBoardById(id, organizationId) — id first, orgId second
+    // getBoardById(id, workspaceId) — id first, orgId second
     const id = typeof args[0] === "string" ? args[0] : undefined;
     const orgId = typeof args[1] === "string" ? args[1] : undefined;
     if (orgId === ORG_A && id === testBoard.id) return testBoard;
@@ -141,7 +141,7 @@ const orgAwareOverrides: Record<string, unknown> = {
       description: null,
       area: "desarrollo" as const,
       isDefault: false,
-      organizationId: orgId ?? "unknown",
+      workspaceId: orgId ?? "unknown",
       columns: [],
       createdAt: new Date("2025-01-01"),
       updatedAt: new Date("2025-01-01"),
@@ -181,7 +181,7 @@ const orgAwareOverrides: Record<string, unknown> = {
   },
   createSprint: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    return { id: "sprint-new-1", boardId: "board-new-1", name: "Sprint New", status: "active", organizationId: orgId };
+    return { id: "sprint-new-1", boardId: "board-new-1", name: "Sprint New", status: "active", workspaceId: orgId };
   },
   closeSprint: async () => null,
   closeSprintAdHoc: async () => null,
@@ -212,7 +212,7 @@ const orgAwareOverrides: Record<string, unknown> = {
       : {};
     return {
       id: "idea-new-1",
-      organizationId: orgId ?? "unknown",
+      workspaceId: orgId ?? "unknown",
       type: (input.type as string) ?? "idea",
       status: (input.status as string) ?? "active",
       title: String(input.title ?? "New Idea Item").trim(),
@@ -278,7 +278,7 @@ const orgAwareOverrides: Record<string, unknown> = {
       : {};
     return {
       id: "seed-new-1",
-      organizationId: orgId ?? "unknown",
+      workspaceId: orgId ?? "unknown",
       title: String(input.title ?? "New Seed").trim(),
       description: (input.description as string) ?? null,
       status: "active" as const,
@@ -316,38 +316,38 @@ const orgAwareOverrides: Record<string, unknown> = {
   // Tags
   getTags: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return [{ id: "tag-1", name: "test-tag", organizationId: ORG_A }];
+    if (orgId === ORG_A) return [{ id: "tag-1", name: "test-tag", workspaceId: ORG_A }];
     return [];
   },
   createTag: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    return { id: "tag-new-1", name: "new-tag", organizationId: orgId };
+    return { id: "tag-new-1", name: "new-tag", workspaceId: orgId };
   },
   deleteTag: async () => false,
   createTagIfNotExists: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    return { id: "tag-new-1", name: "new-tag", organizationId: orgId };
+    return { id: "tag-new-1", name: "new-tag", workspaceId: orgId };
   },
   getTagById: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return { id: "tag-1", name: "test-tag", organizationId: ORG_A };
+    if (orgId === ORG_A) return { id: "tag-1", name: "test-tag", workspaceId: ORG_A };
     return null;
   },
 
   // Documents
   getDocuments: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return { items: [{ id: "doc-1", title: "Test Doc", organizationId: ORG_A }], total: 1 };
+    if (orgId === ORG_A) return { items: [{ id: "doc-1", title: "Test Doc", workspaceId: ORG_A }], total: 1 };
     return { items: [], total: 0 };
   },
   getDocumentCategories: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return [{ id: "cat-1", name: "Category 1", organizationId: ORG_A }];
+    if (orgId === ORG_A) return [{ id: "cat-1", name: "Category 1", workspaceId: ORG_A }];
     return [];
   },
 
   // Members
-  getMembersByOrganizationId: async (...args: unknown[]) => {
+  getMembersByWorkspaceId: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
     if (orgId === ORG_A) {
       return [{
@@ -389,17 +389,17 @@ const orgAwareOverrides: Record<string, unknown> = {
   // Todos
   getTodoItems: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return { items: [{ id: "todo-1", title: "Test Todo", organizationId: ORG_A }], total: 1 };
+    if (orgId === ORG_A) return { items: [{ id: "todo-1", title: "Test Todo", workspaceId: ORG_A }], total: 1 };
     return { items: [], total: 0 };
   },
   getTodoItemById: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return { id: "todo-1", title: "Test Todo", organizationId: ORG_A };
+    if (orgId === ORG_A) return { id: "todo-1", title: "Test Todo", workspaceId: ORG_A };
     return null;
   },
   createTodoItem: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    return { id: "todo-new-1", title: "New Todo", organizationId: orgId };
+    return { id: "todo-new-1", title: "New Todo", workspaceId: orgId };
   },
   updateTodoItem: async () => null,
   deleteTodoItem: async () => false,
@@ -410,18 +410,18 @@ const orgAwareOverrides: Record<string, unknown> = {
   // Milestones
   getMilestonesByProject: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return [{ id: "ms-1", name: "Milestone 1", organizationId: ORG_A }];
+    if (orgId === ORG_A) return [{ id: "ms-1", name: "Milestone 1", workspaceId: ORG_A }];
     return [];
   },
   getMilestoneById: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return { id: "ms-1", name: "Milestone 1", organizationId: ORG_A };
+    if (orgId === ORG_A) return { id: "ms-1", name: "Milestone 1", workspaceId: ORG_A };
     return null;
   },
   getMilestoneProgress: async () => null,
   createMilestone: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    return { id: "ms-new-1", name: "New Milestone", organizationId: orgId };
+    return { id: "ms-new-1", name: "New Milestone", workspaceId: orgId };
   },
   updateMilestone: async () => null,
   deleteMilestone: async () => false,
@@ -431,23 +431,23 @@ const orgAwareOverrides: Record<string, unknown> = {
   // Expenses
   getExpenses: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return { items: [{ id: "exp-1", description: "Test Expense", organizationId: ORG_A }], total: 1 };
+    if (orgId === ORG_A) return { items: [{ id: "exp-1", description: "Test Expense", workspaceId: ORG_A }], total: 1 };
     return { items: [], total: 0 };
   },
   getExpenseById: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return { id: "exp-1", description: "Test Expense", organizationId: ORG_A };
+    if (orgId === ORG_A) return { id: "exp-1", description: "Test Expense", workspaceId: ORG_A };
     return null;
   },
   createExpense: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    return { id: "exp-new-1", description: "New Expense", organizationId: orgId };
+    return { id: "exp-new-1", description: "New Expense", workspaceId: orgId };
   },
   getExpenseCategories: async () => [],
   getExpenseAggregations: async () => ({ total: 0, byCategory: [] }),
   getRecurringExpenses: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return [{ id: "rec-1", organizationId: ORG_A }];
+    if (orgId === ORG_A) return [{ id: "rec-1", workspaceId: ORG_A }];
     return [];
   },
 
@@ -505,17 +505,17 @@ const orgAwareOverrides: Record<string, unknown> = {
 
   // Commits
   linkCommitToWorkItem: async () => ({ id: "commit-link-1" }),
-  getOrganizationMemberUserIdByGithubLogin: async () => null,
+  getWorkspaceMemberUserIdByGithubLogin: async () => null,
 
   // Agent jobs
   listRecentFailedJobs: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return [{ id: "job-1", organizationId: ORG_A }];
+    if (orgId === ORG_A) return [{ id: "job-1", workspaceId: ORG_A }];
     return [];
   },
   getJobById: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return { id: "job-1", organizationId: ORG_A };
+    if (orgId === ORG_A) return { id: "job-1", workspaceId: ORG_A };
     return null;
   },
   getJobErrorSummary: async () => null,
@@ -527,7 +527,7 @@ const orgAwareOverrides: Record<string, unknown> = {
   updateBugFixAttempt: async () => null,
   getClaimableBugFeedbackItems: async (...args: unknown[]) => {
     const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return [{ id: "feedback-1", organizationId: ORG_A }];
+    if (orgId === ORG_A) return [{ id: "feedback-1", workspaceId: ORG_A }];
     return [];
   },
   getFailedAttemptsByCluster: async () => [],
@@ -564,7 +564,7 @@ mock.module("@almirant/config", () => createLoggerMock());
 // --- WebSocket ---
 mock.module("../../shared/ws/ws-connection-manager", () => createWsMock());
 mock.module("../../shared/ws/feedback-events", () => ({
-  resolveFeedbackOrganizationId: () => null,
+  resolveFeedbackWorkspaceId: () => null,
   broadcastFeedbackItemCreated: () => {},
   broadcastFeedbackItemUpdated: () => {},
   broadcastFeedbackItemDeleted: () => {},
@@ -574,18 +574,18 @@ mock.module("../../shared/ws/feedback-events", () => ({
 }));
 
 // --- Setup helpers (used by every tool module via `../setup`) ---
-const _getOrganizationIdFromExtra = (extra: { authInfo?: { extra?: Record<string, unknown> } }) => {
-  const organizationId = extra.authInfo?.extra?.organizationId;
-  return typeof organizationId === "string" ? organizationId : undefined;
+const _getWorkspaceIdFromExtra = (extra: { authInfo?: { extra?: Record<string, unknown> } }) => {
+  const workspaceId = extra.authInfo?.extra?.workspaceId;
+  return typeof workspaceId === "string" ? workspaceId : undefined;
 };
 
 mock.module("../setup", () => ({
-  getOrganizationIdFromExtra: _getOrganizationIdFromExtra,
+  getWorkspaceIdFromExtra: _getWorkspaceIdFromExtra,
   assertOrgScope: (extra: { authInfo?: { extra?: Record<string, unknown> } }) => {
-    const orgId = _getOrganizationIdFromExtra(extra);
+    const orgId = _getWorkspaceIdFromExtra(extra);
     if (!orgId) {
       return {
-        content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }],
+        content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
         isError: true,
       };
     }
@@ -755,7 +755,7 @@ afterAll(() => {
 const withOrgB = {
   authInfo: {
     extra: {
-      organizationId: ORG_B,
+      workspaceId: ORG_B,
       projectId: "proj-test-2",
       userId: "user-test-2",
     },
@@ -938,7 +938,7 @@ const ORG_A_MARKERS = [
   testBoard.id,             // "board-test-1"
   testIdeaItem.id,          // "idea-test-1"
   testSeed.id,              // "seed-test-1"
-  testOrganization.name,    // "Test Organization" (without "B")
+  testWorkspace.name,    // "Test Workspace" (without "B")
   testWorkItem.title,       // "Test Work Item" (without "B")
   testProject.name,         // "Test Project" (without "B")
 ];
@@ -950,7 +950,7 @@ const containsOrgAData = (text: string): boolean => {
       // e.g., "Test Work Item B" contains "Test Work Item"
       if (marker === testWorkItem.title && text.includes("Test Work Item B")) continue;
       if (marker === testProject.name && text.includes("Test Project B")) continue;
-      if (marker === testOrganization.name && text.includes("Test Organization B")) continue;
+      if (marker === testWorkspace.name && text.includes("Test Workspace B")) continue;
       return true;
     }
   }

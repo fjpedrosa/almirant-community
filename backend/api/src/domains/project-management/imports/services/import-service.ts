@@ -71,7 +71,7 @@ const suggestMapping = (headers: string[]): ColumnMapping => {
     name: [/^name$/i, /^full\s*name$/i, /^nombre$/i],
     email: [/^email$/i, /^e-mail$/i, /^correo$/i],
     phone: [/^phone$/i, /^tel$/i, /^telephone$/i, /^mobile$/i, /^telefono$/i],
-    company: [/^company$/i, /^empresa$/i, /^organization$/i],
+    company: [/^company$/i, /^empresa$/i, /^workspace$/i],
     position: [/^position$/i, /^title$/i, /^job\s*title$/i, /^cargo$/i, /^puesto$/i],
     source: [/^source$/i, /^origen$/i, /^from$/i],
     profileUrl: [/^profile$/i, /^url$/i, /^linkedin$/i, /^link$/i],
@@ -110,7 +110,7 @@ export const previewCsv = (
 
 // Process import
 export const processImport = async (
-  organizationId: string,
+  workspaceId: string,
   fileName: string,
   columnMapping: ColumnMapping,
   data: Record<string, string>[],
@@ -125,7 +125,7 @@ export const processImport = async (
   }
 
   // Create import job
-  const job = await createImportJob(organizationId, {
+  const job = await createImportJob(workspaceId, {
     fileName,
     status: "processing",
     totalRows: data.length,
@@ -187,7 +187,7 @@ export const processImport = async (
 
     // Update progress every 10 rows
     if (processedRows % 10 === 0 || processedRows === data.length) {
-      await updateImportJob(organizationId, job.id, {
+      await updateImportJob(workspaceId, job.id, {
         processedRows,
         successCount,
         errorCount: errors.length,
@@ -197,7 +197,7 @@ export const processImport = async (
   }
 
   // Final update
-  const finalJob = await updateImportJob(organizationId, job.id, {
+  const finalJob = await updateImportJob(workspaceId, job.id, {
     status: errors.length === data.length ? "failed" : "completed",
     processedRows,
     successCount,

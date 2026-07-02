@@ -48,26 +48,26 @@ const PRIORITY_SCHEMA = t.Union([
 const normalizeErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Unexpected error";
 
-const getOrganizationIdFromContext = (ctx: unknown): string => {
-  const activeOrganization = (ctx as { activeOrganization?: { id?: string } }).activeOrganization;
-  if (!activeOrganization?.id) {
-    throw new Error("ACTIVE_ORGANIZATION_NOT_FOUND");
+const getWorkspaceIdFromContext = (ctx: unknown): string => {
+  const activeWorkspace = (ctx as { activeWorkspace?: { id?: string } }).activeWorkspace;
+  if (!activeWorkspace?.id) {
+    throw new Error("ACTIVE_WORKSPACE_NOT_FOUND");
   }
-  return activeOrganization.id;
+  return activeWorkspace.id;
 };
 
 const mapTodoErrorToHttp = (errorMessage: string): { status: number; message: string } => {
-  if (errorMessage === "ACTIVE_ORGANIZATION_NOT_FOUND") {
-    return { status: 403, message: "No active organization in session" };
+  if (errorMessage === "ACTIVE_WORKSPACE_NOT_FOUND") {
+    return { status: 403, message: "No active workspace in session" };
   }
   if (errorMessage === "TODO_ITEM_NOT_FOUND") {
     return { status: 404, message: "Todo item not found" };
   }
   if (errorMessage === "OWNER_NOT_MEMBER") {
-    return { status: 400, message: "Selected owner does not belong to active organization" };
+    return { status: 400, message: "Selected owner does not belong to active workspace" };
   }
-  if (errorMessage === "PROJECT_NOT_IN_ORGANIZATION") {
-    return { status: 400, message: "Selected project does not belong to active organization" };
+  if (errorMessage === "PROJECT_NOT_IN_WORKSPACE") {
+    return { status: 400, message: "Selected project does not belong to active workspace" };
   }
   if (errorMessage === "COMMENT_NOT_OWNED") {
     return { status: 403, message: "You can only edit or delete your own comments" };
@@ -82,7 +82,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
     async (ctx) => {
       try {
         const { query } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const pagination = parsePaginationParams(query);
         const { items, total } = await getTodoItems(orgId, pagination, {
           status: query.status,
@@ -124,7 +124,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const item = await getTodoItemById(orgId, params.id);
         if (!item) {
           set.status = 404;
@@ -145,7 +145,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
     async (ctx) => {
       try {
         const { body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const title = body.title?.trim();
         if (!title) {
@@ -171,7 +171,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
           }
         );
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "todo-item:created",
           payload: { todoItemId: item.id, title: item.title, projectId: item.projectId },
         });
@@ -203,7 +203,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const updated = await updateTodoItem(
           orgId,
@@ -229,7 +229,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
           return notFoundResponse("Todo item");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "todo-item:updated",
           payload: { todoItemId: params.id, changes: body as Record<string, unknown> },
         });
@@ -261,14 +261,14 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const deleted = await deleteTodoItem(orgId, params.id);
         if (!deleted) {
           set.status = 404;
           return notFoundResponse("Todo item");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "todo-item:deleted",
           payload: { todoItemId: params.id },
         });
@@ -288,7 +288,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const updated = await setTodoItemStatus(orgId, params.id, body.status, {
           triggeredBy: currentUser?.id ? "user" : "system",
@@ -299,7 +299,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
           return notFoundResponse("Todo item");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "todo-item:updated",
           payload: { todoItemId: params.id, changes: { status: body.status } },
         });
@@ -322,7 +322,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const updated = await assignTodoItemOwner(orgId, params.id, body.ownerUserId ?? null, {
           triggeredBy: currentUser?.id ? "user" : "system",
@@ -333,7 +333,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
           return notFoundResponse("Todo item");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "todo-item:updated",
           payload: { todoItemId: params.id, changes: { ownerUserId: body.ownerUserId } },
         });
@@ -356,7 +356,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const updated = await setTodoItemDueDate(orgId, params.id, body.dueDate ?? null, {
           triggeredBy: currentUser?.id ? "user" : "system",
@@ -367,7 +367,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
           return notFoundResponse("Todo item");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "todo-item:updated",
           payload: { todoItemId: params.id, changes: { dueDate: body.dueDate } },
         });
@@ -390,7 +390,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
 
         const item = await getTodoItemById(orgId, params.id);
         if (!item) {
@@ -410,7 +410,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
           return errorResponse("Either tagId or name is required", 400);
         }
 
-        // Verify tag belongs to organization
+        // Verify tag belongs to workspace
         const existingTag = await getTagById(orgId, tagId);
         if (!existingTag) {
           set.status = 404;
@@ -421,7 +421,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
 
         const updated = await getTodoItemById(orgId, params.id);
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "todo-item:updated",
           payload: { todoItemId: params.id, changes: { tagAdded: tagId } },
         });
@@ -449,7 +449,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
 
         const item = await getTodoItemById(orgId, params.id);
         if (!item) {
@@ -463,7 +463,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
           return notFoundResponse("Tag on todo item");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "todo-item:updated",
           payload: { todoItemId: params.id, changes: { tagRemoved: params.tagId } },
         });
@@ -483,7 +483,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         // Verify todo belongs to org
         const item = await getTodoItemById(orgId, params.id);
         if (!item) {
@@ -505,7 +505,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const item = await getTodoItemById(orgId, params.id);
         if (!item) {
           set.status = 404;
@@ -535,7 +535,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         if (!currentUser?.id) {
           set.status = 401;
@@ -560,7 +560,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
             void sendMentionNotification({
               mentionedUserId,
               actorUserId: currentUser.id,
-              organizationId: orgId,
+              workspaceId: orgId,
               entityType: "todo_item",
               entityId: params.id,
               entityTitle: item.title,
@@ -605,7 +605,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         if (!currentUser?.id) {
           set.status = 401;
@@ -638,7 +638,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
             void sendMentionNotification({
               mentionedUserId,
               actorUserId: currentUser.id,
-              organizationId: orgId,
+              workspaceId: orgId,
               entityType: "todo_item",
               entityId: params.id,
               entityTitle: item.title,
@@ -682,7 +682,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         if (!currentUser?.id) {
           set.status = 401;
@@ -714,7 +714,7 @@ export const todosRoutes = new Elysia({ prefix: "/todos" })
     async (ctx) => {
       try {
         const { params, query, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         // Verify todo belongs to org
         const item = await getTodoItemById(orgId, params.id);
         if (!item) {

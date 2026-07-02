@@ -292,7 +292,7 @@ export const resolveModelFromProviderKey = async (
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve an AI model using the organization's key policy.
+ * Resolve an AI model using the workspace's key policy.
  *
  * 1. Uses `resolveAiKey` to find the correct connection based on the org's
  *    `aiKeyPolicy` (org_only, org_preferred, user_preferred, user_only).
@@ -305,7 +305,7 @@ export const resolveModelFromProviderKey = async (
 export const resolveModelByPolicy = async (params: {
   provider: "openai" | "anthropic" | "google" | "zai" | "xai";
   userId: string;
-  organizationId: string;
+  workspaceId: string;
   modelName?: string;
   streaming?: boolean;
 }): Promise<ResolvedModel | null> => {
@@ -318,7 +318,7 @@ export const resolveModelByPolicy = async (params: {
   const resolved = await resolveAiKey({
     provider: params.provider,
     userId: params.userId,
-    organizationId: params.organizationId,
+    workspaceId: params.workspaceId,
     encryptionKey: env.ENCRYPTION_KEY,
   });
 

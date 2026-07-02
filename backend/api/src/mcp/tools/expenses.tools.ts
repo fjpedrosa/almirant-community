@@ -8,7 +8,7 @@ import {
   getExpenseCategories,
   getRecurringExpenses,
 } from "@almirant/database";
-import { getOrganizationIdFromExtra } from "../setup";
+import { getWorkspaceIdFromExtra } from "../setup";
 
 export const registerExpensesTools = (server: McpServer) => {
 
@@ -29,9 +29,9 @@ export const registerExpensesTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
         const pagination = {
           page: params.page ?? 1,
@@ -47,7 +47,7 @@ export const registerExpensesTools = (server: McpServer) => {
           dateTo: params.dateTo,
           search: params.search,
         };
-        const { items, total } = await getExpenses(organizationId, pagination, filters);
+        const { items, total } = await getExpenses(workspaceId, pagination, filters);
         return {
           content: [{ type: "text" as const, text: JSON.stringify({ items, total }, null, 2) }],
         };
@@ -69,11 +69,11 @@ export const registerExpensesTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
-        const expense = await getExpenseById(organizationId, params.id);
+        const expense = await getExpenseById(workspaceId, params.id);
         if (!expense) {
           return { content: [{ type: "text" as const, text: `Error: Expense '${params.id}' not found` }], isError: true };
         }
@@ -106,11 +106,11 @@ export const registerExpensesTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
-        const expense = await createExpense(organizationId, params as any);
+        const expense = await createExpense(workspaceId, params as any);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(expense, null, 2) }],
         };
@@ -135,11 +135,11 @@ export const registerExpensesTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
-        const aggregations = await getExpenseAggregations(organizationId, params);
+        const aggregations = await getExpenseAggregations(workspaceId, params);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(aggregations, null, 2) }],
         };
@@ -155,15 +155,15 @@ export const registerExpensesTools = (server: McpServer) => {
   // list_expense_categories
   server.tool(
     "list_expense_categories",
-    "List all expense categories for the organization.",
+    "List all expense categories for the workspace.",
     {},
     async (_params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
-        const categories = await getExpenseCategories(organizationId);
+        const categories = await getExpenseCategories(workspaceId);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(categories, null, 2) }],
         };
@@ -185,11 +185,11 @@ export const registerExpensesTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
-        const recurring = await getRecurringExpenses(organizationId, params.activeOnly ? { isActive: true } : undefined);
+        const recurring = await getRecurringExpenses(workspaceId, params.activeOnly ? { isActive: true } : undefined);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(recurring, null, 2) }],
         };

@@ -56,11 +56,11 @@ const STATUS_ORDER: Record<string, number> = {
  * Errors are caught and logged — this is a non-critical enhancement.
  */
 const fetchProjectRepositoryTree = async (
-  organizationId: string,
+  workspaceId: string,
   projectId: string
 ): Promise<string | undefined> => {
   try {
-    const repos = await getRepositories(organizationId, projectId);
+    const repos = await getRepositories(workspaceId, projectId);
     // Use the first repository (order=0, primary)
     const primaryRepo = repos[0];
     if (!primaryRepo || primaryRepo.provider !== "github") return undefined;
@@ -166,8 +166,8 @@ export const aiChatRoutes = new Elysia({ prefix: "/ai/chat" })
   .use(sessionContextTypes)
 
   // POST /ai/chat — SSE streaming chat with AI planning assistant
-  .post("/", async ({ body, set, activeOrganization, user }) => {
-    const orgId = activeOrganization!.id;
+  .post("/", async ({ body, set, activeWorkspace, user }) => {
+    const orgId = activeWorkspace!.id;
     const locale = user?.locale ?? "es";
     const { messages, projectId, boardId, providerKeyId, modelName } = body;
 
@@ -325,7 +325,7 @@ export const aiChatRoutes = new Elysia({ prefix: "/ai/chat" })
   })
 
   // POST /ai/chat/generate — Generate work items from AI output
-  .post("/generate", async ({ body, set, activeOrganization }) => {
+  .post("/generate", async ({ body, set, activeWorkspace }) => {
     try {
       // Ensure priority defaults to "medium" for items without it
       const itemsWithDefaults = body.items.map((item) => ({
@@ -334,7 +334,7 @@ export const aiChatRoutes = new Elysia({ prefix: "/ai/chat" })
       }));
 
       const result = await generateWorkItems({
-        organizationId: activeOrganization!.id,
+        workspaceId: activeWorkspace!.id,
         items: itemsWithDefaults,
         projectId: body.projectId,
         boardId: body.boardId,

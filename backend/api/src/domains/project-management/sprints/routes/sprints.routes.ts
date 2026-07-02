@@ -25,8 +25,8 @@ export const sprintsRoutes = new Elysia({ prefix: "/sprints" })
   // -------------------------------------------------------
   .get(
     "/:id/report",
-    async ({ params, query, set, activeOrganization }) => {
-      const orgId = activeOrganization!.id;
+    async ({ params, query, set, activeWorkspace }) => {
+      const orgId = activeWorkspace!.id;
       // 1. Get the sprint (org-scoped via board ownership)
       const sprint = await getSprintById(orgId, params.id);
       if (!sprint) {
@@ -154,7 +154,7 @@ export const sprintsRoutes = new Elysia({ prefix: "/sprints" })
         // 14. Optional screenshots section (evidence from image attachments on completed work items)
         try {
           const screenshots = await buildSprintScreenshotsSection({
-            organizationId: orgId,
+            workspaceId: orgId,
             sprintId: params.id,
             completedItems: completedItems.map((i) => ({
               workItemId: i.workItemId,
@@ -176,7 +176,7 @@ export const sprintsRoutes = new Elysia({ prefix: "/sprints" })
           SPRINT_DOCUMENT_KIND_CHANGELOG
         );
         if (changelogRef) {
-          const doc = await getDocumentById(activeOrganization!.id, changelogRef.id);
+          const doc = await getDocumentById(activeWorkspace!.id, changelogRef.id);
           if (doc?.content) {
             report.changelog = doc.content;
           }

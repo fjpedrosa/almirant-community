@@ -34,18 +34,18 @@ const isAllowedMimeType = (mimeType: string): boolean =>
 const buildEditorAssetUrl = (kind: "images" | "files", key: string): string =>
   `/api/uploads/${kind}/${key}`;
 
-const getEditorAssetPrefix = (kind: "images" | "files", organizationId: string): string =>
-  `${kind === "images" ? "editor-images" : "editor-files"}/${organizationId}/`;
+const getEditorAssetPrefix = (kind: "images" | "files", workspaceId: string): string =>
+  `${kind === "images" ? "editor-images" : "editor-files"}/${workspaceId}/`;
 
 const fetchEditorAsset = async ({
   key,
   kind,
-  organizationId,
+  workspaceId,
   set,
 }: {
   key: string;
   kind: "images" | "files";
-  organizationId: string;
+  workspaceId: string;
   set: { status?: unknown; headers: Record<string, unknown> };
 }) => {
   const bucket = getEditorUploadsBucket();
@@ -54,7 +54,7 @@ const fetchEditorAsset = async ({
     return errorResponse("S3 storage is not configured");
   }
 
-  const expectedPrefix = getEditorAssetPrefix(kind, organizationId);
+  const expectedPrefix = getEditorAssetPrefix(kind, workspaceId);
   if (!key.startsWith(expectedPrefix)) {
     set.status = 403;
     return errorResponse("Forbidden");
@@ -97,7 +97,7 @@ const fetchEditorAsset = async ({
       return errorResponse("Asset not found");
     }
 
-    logger.error({ err, key, kind, organizationId }, "Failed to fetch private editor asset from S3");
+    logger.error({ err, key, kind, workspaceId }, "Failed to fetch private editor asset from S3");
     set.status = 500;
     return errorResponse("Failed to fetch asset");
   }
@@ -109,7 +109,7 @@ export const uploadsRoutes = new Elysia({ prefix: "/uploads" })
   // POST /uploads/images - Upload an image to S3 (generic, for editor usage)
   .post(
     "/images",
-    async ({ body, set, activeOrganization }) => {
+    async ({ body, set, activeWorkspace }) => {
       try {
         const file = body.file;
         if (!file) {
@@ -134,7 +134,7 @@ export const uploadsRoutes = new Elysia({ prefix: "/uploads" })
           return errorResponse("S3 storage is not configured");
         }
 
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         let buffer: Uint8Array = new Uint8Array(await file.arrayBuffer());
         let fileName = file.name;
         let contentType = mimeType;
@@ -188,7 +188,7 @@ export const uploadsRoutes = new Elysia({ prefix: "/uploads" })
   // POST /uploads/files - Upload any supported file to S3 (images, PDFs, docs, etc.)
   .post(
     "/files",
-    async ({ body, set, activeOrganization }) => {
+    async ({ body, set, activeWorkspace }) => {
       try {
         const file = body.file;
         if (!file) {
@@ -218,7 +218,7 @@ export const uploadsRoutes = new Elysia({ prefix: "/uploads" })
           return errorResponse("S3 storage is not configured");
         }
 
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         let buffer: Uint8Array = new Uint8Array(await file.arrayBuffer());
         let fileName = file.name;
         let contentType = mimeType;
@@ -279,11 +279,11 @@ export const uploadsRoutes = new Elysia({ prefix: "/uploads" })
   )
   .get(
     "/images/*",
-    async ({ params, set, activeOrganization }) =>
+    async ({ params, set, activeWorkspace }) =>
       fetchEditorAsset({
         key: params["*"],
         kind: "images",
-        organizationId: activeOrganization!.id,
+        workspaceId: activeWorkspace!.id,
         set,
       }),
     {
@@ -294,11 +294,11 @@ export const uploadsRoutes = new Elysia({ prefix: "/uploads" })
   )
   .get(
     "/files/*",
-    async ({ params, set, activeOrganization }) =>
+    async ({ params, set, activeWorkspace }) =>
       fetchEditorAsset({
         key: params["*"],
         kind: "files",
-        organizationId: activeOrganization!.id,
+        workspaceId: activeWorkspace!.id,
         set,
       }),
     {

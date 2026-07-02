@@ -362,7 +362,7 @@ export const createOrchestrator = (config: OrchestratorConfig) => {
       }
 
       // ── Quota check ──────────────────────────────────────────
-      // Verify the organization has available quota for this provider before executing.
+      // Verify the workspace has available quota for this provider before executing.
       // If quota is exceeded, postpone the job until the reset period ends.
       // Fail-open: if the quota service is unreachable, the job proceeds normally.
       const quotaCheck = await checkQuotaAvailability(apiClient, job.provider);

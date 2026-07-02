@@ -2,7 +2,7 @@
 
 import { useProjects } from "./use-projects";
 
-// Hook to check if the current user/organization has any projects.
+// Hook to check if the current user/workspace has any projects.
 // Returns { hasProjects, isLoading } for conditional rendering of onboarding CTAs.
 //
 // Usage:

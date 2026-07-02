@@ -18,7 +18,7 @@ export const aiWorkItemsArraySchema = z.array(aiWorkItemSchema).min(1);
 export type AiWorkItem = z.infer<typeof aiWorkItemSchema>;
 
 export interface GenerateWorkItemsInput {
-  organizationId: string;
+  workspaceId: string;
   items: AiWorkItem[];
   projectId: string;
   boardId: string;
@@ -78,7 +78,7 @@ const topologicalSort = (items: AiWorkItem[]): AiWorkItem[] => {
 export const generateWorkItems = async (
   input: GenerateWorkItemsInput
 ): Promise<GenerateWorkItemsResult> => {
-  const { organizationId, items, projectId, boardId, boardColumnId } = input;
+  const { workspaceId, items, projectId, boardId, boardColumnId } = input;
 
   // Validate with Zod
   const parsed = aiWorkItemsArraySchema.parse(items);
@@ -104,7 +104,7 @@ export const generateWorkItems = async (
       }
 
       const created = await createWorkItem(
-        organizationId,
+        workspaceId,
         {
           projectId,
           boardId,

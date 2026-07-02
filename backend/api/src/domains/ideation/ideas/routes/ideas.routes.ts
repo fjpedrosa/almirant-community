@@ -9,7 +9,7 @@ import {
   deleteIdeaItem,
   deleteIdeaItemComment,
   enqueueNotification,
-  getMembersByOrganizationId,
+  getMembersByWorkspaceId,
   getCommentMentionUserIds,
   getCommentsByIdeaItem,
   getIdeaItemCommentVersions,
@@ -61,23 +61,23 @@ const PROMOTABLE_WORK_ITEM_TYPE_SCHEMA = t.Union([
 const normalizeErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Unexpected error";
 
-const getOrganizationIdFromContext = (ctx: unknown): string => {
-  const activeOrganization = (ctx as { activeOrganization?: { id?: string } }).activeOrganization;
-  if (!activeOrganization?.id) {
-    throw new Error("ACTIVE_ORGANIZATION_NOT_FOUND");
+const getWorkspaceIdFromContext = (ctx: unknown): string => {
+  const activeWorkspace = (ctx as { activeWorkspace?: { id?: string } }).activeWorkspace;
+  if (!activeWorkspace?.id) {
+    throw new Error("ACTIVE_WORKSPACE_NOT_FOUND");
   }
-  return activeOrganization.id;
+  return activeWorkspace.id;
 };
 
 const mapIdeaErrorToHttp = (errorMessage: string): { status: number; message: string } => {
-  if (errorMessage === "ACTIVE_ORGANIZATION_NOT_FOUND") {
-    return { status: 403, message: "No active organization in session" };
+  if (errorMessage === "ACTIVE_WORKSPACE_NOT_FOUND") {
+    return { status: 403, message: "No active workspace in session" };
   }
   if (errorMessage === "IDEA_ITEM_NOT_FOUND") {
     return { status: 404, message: "Idea item not found" };
   }
   if (errorMessage === "OWNER_NOT_MEMBER") {
-    return { status: 400, message: "Selected owner does not belong to active organization" };
+    return { status: 400, message: "Selected owner does not belong to active workspace" };
   }
   if (errorMessage === "INVALID_STATUS_FOR_TYPE") {
     return { status: 400, message: "Invalid status for the selected idea item type" };
@@ -91,8 +91,8 @@ const mapIdeaErrorToHttp = (errorMessage: string): { status: number; message: st
   if (errorMessage === "FEEDBACK_NOT_FOUND") {
     return { status: 404, message: "Feedback item not found" };
   }
-  if (errorMessage === "PROJECT_NOT_IN_ORGANIZATION") {
-    return { status: 400, message: "Selected project does not belong to active organization" };
+  if (errorMessage === "PROJECT_NOT_IN_WORKSPACE") {
+    return { status: 400, message: "Selected project does not belong to active workspace" };
   }
   if (errorMessage === "COMMENT_NOT_OWNED") {
     return { status: 403, message: "You can only edit or delete your own comments" };
@@ -112,7 +112,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { query } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const pagination = parsePaginationParams(query);
         const { items, total } = await getIdeaItems(orgId, pagination, {
           type: query.type,
@@ -160,7 +160,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const item = await getIdeaItemById(orgId, params.id);
         if (!item) {
           set.status = 404;
@@ -180,7 +180,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const title = body.title?.trim();
         if (!title) {
@@ -202,19 +202,19 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
           triggeredByUserId: currentUser?.id ?? null,
         });
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "idea-item:created",
           payload: { ideaItemId: item.id, type: item.type, title: item.title, projectId: item.projectId },
         });
 
-        const members = await getMembersByOrganizationId(orgId);
+        const members = await getMembersByWorkspaceId(orgId);
         const creatorUserId = currentUser?.id ?? item.createdByUserId ?? null;
         const creatorName = (currentUser as { name?: string } | undefined)?.name ?? "Un miembro del equipo";
         const notificationParams = members
           .filter((member) => member.userId !== creatorUserId)
           .map((member) => ({
             recipientUserId: member.userId,
-            organizationId: orgId,
+            workspaceId: orgId,
             type: "assignment" as const,
             title: "Nueva idea creada",
             body: `${creatorName} creó idea: ${item.title}`,
@@ -261,7 +261,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const updated = await updateIdeaItem(orgId, params.id, {
           projectId: body.projectId,
@@ -283,7 +283,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
           return notFoundResponse("Idea item");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "idea-item:updated",
           payload: { ideaItemId: params.id, changes: body as Record<string, unknown> },
         });
@@ -332,14 +332,14 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const deleted = await deleteIdeaItem(orgId, params.id);
         if (!deleted) {
           set.status = 404;
           return notFoundResponse("Idea item");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "idea-item:deleted",
           payload: { ideaItemId: params.id },
         });
@@ -358,7 +358,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const updated = await setIdeaItemStatus(orgId, params.id, body.status, {
           triggeredBy: currentUser?.id ? "user" : "system",
@@ -369,7 +369,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
           return notFoundResponse("Idea item");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "idea-item:updated",
           payload: { ideaItemId: params.id, changes: { status: body.status } },
         });
@@ -391,7 +391,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const updated = await assignIdeaItemOwner(orgId, params.id, body.ownerUserId ?? null, {
           triggeredBy: currentUser?.id ? "user" : "system",
@@ -402,7 +402,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
           return notFoundResponse("Idea item");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "idea-item:updated",
           payload: { ideaItemId: params.id, changes: { ownerUserId: body.ownerUserId } },
         });
@@ -441,7 +441,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const updated = await setIdeaItemDueDate(orgId, params.id, body.dueDate ?? null, {
           triggeredBy: currentUser?.id ? "user" : "system",
@@ -452,7 +452,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
           return notFoundResponse("Idea item");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "idea-item:updated",
           payload: { ideaItemId: params.id, changes: { dueDate: body.dueDate } },
         });
@@ -474,7 +474,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const updated = await toggleIdeaItemDiscussed(orgId, params.id, body.discussed, {
           triggeredBy: currentUser?.id ? "user" : "system",
@@ -485,7 +485,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
           return notFoundResponse("Idea item");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "idea-item:updated",
           payload: { ideaItemId: params.id, changes: { discussed: body.discussed } },
         });
@@ -507,7 +507,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const source = await getIdeaItemById(orgId, params.id);
         if (!source) {
           set.status = 404;
@@ -549,7 +549,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
           }
         );
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "work-item:created",
           payload: {
             workItemId: workItem.id,
@@ -614,7 +614,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, query, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const item = await getIdeaItemById(orgId, params.id);
         if (!item) {
           set.status = 404;
@@ -653,7 +653,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const traceability = await getIdeaItemTraceability(orgId, params.id);
         if (!traceability) {
           set.status = 404;
@@ -675,7 +675,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const link = await linkFeedbackToIdeaItem(
           orgId,
@@ -707,7 +707,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         const deleted = await unlinkFeedbackFromIdeaItem(
           orgId,
@@ -737,7 +737,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
 
         const item = await getIdeaItemById(orgId, params.id);
         if (!item) {
@@ -756,7 +756,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
           throw new Error("TAG_ID_OR_NAME_REQUIRED");
         }
 
-        // Verify tag belongs to organization
+        // Verify tag belongs to workspace
         const existingTag = await getTagById(orgId, tagId);
         if (!existingTag) {
           throw new Error("TAG_NOT_FOUND");
@@ -766,7 +766,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
 
         const updated = await getIdeaItemById(orgId, params.id);
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "idea-item:updated",
           payload: { ideaItemId: params.id, changes: { tagAdded: tagId } },
         });
@@ -793,7 +793,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
 
         const item = await getIdeaItemById(orgId, params.id);
         if (!item) {
@@ -807,7 +807,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
           return notFoundResponse("Tag on idea item");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "idea-item:updated",
           payload: { ideaItemId: params.id, changes: { tagRemoved: params.tagId } },
         });
@@ -827,7 +827,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const comments = await getCommentsByIdeaItem(orgId, params.id);
         return successResponse(comments);
       } catch (error) {
@@ -843,7 +843,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const ideaItem = await getIdeaItemById(orgId, params.id);
         if (!ideaItem) {
           set.status = 404;
@@ -872,7 +872,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         if (!currentUser?.id) {
           set.status = 401;
@@ -907,7 +907,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
           ).catch(() => {});
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "idea-comment:created",
           payload: { ideaItemId: params.id, commentId: comment.id },
         });
@@ -918,7 +918,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
             void sendMentionNotification({
               mentionedUserId,
               actorUserId: currentUser.id,
-              organizationId: orgId,
+              workspaceId: orgId,
               entityType: "idea_item",
               entityId: params.id,
               entityTitle: ideaItem.title,
@@ -966,7 +966,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         if (!currentUser?.id) {
           set.status = 401;
@@ -986,7 +986,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
           return notFoundResponse("Comment");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "idea-comment:updated",
           payload: { ideaItemId: params.id, commentId: params.commentId },
         });
@@ -1001,7 +1001,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
               void sendMentionNotification({
                 mentionedUserId,
                 actorUserId: currentUser.id,
-                organizationId: orgId,
+                workspaceId: orgId,
                 entityType: "idea_item",
                 entityId: params.id,
                 entityTitle: ideaItem.title,
@@ -1049,7 +1049,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const currentUser = (ctx as { user?: { id?: string } }).user;
         if (!currentUser?.id) {
           set.status = 401;
@@ -1061,7 +1061,7 @@ export const ideasRoutes = new Elysia({ prefix: "/ideas/items" })
           return notFoundResponse("Comment");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "idea-comment:deleted",
           payload: { ideaItemId: params.id, commentId: params.commentId },
         });

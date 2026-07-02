@@ -3,7 +3,7 @@ import { z } from "zod";
 import { createHash } from "crypto";
 import { createObservation, searchObservations } from "@almirant/database";
 import {
-  getOrganizationIdFromExtra,
+  getWorkspaceIdFromExtra,
   getProjectIdFromExtra,
 } from "../setup";
 import { assertSafeMemoryText } from "../../lib/memory/scrubber";
@@ -65,13 +65,13 @@ export const registerSeedMemoryTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: "Error: could not resolve organizationId from API key",
+                text: "Error: could not resolve workspaceId from API key",
               },
             ],
             isError: true,
@@ -81,7 +81,7 @@ export const registerSeedMemoryTools = (server: McpServer) => {
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
 
         const results = await searchObservations(
-          organizationId,
+          workspaceId,
           assertSafeMemoryText(params.query, "query"),
           {
             projectId,
@@ -179,13 +179,13 @@ export const registerSeedMemoryTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: "Error: could not resolve organizationId from API key",
+                text: "Error: could not resolve workspaceId from API key",
               },
             ],
             isError: true,
@@ -220,7 +220,7 @@ export const registerSeedMemoryTools = (server: McpServer) => {
           : undefined;
 
         const observation = await createObservation({
-          organizationId,
+          workspaceId,
           projectId,
           type: "seed",
           topicKey: normalizedTopicKey,

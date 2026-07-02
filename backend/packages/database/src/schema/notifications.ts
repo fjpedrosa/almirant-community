@@ -20,7 +20,7 @@ export const notifications = pgTable(
     recipientUserId: text("recipient_user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    organizationId: text("organization_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
     type: notificationTypeEnum("type").notNull(),
     title: varchar("title", { length: 255 }).notNull(),
     body: text("body"),
@@ -43,7 +43,7 @@ export const notifications = pgTable(
       table.recipientUserId,
       table.isRead
     ),
-    index("notifications_org_idx").on(table.organizationId),
+    index("notifications_org_idx").on(table.workspaceId),
     index("notifications_created_at_idx").on(table.createdAt),
   ]
 );
@@ -59,7 +59,7 @@ export const notificationPreferences = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    organizationId: text("organization_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
     notificationType: notificationTypeEnum("notification_type").notNull(),
     inAppEnabled: boolean("in_app_enabled").notNull().default(true),
     emailEnabled: boolean("email_enabled").notNull().default(true),
@@ -74,7 +74,7 @@ export const notificationPreferences = pgTable(
   (t) => [
     uniqueIndex("notification_preferences_user_org_type_unique").on(
       t.userId,
-      t.organizationId,
+      t.workspaceId,
       t.notificationType
     ),
   ]

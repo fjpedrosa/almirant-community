@@ -20,7 +20,7 @@ type ToolHandler = (
 
 const state = {
   itemScopeRow: {
-    orgId: testIntegrationBatch.organizationId,
+    orgId: testIntegrationBatch.workspaceId,
     batchId: testIntegrationBatch.id,
     workItemId: testIntegrationBatchItem.workItemId,
   } as null | { orgId: string; batchId: string; workItemId: string },
@@ -29,12 +29,12 @@ const state = {
     items: [testIntegrationBatchItem],
   },
   aiProcessingCalls: [] as Array<{
-    organizationId: string;
+    workspaceId: string;
     workItemId: string;
     isAiProcessing: boolean;
   }>,
   broadcasts: [] as Array<{
-    organizationId: string;
+    workspaceId: string;
     message: Record<string, unknown>;
   }>,
   itemStatusCalls: [] as Array<{
@@ -92,12 +92,12 @@ mock.module("@almirant/database", () =>
       };
     },
     setWorkItemAiProcessing: async (
-      organizationId: string,
+      workspaceId: string,
       workItemId: string,
       isAiProcessing: boolean,
     ) => {
       state.aiProcessingCalls.push({
-        organizationId,
+        workspaceId,
         workItemId,
         isAiProcessing,
       });
@@ -113,11 +113,11 @@ mock.module("@almirant/database", () =>
 
 mock.module("../../shared/ws/ws-connection-manager", () => ({
   wsConnectionManager: {
-    broadcastToOrganization: (
-      organizationId: string,
+    broadcastToWorkspace: (
+      workspaceId: string,
       message: Record<string, unknown>,
     ) => {
-      state.broadcasts.push({ organizationId, message });
+      state.broadcasts.push({ workspaceId, message });
     },
     sendToUser: () => {},
   },
@@ -146,7 +146,7 @@ const buildToolsRegistry = async () => {
 const withOrg = {
   authInfo: {
     extra: {
-      organizationId: testIntegrationBatch.organizationId,
+      workspaceId: testIntegrationBatch.workspaceId,
       projectId: testIntegrationBatch.projectId,
     },
   },
@@ -154,7 +154,7 @@ const withOrg = {
 
 beforeEach(() => {
   state.itemScopeRow = {
-    orgId: testIntegrationBatch.organizationId,
+    orgId: testIntegrationBatch.workspaceId,
     batchId: testIntegrationBatch.id,
     workItemId: testIntegrationBatchItem.workItemId,
   };
@@ -185,7 +185,7 @@ describe("integration batch MCP tools AI processing state", () => {
     ]);
     expect(state.aiProcessingCalls).toEqual([
       {
-        organizationId: testIntegrationBatch.organizationId,
+        workspaceId: testIntegrationBatch.workspaceId,
         workItemId: testIntegrationBatchItem.workItemId,
         isAiProcessing: true,
       },
@@ -211,7 +211,7 @@ describe("integration batch MCP tools AI processing state", () => {
     expect(result.isError).toBeUndefined();
     expect(state.aiProcessingCalls).toEqual([
       {
-        organizationId: testIntegrationBatch.organizationId,
+        workspaceId: testIntegrationBatch.workspaceId,
         workItemId: testIntegrationBatchItem.workItemId,
         isAiProcessing: false,
       },
@@ -241,7 +241,7 @@ describe("integration batch MCP tools AI processing state", () => {
     ]);
     expect(state.aiProcessingCalls).toEqual([
       {
-        organizationId: testIntegrationBatch.organizationId,
+        workspaceId: testIntegrationBatch.workspaceId,
         workItemId: testIntegrationBatchItem.workItemId,
         isAiProcessing: false,
       },
@@ -274,19 +274,19 @@ describe("integration batch MCP tools AI processing state", () => {
     ]);
     expect(state.aiProcessingCalls).toEqual([
       {
-        organizationId: testIntegrationBatch.organizationId,
+        workspaceId: testIntegrationBatch.workspaceId,
         workItemId: testIntegrationBatchItem.workItemId,
         isAiProcessing: false,
       },
       {
-        organizationId: testIntegrationBatch.organizationId,
+        workspaceId: testIntegrationBatch.workspaceId,
         workItemId: "wi-test-2",
         isAiProcessing: false,
       },
     ]);
   });
 
-  it("does not mark a block when the item belongs to another organization", async () => {
+  it("does not mark a block when the item belongs to another workspace", async () => {
     state.itemScopeRow = {
       orgId: "other-org",
       batchId: testIntegrationBatch.id,

@@ -54,12 +54,12 @@ const PLANNING_SESSION_STATUS_SCHEMA = t.Union([
 const normalizeErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Unexpected error";
 
-const getOrganizationIdFromContext = (ctx: unknown): string => {
-  const activeOrganization = (ctx as { activeOrganization?: { id?: string } }).activeOrganization;
-  if (!activeOrganization?.id) {
-    throw new Error("ACTIVE_ORGANIZATION_NOT_FOUND");
+const getWorkspaceIdFromContext = (ctx: unknown): string => {
+  const activeWorkspace = (ctx as { activeWorkspace?: { id?: string } }).activeWorkspace;
+  if (!activeWorkspace?.id) {
+    throw new Error("ACTIVE_WORKSPACE_NOT_FOUND");
   }
-  return activeOrganization.id;
+  return activeWorkspace.id;
 };
 
 const getUserIdFromContext = (ctx: unknown): string | undefined => {
@@ -114,8 +114,8 @@ const getWelcomeFallbacks = (locale: string) => {
 };
 
 const mapPlanningErrorToHttp = (errorMessage: string): { status: number; message: string } => {
-  if (errorMessage === "ACTIVE_ORGANIZATION_NOT_FOUND") {
-    return { status: 403, message: "No active organization in session" };
+  if (errorMessage === "ACTIVE_WORKSPACE_NOT_FOUND") {
+    return { status: 403, message: "No active workspace in session" };
   }
   if (errorMessage === "User already has an active planning session") {
     return { status: 409, message: "User already has an active planning session" };
@@ -138,7 +138,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
     async (ctx) => {
       try {
         const { query } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const pagination = parsePaginationParams(query);
         const { items, total } = await getPlanningSessions(orgId, query.projectId, pagination, {
           status: query.status as "active" | "completed" | "archived" | undefined,
@@ -168,7 +168,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        getOrganizationIdFromContext(ctx); // validate org access
+        getWorkspaceIdFromContext(ctx); // validate org access
         const session = await getPlanningSessionById(params.id);
         if (!session) {
           set.status = 404;
@@ -223,7 +223,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
     async (ctx) => {
       try {
         const { body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const userId = getUserIdFromContext(ctx);
 
         if (!userId) {
@@ -262,7 +262,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
           );
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "planning-session:created",
           payload: {
             sessionId: session.id,
@@ -305,7 +305,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const updated = await updatePlanningSession(params.id, {
           ...(body.title !== undefined && { title: body.title }),
           ...(body.status !== undefined && { status: body.status as "active" | "completed" | "archived" }),
@@ -317,7 +317,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
           return notFoundResponse("Planning session");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "planning-session:updated",
           payload: {
             sessionId: params.id,
@@ -371,7 +371,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        getOrganizationIdFromContext(ctx); // validate org access
+        getWorkspaceIdFromContext(ctx); // validate org access
         const deleted = await deletePlanningSession(params.id);
         if (!deleted) {
           set.status = 404;
@@ -393,14 +393,14 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const completed = await completePlanningSession(params.id, body.result);
         if (!completed) {
           set.status = 404;
           return notFoundResponse("Planning session");
         }
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "planning-session:completed",
           payload: {
             sessionId: params.id,
@@ -433,7 +433,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
 
         // Verify session exists
         const session = await getPlanningSessionById(params.id);
@@ -467,7 +467,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const userId = getUserIdFromContext(ctx);
 
         if (!userId) {
@@ -490,7 +490,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
           const activePendingInteraction = await getPendingInteractionForSession(params.id);
           if (activePendingInteraction) {
             const activeJob = await getActiveJobForPlanningSession(params.id);
-            wsConnectionManager.broadcastToOrganization(orgId, {
+            wsConnectionManager.broadcastToWorkspace(orgId, {
               type: "worker-interaction:created",
               payload: {
                 questionId: activePendingInteraction.id,
@@ -530,7 +530,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
             await completePlanningSession(activeSession.id, {
               summary: resumeMsg.closed,
             });
-            wsConnectionManager.broadcastToOrganization(orgId, {
+            wsConnectionManager.broadcastToWorkspace(orgId, {
               type: "planning-session:completed",
               payload: {
                 sessionId: activeSession.id,
@@ -556,12 +556,12 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
         if (existingPendingInteraction) {
           const pendingJob = await getActiveJobForPlanningSession(params.id);
           // A job is already waiting for user input — no need to create another one.
-          wsConnectionManager.broadcastToOrganization(orgId, {
+          wsConnectionManager.broadcastToWorkspace(orgId, {
             type: "planning-session:resumed",
             payload: { sessionId: params.id },
           });
           // Re-broadcast the pending interaction so the frontend can show the questionnaire.
-          wsConnectionManager.broadcastToOrganization(orgId, {
+          wsConnectionManager.broadcastToWorkspace(orgId, {
             type: "worker-interaction:created",
             payload: {
               questionId: existingPendingInteraction.id,
@@ -644,7 +644,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
           workItemId: null,
           planningSessionId: params.id,
           createdByUserId: userId,
-          organizationId: orgId,
+          workspaceId: orgId,
           jobType: "planning",
           provider: resumeProvider,
           priority: "medium",
@@ -675,7 +675,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
         });
 
         // Broadcast resumed event
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "planning-session:resumed",
           payload: {
             sessionId: params.id,
@@ -683,7 +683,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
         });
 
         // Broadcast job status
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "agent-job:status-changed",
           payload: {
             jobId: job.id,
@@ -717,7 +717,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
     "/:id/welcome",
     async (ctx) => {
       try {
-        getOrganizationIdFromContext(ctx); // validate org access
+        getWorkspaceIdFromContext(ctx); // validate org access
         const { body } = ctx;
 
         const locale = getUserLocaleFromContext(ctx);
@@ -784,7 +784,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        getOrganizationIdFromContext(ctx);
+        getWorkspaceIdFromContext(ctx);
 
         const session = await getPlanningSessionById(params.id);
         if (!session) {
@@ -907,7 +907,7 @@ Examples:
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        const orgId = getOrganizationIdFromContext(ctx);
+        const orgId = getWorkspaceIdFromContext(ctx);
         const userId = getUserIdFromContext(ctx);
 
         if (!userId) {
@@ -951,7 +951,7 @@ Examples:
           workItemId: null,
           planningSessionId: params.id,
           createdByUserId: userId,
-          organizationId: orgId,
+          workspaceId: orgId,
           jobType: "prewarm",
           provider: reqProvider,
           priority: "medium",
@@ -978,7 +978,7 @@ Examples:
           interactive: false,
         });
 
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "agent-job:status-changed",
           payload: {
             jobId: job.id,
@@ -1009,7 +1009,7 @@ Examples:
     async (ctx) => {
       try {
         const { params } = ctx;
-        getOrganizationIdFromContext(ctx); // validate org access
+        getWorkspaceIdFromContext(ctx); // validate org access
         const seeds = await getSeedsBySession(params.id);
         return successResponse(seeds);
       } catch (error) {
@@ -1027,7 +1027,7 @@ Examples:
     async (ctx) => {
       try {
         const { params, body, set } = ctx;
-        getOrganizationIdFromContext(ctx); // validate org access
+        getWorkspaceIdFromContext(ctx); // validate org access
         await addSeedToSession(params.id, body.seedId);
         set.status = 201;
         return successResponse({ added: true });
@@ -1049,7 +1049,7 @@ Examples:
     async (ctx) => {
       try {
         const { params, set } = ctx;
-        getOrganizationIdFromContext(ctx); // validate org access
+        getWorkspaceIdFromContext(ctx); // validate org access
         const removed = await removeSeedFromSession(params.id, params.seedId);
         if (!removed) {
           set.status = 404;
@@ -1075,7 +1075,7 @@ Examples:
     async (ctx) => {
       try {
         const { params, query, set } = ctx;
-        getOrganizationIdFromContext(ctx); // validate org access
+        getWorkspaceIdFromContext(ctx); // validate org access
 
         const session = await getPlanningSessionById(params.id);
         if (!session) {
@@ -1120,7 +1120,7 @@ Examples:
     async (ctx) => {
       try {
         const { params } = ctx;
-        getOrganizationIdFromContext(ctx); // validate org access
+        getWorkspaceIdFromContext(ctx); // validate org access
         const workItems = await getWorkItemsBySession(params.id);
         return successResponse(workItems);
       } catch (error) {

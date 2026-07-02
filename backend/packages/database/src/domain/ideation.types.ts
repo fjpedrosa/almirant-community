@@ -24,7 +24,7 @@ export type IdeaItemEventTriggeredBy = "user" | "system" | "claude-code" | "code
 
 export interface IdeaItem {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string | null;
   type: IdeaItemType;
   status: IdeaItemStatus;
@@ -192,7 +192,7 @@ export type SeedSource = "manual" | "feedback" | "ai_generated" | "import";
 
 export interface Seed {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string | null;
   status: SeedStatus;
   title: string;
@@ -291,7 +291,7 @@ export type TodoItemStatus = "pending" | "in_progress" | "done" | "blocked";
 
 export interface TodoItem {
   id: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string | null;
   title: string;
   description: string | null;

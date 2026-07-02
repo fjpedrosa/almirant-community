@@ -1,14 +1,14 @@
 /**
- * Backfill script: Create a default organization and assign all existing data to it.
+ * Backfill script: Create a default workspace and assign all existing data to it.
  *
  * This script:
- * 1. Creates a "Default" organization (or finds existing one by slug "default")
+ * 1. Creates a "Default" workspace (or finds existing one by slug "default")
  * 2. Creates a "member" record (role=owner) for each existing user
- * 3. Updates all session records to set active_organization_id
- * 4. Backfills organization_id on all tenant-scoped tables where it's NULL
+ * 3. Updates all session records to set active_workspace_id
+ * 4. Backfills workspace_id on all tenant-scoped tables where it's NULL
  *
  * Idempotent: safe to run multiple times. Uses ON CONFLICT DO NOTHING for inserts,
- * and only updates rows WHERE organization_id IS NULL.
+ * and only updates rows WHERE workspace_id IS NULL.
  *
  * Usage:
  *   cd backend/packages/database
@@ -16,7 +16,7 @@
  */
 
 import { db, closeConnections } from "../client";
-import { organization, member } from "../schema/organization";
+import { workspace, member } from "../schema/workspace";
 import { user, session } from "../schema/auth";
 import { eq, isNull, sql } from "drizzle-orm";
 
@@ -24,30 +24,30 @@ const DEFAULT_ORG_SLUG = "default";
 const DEFAULT_ORG_NAME = "Default";
 
 const main = async () => {
-  console.log("=== Backfill Organization Script ===\n");
+  console.log("=== Backfill Workspace Script ===\n");
 
   // ---------------------------------------------------------------
-  // Step 1: Create or find the default organization
+  // Step 1: Create or find the default workspace
   // ---------------------------------------------------------------
-  console.log("Step 1: Ensuring default organization exists...");
+  console.log("Step 1: Ensuring default workspace exists...");
 
   const existingOrg = await db
     .select()
-    .from(organization)
-    .where(eq(organization.slug, DEFAULT_ORG_SLUG))
+    .from(workspace)
+    .where(eq(workspace.slug, DEFAULT_ORG_SLUG))
     .limit(1);
 
   let defaultOrgId: string;
 
   if (existingOrg.length > 0) {
     defaultOrgId = existingOrg[0].id;
-    console.log(`  [SKIP] Default organization already exists: ${defaultOrgId}`);
+    console.log(`  [SKIP] Default workspace already exists: ${defaultOrgId}`);
   } else {
     // Generate a random ID in the same format Better-Auth uses (nanoid-like)
     const id = crypto.randomUUID().replace(/-/g, "").slice(0, 24);
 
     const [newOrg] = await db
-      .insert(organization)
+      .insert(workspace)
       .values({
         id,
         name: DEFAULT_ORG_NAME,
@@ -56,7 +56,7 @@ const main = async () => {
       .returning();
 
     defaultOrgId = newOrg.id;
-    console.log(`  [OK] Created default organization: ${defaultOrgId}`);
+    console.log(`  [OK] Created default workspace: ${defaultOrgId}`);
   }
 
   // ---------------------------------------------------------------
@@ -81,7 +81,7 @@ const main = async () => {
         .insert(member)
         .values({
           id: memberId,
-          organizationId: defaultOrgId,
+          workspaceId: defaultOrgId,
           userId: u.id,
           role: "owner",
         })
@@ -96,12 +96,12 @@ const main = async () => {
         console.log(`  [SKIP] ${u.name} (${u.email}) already a member`);
       }
     } catch (error) {
-      // If there's no unique constraint on (organizationId, userId), we check manually
+      // If there's no unique constraint on (workspaceId, userId), we check manually
       const existing = await db
         .select({ id: member.id })
         .from(member)
         .where(
-          sql`${member.organizationId} = ${defaultOrgId} AND ${member.userId} = ${u.id}`
+          sql`${member.workspaceId} = ${defaultOrgId} AND ${member.userId} = ${u.id}`
         )
         .limit(1);
 
@@ -117,22 +117,22 @@ const main = async () => {
   console.log(`  Members created: ${membersCreated}, skipped: ${membersSkipped}`);
 
   // ---------------------------------------------------------------
-  // Step 3: Update sessions to set active_organization_id
+  // Step 3: Update sessions to set active_workspace_id
   // ---------------------------------------------------------------
-  console.log("\nStep 3: Updating sessions with active_organization_id...");
+  console.log("\nStep 3: Updating sessions with active_workspace_id...");
 
   const sessionResult = await db
     .update(session)
-    .set({ activeOrganizationId: defaultOrgId })
-    .where(isNull(session.activeOrganizationId))
+    .set({ activeWorkspaceId: defaultOrgId })
+    .where(isNull(session.activeWorkspaceId))
     .returning({ id: session.id });
 
   console.log(`  [OK] Updated ${sessionResult.length} sessions.`);
 
   // ---------------------------------------------------------------
-  // Step 4: Backfill organization_id on all tenant-scoped tables
+  // Step 4: Backfill workspace_id on all tenant-scoped tables
   // ---------------------------------------------------------------
-  console.log("\nStep 4: Backfilling organization_id on tenant-scoped tables...");
+  console.log("\nStep 4: Backfilling workspace_id on tenant-scoped tables...");
 
   const tableNames = [
     "tags",
@@ -150,7 +150,7 @@ const main = async () => {
 
   for (const tableName of tableNames) {
     const result = await db.execute(
-      sql`UPDATE ${sql.identifier(tableName)} SET organization_id = ${defaultOrgId} WHERE organization_id IS NULL`
+      sql`UPDATE ${sql.identifier(tableName)} SET workspace_id = ${defaultOrgId} WHERE workspace_id IS NULL`
     );
 
     const count = Number(result.count ?? result.length ?? 0);
@@ -165,8 +165,8 @@ const main = async () => {
   // Summary
   // ---------------------------------------------------------------
   console.log("\n=== Backfill Complete ===");
-  console.log(`Default organization ID: ${defaultOrgId}`);
-  console.log(`Default organization slug: ${DEFAULT_ORG_SLUG}`);
+  console.log(`Default workspace ID: ${defaultOrgId}`);
+  console.log(`Default workspace slug: ${DEFAULT_ORG_SLUG}`);
 
   await closeConnections();
   process.exit(0);

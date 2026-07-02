@@ -9,7 +9,7 @@ type PendingSprintClose = {
   kind: "sprint-close";
   sprintId: string;
   boardId: string;
-  organizationId: string;
+  workspaceId: string;
   userId: string;
 };
 
@@ -30,7 +30,7 @@ export async function handleSprintCommand(
     return { parseMode: "Markdown", text: "No pude cargar el board activo." };
   }
 
-  const sprint = await getActiveSprint(board.organizationId, st.activeBoardId);
+  const sprint = await getActiveSprint(board.workspaceId, st.activeBoardId);
 
   if (!sprint) {
     return {
@@ -66,7 +66,7 @@ export async function handleSprintCloseCommand(
     return { parseMode: "Markdown", text: "No hay sprint activo para cerrar." };
   }
 
-  const sprint = await getActiveSprint(board.organizationId, st.activeBoardId);
+  const sprint = await getActiveSprint(board.workspaceId, st.activeBoardId);
   if (!sprint) {
     return { parseMode: "Markdown", text: "No hay sprint activo para cerrar." };
   }
@@ -75,7 +75,7 @@ export async function handleSprintCloseCommand(
     kind: "sprint-close",
     sprintId: sprint.id,
     boardId: board.id,
-    organizationId: board.organizationId,
+    workspaceId: board.workspaceId,
     userId: ctx.userId,
   });
 
@@ -105,7 +105,7 @@ export async function handleSprintCloseConfirmCallback(
   const data = callbackStore.take<PendingSprintClose>(token);
   if (!data || data.kind !== "sprint-close") return null;
 
-  const sprint = await closeSprint(data.organizationId, data.sprintId, data.boardId);
+  const sprint = await closeSprint(data.workspaceId, data.sprintId, data.boardId);
   kickoffSprintVisualReportGeneration({
     sprintId: sprint.id,
     boardId: data.boardId,

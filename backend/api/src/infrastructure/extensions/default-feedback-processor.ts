@@ -18,7 +18,7 @@ import type { NewFeedbackItem } from "@almirant/database";
  * persistence step plus enqueues the triage agent job.
  *
  * Field mapping (FeedbackIngestInput → feedback_items):
- *   - organizationId → metadata.organizationId  (feedback is mono-project)
+ *   - workspaceId → metadata.workspaceId  (feedback is mono-project)
  *   - projectId      → metadata.projectId       (audit only; Almirant-only)
  *   - title          → title                    (trimmed)
  *   - body           → content
@@ -33,7 +33,7 @@ export const defaultFeedbackProcessor: FeedbackProcessor = {
       category:
         (input.category as NewFeedbackItem["category"]) ?? "other",
       metadata: {
-        organizationId: input.organizationId,
+        workspaceId: input.workspaceId,
         projectId: input.projectId,
         userId: input.userId,
       },

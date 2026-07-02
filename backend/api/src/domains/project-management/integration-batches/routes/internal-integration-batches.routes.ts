@@ -447,7 +447,7 @@ export const internalIntegrationBatchesRoutes = new Elysia({
           const batchWithItems = await getBatchByIdWithItems(params.id);
           if (batchWithItems) {
             await clearReleaseIntegrationBatchItemsAiProcessing({
-              organizationId: batchWithItems.organizationId,
+              workspaceId: batchWithItems.workspaceId,
               items: batchWithItems.items,
             });
           }
@@ -546,7 +546,7 @@ export const internalIntegrationBatchesRoutes = new Elysia({
         );
         if (item) {
           await syncReleaseIntegrationItemAiProcessing({
-            organizationId: batch.organizationId,
+            workspaceId: batch.workspaceId,
             workItemId: batchItem.workItemId,
             status: "failed",
           });
@@ -570,7 +570,7 @@ export const internalIntegrationBatchesRoutes = new Elysia({
         );
         if (item) {
           await syncReleaseIntegrationItemAiProcessing({
-            organizationId: batch.organizationId,
+            workspaceId: batch.workspaceId,
             workItemId: batchItem.workItemId,
             status: body.status as IntegrationBatchItemStatus,
           });

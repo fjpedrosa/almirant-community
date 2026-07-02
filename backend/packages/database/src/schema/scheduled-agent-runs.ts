@@ -9,7 +9,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { scheduledAgentConfigs } from "./scheduled-agent-configs";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 
 // Scheduled agent runs table - tracks individual executions of scheduled agents
 export const scheduledAgentRuns = pgTable(
@@ -19,9 +19,9 @@ export const scheduledAgentRuns = pgTable(
     configId: uuid("config_id")
       .notNull()
       .references(() => scheduledAgentConfigs.id, { onDelete: "cascade" }),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     status: varchar("status", { length: 20 }).notNull().default("pending"),
     startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -36,7 +36,7 @@ export const scheduledAgentRuns = pgTable(
   (table) => [
     index("scheduled_agent_runs_config_started_idx").on(table.configId, table.startedAt),
     index("scheduled_agent_runs_status_idx").on(table.status),
-    index("scheduled_agent_runs_organization_id_idx").on(table.organizationId),
+    index("scheduled_agent_runs_workspace_id_idx").on(table.workspaceId),
   ]
 );
 

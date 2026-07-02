@@ -50,7 +50,7 @@ const orgVisibleWorkerIdsSubquery = (orgId: string) => {
     .from(agentJobs)
     .where(
       and(
-        eq(agentJobs.organizationId, orgId),
+        eq(agentJobs.workspaceId, orgId),
         sql`${agentJobs.workerId} IS NOT NULL`
       )
     );
@@ -79,7 +79,7 @@ export const getMetricsHistory = async (
       .where(
         and(
           eq(agentJobs.workerId, workerId),
-          eq(agentJobs.organizationId, orgId)
+          eq(agentJobs.workspaceId, orgId)
         )
       )
       .limit(1);

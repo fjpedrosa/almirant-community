@@ -177,30 +177,30 @@ const requireWorkerApiKey = async (request: Request): Promise<ApiKey | null> => 
   return apiKey;
 };
 
-/** Resolve organizationId from a workItemId via the work item's project. */
+/** Resolve workspaceId from a workItemId via the work item's project. */
 const resolveOrgIdFromWorkItem = async (workItemId: string | null): Promise<string | null> => {
   if (!workItemId) return null;
   const [row] = await db
-    .select({ organizationId: projects.organizationId })
+    .select({ workspaceId: projects.workspaceId })
     .from(workItems)
     .innerJoin(projects, eq(workItems.projectId, projects.id))
     .where(eq(workItems.id, workItemId))
     .limit(1);
-  return row?.organizationId ?? null;
+  return row?.workspaceId ?? null;
 };
 
-/** Resolve organizationId from a planningSessionId directly (planning_sessions has organizationId). */
+/** Resolve workspaceId from a planningSessionId directly (planning_sessions has workspaceId). */
 const resolveOrgIdFromPlanningSession = async (planningSessionId: string | null): Promise<string | null> => {
   if (!planningSessionId) return null;
   const [row] = await db
-    .select({ organizationId: planningSessions.organizationId })
+    .select({ workspaceId: planningSessions.workspaceId })
     .from(planningSessions)
     .where(eq(planningSessions.id, planningSessionId))
     .limit(1);
-  return row?.organizationId ?? null;
+  return row?.workspaceId ?? null;
 };
 
-/** Resolve organizationId from either workItemId or planningSessionId. */
+/** Resolve workspaceId from either workItemId or planningSessionId. */
 const resolveOrgId = async (workItemId: string | null, planningSessionId: string | null): Promise<string | null> => {
   if (workItemId) return resolveOrgIdFromWorkItem(workItemId);
   if (planningSessionId) return resolveOrgIdFromPlanningSession(planningSessionId);
@@ -295,7 +295,7 @@ const broadcastPlanningToolUse = ({
   planningSessionId: string;
   toolUse: PlanningToolUseEnvelope;
 }): void => {
-  wsConnectionManager.broadcastToOrganization(orgId, {
+  wsConnectionManager.broadcastToWorkspace(orgId, {
     type: "planning:tool-call-start",
     payload: {
       sessionId: planningSessionId,
@@ -316,7 +316,7 @@ const broadcastPlanningToolUse = ({
     const isBackground =
       pickFirstBoolean(input, ["run_in_background", "isBackground"]) ?? false;
 
-    wsConnectionManager.broadcastToOrganization(orgId, {
+    wsConnectionManager.broadcastToWorkspace(orgId, {
       type: "planning:subagent-spawn",
       payload: {
         sessionId: planningSessionId,
@@ -335,7 +335,7 @@ const broadcastPlanningToolUse = ({
 
     const description = pickFirstString(input, ["description"]);
 
-    wsConnectionManager.broadcastToOrganization(orgId, {
+    wsConnectionManager.broadcastToWorkspace(orgId, {
       type: "planning:bash-execute",
       payload: {
         sessionId: planningSessionId,
@@ -352,7 +352,7 @@ const broadcastPlanningToolUse = ({
 
     const lineRange = pickFirstString(input, ["line_range", "lineRange", "range"]);
 
-    wsConnectionManager.broadcastToOrganization(orgId, {
+    wsConnectionManager.broadcastToWorkspace(orgId, {
       type: "planning:file-read",
       payload: {
         sessionId: planningSessionId,
@@ -367,7 +367,7 @@ const broadcastPlanningToolUse = ({
     const filePath = pickFirstString(input, ["file_path", "filePath", "path"]);
     if (!filePath) return;
 
-    wsConnectionManager.broadcastToOrganization(orgId, {
+    wsConnectionManager.broadcastToWorkspace(orgId, {
       type: "planning:file-change",
       payload: {
         sessionId: planningSessionId,
@@ -380,7 +380,7 @@ const broadcastPlanningToolUse = ({
 
 const broadcastStatusChanged = async (
   job: {
-    organizationId?: string | null;
+    workspaceId?: string | null;
     workItemId?: string | null;
     planningSessionId?: string | null;
   },
@@ -391,17 +391,17 @@ const broadcastStatusChanged = async (
     planningSessionId?: string | null;
   },
 ) => {
-  // Prefer the job's own organizationId (always populated). Only resolve via
+  // Prefer the job's own workspaceId (always populated). Only resolve via
   // workItem/planningSession as a legacy fallback for older call sites that
   // lack the full job record.
   const orgId =
-    job.organizationId ??
+    job.workspaceId ??
     (await resolveOrgId(
       job.workItemId ?? args.workItemId ?? null,
       job.planningSessionId ?? args.planningSessionId ?? null,
     ));
   broadcastAgentJobStatusChanged({
-    organizationId: orgId,
+    workspaceId: orgId,
     jobId: args.jobId,
     status: args.status,
     workItemId: args.workItemId,
@@ -534,10 +534,10 @@ const pickAttachmentWorkspacePath = (metadata: Record<string, unknown>): string 
 };
 
 const buildRequiredImplementationResourceEstimate = async (
-  organizationId: string,
+  workspaceId: string,
   workItemId: string,
 ): Promise<NonNullable<AgentJobConfig["resourceEstimate"]>> => {
-  const forecast = await buildWorkItemResourceForecast(organizationId, workItemId, {
+  const forecast = await buildWorkItemResourceForecast(workspaceId, workItemId, {
     persist: true,
   });
 
@@ -594,15 +594,15 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       // use its credentials, bypassing the org's default resolution order.
       const preferredConnectionId = query.preferredConnectionId?.trim() || null;
 
-      // Security: derive organizationId from the API key, falling back to the
+      // Security: derive workspaceId from the API key, falling back to the
       // job's org when a jobId is provided.  Shared/dynamic runners may have an
       // API key that belongs to a different org than the job they claimed —
       // this is expected in the multi-tenant model where runners are created by
-      // the scaler and can pick up work for any organization.  The credential
+      // the scaler and can pick up work for any workspace.  The credential
       // resolution below is scoped to the resolved org, so credentials from one
       // org are never leaked to a job from another.
       let createdByUserId = query.createdByUserId?.trim() || null;
-      let organizationId: string | null = workerApiKey!.organizationId;
+      let workspaceId: string | null = workerApiKey!.workspaceId;
       const jobId = query.jobId?.trim() || null;
 
       if (jobId) {
@@ -613,9 +613,9 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         }
         createdByUserId = createdByUserId ?? job.job.createdByUserId ?? null;
         // Use the job's org for credential resolution so that shared runners
-        // can serve jobs from any organization.
-        if (job.job.organizationId) {
-          organizationId = job.job.organizationId;
+        // can serve jobs from any workspace.
+        if (job.job.workspaceId) {
+          workspaceId = job.job.workspaceId;
         }
       }
 
@@ -634,11 +634,11 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         //    active, and matches the requested provider, use it directly.
         //    Otherwise we log a warning and fall through to the normal
         //    resolution path below so the job still executes.
-        if (preferredConnectionId && organizationId) {
+        if (preferredConnectionId && workspaceId) {
           const pinned = await getConnectionById(
             preferredConnectionId,
             env.ENCRYPTION_KEY,
-            { scope: "organization", scopeId: organizationId },
+            { scope: "organization", scopeId: workspaceId },
           );
           if (
             pinned &&
@@ -652,7 +652,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
             logger.info(
               {
                 provider,
-                organizationId,
+                workspaceId,
                 connectionId: pinned.id,
               },
               "provider-keys: using admin-pinned connection",
@@ -661,7 +661,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
             logger.warn(
               {
                 provider,
-                organizationId,
+                workspaceId,
                 preferredConnectionId,
                 found: !!pinned,
                 isActive: pinned?.isActive,
@@ -672,12 +672,12 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           }
         }
 
-        if (!connection && organizationId) {
+        if (!connection && workspaceId) {
           // 1. Try orchestration-enabled connections first (preferred path)
           let resolved = await resolveAiKey({
             provider,
             userId: createdByUserId,
-            organizationId,
+            workspaceId,
             encryptionKey: env.ENCRYPTION_KEY,
             forOrchestration: true,
             excludeConnectionIds: excludeConnectionIds.length > 0 ? excludeConnectionIds : undefined,
@@ -688,13 +688,13 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           //    orchestrationEnabled is false.
           if (!resolved) {
             logger.info(
-              { provider, organizationId },
+              { provider, workspaceId },
               "No orchestration-enabled connection found, retrying with all org connections",
             );
             resolved = await resolveAiKey({
               provider,
               userId: createdByUserId,
-              organizationId,
+              workspaceId,
               encryptionKey: env.ENCRYPTION_KEY,
               forOrchestration: false,
               excludeConnectionIds: excludeConnectionIds.length > 0 ? excludeConnectionIds : undefined,
@@ -740,26 +740,26 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
             logger.error(
               {
                 provider,
-                organizationId,
+                workspaceId,
                 excludedConnectionIds: excludeConnectionIds,
               },
               "Hot-swap failed: no alternative connection available after rate limit. All connections exhausted.",
             );
           }
 
-          // HARD STOP: if we have an organizationId but still no connection,
+          // HARD STOP: if we have a workspaceId but still no connection,
           // do NOT fall through to the global lookup. That would use another
           // org's credentials — a critical isolation violation.
           if (!connection || !credentials) {
             logger.error(
-              { provider, organizationId },
-              "No usable connection found for organization — refusing cross-org fallback",
+              { provider, workspaceId },
+              "No usable connection found for workspace — refusing cross-org fallback",
             );
             continue;
           }
         }
 
-        // Global fallback: only when there is NO organizationId (legacy/system jobs)
+        // Global fallback: only when there is NO workspaceId (legacy/system jobs)
         if (!connection || !credentials) {
           const fallbackProvider = provider;
           const row = await getLatestActiveAiKeyByProvider(fallbackProvider);
@@ -1037,7 +1037,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // GET /workers/work-items/:id
-  // Shared runners may process work items from any organization.
+  // Shared runners may process work items from any workspace.
   .get(
     "/work-items/:id",
     async ({ params, set }) => {
@@ -1129,10 +1129,10 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           return errorResponse("An active job already exists for this work item");
         }
 
-        const organizationId = await resolveOrgIdFromWorkItem(body.workItemId);
-        if (!organizationId) {
+        const workspaceId = await resolveOrgIdFromWorkItem(body.workItemId);
+        if (!workspaceId) {
           set.status = 400;
-          return errorResponse("Unable to resolve organization for work item");
+          return errorResponse("Unable to resolve workspace for work item");
         }
 
         const resolvedJobType = body.jobType ?? "validation";
@@ -1143,12 +1143,12 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         if (!resourceEstimate && resolvedJobType === "implementation") {
           try {
             resourceEstimate = await buildRequiredImplementationResourceEstimate(
-              organizationId,
+              workspaceId,
               body.workItemId,
             );
           } catch (error) {
             logger.error(
-              { error, workItemId: body.workItemId, organizationId },
+              { error, workItemId: body.workItemId, workspaceId },
               "workers/jobs: failed to calculate required implementation resource forecast",
             );
             set.status = 500;
@@ -1168,7 +1168,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           projectId: workItem.projectId ?? null,
           boardId: workItem.boardId ?? null,
           workItemId: workItem.id,
-          organizationId,
+          workspaceId,
           jobType: resolvedJobType,
           provider: body.provider,
           priority: body.priority ?? "medium",
@@ -1212,8 +1212,8 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         // enqueued so cards animate immediately, without waiting for the
         // runner-side skill to call move_work_item.
         if (job.workItemId) {
-          await setWorkItemAiProcessing(organizationId, job.workItemId, true);
-          wsConnectionManager.broadcastToOrganization(organizationId, {
+          await setWorkItemAiProcessing(workspaceId, job.workItemId, true);
+          wsConnectionManager.broadcastToWorkspace(workspaceId, {
             type: "work-item:updated",
             payload: {
               workItemId: job.workItemId,
@@ -1232,7 +1232,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
 
         set.status = 201;
         return successResponse(job);
-      } else if (body.organizationId) {
+      } else if (body.workspaceId) {
         // === STANDALONE JOB (no work item) ===
         // Resolve primary repository when projectId is provided
         let repoUrl: string | undefined;
@@ -1241,7 +1241,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
 
         if (standaloneProjectId) {
           try {
-            const repos = await getRepositories(body.organizationId, standaloneProjectId);
+            const repos = await getRepositories(body.workspaceId, standaloneProjectId);
             const primary = repos[0];
             if (primary) {
               repoUrl = primary.url;
@@ -1255,7 +1255,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         // Fallback: if no projectId, resolve the org's primary repository
         if (!repoUrl) {
           try {
-            const orgRepo = await getOrgPrimaryRepository(body.organizationId);
+            const orgRepo = await getOrgPrimaryRepository(body.workspaceId);
             if (orgRepo) {
               repoUrl = orgRepo.url;
               repositoryId = orgRepo.id;
@@ -1279,7 +1279,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           });
         const job = await createJob({
           projectId: standaloneProjectId ?? null,
-          organizationId: body.organizationId,
+          workspaceId: body.workspaceId,
           jobType: body.jobType ?? "scheduled",
           provider: body.provider,
           priority: body.priority ?? "medium",
@@ -1322,13 +1322,13 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         return successResponse(job);
       } else {
         set.status = 400;
-        return errorResponse("Either workItemId or organizationId is required");
+        return errorResponse("Either workItemId or workspaceId is required");
       }
     },
     {
       body: t.Object({
         workItemId: t.Optional(t.String()),
-        organizationId: t.Optional(t.String()),
+        workspaceId: t.Optional(t.String()),
         prompt: t.Optional(t.String()),
         jobType: t.Optional(
           t.Union([
@@ -1398,7 +1398,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // GET /workers/jobs/running
-  // Security: filtered by the API key's organization
+  // Security: filtered by the API key's workspace
   .get("/jobs/running", async ({ workerApiKey }) => {
     const rows = await db
       .select({
@@ -1410,7 +1410,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       .from(agentJobs)
       .where(and(
         inArray(agentJobs.status, ["running", "finalizing"]),
-        eq(agentJobs.organizationId, workerApiKey!.organizationId),
+        eq(agentJobs.workspaceId, workerApiKey!.workspaceId),
       ));
 
     return successResponse(rows);
@@ -1484,7 +1484,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   // GET /workers/jobs/:jobId/workspace-files/:fileId
   // Runner-only endpoint used by uploaded_files workspaces. The file must be
   // explicitly listed in the job config so a worker token cannot enumerate or
-  // download arbitrary attachments from the organization.
+  // download arbitrary attachments from the workspace.
   .get(
     "/jobs/:jobId/workspace-files/:fileId",
     async ({ params, set, workerApiKey }) => {
@@ -1500,13 +1500,13 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         return errorResponse("Workspace file is not declared by this job");
       }
 
-      const organizationId = existing.job.organizationId ?? workerApiKey!.organizationId;
-      if (!organizationId) {
+      const workspaceId = existing.job.workspaceId ?? workerApiKey!.workspaceId;
+      if (!workspaceId) {
         set.status = 400;
-        return errorResponse("Job has no organizationId");
+        return errorResponse("Job has no workspaceId");
       }
 
-      const attachment = await getAttachment(organizationId, params.fileId);
+      const attachment = await getAttachment(workspaceId, params.fileId);
       if (!attachment) {
         set.status = 404;
         return notFoundResponse("Workspace file");
@@ -1731,7 +1731,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           if (completed) {
             const orgId = await resolveOrgIdFromPlanningSession(updated.planningSessionId);
             if (orgId) {
-              wsConnectionManager.broadcastToOrganization(orgId, {
+              wsConnectionManager.broadcastToWorkspace(orgId, {
                 type: "planning-session:completed",
                 payload: {
                   sessionId: updated.planningSessionId,
@@ -1763,7 +1763,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
                 type: body.errorType || undefined,
                 jobId: updated.id,
               });
-              wsConnectionManager.broadcastToOrganization(cleanupOrgId, {
+              wsConnectionManager.broadcastToWorkspace(cleanupOrgId, {
                 type: "work-item:updated",
                 payload: {
                   workItemId: updated.workItemId,
@@ -1783,7 +1783,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
             } else {
               // Completed, incomplete or cancelled: clear any previous error
               await setWorkItemAiError(updated.workItemId, null);
-              wsConnectionManager.broadcastToOrganization(cleanupOrgId, {
+              wsConnectionManager.broadcastToWorkspace(cleanupOrgId, {
                 type: "work-item:updated",
                 payload: {
                   workItemId: updated.workItemId,
@@ -1806,7 +1806,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           await setWorkItemAiError(updated.workItemId, null);
           const runningOrgId = await resolveOrgIdFromWorkItem(updated.workItemId);
           if (runningOrgId) {
-            wsConnectionManager.broadcastToOrganization(runningOrgId, {
+            wsConnectionManager.broadcastToWorkspace(runningOrgId, {
               type: "work-item:updated",
               payload: {
                 workItemId: updated.workItemId,
@@ -1839,7 +1839,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       // duplicate notifications if the same job id is reported as failed multiple times.
       if (isWorkItemJob && status === "failed" && existing.workItem?.id && existing.job.createdByUserId) {
         try {
-          const notifOrgId = existing.job.organizationId ?? await resolveOrgIdFromWorkItem(existing.workItem.id);
+          const notifOrgId = existing.job.workspaceId ?? await resolveOrgIdFromWorkItem(existing.workItem.id);
           if (notifOrgId) {
             const taskLabel = existing.workItem.taskId
               ? `${existing.workItem.taskId}: ${existing.workItem.title}`
@@ -1847,7 +1847,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
 
             void upsertNotificationBySource({
               recipientUserId: existing.job.createdByUserId,
-              organizationId: notifOrgId,
+              workspaceId: notifOrgId,
               type: "status_changed",
               title: `Agent job failed: ${taskLabel}`,
               body: body.errorMessage || "The agent encountered an error while processing this task.",
@@ -1894,7 +1894,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
             const jobConfig = existing.job.config;
 
             await createUsageRecord({
-              organizationId: usageOrgId,
+              workspaceId: usageOrgId,
               projectId: (jobConfig?.projectId as string | undefined) ?? existing.job.projectId ?? null,
               jobId: updated.id,
               userId: existing.job.createdByUserId ?? null,
@@ -1935,7 +1935,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       if (isTerminalAgentJobStatus(status)) {
         try {
           const memoryOrgId =
-            existing.job.organizationId ??
+            existing.job.workspaceId ??
             (isWorkItemJob
               ? await resolveOrgIdFromWorkItem(updated.workItemId ?? null)
               : await resolveOrgIdFromPlanningSession(
@@ -1948,7 +1948,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
                 ? (existing.job.config as unknown as Record<string, unknown>)
                 : null;
             await persistJobMemoryFromTerminalState({
-              organizationId: memoryOrgId,
+              workspaceId: memoryOrgId,
               projectId:
                 (jobConfig?.projectId as string | undefined) ??
                 existing.job.projectId ??
@@ -2026,10 +2026,10 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         return errorResponse(`logs batch exceeds max size (${MAX_LOG_BATCH_SIZE})`);
       }
 
-      const organizationId = existing.job.organizationId;
-      if (!organizationId) {
+      const workspaceId = existing.job.workspaceId;
+      if (!workspaceId) {
         set.status = 400;
-        return errorResponse("Job has no organizationId");
+        return errorResponse("Job has no workspaceId");
       }
 
       const preparedLogs = [];
@@ -2042,7 +2042,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
 
         preparedLogs.push({
           jobId: params.jobId,
-          orgId: organizationId,
+          orgId: workspaceId,
           workItemId: existing.job.workItemId ?? null,
           seq: entry.seq,
           level: entry.level ?? "info",
@@ -2059,7 +2059,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
 
       // Broadcast inserted chunks via WebSocket (omit payload field to reduce traffic)
       if (inserted.length > 0) {
-        wsConnectionManager.broadcastToOrganization(organizationId, {
+        wsConnectionManager.broadcastToWorkspace(workspaceId, {
           type: "agent-job:log-batch",
           payload: {
             jobId: params.jobId,
@@ -2170,11 +2170,11 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         return errorResponse("Job is not a planning job");
       }
 
-      // 2. Resolve organization for WS broadcast
+      // 2. Resolve workspace for WS broadcast
       const orgId = await resolveOrgId(null, planningSessionId);
       if (!orgId) {
         set.status = 400;
-        return errorResponse("Cannot resolve organization for planning session");
+        return errorResponse("Cannot resolve workspace for planning session");
       }
 
       // 3. Relay plain output. Business state transitions must come from
@@ -2200,7 +2200,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         }
 
         const wsType = body.contentType === "thinking" ? "planning:thinking" : "planning:text";
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: wsType,
           payload: { sessionId: planningSessionId, content: `${line}\n` },
         });
@@ -2268,7 +2268,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       // Broadcast to connected clients
       const orgId = await resolveOrgId(existing.job.workItemId ?? null, existing.job.planningSessionId ?? null);
       if (orgId) {
-        wsConnectionManager.broadcastToOrganization(orgId, {
+        wsConnectionManager.broadcastToWorkspace(orgId, {
           type: "worker-interaction:created",
           payload: {
             questionId: interaction.id,
@@ -2335,14 +2335,14 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
     "/quota-check",
     async ({ query }) => {
       try {
-        const organizationId = query.organizationId?.trim();
-        if (!organizationId) {
+        const workspaceId = query.workspaceId?.trim();
+        if (!workspaceId) {
           // Worker-side quota guard is fail-open when org cannot be resolved.
           return successResponse({ allowed: true });
         }
 
         const availability = await checkQuotaAvailable(
-          organizationId,
+          workspaceId,
           query.provider as ProviderQuotaDb["provider"]
         );
         return successResponse(availability);
@@ -2355,7 +2355,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
     {
       query: t.Object({
         provider: t.String(),
-        organizationId: t.Optional(t.String()),
+        workspaceId: t.Optional(t.String()),
       }),
     }
   )
@@ -2403,12 +2403,12 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // GET /workers/nightly-validation/configs — Returns projects with nightly validation enabled
-  // Security: filtered by the API key's organization
+  // Security: filtered by the API key's workspace
   .get("/nightly-validation/configs", async ({ set, workerApiKey }) => {
     try {
       const allProjects = await getProjectsWithNightlyValidationEnabled();
       const filtered = allProjects.filter(
-        (p) => p.organizationId === workerApiKey!.organizationId,
+        (p) => p.workspaceId === workerApiKey!.workspaceId,
       );
       return successResponse(filtered);
     } catch (error) {
@@ -2421,13 +2421,13 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   })
 
   // GET /workers/backlog-drain-candidates - Deterministically select ready Backlog items for a scheduled backlog-drain config
-  // Security: organizationId is derived from the worker API key; config ownership is verified in the repository lookup.
+  // Security: workspaceId is derived from the worker API key; config ownership is verified in the repository lookup.
   .get(
     "/backlog-drain-candidates",
     async ({ query, set, workerApiKey }) => {
       const result = await getBacklogDrainCandidatesForConfigId(
         query.configId,
-        workerApiKey!.organizationId,
+        workerApiKey!.workspaceId,
       );
 
       if (!result) {
@@ -2445,13 +2445,13 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // GET /workers/dod-remediation-candidates - Select Backlog items that failed Definition of Done review
-  // Security: organizationId is derived from the worker API key; config ownership is verified in the repository lookup.
+  // Security: workspaceId is derived from the worker API key; config ownership is verified in the repository lookup.
   .get(
     "/dod-remediation-candidates",
     async ({ query, set, workerApiKey }) => {
       const result = await getDodRemediationCandidatesForConfigId(
         query.configId,
-        workerApiKey!.organizationId,
+        workerApiKey!.workspaceId,
       );
 
       if (!result) {
@@ -2469,7 +2469,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // GET /workers/dod-review-candidates - Get review-column work items waiting for Definition of Done approval
-  // Security: organizationId derived from API key, not from query params
+  // Security: workspaceId derived from API key, not from query params
   .get(
     "/dod-review-candidates",
     async ({ query, workerApiKey }) => {
@@ -2480,7 +2480,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
 
       if (maxActiveJobs !== undefined) {
         const activeCount = await countActiveAgentJobsForLane({
-          organizationId: workerApiKey!.organizationId,
+          workspaceId: workerApiKey!.workspaceId,
           projectId: query.projectId,
           sources: ["dod-review"],
           skillNames: ["dod-review"],
@@ -2494,7 +2494,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       }
 
       const candidates = await getDefinitionOfDoneReviewCandidates(
-        workerApiKey!.organizationId,
+        workerApiKey!.workspaceId,
         query.projectId,
         effectiveLimit,
         { minAgeMinutes: query.minAgeMinutes },
@@ -2512,11 +2512,11 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // POST /workers/release-integration/queue - Batch validating work items into release integration jobs
-  // Security: organizationId derived from API key, not from query params
+  // Security: workspaceId derived from API key, not from query params
   .post(
     "/release-integration/queue",
     async ({ query, workerApiKey }) => {
-      const organizationId = workerApiKey!.organizationId;
+      const workspaceId = workerApiKey!.workspaceId;
       const maxActiveItems = typeof query.maxActiveItems === "number"
         ? Math.max(0, Math.floor(query.maxActiveItems))
         : undefined;
@@ -2526,7 +2526,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       let effectiveLimit = query.limit;
 
       const recoverableBatches = await getRecoverableReleaseBatchesWithoutActiveJob(
-        organizationId,
+        workspaceId,
         query.projectId,
         maxActiveItems ?? query.limit,
       );
@@ -2544,7 +2544,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           const integrationPhase = batch.status === "merging" ? "merge" : "process";
           const repositoryFullName = await getGithubRepoFullNameByRepoId(batch.repositoryId);
           await createJob({
-            organizationId,
+            workspaceId,
             projectId: batch.projectId,
             boardId: batch.boardId ?? undefined,
             provider: "claude-code",
@@ -2597,7 +2597,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
 
       if (maxActiveItems !== undefined) {
         const activeCount = await countActiveBatchItemsByProject(
-          organizationId,
+          workspaceId,
           query.projectId,
         );
         const availableSlots = Math.max(0, maxActiveItems - activeCount);
@@ -2619,7 +2619,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       }
 
       const candidateResult = await getValidatingReleaseCandidates(
-        organizationId,
+        workspaceId,
         query.projectId,
         effectiveLimit,
         { minAgeMinutes },
@@ -2659,11 +2659,11 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         if (!first) continue;
 
         const openReleaseBatch = await getOpenReleaseBatchForRepository(
-          organizationId,
+          workspaceId,
           first.repositoryId,
         );
         const active = openReleaseBatch ??
-          await getActiveBatchForRepository(organizationId, first.repositoryId);
+          await getActiveBatchForRepository(workspaceId, first.repositoryId);
         const activeWithItems = active ? await getBatchByIdWithItems(active.id) : null;
         if (active && (active.status === "running" || active.status === "merging")) {
           skipped.activeRunningBatches += candidates.length;
@@ -2688,9 +2688,9 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
 
         const releaseNumber = activeWithItems
           ? activeWithItems.releaseNumber
-          : await getNextReleaseNumber(organizationId, first.repositoryId);
+          : await getNextReleaseNumber(workspaceId, first.repositoryId);
         const batch = activeWithItems ?? await createIntegrationBatch({
-          organizationId,
+          workspaceId,
           projectId: first.projectId,
           repositoryId: first.repositoryId,
           boardId: first.boardId,
@@ -2718,7 +2718,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
 
         if (!activeWithItems || activeWithItems.status === "awaiting_release") {
           await createJob({
-            organizationId,
+            workspaceId,
             projectId: first.projectId,
             boardId: first.boardId,
             provider: "claude-code",
@@ -2766,12 +2766,12 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // GET /workers/validation-candidates - Get work items ready for validation, grouped by root ancestor
-  // Security: organizationId derived from API key, not from query params
+  // Security: workspaceId derived from API key, not from query params
   .get(
     "/validation-candidates",
     async ({ query, workerApiKey }) => {
       const candidates = await getValidationCandidates(
-        workerApiKey!.organizationId,
+        workerApiKey!.workspaceId,
         query.projectId,
         query.limit,
         { requireDodApproved: query.requireDodApproved },
@@ -2788,11 +2788,11 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // GET /workers/fix-candidates - Get work items ready for nightly fix (in Needs Fix column, < 2 attempts)
-  // Security: organizationId derived from API key, not from query params
+  // Security: workspaceId derived from API key, not from query params
   .get(
     "/fix-candidates",
     async ({ query, workerApiKey }) => {
-      const candidates = await getFixCandidates(workerApiKey!.organizationId, query.projectId);
+      const candidates = await getFixCandidates(workerApiKey!.workspaceId, query.projectId);
       return successResponse(candidates);
     },
     {
@@ -2852,26 +2852,26 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   //
   // Instead of injecting the global worker API key into agent containers,
   // the runner requests a short-lived JWT with limited permissions (MCP only).
-  // The token is scoped to a specific project and organization.
+  // The token is scoped to a specific project and workspace.
   // Shared runners may have an API key from a different org, so we validate
   // project-org consistency instead of API key-org consistency.
   .post(
     "/session-token",
     async ({ body, set, workerApiKey }) => {
-      // Validate that the project belongs to the requested organization
+      // Validate that the project belongs to the requested workspace
       const [project] = await db
         .select({ id: projects.id })
         .from(projects)
         .where(
           and(
             eq(projects.id, body.projectId),
-            eq(projects.organizationId, body.organizationId)
+            eq(projects.workspaceId, body.workspaceId)
           )
         )
         .limit(1);
       if (!project) {
         set.status = 403;
-        return errorResponse("Project does not belong to the specified organization");
+        return errorResponse("Project does not belong to the specified workspace");
       }
 
       if (!env.ENCRYPTION_KEY) {
@@ -2907,11 +2907,11 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         }
 
         if (
-          jobDetail.job.organizationId !== body.organizationId ||
+          jobDetail.job.workspaceId !== body.workspaceId ||
           jobDetail.job.projectId !== body.projectId
         ) {
           set.status = 403;
-          return errorResponse("Job does not belong to the specified project/organization");
+          return errorResponse("Job does not belong to the specified project/workspace");
         }
 
         actorUserId = resolveSessionActorUserId(jobDetail.job);
@@ -2952,7 +2952,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
 
       const token = generateSessionToken({
         projectId: body.projectId,
-        organizationId: body.organizationId,
+        workspaceId: body.workspaceId,
         ...(actorUserId ? { userId: actorUserId } : {}),
         ...(body.jobId ? { jobId: body.jobId } : {}),
         permissions,
@@ -2967,14 +2967,14 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         token,
         expiresAt: expiresAt.toISOString(),
         projectId: body.projectId,
-        organizationId: body.organizationId,
+        workspaceId: body.workspaceId,
         ...(actorUserId ? { userId: actorUserId } : {}),
       });
     },
     {
       body: t.Object({
         projectId: t.String(),
-        organizationId: t.String(),
+        workspaceId: t.String(),
         jobId: t.Optional(t.String()),
         permissions: t.Optional(
           t.Array(t.Union([
@@ -2994,9 +2994,9 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
     "/repo-config",
     async ({ query, set }) => {
       try {
-        // Resolve organizationId from the project
+        // Resolve workspaceId from the project
         const [project] = await db
-          .select({ organizationId: projects.organizationId })
+          .select({ workspaceId: projects.workspaceId })
           .from(projects)
           .where(eq(projects.id, query.projectId))
           .limit(1);
@@ -3006,12 +3006,12 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           return notFoundResponse("Project");
         }
 
-        if (!project.organizationId) {
+        if (!project.workspaceId) {
           set.status = 400;
-          return errorResponse("Project has no organization");
+          return errorResponse("Project has no workspace");
         }
 
-        const repos = await getRepositories(project.organizationId, query.projectId);
+        const repos = await getRepositories(project.workspaceId, query.projectId);
         if (!repos.length) {
           set.status = 404;
           return notFoundResponse("No repository configured for this project");
@@ -3043,12 +3043,12 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // GET /workers/scheduled-configs - Returns enabled scheduled agent configs for the scheduler
-  // Security: filtered by the API key's organization
+  // Security: filtered by the API key's workspace
   .get("/scheduled-configs", async ({ set, workerApiKey }) => {
     try {
       const allConfigs = await listEnabledScheduledAgentConfigs();
       const filtered = allConfigs.filter(
-        (c) => c.organizationId === workerApiKey!.organizationId,
+        (c) => c.workspaceId === workerApiKey!.workspaceId,
       );
       return successResponse(filtered);
     } catch (error) {
@@ -3168,12 +3168,12 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       }
 
       const rootWorkItemId = existing.workItem?.id ?? null;
-      const organizationId = existing.job.organizationId ?? null;
+      const workspaceId = existing.job.workspaceId ?? null;
 
       const expectedWorkItemIds = await resolveExpectedWorkItemIdsForCompletion(
         {
           rootWorkItemId,
-          organizationId,
+          workspaceId,
           job: existing.job,
         },
         {

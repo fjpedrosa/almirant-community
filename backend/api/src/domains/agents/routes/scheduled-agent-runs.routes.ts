@@ -19,9 +19,9 @@ export const scheduledAgentRunsRoutes = new Elysia({ prefix: "/scheduled-agents"
   // GET /scheduled-agents/:id/runs - List runs for a config (paginated)
   .get(
     "/:id/runs",
-    async ({ params, query, activeOrganization }) => {
+    async ({ params, query, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const { limit, offset, page } = parsePaginationParams(query as Record<string, string | undefined>);
 
         const { runs, total } = await getScheduledAgentRunsByConfigId(params.id, {
@@ -29,8 +29,8 @@ export const scheduledAgentRunsRoutes = new Elysia({ prefix: "/scheduled-agents"
           offset,
         });
 
-        // Filter runs to only return those belonging to the user's organization
-        const orgRuns = runs.filter((run) => run.organizationId === orgId);
+        // Filter runs to only return those belonging to the user's workspace
+        const orgRuns = runs.filter((run) => run.workspaceId === orgId);
 
         return successResponse(orgRuns, buildPaginationMeta(page, limit, total));
       } catch (error) {
@@ -54,9 +54,9 @@ export const scheduledAgentRunsRoutes = new Elysia({ prefix: "/scheduled-agents"
   // GET /scheduled-agents/runs/:runId - Get a single run by ID
   .get(
     "/runs/:runId",
-    async ({ params, set, activeOrganization }) => {
+    async ({ params, set, activeWorkspace }) => {
       try {
-        const orgId = activeOrganization!.id;
+        const orgId = activeWorkspace!.id;
         const run = await getScheduledAgentRunById(params.runId, orgId);
 
         if (!run) {

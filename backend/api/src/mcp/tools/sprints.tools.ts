@@ -32,9 +32,9 @@ export const registerSprintsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const sprints = await getSprintsByBoard(organizationId, params.boardId);
+        const sprints = await getSprintsByBoard(workspaceId, params.boardId);
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify(sprints, null, 2) }],
@@ -61,9 +61,9 @@ export const registerSprintsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const sprint = await getSprintById(organizationId, params.id);
+        const sprint = await getSprintById(workspaceId, params.id);
 
         if (!sprint) {
           return {
@@ -72,9 +72,9 @@ export const registerSprintsTools = (server: McpServer) => {
           };
         }
 
-        const board = await getBoardById(sprint.boardId, organizationId);
+        const board = await getBoardById(sprint.boardId, workspaceId);
         if (!board) {
-          return { content: [{ type: "text" as const, text: `Error: Sprint does not belong to your organization` }], isError: true };
+          return { content: [{ type: "text" as const, text: `Error: Sprint does not belong to your workspace` }], isError: true };
         }
 
         return {
@@ -102,9 +102,9 @@ export const registerSprintsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const sprint = await getActiveSprint(organizationId, params.boardId);
+        const sprint = await getActiveSprint(workspaceId, params.boardId);
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify(sprint, null, 2) }],
@@ -134,9 +134,9 @@ export const registerSprintsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const sprint = await createSprint(organizationId, {
+        const sprint = await createSprint(workspaceId, {
           boardId: params.boardId,
           name: params.name,
           startDate: params.startDate,
@@ -171,13 +171,13 @@ export const registerSprintsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const preview = await getDoneItemsPreview(organizationId, params.boardId);
+        const preview = await getDoneItemsPreview(workspaceId, params.boardId);
         const options = params.startDate || params.endDate
           ? { startDate: params.startDate, endDate: params.endDate }
           : undefined;
-        const sprint = await closeSprint(organizationId, params.sprintId, params.boardId, options);
+        const sprint = await closeSprint(workspaceId, params.sprintId, params.boardId, options);
         kickoffSprintVisualReportGeneration({
           sprintId: sprint.id,
           boardId: params.boardId,
@@ -232,13 +232,13 @@ export const registerSprintsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const preview = await getDoneItemsPreview(organizationId, params.boardId);
+        const preview = await getDoneItemsPreview(workspaceId, params.boardId);
         const options = params.startDate || params.endDate
           ? { startDate: params.startDate, endDate: params.endDate }
           : undefined;
-        const sprint = await closeSprintAdHoc(organizationId, params.boardId, params.name, options);
+        const sprint = await closeSprintAdHoc(workspaceId, params.boardId, params.name, options);
         kickoffSprintVisualReportGeneration({
           sprintId: sprint.id,
           boardId: params.boardId,
@@ -293,10 +293,10 @@ export const registerSprintsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const preview = await getDoneItemsPreview(organizationId, params.boardId);
-        const sprint = await closeSprintByDate(organizationId, params.boardId, params.name, params.startDate, params.endDate);
+        const preview = await getDoneItemsPreview(workspaceId, params.boardId);
+        const sprint = await closeSprintByDate(workspaceId, params.boardId, params.name, params.startDate, params.endDate);
         kickoffSprintVisualReportGeneration({
           sprintId: sprint.id,
           boardId: params.boardId,
@@ -348,9 +348,9 @@ export const registerSprintsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const items = await getSprintWorkItems(organizationId, params.sprintId);
+        const items = await getSprintWorkItems(workspaceId, params.sprintId);
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify(items, null, 2) }],
@@ -377,9 +377,9 @@ export const registerSprintsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const items = await getDoneItemsPreview(organizationId, params.boardId);
+        const items = await getDoneItemsPreview(workspaceId, params.boardId);
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify(items, null, 2) }],
@@ -407,9 +407,9 @@ export const registerSprintsTools = (server: McpServer) => {
       try {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
-        const organizationId = orgResult;
+        const workspaceId = orgResult;
 
-        const sprint = await getSprintById(organizationId, params.sprintId);
+        const sprint = await getSprintById(workspaceId, params.sprintId);
 
         if (!sprint) {
           return {
@@ -418,9 +418,9 @@ export const registerSprintsTools = (server: McpServer) => {
           };
         }
 
-        const board = await getBoardById(sprint.boardId, organizationId);
+        const board = await getBoardById(sprint.boardId, workspaceId);
         if (!board) {
-          return { content: [{ type: "text" as const, text: `Error: Sprint does not belong to your organization` }], isError: true };
+          return { content: [{ type: "text" as const, text: `Error: Sprint does not belong to your workspace` }], isError: true };
         }
 
         if (sprint.status !== "closed") {

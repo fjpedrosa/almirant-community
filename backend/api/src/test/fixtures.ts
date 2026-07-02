@@ -89,7 +89,7 @@ export const testWorkItem = {
 
 export const testIdeaItem = {
   id: "idea-test-1",
-  organizationId: "org-test-1",
+  workspaceId: "org-test-1",
   projectId: "proj-test-1",
   type: "idea" as const,
   status: "active" as const,
@@ -111,9 +111,9 @@ export const testIdeaItem = {
   workItemLinks: [],
 };
 
-export const testOrganization = {
+export const testWorkspace = {
   id: "org-test-1",
-  name: "Test Organization",
+  name: "Test Workspace",
   slug: "test-org",
 };
 
@@ -135,7 +135,7 @@ export const makeBoard = (overrides: Record<string, unknown> = {}) => ({
 
 export const testSeed = {
   id: "seed-test-1",
-  organizationId: "org-test-1",
+  workspaceId: "org-test-1",
   projectId: "proj-test-1",
   title: "Test Seed",
   description: "A test seed description",
@@ -160,12 +160,12 @@ export const testSeed = {
 };
 
 // ---------------------------------------------------------------------------
-// Organization B — second org for cross-org isolation tests
+// Workspace B — second org for cross-org isolation tests
 // ---------------------------------------------------------------------------
 
-export const testOrganizationB = {
+export const testWorkspaceB = {
   id: "org-test-2",
-  name: "Test Organization B",
+  name: "Test Workspace B",
   slug: "test-org-b",
 };
 
@@ -216,7 +216,7 @@ export const testRepository = {
 
 export const testIntegrationBatch = {
   id: "batch-test-1",
-  organizationId: "org-test-1",
+  workspaceId: "org-test-1",
   projectId: "proj-test-1",
   repositoryId: "repo-test-1",
   boardId: "board-test-1",
@@ -307,7 +307,7 @@ export const testWorkItemB = {
 
 export const testIdeaItemB = {
   id: "idea-test-2",
-  organizationId: "org-test-2",
+  workspaceId: "org-test-2",
   projectId: "proj-test-2",
   type: "idea" as const,
   status: "active" as const,
@@ -331,7 +331,7 @@ export const testIdeaItemB = {
 
 export const testSeedB = {
   id: "seed-test-2",
-  organizationId: "org-test-2",
+  workspaceId: "org-test-2",
   projectId: "proj-test-2",
   title: "Test Seed B",
   description: "A test seed description for Org B",

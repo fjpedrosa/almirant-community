@@ -12,7 +12,7 @@ export type AgentConnectionClaimResult = Record<string, unknown>;
 export interface AgentConnectionLinkToken {
   token: string;
   userId: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string | null;
   projectName: string | null;
   agentName: string;
@@ -59,7 +59,7 @@ const startCleanup = () => {
 
 export const createAgentConnectionLinkToken = (params: {
   userId: string;
-  organizationId: string;
+  workspaceId: string;
   projectId: string | null;
   projectName: string | null;
   agentName: string;
@@ -70,7 +70,7 @@ export const createAgentConnectionLinkToken = (params: {
   const entry: AgentConnectionLinkToken = {
     token,
     userId: params.userId,
-    organizationId: params.organizationId,
+    workspaceId: params.workspaceId,
     projectId: params.projectId,
     projectName: params.projectName,
     agentName: params.agentName,

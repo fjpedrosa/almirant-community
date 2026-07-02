@@ -7,7 +7,7 @@ import {
   removeDependency,
   getWorkItemById,
 } from "@almirant/database";
-import { getOrganizationIdFromExtra } from "../setup";
+import { getWorkspaceIdFromExtra } from "../setup";
 
 export const registerDependenciesTools = (server: McpServer) => {
   // -------------------------------------------------------
@@ -21,14 +21,14 @@ export const registerDependenciesTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
-        const workItem = await getWorkItemById(params.id, organizationId);
+        const workItem = await getWorkItemById(params.id, workspaceId);
         if (!workItem) {
-          return { content: [{ type: "text" as const, text: `Error: Work item with ID '${params.id}' not found or does not belong to your organization` }], isError: true };
+          return { content: [{ type: "text" as const, text: `Error: Work item with ID '${params.id}' not found or does not belong to your workspace` }], isError: true };
         }
 
         const [dependencies, dependents] = await Promise.all([
@@ -62,9 +62,9 @@ export const registerDependenciesTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
         if (params.workItemId === params.blockedByWorkItemId) {
@@ -75,14 +75,14 @@ export const registerDependenciesTools = (server: McpServer) => {
         }
 
         const [workItem, blockedByItem] = await Promise.all([
-          getWorkItemById(params.workItemId, organizationId),
-          getWorkItemById(params.blockedByWorkItemId, organizationId),
+          getWorkItemById(params.workItemId, workspaceId),
+          getWorkItemById(params.blockedByWorkItemId, workspaceId),
         ]);
         if (!workItem) {
-          return { content: [{ type: "text" as const, text: `Error: Work item '${params.workItemId}' not found or does not belong to your organization` }], isError: true };
+          return { content: [{ type: "text" as const, text: `Error: Work item '${params.workItemId}' not found or does not belong to your workspace` }], isError: true };
         }
         if (!blockedByItem) {
-          return { content: [{ type: "text" as const, text: `Error: Blocking work item '${params.blockedByWorkItemId}' not found or does not belong to your organization` }], isError: true };
+          return { content: [{ type: "text" as const, text: `Error: Blocking work item '${params.blockedByWorkItemId}' not found or does not belong to your workspace` }], isError: true };
         }
 
         const dependency = await addDependency(params.workItemId, params.blockedByWorkItemId);
@@ -111,14 +111,14 @@ export const registerDependenciesTools = (server: McpServer) => {
     },
     async (params, extra) => {
       try {
-        const organizationId = getOrganizationIdFromExtra(extra);
-        if (!organizationId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve organizationId from API key" }], isError: true };
+        const workspaceId = getWorkspaceIdFromExtra(extra);
+        if (!workspaceId) {
+          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
         }
 
-        const workItem = await getWorkItemById(params.workItemId, organizationId);
+        const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
-          return { content: [{ type: "text" as const, text: `Error: Work item '${params.workItemId}' not found or does not belong to your organization` }], isError: true };
+          return { content: [{ type: "text" as const, text: `Error: Work item '${params.workItemId}' not found or does not belong to your workspace` }], isError: true };
         }
 
         const removed = await removeDependency(params.workItemId, params.blockedByWorkItemId);

@@ -7,7 +7,7 @@ describe("buildSkillValidationCanonicalEvents", () => {
       jobId: "job-1",
       threadId: "thread-1",
       webSessionId: "session-1",
-      webOrganizationId: "org-1",
+      webWorkspaceId: "org-1",
       skillName: "ideate",
       nextSequence: (() => {
         let current = 0;
@@ -40,7 +40,7 @@ describe("buildSkillValidationCanonicalEvents", () => {
     const events = buildSkillValidationCanonicalEvents({
       jobId: "job-1",
       webSessionId: "session-1",
-      webOrganizationId: "org-1",
+      webWorkspaceId: "org-1",
       skillName: "ideate",
       nextSequence: (() => {
         let current = 0;

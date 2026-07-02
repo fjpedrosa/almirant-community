@@ -16,12 +16,12 @@ type AnalyticsDailyAggregationConfig = {
 };
 
 /**
- * Get all distinct organization+period pairs that have agent_jobs in the last N days.
+ * Get all distinct workspace+period pairs that have agent_jobs in the last N days.
  * Usage summaries are monthly, so we aggregate by YYYY-MM period.
  */
 const getPeriodsWithActivity = async (
   days: number
-): Promise<Array<{ organizationId: string; period: string }>> => {
+): Promise<Array<{ workspaceId: string; period: string }>> => {
   const now = new Date();
   const cutoff = new Date(now);
   cutoff.setUTCDate(cutoff.getUTCDate() - days);
@@ -32,7 +32,7 @@ const getPeriodsWithActivity = async (
 
   const rows = await db
     .selectDistinct({
-      organizationId: agentJobs.organizationId,
+      workspaceId: agentJobs.workspaceId,
       period: sql<string>`to_char(${agentJobs.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM')`,
     })
     .from(agentJobs)
@@ -40,13 +40,13 @@ const getPeriodsWithActivity = async (
       and(
         gte(agentJobs.createdAt, cutoff),
         lt(agentJobs.createdAt, todayStart),
-        sql`${agentJobs.organizationId} is not null`
+        sql`${agentJobs.workspaceId} is not null`
       )
     );
 
   return rows.flatMap((row) =>
-    row.organizationId
-      ? [{ organizationId: row.organizationId, period: row.period }]
+    row.workspaceId
+      ? [{ workspaceId: row.workspaceId, period: row.period }]
       : [],
   );
 };
@@ -61,9 +61,9 @@ export const runAnalyticsDailyAggregationOnce = async (): Promise<void> => {
   try {
     const periods = await getPeriodsWithActivity(7);
 
-    for (const { organizationId, period } of periods) {
-      await aggregateUsageForPeriod(organizationId, period);
-      await aggregateUserUsageForPeriod(organizationId, period);
+    for (const { workspaceId, period } of periods) {
+      await aggregateUsageForPeriod(workspaceId, period);
+      await aggregateUserUsageForPeriod(workspaceId, period);
     }
 
     if (periods.length > 0) {

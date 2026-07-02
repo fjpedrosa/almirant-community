@@ -222,7 +222,7 @@ export const EditProjectDialog: React.FC<EditProjectDialogProps> = ({
             {/* Row 3: Client + Tech Stack */}
             <FormField
               control={form.control}
-              name="organizationId"
+              name="workspaceId"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{t("form.workspace")}</FormLabel>

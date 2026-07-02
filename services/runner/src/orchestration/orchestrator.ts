@@ -168,7 +168,7 @@ export class RunnerOrchestrator {
         projectId: null,
         boardId: null,
         createdByUserId: null,
-        organizationId: null,
+        workspaceId: null,
         provider: "zipu",
         priority: "medium",
         status: "queued",
@@ -619,15 +619,15 @@ export class RunnerOrchestrator {
   }
 
   private async pauseJobIfQuotaExhausted(job: ClaimedJob): Promise<boolean> {
-    const organizationId = typeof job.organizationId === "string" ? job.organizationId.trim() : "";
+    const workspaceId = typeof job.workspaceId === "string" ? job.workspaceId.trim() : "";
     const aiProvider = this.resolveJobAiProvider(job);
 
-    if (!organizationId || !aiProvider) {
+    if (!workspaceId || !aiProvider) {
       return false;
     }
 
     try {
-      const availability = await this.workerClient.checkQuota(aiProvider, organizationId);
+      const availability = await this.workerClient.checkQuota(aiProvider, workspaceId);
       if (availability.allowed) {
         return false;
       }
@@ -947,7 +947,7 @@ export class RunnerOrchestrator {
     if (config.jobType === "scheduled") {
       try {
         await this.workerClient.createJob({
-          organizationId: config.organizationId,
+          workspaceId: config.workspaceId,
           provider: config.provider,
           jobType: "scheduled",
           prompt: config.prompt ?? undefined,
@@ -992,14 +992,14 @@ export class RunnerOrchestrator {
     if (config.jobType === "validation") {
       const candidates = await this.workerClient.getValidationCandidates({
         projectId: config.projectId ?? undefined,
-        organizationId: config.organizationId,
+        workspaceId: config.workspaceId,
         requireDodApproved: config.targetConfig?.requireDodApproved === true,
       });
       candidateIds = candidates.map((c) => c.id);
     } else if (config.jobType === "bug-fix") {
       const candidates = await this.workerClient.getFixCandidates({
         projectId: config.projectId ?? undefined,
-        organizationId: config.organizationId,
+        workspaceId: config.workspaceId,
       });
       candidateIds = candidates.map((c) => c.id);
     } else {
@@ -1007,7 +1007,7 @@ export class RunnerOrchestrator {
       // use validation candidates as a general source of work items
       const candidates = await this.workerClient.getValidationCandidates({
         projectId: config.projectId ?? undefined,
-        organizationId: config.organizationId,
+        workspaceId: config.workspaceId,
       });
       candidateIds = candidates.map((c) => c.id);
     }
@@ -1386,7 +1386,7 @@ export class RunnerOrchestrator {
 
         const projectCandidates = await this.workerClient.getDodReviewCandidates({
           projectId: scope.projectId,
-          organizationId: config.organizationId,
+          workspaceId: config.workspaceId,
           limit: requestLimit,
           maxActiveJobs: scope.maxActiveItems,
           minAgeMinutes,
@@ -1464,7 +1464,7 @@ export class RunnerOrchestrator {
 
         const result = await this.workerClient.queueReleaseIntegration({
           projectId: scope.projectId,
-          organizationId: config.organizationId,
+          workspaceId: config.workspaceId,
           limit: requestLimit,
           maxActiveItems: scope.maxActiveItems,
           minAgeMinutes,

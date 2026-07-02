@@ -9,7 +9,7 @@ import type {
 
 // Get all repositories for a project (org-scoped)
 export const getRepositories = async (
-  organizationId: string,
+  workspaceId: string,
   projectId: string
 ): Promise<ProjectRepository[]> => {
   const result = await db
@@ -29,7 +29,7 @@ export const getRepositories = async (
     .where(
       and(
         eq(projectRepositories.projectId, projectId),
-        eq(projects.organizationId, organizationId)
+        eq(projects.workspaceId, workspaceId)
       )
     )
     .orderBy(projectRepositories.order);
@@ -37,10 +37,10 @@ export const getRepositories = async (
   return result as ProjectRepository[];
 };
 
-// Get the first repository for an organization (across all projects)
+// Get the first repository for a workspace (across all projects)
 // Used when a scheduled agent config has no projectId
 export const getOrgPrimaryRepository = async (
-  organizationId: string
+  workspaceId: string
 ): Promise<(ProjectRepository & { projectId: string }) | null> => {
   const [result] = await db
     .select({
@@ -56,7 +56,7 @@ export const getOrgPrimaryRepository = async (
     })
     .from(projectRepositories)
     .innerJoin(projects, eq(projectRepositories.projectId, projects.id))
-    .where(eq(projects.organizationId, organizationId))
+    .where(eq(projects.workspaceId, workspaceId))
     .orderBy(projectRepositories.order)
     .limit(1);
 
@@ -65,18 +65,18 @@ export const getOrgPrimaryRepository = async (
 
 // Create a repository (org-scoped: verifies project belongs to org)
 export const createRepository = async (
-  organizationId: string,
+  workspaceId: string,
   projectId: string,
   data: CreateRepositoryRequest
 ): Promise<ProjectRepository | null> => {
-  // Verify the project belongs to the organization
+  // Verify the project belongs to the workspace
   const [project] = await db
     .select({ id: projects.id })
     .from(projects)
     .where(
       and(
         eq(projects.id, projectId),
-        eq(projects.organizationId, organizationId)
+        eq(projects.workspaceId, workspaceId)
       )
     )
     .limit(1);
@@ -100,7 +100,7 @@ export const createRepository = async (
 
 // Update a repository (org-scoped: verifies repo's project belongs to org)
 export const updateRepository = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: UpdateRepositoryRequest
 ): Promise<ProjectRepository | null> => {
@@ -112,7 +112,7 @@ export const updateRepository = async (
     .where(
       and(
         eq(projectRepositories.id, id),
-        eq(projects.organizationId, organizationId)
+        eq(projects.workspaceId, workspaceId)
       )
     )
     .limit(1);
@@ -135,7 +135,7 @@ export const updateRepository = async (
 
 // Delete a repository (org-scoped: verifies repo's project belongs to org)
 export const deleteRepository = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<boolean> => {
   // Find the repository and verify org ownership via project
@@ -146,7 +146,7 @@ export const deleteRepository = async (
     .where(
       and(
         eq(projectRepositories.id, id),
-        eq(projects.organizationId, organizationId)
+        eq(projects.workspaceId, workspaceId)
       )
     )
     .limit(1);
@@ -160,8 +160,8 @@ export const deleteRepository = async (
   return result.length > 0;
 };
 
-// Get all GitHub repo URLs across projects in an organization (for filtering available repos)
-export const getAllGithubRepoUrls = async (organizationId: string): Promise<string[]> => {
+// Get all GitHub repo URLs across projects in a workspace (for filtering available repos)
+export const getAllGithubRepoUrls = async (workspaceId: string): Promise<string[]> => {
   const rows = await db
     .select({ url: projectRepositories.url })
     .from(projectRepositories)
@@ -169,7 +169,7 @@ export const getAllGithubRepoUrls = async (organizationId: string): Promise<stri
     .where(
       and(
         eq(projectRepositories.provider, "github"),
-        eq(projects.organizationId, organizationId)
+        eq(projects.workspaceId, workspaceId)
       )
     );
 
@@ -178,18 +178,18 @@ export const getAllGithubRepoUrls = async (organizationId: string): Promise<stri
 
 // Reorder repositories for a project (org-scoped)
 export const reorderRepositories = async (
-  organizationId: string,
+  workspaceId: string,
   projectId: string,
   repoIds: string[]
 ): Promise<void> => {
-  // Verify the project belongs to the organization
+  // Verify the project belongs to the workspace
   const [project] = await db
     .select({ id: projects.id })
     .from(projects)
     .where(
       and(
         eq(projects.id, projectId),
-        eq(projects.organizationId, organizationId)
+        eq(projects.workspaceId, workspaceId)
       )
     )
     .limit(1);

@@ -4,22 +4,22 @@ import { useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { showToast } from "@/domains/shared/presentation/utils/show-toast";
 import {
-  useOrganizationSettings,
-  useUpdateOrganizationSettings,
-} from "./use-organization-settings";
+  useWorkspaceSettings,
+  useUpdateWorkspaceSettings,
+} from "./use-workspace-settings";
 import type { AiKeyPolicy } from "../../domain/types";
 
 // ---------------------------------------------------------------------------
 // Hook: useAiKeyPolicy
 // ---------------------------------------------------------------------------
-// Reads the current AI key policy from organization settings and provides
+// Reads the current AI key policy from workspace settings and provides
 // a handler to update it. Auto-saves on change with toast feedback.
 // ---------------------------------------------------------------------------
 
 export const useAiKeyPolicy = () => {
   const t = useTranslations("integrations.toasts");
-  const { data: settings, isLoading } = useOrganizationSettings();
-  const mutation = useUpdateOrganizationSettings();
+  const { data: settings, isLoading } = useWorkspaceSettings();
+  const mutation = useUpdateWorkspaceSettings();
 
   const updatePolicy = useCallback(
     (policy: AiKeyPolicy) => {

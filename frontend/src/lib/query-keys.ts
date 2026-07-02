@@ -4,7 +4,7 @@ import { useActiveTeam } from "@/domains/teams/application/hooks/use-active-team
 
 /**
  * Returns an org-scoped query key by appending `org:<activeTeamId>` to the base key.
- * This ensures React Query cache is naturally partitioned by organization.
+ * This ensures React Query cache is naturally partitioned by workspace.
  *
  * @example
  * const scopedKey = useOrgScopedKey(workItemKeys.list(filterKey));

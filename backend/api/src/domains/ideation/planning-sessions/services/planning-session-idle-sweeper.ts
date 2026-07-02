@@ -34,7 +34,7 @@ const IDLE_TIMEOUTS: Record<SessionPhase, number> = {
 
 const handleInactiveSession = async (
   sessionId: string,
-  organizationId: string,
+  workspaceId: string,
   phase: SessionPhase,
   hasJobs: boolean
 ) => {
@@ -55,7 +55,7 @@ const handleInactiveSession = async (
     const interrupted = await interruptPlanningSession(sessionId, context);
     if (!interrupted) return;
 
-    wsConnectionManager.broadcastToOrganization(organizationId, {
+    wsConnectionManager.broadcastToWorkspace(workspaceId, {
       type: "planning-session:interrupted" as any,
       payload: {
         sessionId,
@@ -79,7 +79,7 @@ const handleInactiveSession = async (
 
   if (!completed) return;
 
-  wsConnectionManager.broadcastToOrganization(organizationId, {
+  wsConnectionManager.broadcastToWorkspace(workspaceId, {
     type: "planning-session:completed",
     payload: {
       sessionId,
@@ -121,7 +121,7 @@ export const runPlanningSessionIdleSweepOnce = async (
         const cancelled = await cancelJob(activeJob.id);
 
         if (cancelled) {
-          wsConnectionManager.broadcastToOrganization(session.organizationId, {
+          wsConnectionManager.broadcastToWorkspace(session.workspaceId, {
             type: "agent-job:status-changed",
             payload: {
               jobId: cancelled.id,
@@ -139,7 +139,7 @@ export const runPlanningSessionIdleSweepOnce = async (
       // - If phase is idle -> no jobs
       const sessionHasJobs = phase !== "idle";
 
-      await handleInactiveSession(session.id, session.organizationId, phase, sessionHasJobs);
+      await handleInactiveSession(session.id, session.workspaceId, phase, sessionHasJobs);
     } catch (err) {
       logger.error(
         { err, planningSessionId: session.id },
@@ -154,7 +154,7 @@ export const runPlanningSessionIdleSweepOnce = async (
     const interruptedSessions = await db
       .select({
         id: planningSessions.id,
-        organizationId: planningSessions.organizationId,
+        workspaceId: planningSessions.workspaceId,
       })
       .from(planningSessions)
       .where(
@@ -172,7 +172,7 @@ export const runPlanningSessionIdleSweepOnce = async (
         });
 
         if (completed) {
-          wsConnectionManager.broadcastToOrganization(session.organizationId, {
+          wsConnectionManager.broadcastToWorkspace(session.workspaceId, {
             type: "planning-session:completed",
             payload: {
               sessionId: session.id,

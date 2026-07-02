@@ -19,9 +19,9 @@ export interface AiSessionWithSummary {
   summary: AiSessionSummary;
 }
 
-// Get all AI sessions for a work item, scoped to organization
+// Get all AI sessions for a work item, scoped to workspace
 export const getAiSessionsByWorkItemId = async (
-  organizationId: string,
+  workspaceId: string,
   workItemId: string
 ): Promise<AiSessionDb[]> => {
   return db
@@ -48,18 +48,18 @@ export const getAiSessionsByWorkItemId = async (
     .where(
       and(
         eq(aiSessions.workItemId, workItemId),
-        eq(projects.organizationId, organizationId)
+        eq(projects.workspaceId, workspaceId)
       )
     )
     .orderBy(desc(aiSessions.createdAt));
 };
 
-// Get AI sessions with aggregated summary for a work item, scoped to organization
+// Get AI sessions with aggregated summary for a work item, scoped to workspace
 export const getAiSessionsSummaryByWorkItemId = async (
-  organizationId: string,
+  workspaceId: string,
   workItemId: string
 ): Promise<AiSessionWithSummary> => {
-  const sessions = await getAiSessionsByWorkItemId(organizationId, workItemId);
+  const sessions = await getAiSessionsByWorkItemId(workspaceId, workItemId);
 
   // Filter out "placeholder" sessions created by older agent workflows.
   // These were recorded with 0 tokens / 0 cost and an arbitrary duration, and should not affect totals.
@@ -96,12 +96,12 @@ export const getAiSessionsSummaryByWorkItemId = async (
   return { sessions: visibleSessions, summary };
 };
 
-// Create a new AI session, verifying the work item belongs to the organization
+// Create a new AI session, verifying the work item belongs to the workspace
 export const createAiSession = async (
-  organizationId: string,
+  workspaceId: string,
   data: NewAiSession
 ): Promise<AiSessionDb> => {
-  // Verify the work item's project belongs to the given organization
+  // Verify the work item's project belongs to the given workspace
   const [workItem] = await db
     .select({ id: workItems.id })
     .from(workItems)
@@ -109,13 +109,13 @@ export const createAiSession = async (
     .where(
       and(
         eq(workItems.id, data.workItemId),
-        eq(projects.organizationId, organizationId)
+        eq(projects.workspaceId, workspaceId)
       )
     )
     .limit(1);
 
   if (!workItem) {
-    throw new Error("Work item not found or does not belong to organization");
+    throw new Error("Work item not found or does not belong to workspace");
   }
 
   const [session] = await db.insert(aiSessions).values(data).returning();
@@ -140,9 +140,9 @@ export const getCompletedWorkItemIdsForJob = async (
   return rows.map((r) => r.workItemId);
 };
 
-// Check if a work item has any AI sessions, scoped to organization
+// Check if a work item has any AI sessions, scoped to workspace
 export const hasAiSessions = async (
-  organizationId: string,
+  workspaceId: string,
   workItemId: string
 ): Promise<boolean> => {
   const result = await db
@@ -153,7 +153,7 @@ export const hasAiSessions = async (
     .where(
       and(
         eq(aiSessions.workItemId, workItemId),
-        eq(projects.organizationId, organizationId)
+        eq(projects.workspaceId, workspaceId)
       )
     );
   return (result[0]?.count ?? 0) > 0;

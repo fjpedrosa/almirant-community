@@ -59,8 +59,8 @@ export const parseDueDateFilter = (raw?: string): { start: Date; end: Date } | n
   return { start, end };
 };
 
-const ensureOwnerBelongsToOrganization = async (
-  organizationId: string,
+const ensureOwnerBelongsToWorkspace = async (
+  workspaceId: string,
   ownerUserId: string
 ): Promise<void> => {
   const [ownerMembership] = await db
@@ -68,7 +68,7 @@ const ensureOwnerBelongsToOrganization = async (
     .from(member)
     .where(
       and(
-        eq(member.organizationId, organizationId),
+        eq(member.workspaceId, workspaceId),
         eq(member.userId, ownerUserId)
       )
     )
@@ -79,8 +79,8 @@ const ensureOwnerBelongsToOrganization = async (
   }
 };
 
-const ensureProjectBelongsToOrganization = async (
-  organizationId: string,
+const ensureProjectBelongsToWorkspace = async (
+  workspaceId: string,
   projectId: string
 ): Promise<void> => {
   const [projectRow] = await db
@@ -89,13 +89,13 @@ const ensureProjectBelongsToOrganization = async (
     .where(
       and(
         eq(projects.id, projectId),
-        eq(projects.organizationId, organizationId)
+        eq(projects.workspaceId, workspaceId)
       )
     )
     .limit(1);
 
   if (!projectRow) {
-    throw new Error("PROJECT_NOT_IN_ORGANIZATION");
+    throw new Error("PROJECT_NOT_IN_WORKSPACE");
   }
 };
 
@@ -128,8 +128,8 @@ const insertIdeaItemEvents = async (events: NewIdeaItemEvent[]): Promise<void> =
   await db.insert(ideaItemEvents).values(events);
 };
 
-const ensureFeedbackBelongsToOrganization = async (
-  _organizationId: string,
+const ensureFeedbackBelongsToWorkspace = async (
+  _workspaceId: string,
   feedbackItemId: string
 ): Promise<void> => {
   // Feedback is no longer project-scoped, so we just verify the item exists
@@ -144,8 +144,8 @@ const ensureFeedbackBelongsToOrganization = async (
   }
 };
 
-const ensureWorkItemBelongsToOrganization = async (
-  organizationId: string,
+const ensureWorkItemBelongsToWorkspace = async (
+  workspaceId: string,
   workItemId: string
 ): Promise<void> => {
   const [row] = await db
@@ -153,7 +153,7 @@ const ensureWorkItemBelongsToOrganization = async (
     .from(workItems)
     .innerJoin(projects, eq(workItems.projectId, projects.id))
     .where(
-      and(eq(workItems.id, workItemId), eq(projects.organizationId, organizationId))
+      and(eq(workItems.id, workItemId), eq(projects.workspaceId, workspaceId))
     )
     .limit(1);
 
@@ -305,13 +305,13 @@ export interface IdeaItemEventFilters {
 }
 
 export const getIdeaItems = async (
-  organizationId: string,
+  workspaceId: string,
   pagination: PaginationParams,
   filters?: IdeaItemFilters
 ): Promise<{ items: IdeaItemWithRelations[]; total: number }> => {
   const conditions = [
-    eq(ideaItems.organizationId, organizationId),
-    sql`(${ideaItems.projectId} IS NULL OR ${ideaItems.projectId} IN (SELECT id FROM projects WHERE organization_id = ${organizationId} AND status != 'archived'))`,
+    eq(ideaItems.workspaceId, workspaceId),
+    sql`(${ideaItems.projectId} IS NULL OR ${ideaItems.projectId} IN (SELECT id FROM projects WHERE workspace_id = ${workspaceId} AND status != 'archived'))`,
   ];
 
   if (filters?.type) {
@@ -451,13 +451,13 @@ export const getIdeaItems = async (
 };
 
 export const getIdeaItemById = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<IdeaItemWithRelations | null> => {
   const [item] = await db
     .select()
     .from(ideaItems)
-    .where(and(eq(ideaItems.id, id), eq(ideaItems.organizationId, organizationId)))
+    .where(and(eq(ideaItems.id, id), eq(ideaItems.workspaceId, workspaceId)))
     .limit(1);
 
   if (!item) return null;
@@ -465,14 +465,14 @@ export const getIdeaItemById = async (
 };
 
 export const getIdeaItemEventsByIdeaItemId = async (
-  organizationId: string,
+  workspaceId: string,
   ideaItemId: string,
   pagination: PaginationParams,
   filters?: IdeaItemEventFilters
 ): Promise<{ items: IdeaItemEvent[]; total: number }> => {
   const conditions = [
     eq(ideaItemEvents.ideaItemId, ideaItemId),
-    eq(ideaItems.organizationId, organizationId),
+    eq(ideaItems.workspaceId, workspaceId),
   ];
 
   if (filters?.eventType) {
@@ -519,7 +519,7 @@ export const getIdeaItemEventsByIdeaItemId = async (
 };
 
 export const createIdeaItem = async (
-  organizationId: string,
+  workspaceId: string,
   data: CreateIdeaItemRequest,
   context: IdeaItemEventContext = defaultIdeaItemEventContext
 ): Promise<IdeaItemWithRelations> => {
@@ -536,16 +536,16 @@ export const createIdeaItem = async (
   }
 
   if (data.ownerUserId) {
-    await ensureOwnerBelongsToOrganization(organizationId, data.ownerUserId);
+    await ensureOwnerBelongsToWorkspace(workspaceId, data.ownerUserId);
   }
   if (data.projectId) {
-    await ensureProjectBelongsToOrganization(organizationId, data.projectId);
+    await ensureProjectBelongsToWorkspace(workspaceId, data.projectId);
   }
 
   const [created] = await db
     .insert(ideaItems)
     .values({
-      organizationId,
+      workspaceId,
       projectId: data.projectId ?? null,
       type,
       status,
@@ -578,11 +578,11 @@ export const createIdeaItem = async (
     },
   ]);
 
-  return getIdeaItemById(organizationId, created.id) as Promise<IdeaItemWithRelations>;
+  return getIdeaItemById(workspaceId, created.id) as Promise<IdeaItemWithRelations>;
 };
 
 export const updateIdeaItem = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   data: UpdateIdeaItemRequest,
   context: IdeaItemEventContext = defaultIdeaItemEventContext
@@ -591,7 +591,7 @@ export const updateIdeaItem = async (
   const [current] = await db
     .select()
     .from(ideaItems)
-    .where(and(eq(ideaItems.id, id), eq(ideaItems.organizationId, organizationId)))
+    .where(and(eq(ideaItems.id, id), eq(ideaItems.workspaceId, workspaceId)))
     .limit(1);
 
   if (!current) return null;
@@ -610,10 +610,10 @@ export const updateIdeaItem = async (
   }
 
   if (data.ownerUserId) {
-    await ensureOwnerBelongsToOrganization(organizationId, data.ownerUserId);
+    await ensureOwnerBelongsToWorkspace(workspaceId, data.ownerUserId);
   }
   if (data.projectId !== undefined && data.projectId !== null) {
-    await ensureProjectBelongsToOrganization(organizationId, data.projectId);
+    await ensureProjectBelongsToWorkspace(workspaceId, data.projectId);
   }
 
   const updateValues: Partial<typeof ideaItems.$inferInsert> = {
@@ -646,7 +646,7 @@ export const updateIdeaItem = async (
   const [updated] = await db
     .update(ideaItems)
     .set(updateValues)
-    .where(and(eq(ideaItems.id, id), eq(ideaItems.organizationId, organizationId)))
+    .where(and(eq(ideaItems.id, id), eq(ideaItems.workspaceId, workspaceId)))
     .returning();
 
   if (!updated) return null;
@@ -682,47 +682,47 @@ export const updateIdeaItem = async (
 
   await insertIdeaItemEvents(fieldEvents);
 
-  return getIdeaItemById(organizationId, id);
+  return getIdeaItemById(workspaceId, id);
 };
 
 export const deleteIdeaItem = async (
-  organizationId: string,
+  workspaceId: string,
   id: string
 ): Promise<boolean> => {
   const deleted = await db
     .delete(ideaItems)
-    .where(and(eq(ideaItems.id, id), eq(ideaItems.organizationId, organizationId)))
+    .where(and(eq(ideaItems.id, id), eq(ideaItems.workspaceId, workspaceId)))
     .returning({ id: ideaItems.id });
 
   return deleted.length > 0;
 };
 
 export const setIdeaItemStatus = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   status: IdeaItemStatus,
   context: IdeaItemEventContext = defaultIdeaItemEventContext
 ): Promise<IdeaItemWithRelations | null> =>
-  updateIdeaItem(organizationId, id, { status }, context);
+  updateIdeaItem(workspaceId, id, { status }, context);
 
 export const assignIdeaItemOwner = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   ownerUserId: string | null,
   context: IdeaItemEventContext = defaultIdeaItemEventContext
 ): Promise<IdeaItemWithRelations | null> =>
-  updateIdeaItem(organizationId, id, { ownerUserId }, context);
+  updateIdeaItem(workspaceId, id, { ownerUserId }, context);
 
 export const setIdeaItemDueDate = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   dueDate: string | null,
   context: IdeaItemEventContext = defaultIdeaItemEventContext
 ): Promise<IdeaItemWithRelations | null> =>
-  updateIdeaItem(organizationId, id, { dueDate }, context);
+  updateIdeaItem(workspaceId, id, { dueDate }, context);
 
 export const toggleIdeaItemDiscussed = async (
-  organizationId: string,
+  workspaceId: string,
   id: string,
   discussed: boolean,
   context: IdeaItemEventContext = defaultIdeaItemEventContext
@@ -731,7 +731,7 @@ export const toggleIdeaItemDiscussed = async (
   const [current] = await db
     .select()
     .from(ideaItems)
-    .where(and(eq(ideaItems.id, id), eq(ideaItems.organizationId, organizationId)))
+    .where(and(eq(ideaItems.id, id), eq(ideaItems.workspaceId, workspaceId)))
     .limit(1);
 
   if (!current) return null;
@@ -739,7 +739,7 @@ export const toggleIdeaItemDiscussed = async (
   const [updated] = await db
     .update(ideaItems)
     .set({ discussed, updatedAt: new Date() })
-    .where(and(eq(ideaItems.id, id), eq(ideaItems.organizationId, organizationId)))
+    .where(and(eq(ideaItems.id, id), eq(ideaItems.workspaceId, workspaceId)))
     .returning();
 
   if (!updated) return null;
@@ -754,21 +754,21 @@ export const toggleIdeaItemDiscussed = async (
     triggeredByUserId: eventContext.triggeredByUserId,
   }]);
 
-  return getIdeaItemById(organizationId, id);
+  return getIdeaItemById(workspaceId, id);
 };
 
 export const linkFeedbackToIdeaItem = async (
-  organizationId: string,
+  workspaceId: string,
   ideaItemId: string,
   feedbackItemId: string,
   metadata: Record<string, unknown> = {},
   context: IdeaItemEventContext = defaultIdeaItemEventContext
 ): Promise<IdeaItemFeedbackLink> => {
   const eventContext = resolveIdeaItemEventContext(context);
-  const ideaItem = await getIdeaItemById(organizationId, ideaItemId);
+  const ideaItem = await getIdeaItemById(workspaceId, ideaItemId);
   if (!ideaItem) throw new Error("IDEA_ITEM_NOT_FOUND");
 
-  await ensureFeedbackBelongsToOrganization(organizationId, feedbackItemId);
+  await ensureFeedbackBelongsToWorkspace(workspaceId, feedbackItemId);
 
   const [inserted] = await db
     .insert(ideaItemFeedbackLinks)
@@ -813,13 +813,13 @@ export const linkFeedbackToIdeaItem = async (
 };
 
 export const unlinkFeedbackFromIdeaItem = async (
-  organizationId: string,
+  workspaceId: string,
   ideaItemId: string,
   feedbackItemId: string,
   context: IdeaItemEventContext = defaultIdeaItemEventContext
 ): Promise<boolean> => {
   const eventContext = resolveIdeaItemEventContext(context);
-  const ideaItem = await getIdeaItemById(organizationId, ideaItemId);
+  const ideaItem = await getIdeaItemById(workspaceId, ideaItemId);
   if (!ideaItem) throw new Error("IDEA_ITEM_NOT_FOUND");
 
   const deleted = await db
@@ -851,7 +851,7 @@ export const unlinkFeedbackFromIdeaItem = async (
 };
 
 export const linkWorkItemToIdeaItem = async (
-  organizationId: string,
+  workspaceId: string,
   ideaItemId: string,
   workItemId: string,
   linkType: IdeaItemWorkItemLink["linkType"] = "related_to",
@@ -864,10 +864,10 @@ export const linkWorkItemToIdeaItem = async (
     triggeredByUserId: context.triggeredByUserId ?? createdBy,
     triggeredBy: context.triggeredBy ?? (createdBy ? "user" : undefined),
   });
-  const ideaItem = await getIdeaItemById(organizationId, ideaItemId);
+  const ideaItem = await getIdeaItemById(workspaceId, ideaItemId);
   if (!ideaItem) throw new Error("IDEA_ITEM_NOT_FOUND");
 
-  await ensureWorkItemBelongsToOrganization(organizationId, workItemId);
+  await ensureWorkItemBelongsToWorkspace(workspaceId, workItemId);
 
   const [inserted] = await db
     .insert(ideaItemWorkItemLinks)
@@ -915,16 +915,16 @@ export const linkWorkItemToIdeaItem = async (
 };
 
 export const getIdeaItemTraceability = async (
-  organizationId: string,
+  workspaceId: string,
   ideaItemId: string
 ): Promise<IdeaItemTraceabilityResult | null> => {
-  const item = await getIdeaItemById(organizationId, ideaItemId);
+  const item = await getIdeaItemById(workspaceId, ideaItemId);
   if (!item) return null;
 
   return {
     ideaItem: {
       id: item.id,
-      organizationId: item.organizationId,
+      workspaceId: item.workspaceId,
       projectId: item.projectId,
       type: item.type,
       status: item.status,

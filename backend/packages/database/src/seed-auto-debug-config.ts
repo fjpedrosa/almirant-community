@@ -26,20 +26,20 @@ async function main() {
     process.exit(1);
   }
 
-  // Find the organization (assumes single-org setup)
+  // Find the workspace (assumes single-org setup)
   const [org] = await sql`
-    SELECT id FROM organization LIMIT 1
+    SELECT id FROM workspace LIMIT 1
   `;
 
   if (!org) {
-    console.error("ERROR: No organization found.");
+    console.error("ERROR: No workspace found.");
     process.exit(1);
   }
 
   // Upsert the scheduled agent config
   await sql`
     INSERT INTO scheduled_agent_configs (
-      organization_id,
+      workspace_id,
       name,
       skill_id,
       skill_name,

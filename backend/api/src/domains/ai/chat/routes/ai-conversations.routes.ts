@@ -19,13 +19,13 @@ export const aiConversationsRoutes = new Elysia({ prefix: "/ai/conversations" })
   .use(sessionContextTypes)
 
   // GET /ai/conversations — List conversations by projectId
-  .get("/", async ({ query, set, activeOrganization }) => {
+  .get("/", async ({ query, set, activeWorkspace }) => {
     if (!query.projectId) {
       set.status = 400;
       return errorResponse("projectId is required");
     }
 
-    const orgId = activeOrganization!.id;
+    const orgId = activeWorkspace!.id;
     const pagination = parsePaginationParams(query);
     const { conversations, total } = await getAiConversations(
       orgId,
@@ -44,8 +44,8 @@ export const aiConversationsRoutes = new Elysia({ prefix: "/ai/conversations" })
   })
 
   // GET /ai/conversations/:id — Get single conversation
-  .get("/:id", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .get("/:id", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const conversation = await getAiConversationById(orgId, params.id);
     if (!conversation) {
       set.status = 404;
@@ -86,8 +86,8 @@ export const aiConversationsRoutes = new Elysia({ prefix: "/ai/conversations" })
   })
 
   // PATCH /ai/conversations/:id — Update conversation
-  .patch("/:id", async ({ params, body, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .patch("/:id", async ({ params, body, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const existing = await getAiConversationById(orgId, params.id);
     if (!existing) {
       set.status = 404;
@@ -127,8 +127,8 @@ export const aiConversationsRoutes = new Elysia({ prefix: "/ai/conversations" })
   })
 
   // DELETE /ai/conversations/:id — Delete conversation
-  .delete("/:id", async ({ params, set, activeOrganization }) => {
-    const orgId = activeOrganization!.id;
+  .delete("/:id", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
     const deleted = await deleteAiConversation(orgId, params.id);
     if (!deleted) {
       set.status = 404;

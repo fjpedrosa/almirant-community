@@ -18,7 +18,7 @@ const rowsToIds = (rows: unknown): string[] => {
  * actionable DoD report, or tasks explicitly marked as requiring human action.
  */
 export const getDodRemediationExpectedLeafTaskIdsUnder = async (
-  organizationId: string,
+  workspaceId: string,
   rootWorkItemId: string,
 ): Promise<string[]> => {
   const rows = await db.execute<{ id: string }>(sql`
@@ -27,7 +27,7 @@ export const getDodRemediationExpectedLeafTaskIdsUnder = async (
       FROM work_items wi
       INNER JOIN projects p ON wi.project_id = p.id
       WHERE wi.id = ${rootWorkItemId}
-        AND p.organization_id = ${organizationId}
+        AND p.workspace_id = ${workspaceId}
       UNION ALL
       SELECT child.id, child.type, child.archived_at, child.parent_id, child.board_column_id, child.metadata
       FROM work_items child

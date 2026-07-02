@@ -66,7 +66,7 @@ const mockDb = {
 // Mock schema table (just needs to be a recognizable reference)
 const mockNotificationQueue = {
   id: "nq_id_col",
-  organizationId: "nq_org_col",
+  workspaceId: "nq_org_col",
   recipientUserId: "nq_recipient_col",
   type: "nq_type_col",
   debounceKey: "nq_debounce_col",
@@ -110,7 +110,7 @@ const mockAsc = mock((col: unknown) => ({ _type: "asc", col }));
 
 const buildEnqueueNotification = () =>
   async (
-    organizationId: string,
+    workspaceId: string,
     recipientUserId: string,
     type: string,
     debounceKey: string,
@@ -137,7 +137,7 @@ const buildEnqueueNotification = () =>
         .where(mockEq(mockNotificationQueue.id, existing.id));
     } else {
       await (mockDb as any).insert(mockNotificationQueue).values({
-        organizationId,
+        workspaceId,
         recipientUserId,
         type,
         debounceKey,
@@ -286,7 +286,7 @@ describe("notification-queue-repository", () => {
 
       const insertedValues = (insertValuesCalls[0] as unknown[])[0] as Record<string, unknown>;
 
-      expect(insertedValues.organizationId).toBe("org-1");
+      expect(insertedValues.workspaceId).toBe("org-1");
       expect(insertedValues.recipientUserId).toBe("user-1");
       expect(insertedValues.type).toBe("assignment");
       expect(insertedValues.debounceKey).toBe("debounce-key-1");

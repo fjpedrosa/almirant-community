@@ -68,7 +68,7 @@ export const observabilityRoutes = new Elysia({ prefix: "/observability" })
     async (ctx) => {
       try {
         const userId = (ctx as unknown as { user: { id: string } }).user.id;
-        const orgId = (ctx as unknown as { activeOrganization: { id: string } }).activeOrganization.id;
+        const orgId = (ctx as unknown as { activeWorkspace: { id: string } }).activeWorkspace.id;
 
         const encryptionKey = env.ENCRYPTION_KEY;
         if (!encryptionKey) {
@@ -144,7 +144,7 @@ export const observabilityRoutes = new Elysia({ prefix: "/observability" })
     async (ctx) => {
       try {
         const userId = (ctx as unknown as { user: { id: string } }).user.id;
-        const orgId = (ctx as unknown as { activeOrganization: { id: string } }).activeOrganization.id;
+        const orgId = (ctx as unknown as { activeWorkspace: { id: string } }).activeWorkspace.id;
 
         const encryptionKey = env.ENCRYPTION_KEY;
         if (!encryptionKey) {
@@ -220,7 +220,7 @@ export const observabilityRoutes = new Elysia({ prefix: "/observability" })
     async (ctx) => {
       try {
         const userId = (ctx as unknown as { user: { id: string } }).user.id;
-        const orgId = (ctx as unknown as { activeOrganization: { id: string } }).activeOrganization.id;
+        const orgId = (ctx as unknown as { activeWorkspace: { id: string } }).activeWorkspace.id;
 
         const encryptionKey = env.ENCRYPTION_KEY;
         if (!encryptionKey) {
@@ -299,7 +299,7 @@ export const observabilityRoutes = new Elysia({ prefix: "/observability" })
     async (ctx) => {
       try {
         const userId = (ctx as unknown as { user: { id: string } }).user.id;
-        const orgId = (ctx as unknown as { activeOrganization: { id: string } }).activeOrganization.id;
+        const orgId = (ctx as unknown as { activeWorkspace: { id: string } }).activeWorkspace.id;
 
         const encryptionKey = env.ENCRYPTION_KEY;
         if (!encryptionKey) {

@@ -48,27 +48,27 @@ type StaleJobRecoveryConfig = {
   offlineThresholdMs?: number;
 };
 
-/** Resolve organizationId from a workItemId via the work item's project. */
+/** Resolve workspaceId from a workItemId via the work item's project. */
 const resolveOrgIdFromWorkItem = async (workItemId: string | null): Promise<string | null> => {
   if (!workItemId) return null;
   const [row] = await db
-    .select({ organizationId: projects.organizationId })
+    .select({ workspaceId: projects.workspaceId })
     .from(workItems)
     .innerJoin(projects, eq(workItems.projectId, projects.id))
     .where(eq(workItems.id, workItemId))
     .limit(1);
-  return row?.organizationId ?? null;
+  return row?.workspaceId ?? null;
 };
 
 const broadcastStatusChanged = async (args: {
   jobId: string;
   status: string;
   workItemId: string | null;
-  organizationId?: string | null;
+  workspaceId?: string | null;
 }) => {
-  const orgId = args.organizationId ?? await resolveOrgIdFromWorkItem(args.workItemId);
+  const orgId = args.workspaceId ?? await resolveOrgIdFromWorkItem(args.workItemId);
   if (!orgId) return;
-  wsConnectionManager.broadcastToOrganization(orgId, {
+  wsConnectionManager.broadcastToWorkspace(orgId, {
     type: "agent-job:status-changed",
     payload: {
       jobId: args.jobId,
@@ -103,7 +103,7 @@ const interruptParentPlanningSession = async (
 
     await interruptPlanningSession(job.planningSessionId, context);
 
-    wsConnectionManager.broadcastToOrganization(orgId, {
+    wsConnectionManager.broadcastToWorkspace(orgId, {
       type: "planning-session:interrupted" as any,
       payload: {
         sessionId: job.planningSessionId,
@@ -135,7 +135,7 @@ const clearAiProcessingFlagForJob = async (
     if (!orgId) return;
 
     await setWorkItemAiProcessing(orgId, job.workItemId, false);
-    wsConnectionManager.broadcastToOrganization(orgId, {
+    wsConnectionManager.broadcastToWorkspace(orgId, {
       type: "work-item:updated",
       payload: { workItemId: job.workItemId, changes: { isAiProcessing: false } },
     });
@@ -179,7 +179,7 @@ const requeueRecoveredJob = async (
 
   if (!updated) return;
 
-  void broadcastStatusChanged({ jobId: updated.id, status: updated.status, workItemId: updated.workItemId ?? null, organizationId: updated.organizationId });
+  void broadcastStatusChanged({ jobId: updated.id, status: updated.status, workItemId: updated.workItemId ?? null, workspaceId: updated.workspaceId });
   logger.warn(
     { jobId: updated.id, prevWorkerId: job.workerId, retryCount: updated.retryCount, maxRetries: updated.maxRetries, reason },
     "Stale job recovery: re-queued orphaned active job",
@@ -220,11 +220,11 @@ const resumePausedQuotaJob = async (
     jobId: updated.id,
     status: updated.status,
     workItemId: updated.workItemId ?? null,
-    organizationId: updated.organizationId,
+    workspaceId: updated.workspaceId,
   });
 
   logger.info(
-    { jobId: updated.id, workItemId: updated.workItemId, organizationId: updated.organizationId },
+    { jobId: updated.id, workItemId: updated.workItemId, workspaceId: updated.workspaceId },
     "Stale job recovery: re-queued quota-paused job after reset",
   );
 };
@@ -260,9 +260,9 @@ const failRecoveredJob = async (
 
   if (!updated) return;
 
-  void broadcastStatusChanged({ jobId: updated.id, status: updated.status, workItemId: updated.workItemId ?? null, organizationId: updated.organizationId });
+  void broadcastStatusChanged({ jobId: updated.id, status: updated.status, workItemId: updated.workItemId ?? null, workspaceId: updated.workspaceId });
 
-  const orgId = job.organizationId ?? await resolveOrgIdFromWorkItem(job.workItemId);
+  const orgId = job.workspaceId ?? await resolveOrgIdFromWorkItem(job.workItemId);
   if (orgId && params.interruptReason) {
     void interruptParentPlanningSession(job, params.interruptReason, orgId);
   }
@@ -505,8 +505,8 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
           .returning();
 
         if (updated) {
-          void broadcastStatusChanged({ jobId: updated.id, status: updated.status, workItemId: updated.workItemId ?? null, organizationId: updated.organizationId });
-          const orgId = job.organizationId ?? await resolveOrgIdFromWorkItem(job.workItemId);
+          void broadcastStatusChanged({ jobId: updated.id, status: updated.status, workItemId: updated.workItemId ?? null, workspaceId: updated.workspaceId });
+          const orgId = job.workspaceId ?? await resolveOrgIdFromWorkItem(job.workItemId);
           if (orgId) {
             void interruptParentPlanningSession(job, "idle_timeout", orgId);
           }
@@ -515,7 +515,7 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
             const timeoutOrgId = await resolveOrgIdFromWorkItem(job.workItemId);
             if (timeoutOrgId) {
               await setWorkItemAiProcessing(timeoutOrgId, job.workItemId, false);
-              wsConnectionManager.broadcastToOrganization(timeoutOrgId, { type: "work-item:updated", payload: { workItemId: job.workItemId, changes: { isAiProcessing: false } } });
+              wsConnectionManager.broadcastToWorkspace(timeoutOrgId, { type: "work-item:updated", payload: { workItemId: job.workItemId, changes: { isAiProcessing: false } } });
             }
           }
 
@@ -603,8 +603,8 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
           .returning();
 
         if (updated) {
-          void broadcastStatusChanged({ jobId: updated.id, status: updated.status, workItemId: updated.workItemId ?? null, organizationId: updated.organizationId });
-          const orgId = jobRow.organizationId ?? await resolveOrgIdFromWorkItem(jobRow.workItemId);
+          void broadcastStatusChanged({ jobId: updated.id, status: updated.status, workItemId: updated.workItemId ?? null, workspaceId: updated.workspaceId });
+          const orgId = jobRow.workspaceId ?? await resolveOrgIdFromWorkItem(jobRow.workItemId);
           if (orgId) {
             void interruptParentPlanningSession(jobRow, "idle_timeout", orgId);
           }
@@ -624,7 +624,7 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
               const orgId = await resolveOrgIdFromWorkItem(updated.workItemId);
               if (orgId) {
                 await setWorkItemAiProcessing(orgId, updated.workItemId, false);
-                wsConnectionManager.broadcastToOrganization(orgId, {
+                wsConnectionManager.broadcastToWorkspace(orgId, {
                   type: "work-item:updated",
                   payload: { workItemId: updated.workItemId, changes: { isAiProcessing: false } },
                 });
@@ -706,7 +706,7 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
         for (const itemId of itemIds) {
           const orgId = await resolveOrgIdFromWorkItem(itemId);
           if (orgId) {
-            wsConnectionManager.broadcastToOrganization(orgId, {
+            wsConnectionManager.broadcastToWorkspace(orgId, {
               type: "work-item:updated",
               payload: { workItemId: itemId, boardId, changes: { boardColumnId: reviewColumn.id, isAiProcessing: false } },
             });

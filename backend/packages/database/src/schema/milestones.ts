@@ -8,7 +8,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { milestoneStatusEnum, priorityEnum } from "./enums";
-import { organization } from "./organization";
+import { workspace } from "./workspace";
 import { projects } from "./projects";
 import { user } from "./auth";
 import { workItems } from "./work-items";
@@ -30,15 +30,15 @@ export const milestones = pgTable(
     createdByUserId: text("created_by_user_id").references(() => user.id, {
       onDelete: "set null",
     }),
-    organizationId: text("organization_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index("milestones_project_id_idx").on(table.projectId),
-    index("milestones_organization_id_idx").on(table.organizationId),
+    index("milestones_workspace_id_idx").on(table.workspaceId),
     index("milestones_status_idx").on(table.status),
   ]
 );

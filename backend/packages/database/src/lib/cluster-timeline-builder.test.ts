@@ -53,7 +53,7 @@ const makeAttempt = (
   feedbackItemId: overrides.feedbackItemId ?? null,
   clusterId: overrides.clusterId ?? "cluster-1",
   projectId: overrides.projectId ?? "proj-1",
-  organizationId: overrides.organizationId ?? "org-1",
+  workspaceId: overrides.workspaceId ?? "org-1",
   agentJobId: overrides.agentJobId ?? null,
   domain: overrides.domain ?? null,
   rootCause: overrides.rootCause ?? null,
