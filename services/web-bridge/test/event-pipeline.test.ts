@@ -713,6 +713,44 @@ describe("SequenceGuard: dedup and ordering", () => {
     // And seq=0 is accepted again (no high water mark)
     expect(guard.isRegression("job-001", 0)).toBe(false);
   });
+
+  it("resetHighWater lets a resumed attempt with a restarted-low sequence through", () => {
+    const guard = createSequenceGuard();
+
+    // Attempt A advances the high-water mark WITHOUT ever reaching a terminal
+    // event (mimics a quota pause or pre-session-timeout retry: the same jobId
+    // is reused on a fresh, ephemeral runner whose producer sequence restarts
+    // low).
+    expect(guard.isRegression("job-001", 1)).toBe(false);
+    expect(guard.isRegression("job-001", 2)).toBe(false);
+    expect(guard.isRegression("job-001", 3)).toBe(false);
+
+    // Without a reset, the resumed attempt's low sequence looks like a stale
+    // redelivery and is silently (and permanently) dropped — the bug.
+    expect(guard.isRegression("job-001", 1)).toBe(true);
+
+    // job.started at the start of the new attempt resets the high-water mark.
+    guard.resetHighWater("job-001");
+
+    // The resumed attempt's events are accepted again.
+    expect(guard.isRegression("job-001", 1)).toBe(false);
+    expect(guard.isRegression("job-001", 2)).toBe(false);
+    // ...and dedup still works within the resumed attempt.
+    expect(guard.isRegression("job-001", 2)).toBe(true);
+  });
+
+  it("resetHighWater preserves the outbound counter (contiguous frontend ordering)", () => {
+    const guard = createSequenceGuard();
+
+    // Outbound (bridge-local) numbering advances during attempt A.
+    expect(guard.nextSequence("job-001")).toBe(0);
+    expect(guard.nextSequence("job-001")).toBe(1);
+
+    // A reset (unlike cleanup) must NOT restart the outbound counter, so the
+    // frontend keeps receiving a contiguous, monotonic sequence across attempts.
+    guard.resetHighWater("job-001");
+    expect(guard.nextSequence("job-001")).toBe(2);
+  });
 });
 
 // ===========================================================================

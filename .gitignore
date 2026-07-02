@@ -87,6 +87,9 @@ opencode.jsonc
 /CLAUDE.md
 /MEMORY.md
 
+# Stray screenshots dropped at the repo root
+/*.png
+
 # Private/internal release artifacts
 /docs-internal/
 /docs/debugging/

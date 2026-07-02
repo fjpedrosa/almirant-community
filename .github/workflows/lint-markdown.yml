@@ -11,6 +11,8 @@ on:
 
 jobs:
   lint:
+    # Public-repo only: never run in forks (e.g. the private almirant-cloud fork).
+    if: github.repository == 'fjpedrosa/almirant-community'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

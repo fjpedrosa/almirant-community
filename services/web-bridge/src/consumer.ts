@@ -204,18 +204,34 @@ export const createWebBridgeConsumer = (
               });
             }
 
-            // Route canonical event through WebRenderer → Redis Pub/Sub
-            const envelope: CanonicalEventEnvelope = {
-              ...streamEvent.envelope,
-              threadId: event.jobId,
-              sequenceNumber: seqGuard.nextSequence(event.jobId),
-            };
+            // A reused jobId starting a new attempt on a fresh, ephemeral
+            // runner republishes job.started with a producer sequence that
+            // restarts low. The quota-pause and pre-session-timeout retry
+            // paths reuse the jobId WITHOUT emitting a terminal event, so the
+            // high-water mark was never cleaned up. Reset it here (before the
+            // regression check) so the resumed attempt's events are not
+            // mistaken for stale/duplicate redeliveries and dropped forever.
+            if (canonicalEvent.kind === "job.started") {
+              seqGuard.resetHighWater(event.jobId);
+            }
 
-            // Dedup: reject out-of-order or duplicate envelopes
-            if (seqGuard.isRegression(event.jobId, envelope.sequenceNumber)) {
+            // Dedup: reject out-of-order or duplicate envelopes based on
+            // the PRODUCER-assigned sequence number, BEFORE reassigning the
+            // bridge-local one (checking the reassigned number would never
+            // detect a regression — it is monotonic by construction).
+            //
+            // Envelopes WITHOUT a producer sequence number (e.g. an older
+            // producer during a rolling deploy) are NOT deduped: feeding a
+            // non-finite value to the guard would either drop legitimate
+            // events or poison the high-water mark. Bypass the guard instead.
+            const producerSequenceNumber = streamEvent.envelope.sequenceNumber;
+            if (
+              Number.isFinite(producerSequenceNumber) &&
+              seqGuard.isRegression(event.jobId, producerSequenceNumber)
+            ) {
               log("warn", `Dropping out-of-order/duplicate envelope`, {
                 jobId: event.jobId,
-                sequenceNumber: envelope.sequenceNumber,
+                producerSequenceNumber: streamEvent.envelope.sequenceNumber,
                 kind: canonicalEvent.kind,
               });
               totalProcessed += 1;
@@ -223,6 +239,14 @@ export const createWebBridgeConsumer = (
               await ack();
               return;
             }
+
+            // Route canonical event through WebRenderer → Redis Pub/Sub
+            // with a reassigned bridge-local monotonic sequence number.
+            const envelope: CanonicalEventEnvelope = {
+              ...streamEvent.envelope,
+              threadId: event.jobId,
+              sequenceNumber: seqGuard.nextSequence(event.jobId),
+            };
 
             await routeCanonical(envelope);
 

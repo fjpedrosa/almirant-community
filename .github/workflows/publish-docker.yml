@@ -18,6 +18,9 @@ permissions:
 jobs:
   publish:
     name: Publish ${{ matrix.image }}
+    # Public-repo only: never run in forks (e.g. the private almirant-cloud fork).
+    # Forks publishing images must define their own workflow/registry.
+    if: github.repository == 'fjpedrosa/almirant-community'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

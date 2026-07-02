@@ -75,4 +75,23 @@ describe("@almirant/canonical-events", () => {
       throw new Error("expected agent.summary");
     }
   });
+
+  it("marca sequenceNumber ausente como NaN (no lo colapsa a 0)", () => {
+    // An envelope produced by an older runner during a rolling deploy may not
+    // carry a sequenceNumber. Collapsing it to 0 makes the web-bridge dedup
+    // guard treat the second such envelope as a regression and drop it.
+    // Absent sequence numbers must be represented as a non-finite value so the
+    // consumer can bypass dedup instead of dropping legitimate events.
+    const serialized = serializeCanonicalEnvelope(envelope);
+    const withoutSeq: string[] = [];
+    for (let i = 0; i < serialized.length; i += 2) {
+      if (serialized[i] === "sequenceNumber") continue;
+      withoutSeq.push(serialized[i]!, serialized[i + 1]!);
+    }
+
+    const deserialized = deserializeCanonicalEnvelope(withoutSeq);
+    expect(deserialized).not.toBeNull();
+    expect(Number.isNaN(deserialized!.sequenceNumber)).toBe(true);
+    expect(deserialized!.sequenceNumber).not.toBe(0);
+  });
 });
