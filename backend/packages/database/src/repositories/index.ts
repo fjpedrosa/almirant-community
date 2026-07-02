@@ -123,6 +123,7 @@ export * from "./admin/instance-tailnet-database-access.repository";
 
 // ── observability ──
 export * from "./observability/analytics-repository";
+export * from "./observability/health-repository";
 
 // ── debug ──
 export * from "./debug/incident-bundle-repository";
