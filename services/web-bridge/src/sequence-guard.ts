@@ -19,6 +19,20 @@ export type SequenceGuard = {
    */
   isRegression: (jobId: string, seq: number) => boolean;
 
+  /**
+   * Reset ONLY the regression high-water mark for a job, keeping the outbound
+   * sequence counter intact.
+   *
+   * Used when a reused jobId starts a new attempt on a fresh (ephemeral) runner
+   * whose producer sequence restarts low — e.g. after a quota pause or a
+   * pre-session-timeout retry, neither of which emits a terminal event. Without
+   * this reset the resumed attempt's low producer sequences would be mistaken
+   * for stale/duplicate redeliveries and dropped. Unlike `cleanup`, the outbound
+   * (bridge-local) counter is preserved so the frontend keeps receiving a
+   * contiguous, monotonic sequence across attempts.
+   */
+  resetHighWater: (jobId: string) => void;
+
   /** Clean up all tracking state for a completed job. */
   cleanup: (jobId: string) => void;
 };
@@ -41,6 +55,10 @@ export const createSequenceGuard = (): SequenceGuard => {
       }
       highWaterMarks.set(jobId, seq);
       return false;
+    },
+
+    resetHighWater: (jobId: string): void => {
+      highWaterMarks.delete(jobId);
     },
 
     cleanup: (jobId: string): void => {

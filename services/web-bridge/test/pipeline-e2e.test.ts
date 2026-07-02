@@ -308,4 +308,122 @@ describe.skipIf(!redisAvailable)("Pipeline e2e: stream → real consumer → pub
     },
     30_000,
   );
+
+  it(
+    "accepts a resumed attempt whose producer sequence restarts low (job.started resets the guard)",
+    async () => {
+      // A quota-pause / pre-session-timeout retry reuses the SAME jobId on a
+      // fresh ephemeral runner. That runner's producer sequence restarts low,
+      // yet NO terminal event (job.completed/incomplete/failed/cancelled) was
+      // emitted, so the consumer never cleaned up the high-water mark. Without
+      // the fix, the resumed attempt's events regress below the mark and are
+      // dropped silently AND permanently.
+      const JOB_B = `${JOB_ID}-resumed`;
+      const SESSION_B = `${SESSION_ID}-resumed`;
+
+      const envB = (
+        producerSeq: number,
+        event: CanonicalEvent,
+      ): CanonicalEventEnvelope => ({
+        jobId: JOB_B,
+        sessionId: SESSION_B,
+        organizationId: ORG_ID,
+        threadId: JOB_B,
+        timestamp: 1_700_000_000_000 + producerSeq * 100,
+        sequenceNumber: producerSeq,
+        event,
+      });
+
+      const bySession = (content: string) =>
+        received.some(
+          (m) =>
+            m.message.payload.sessionId === SESSION_B &&
+            m.message.payload.content === content,
+        );
+
+      // -- Attempt A: advance the high-water mark, NO terminal event ---------
+      await publisher.publishCanonicalEnvelope(
+        envB(1, { kind: "agent.text", content: "attempt-A-1" }),
+      );
+      await publisher.publishCanonicalEnvelope(
+        envB(2, { kind: "agent.text", content: "attempt-A-2" }),
+      );
+      await publisher.publishCanonicalEnvelope(
+        envB(3, { kind: "agent.text", content: "attempt-A-3" }),
+      );
+
+      expect(await waitFor(() => bySession("attempt-A-3"), 15_000)).toBe(true);
+
+      // -- Attempt B: same jobId, producer sequence restarts low -------------
+      // The fresh runner republishes job.started first, which must reset the
+      // consumer's high-water mark for this jobId.
+      await publisher.publishCanonicalEnvelope(
+        envB(1, { kind: "job.started" }),
+      );
+      await publisher.publishCanonicalEnvelope(
+        envB(2, { kind: "agent.text", content: "attempt-B-resumed" }),
+      );
+
+      // The resumed attempt's event MUST be delivered, not silently dropped.
+      const delivered = await waitFor(() => bySession("attempt-B-resumed"), 15_000);
+      expect(delivered).toBe(true);
+    },
+    40_000,
+  );
+
+  it(
+    "does not drop events when an envelope arrives without a sequenceNumber",
+    async () => {
+      // Rolling deploy: an older producer publishes canonical envelopes with no
+      // sequenceNumber. These must NOT be treated as sequence 0 (which would
+      // make the second one look like a regression and drop it) — dedup is
+      // bypassed for envelopes without a sequence number.
+      const JOB_C = `${JOB_ID}-noseq`;
+      const SESSION_C = `${SESSION_ID}-noseq`;
+
+      const rawRedis = new Redis(REDIS_URL, { maxRetriesPerRequest: 1 });
+
+      const xaddNoSeq = async (content: string) => {
+        // Canonical wire fields WITHOUT a sequenceNumber pair.
+        await rawRedis.xadd(
+          STREAM_NAME,
+          "*",
+          "jobId",
+          JOB_C,
+          "sessionId",
+          SESSION_C,
+          "organizationId",
+          ORG_ID,
+          "threadId",
+          JOB_C,
+          "timestamp",
+          String(Date.now()),
+          "event",
+          JSON.stringify({ kind: "agent.text", content }),
+          "_format",
+          "canonical",
+        );
+      };
+
+      try {
+        await xaddNoSeq("noseq-1");
+        await xaddNoSeq("noseq-2");
+
+        const seen = (content: string) =>
+          received.some(
+            (m) =>
+              m.message.payload.sessionId === SESSION_C &&
+              m.message.payload.content === content,
+          );
+
+        // BOTH events must be delivered — the second is not dropped as a
+        // "regression" just because neither carries a sequence number.
+        expect(await waitFor(() => seen("noseq-1"), 15_000)).toBe(true);
+        expect(await waitFor(() => seen("noseq-2"), 15_000)).toBe(true);
+      } finally {
+        rawRedis.disconnect();
+      }
+    },
+    40_000,
+  );
 });

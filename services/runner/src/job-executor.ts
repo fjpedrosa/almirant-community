@@ -13,6 +13,7 @@ import {
   nextSequence,
   publishStreamEvent,
   publishCanonicalEvent,
+  publishJobStarted,
 } from "./session/stream-events";
 import { createDiscordThreadWithRetry } from "./session/discord-thread";
 import { buildInjectedEnv, resolveRuntimeConfig } from "./workspace/config-injector";
@@ -549,6 +550,18 @@ export const createJobExecutor = (
         );
       }
     }
+
+    // Emit job.started as the FIRST canonical event of every attempt (initial
+    // and resumed). The web-bridge consumer uses it to reset its per-job dedup
+    // high-water mark, so a resumed attempt on a fresh ephemeral runner — whose
+    // producer sequence restarts low after a quota pause or pre-session-timeout
+    // retry — is not silently dropped.
+    await publishJobStarted(ctx.streamPublisher, {
+      jobId: job.id,
+      sessionId: ctx.webSessionId ?? "",
+      organizationId: ctx.webOrganizationId ?? "",
+      threadId: ctx.threadId ?? "",
+    });
 
     await publishCanonicalEvent(ctx.streamPublisher, {
       jobId: job.id,

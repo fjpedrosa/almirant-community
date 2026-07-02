@@ -452,7 +452,14 @@ export const deserializeCanonicalEnvelope = (
     organizationId: map.get("organizationId") ?? "",
     threadId: map.get("threadId") ?? "",
     timestamp: Number(map.get("timestamp") ?? 0),
-    sequenceNumber: Number(map.get("sequenceNumber") ?? 0),
+    // Absent sequence numbers must NOT collapse to 0: the web-bridge dedup
+    // guard would then treat the second such envelope as a regression and drop
+    // it. Represent absence as a non-finite value so the consumer can bypass
+    // dedup for envelopes that carry no sequence number (e.g. an older producer
+    // during a rolling deploy).
+    sequenceNumber: map.has("sequenceNumber")
+      ? Number(map.get("sequenceNumber"))
+      : Number.NaN,
     event,
   };
 };
