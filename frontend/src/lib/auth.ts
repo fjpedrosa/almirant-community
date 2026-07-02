@@ -1,5 +1,5 @@
 import { betterAuth, generateId } from 'better-auth';
-import { APIError } from 'better-auth/api';
+import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { organization } from 'better-auth/plugins';
 import { nextCookies } from 'better-auth/next-js';
@@ -16,6 +16,10 @@ import {
   getAuthBootstrapStatus,
   hasPendingInvitation,
 } from './auth-bootstrap';
+import {
+  assertCanManageOrganizationMembers,
+  findOrganizationMemberRole,
+} from './organization-member-management-guard';
 import { ac, roles } from './auth-permissions';
 import { getDefaultLocalFrontendOrigins } from './runtime-service-url';
 import { getInvitationAppBaseUrl } from './site-url';
@@ -469,6 +473,21 @@ const createAuthInstance = (runtimePublicUrl: string | null) =>
           },
         },
       },
+    },
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        const session = ctx.context.session ?? (await getSessionFromCtx(ctx));
+
+        await assertCanManageOrganizationMembers({
+          findMemberRole: (params) => findOrganizationMemberRole(db, params),
+          path: ctx.path,
+          session: {
+            userId: session?.user?.id ?? null,
+            activeOrganizationId:
+              session?.session?.activeOrganizationId ?? null,
+          },
+        });
+      }),
     },
     databaseHooks: {
       user: {
