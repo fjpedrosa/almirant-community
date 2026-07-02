@@ -123,6 +123,9 @@ const envSchema = z.object({
   VPS_HOST: z.string().optional(),
   // Scaler (optional - Prometheus metrics endpoint for the auto-scaler)
   SCALER_METRICS_URL: z.string().optional(),
+  // Spare capacity the scaler keeps available beyond queued + executing jobs
+  // (see GET /workers/scaling-metric).
+  SCALING_MIN_AVAILABLE_SLOTS: z.coerce.number().int().min(0).default(1),
   // Web Push (optional - only required if enabling browser push notifications)
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
