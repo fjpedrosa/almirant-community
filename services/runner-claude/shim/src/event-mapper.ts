@@ -293,6 +293,7 @@ export const mapClaudeEventToSse = (
               type: "question.asked",
               properties: {
                 sessionId,
+                ...(askQuestion.toolId ? { toolCallId: askQuestion.toolId } : {}),
                 text: askQuestion.text,
                 options: askQuestion.options.length > 0 ? askQuestion.options : undefined,
                 ...(askQuestion.questions ? { questions: askQuestion.questions } : {}),
@@ -361,6 +362,7 @@ export const mapClaudeEventToSse = (
         type: "question.asked",
         properties: {
           sessionId,
+          ...(askQuestion.toolId ? { toolCallId: askQuestion.toolId } : {}),
           text: askQuestion.text,
           options: askQuestion.options.length > 0 ? askQuestion.options : undefined,
           ...(askQuestion.questions ? { questions: askQuestion.questions } : {}),

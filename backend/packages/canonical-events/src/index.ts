@@ -124,6 +124,8 @@ export type AgentWaveEndEvent = {
 
 export type AgentQuestionEvent = {
   kind: "agent.question";
+  /** Stable interaction id. Legacy producers may omit it; consumers fallback to sequence. */
+  questionId?: string;
   questionText: string;
   options?: string[];
   questions?: Array<{
@@ -131,6 +133,20 @@ export type AgentQuestionEvent = {
     options: string[];
   }>;
   questionType?: "single_choice" | "multi_choice" | "free_text";
+  interactionType?: "free_text" | "single_choice" | "multi_choice" | "approval";
+  expiresAt?: string;
+  required?: boolean;
+};
+
+export type AgentQuestionResolvedEvent = {
+  kind: "agent.question.resolved";
+  questionId: string;
+};
+
+export type UserAnswerSubmittedEvent = {
+  kind: "user.answer.submitted";
+  questionId?: string;
+  answerPreview?: string;
 };
 
 export type AgentPermissionRequestEvent = {
@@ -173,6 +189,32 @@ export type SessionErrorEvent = {
 export type SessionClosedEvent = {
   kind: "session.closed";
   reason?: string;
+};
+
+// ---- Turn lifecycle events ----
+
+export type TurnStartedEvent = {
+  kind: "turn.started";
+  turnId: string;
+  reason?: "initial" | "user_prompt" | "resume" | "queued_prompt" | "system";
+};
+
+export type TurnAwaitingUserEvent = {
+  kind: "turn.awaiting_user";
+  turnId: string;
+  interactionId?: string;
+};
+
+export type TurnResumedEvent = {
+  kind: "turn.resumed";
+  turnId: string;
+  interactionId?: string;
+};
+
+export type TurnCompletedEvent = {
+  kind: "turn.completed";
+  turnId: string;
+  outcome?: "completed" | "awaiting_user" | "interrupted" | "failed";
 };
 
 // ---- Job lifecycle events ----
@@ -268,6 +310,8 @@ export type CanonicalEvent = (
   | AgentWaveDoneEvent
   | AgentWaveEndEvent
   | AgentQuestionEvent
+  | AgentQuestionResolvedEvent
+  | UserAnswerSubmittedEvent
   | AgentPermissionRequestEvent
   | AgentStepEvent
   | SessionConnectedEvent
@@ -275,6 +319,10 @@ export type CanonicalEvent = (
   | SessionAwaitingUserEvent
   | SessionErrorEvent
   | SessionClosedEvent
+  | TurnStartedEvent
+  | TurnAwaitingUserEvent
+  | TurnResumedEvent
+  | TurnCompletedEvent
   | JobStartedEvent
   | JobCompletedEvent
   | JobIncompleteEvent
@@ -297,6 +345,14 @@ export type CanonicalEventEnvelope = {
   threadId: string;
   timestamp: number;
   sequenceNumber: number;
+  protocolVersion?: "canonical.v1" | "canonical.v2";
+  schemaVersion?: "canonical.v1" | "canonical.v2";
+  eventId?: string;
+  turnId?: string;
+  causationId?: string;
+  correlationId?: string;
+  sourceRuntime?: string;
+  occurredAt?: string;
   event: CanonicalEvent;
 };
 
@@ -415,6 +471,14 @@ export const serializeCanonicalEnvelope = (
   fields.push("threadId", envelope.threadId);
   fields.push("timestamp", String(envelope.timestamp));
   fields.push("sequenceNumber", String(envelope.sequenceNumber));
+  if (envelope.protocolVersion) fields.push("protocolVersion", envelope.protocolVersion);
+  if (envelope.schemaVersion) fields.push("schemaVersion", envelope.schemaVersion);
+  if (envelope.eventId) fields.push("eventId", envelope.eventId);
+  if (envelope.turnId) fields.push("turnId", envelope.turnId);
+  if (envelope.causationId) fields.push("causationId", envelope.causationId);
+  if (envelope.correlationId) fields.push("correlationId", envelope.correlationId);
+  if (envelope.sourceRuntime) fields.push("sourceRuntime", envelope.sourceRuntime);
+  if (envelope.occurredAt) fields.push("occurredAt", envelope.occurredAt);
   fields.push("event", JSON.stringify(envelope.event));
   fields.push("_format", "canonical");
 
@@ -460,6 +524,14 @@ export const deserializeCanonicalEnvelope = (
     sequenceNumber: map.has("sequenceNumber")
       ? Number(map.get("sequenceNumber"))
       : Number.NaN,
+    ...(map.get("protocolVersion") ? { protocolVersion: map.get("protocolVersion") as "canonical.v1" | "canonical.v2" } : {}),
+    ...(map.get("schemaVersion") ? { schemaVersion: map.get("schemaVersion") as "canonical.v1" | "canonical.v2" } : {}),
+    ...(map.get("eventId") ? { eventId: map.get("eventId")! } : {}),
+    ...(map.get("turnId") ? { turnId: map.get("turnId")! } : {}),
+    ...(map.get("causationId") ? { causationId: map.get("causationId")! } : {}),
+    ...(map.get("correlationId") ? { correlationId: map.get("correlationId")! } : {}),
+    ...(map.get("sourceRuntime") ? { sourceRuntime: map.get("sourceRuntime")! } : {}),
+    ...(map.get("occurredAt") ? { occurredAt: map.get("occurredAt")! } : {}),
     event,
   };
 };
@@ -475,3 +547,20 @@ export const isCanonicalFormat = (fields: string[]): boolean => {
 
   return false;
 };
+
+export {
+  CANONICAL_PROTOCOL_VERSION,
+  CANONICAL_PROJECTOR_VERSION,
+  createInitialCanonicalSessionProjection,
+  normalizeCanonicalEnvelope,
+  reduceCanonicalSessionProjection,
+  buildCanonicalSessionProjection,
+  getCanonicalEventId,
+  getCanonicalTurnId,
+  type CanonicalEnvelopeMetadata,
+  type CanonicalEventEnvelopeV2,
+  type CanonicalProjectionBlock,
+  type CanonicalProjectionQuestion,
+  type CanonicalSessionProjection,
+  type CanonicalSessionStatus,
+} from "./projection";

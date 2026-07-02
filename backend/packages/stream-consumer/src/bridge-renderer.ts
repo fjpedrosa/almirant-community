@@ -31,6 +31,12 @@ import type {
   HeartbeatEvent,
   MessageQueuedCanonical,
   MessageDequeuedCanonical,
+  TurnStartedEvent,
+  TurnAwaitingUserEvent,
+  TurnResumedEvent,
+  TurnCompletedEvent,
+  UserAnswerSubmittedEvent,
+  AgentQuestionResolvedEvent,
 } from "./canonical-events";
 
 // ---------------------------------------------------------------------------
@@ -49,6 +55,12 @@ export type BridgeRendererContext = {
   threadId: string;
   timestamp: number;
   sequenceNumber: number;
+  protocolVersion?: "canonical.v1" | "canonical.v2";
+  eventId?: string;
+  turnId?: string;
+  causationId?: string;
+  correlationId?: string;
+  sourceRuntime?: string;
 };
 
 /**
@@ -121,6 +133,14 @@ export type BridgeRenderer = {
   renderMessageQueued(event: MessageQueuedCanonical, ctx: BridgeRendererContext): Promise<void>;
   renderMessageDequeued(event: MessageDequeuedCanonical, ctx: BridgeRendererContext): Promise<void>;
 
+  // ---- Turn lifecycle (optional for renderers that care about protocol state) ----
+  renderTurnStarted?(event: TurnStartedEvent, ctx: BridgeRendererContext): Promise<void>;
+  renderTurnAwaitingUser?(event: TurnAwaitingUserEvent, ctx: BridgeRendererContext): Promise<void>;
+  renderTurnResumed?(event: TurnResumedEvent, ctx: BridgeRendererContext): Promise<void>;
+  renderTurnCompleted?(event: TurnCompletedEvent, ctx: BridgeRendererContext): Promise<void>;
+  renderUserAnswerSubmitted?(event: UserAnswerSubmittedEvent, ctx: BridgeRendererContext): Promise<void>;
+  renderQuestionResolved?(event: AgentQuestionResolvedEvent, ctx: BridgeRendererContext): Promise<void>;
+
   // ---- Silenced events (optional) ----
   onSilencedEvent?(event: CanonicalEvent, ctx: BridgeRendererContext): Promise<void>;
 };
@@ -139,6 +159,12 @@ const extractContext = (envelope: CanonicalEventEnvelope): BridgeRendererContext
   threadId: envelope.threadId,
   timestamp: envelope.timestamp,
   sequenceNumber: envelope.sequenceNumber,
+  protocolVersion: envelope.protocolVersion,
+  eventId: envelope.eventId,
+  turnId: envelope.turnId,
+  causationId: envelope.causationId,
+  correlationId: envelope.correlationId,
+  sourceRuntime: envelope.sourceRuntime,
 });
 
 /**
@@ -244,6 +270,25 @@ export const createCanonicalRouter = (
 
       case "message.dequeued":
         return renderer.renderMessageDequeued(event, ctx);
+
+      // ---- Turn lifecycle ----
+      case "turn.started":
+        return renderer.renderTurnStarted?.(event, ctx) ?? renderer.onSilencedEvent?.(event, ctx);
+
+      case "turn.awaiting_user":
+        return renderer.renderTurnAwaitingUser?.(event, ctx) ?? renderer.onSilencedEvent?.(event, ctx);
+
+      case "turn.resumed":
+        return renderer.renderTurnResumed?.(event, ctx) ?? renderer.onSilencedEvent?.(event, ctx);
+
+      case "turn.completed":
+        return renderer.renderTurnCompleted?.(event, ctx) ?? renderer.onSilencedEvent?.(event, ctx);
+
+      case "user.answer.submitted":
+        return renderer.renderUserAnswerSubmitted?.(event, ctx) ?? renderer.onSilencedEvent?.(event, ctx);
+
+      case "agent.question.resolved":
+        return renderer.renderQuestionResolved?.(event, ctx) ?? renderer.onSilencedEvent?.(event, ctx);
 
       // agent.text.complete — render as text (fullText → content)
       case "agent.text.complete":

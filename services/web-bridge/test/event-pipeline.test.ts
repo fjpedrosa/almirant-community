@@ -362,6 +362,90 @@ describe("Web Bridge: Canonical → WS message mapping", () => {
     expect(published[0].payload.message.payload.questionId).toBe("question-5");
   });
 
+  it("preserves canonical v2 question identity, expiration and runtime source", async () => {
+    const { redis, published } = createMockRedis();
+    const renderer = createWebRenderer({
+      pubsubRedis: redis,
+      pubsubChannel: TEST_CHANNEL,
+      log: noop as any,
+    });
+    const router = createCanonicalRouter(renderer);
+
+    await router({
+      ...wrapInEnvelope(
+        {
+          kind: "agent.question",
+          questionId: "q-turn-001",
+          questionText: "¿Continuamos?",
+          options: ["Sí", "No"],
+          expiresAt: "2026-04-28T01:30:00.000Z",
+        },
+        7,
+      ),
+      sourceRuntime: "claude-code",
+    });
+
+    expect(published).toHaveLength(1);
+    expect(published[0].payload.message.type).toBe("planning:question");
+    expect(published[0].payload.message.payload.questionId).toBe("q-turn-001");
+    expect(published[0].payload.message.payload.expiresAt).toBe(
+      "2026-04-28T01:30:00.000Z",
+    );
+    expect(published[0].payload.message.payload.source).toBe("claude-code");
+  });
+
+  it("silences turn lifecycle events in the legacy WS renderer", async () => {
+    const { redis, published } = createMockRedis();
+    const renderer = createWebRenderer({
+      pubsubRedis: redis,
+      pubsubChannel: TEST_CHANNEL,
+      log: noop as any,
+    });
+    const router = createCanonicalRouter(renderer);
+
+    await router(
+      wrapInEnvelope(
+        { kind: "turn.started", turnId: "turn-001", reason: "user_prompt" },
+        8,
+      ),
+    );
+
+    expect(published).toHaveLength(0);
+  });
+
+  it("preserves structured questions on planning:question payloads", async () => {
+    const { redis, published } = createMockRedis();
+    const renderer = createWebRenderer({
+      pubsubRedis: redis,
+      pubsubChannel: TEST_CHANNEL,
+      log: noop as any,
+    });
+    const router = createCanonicalRouter(renderer);
+
+    await router(
+      wrapInEnvelope(
+        {
+          kind: "agent.question",
+          questionText: "Question 2?\nQuestion 3?",
+          options: ["Option A", "Option B", "Option C", "Option D"],
+          questions: [
+            { text: "Question 2?", options: ["Option A", "Option B", "Option C"] },
+            { text: "Question 3?", options: ["Option D"] },
+          ],
+          questionType: "single_choice",
+        },
+        6,
+      ),
+    );
+
+    expect(published).toHaveLength(1);
+    expect(published[0].payload.message.type).toBe("planning:question");
+    expect(published[0].payload.message.payload.questions).toEqual([
+      { text: "Question 2?", options: ["Option A", "Option B", "Option C"] },
+      { text: "Question 3?", options: ["Option D"] },
+    ]);
+  });
+
   it("maps session.idle to planning:response-complete", async () => {
     const { redis, published } = createMockRedis();
     const renderer = createWebRenderer({

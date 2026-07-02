@@ -255,12 +255,14 @@ export const mapCanonicalEventToPlanningWsMessage = (
         type: "planning:question",
         payload: sequencedPayload({
           sessionId: ctx.sessionId,
-          questionId: `question-${ctx.sequenceNumber}`,
+          questionId: event.questionId ?? `question-${ctx.sequenceNumber}`,
           questionText: event.questionText,
           options: event.options ?? [],
           ...(event.questions ? { questions: event.questions } : {}),
           ...(event.questionType ? { questionType: event.questionType } : {}),
-          expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+          expiresAt:
+            event.expiresAt ??
+            new Date(Date.now() + 15 * 60 * 1000).toISOString(),
         }),
       };
 
@@ -364,6 +366,12 @@ export const mapCanonicalEventToPlanningWsMessage = (
 
     case "agent.text.complete":
     case "agent.bash.output":
+    case "agent.question.resolved":
+    case "user.answer.submitted":
+    case "turn.started":
+    case "turn.awaiting_user":
+    case "turn.resumed":
+    case "turn.completed":
     case "session.connected":
     case "session.closed":
     case "job.started":

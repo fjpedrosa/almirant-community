@@ -11,6 +11,7 @@ import type {
   CanonicalEventEnvelope,
   NativeEventEnvelope,
 } from "@almirant/stream-consumer";
+import { normalizeCanonicalEnvelope } from "@almirant/stream-consumer";
 import type { DiscordRichChannelAdapter } from "@almirant/remote-agent";
 import { sanitizeLogContent } from "../observability/log-sanitizer";
 
@@ -92,7 +93,7 @@ export const publishCanonicalEvent = async (
   envelope: CanonicalEventEnvelope,
 ): Promise<void> => {
   if (!publisher) return;
-  await publisher.publishCanonicalEnvelope(envelope).catch((err) => {
+  await publisher.publishCanonicalEnvelope(normalizeCanonicalEnvelope(envelope)).catch((err) => {
     console.error(`[canonical-publish] Failed to publish canonical event: ${err instanceof Error ? err.message : String(err)}`);
   });
 };

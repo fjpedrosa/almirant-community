@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@almirant/config": "workspace:*",
+    "@almirant/canonical-events": "workspace:*",
     "@almirant/database": "workspace:*",
     "@almirant/i18n": "workspace:*",
     "@almirant/remote-agent": "workspace:*",

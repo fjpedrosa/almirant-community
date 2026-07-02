@@ -116,6 +116,11 @@ export const planningSessionsApi = {
       `/planning-sessions/${sessionId}/session-events`
     ),
 
+  getSessionProjection: (sessionId: string) =>
+    request<unknown>(
+      `/planning-sessions/${sessionId}/session-projection`
+    ),
+
   addSeed: (sessionId: string, seedId: string) =>
     request<unknown>(`/planning-sessions/${sessionId}/seeds`, {
       method: "POST",

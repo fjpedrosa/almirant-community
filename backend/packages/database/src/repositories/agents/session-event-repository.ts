@@ -21,7 +21,8 @@ export const insertSessionEvent = async (
 
 /**
  * Batch-insert session events, deduplicating by (agentJobId, sequenceNum)
- * within the batch. Only the first occurrence of each sequence number is kept.
+ * within the batch and against existing rows. Only the first occurrence of
+ * each sequence number is kept.
  */
 export const insertSessionEventsBatch = async (
   events: NewSessionEvent[],
@@ -39,8 +40,33 @@ export const insertSessionEventsBatch = async (
     }
   }
 
-  await db.insert(sessionEvents).values(deduplicated);
-  return deduplicated.length;
+  const byJob = new Map<string, NewSessionEvent[]>();
+  for (const event of deduplicated) {
+    const existing = byJob.get(event.agentJobId) ?? [];
+    existing.push(event);
+    byJob.set(event.agentJobId, existing);
+  }
+
+  const insertable: NewSessionEvent[] = [];
+  for (const [agentJobId, jobEvents] of byJob.entries()) {
+    const sequences = jobEvents.map((event) => event.sequenceNum);
+    const existingRows = await db
+      .select({ sequenceNum: sessionEvents.sequenceNum })
+      .from(sessionEvents)
+      .where(and(
+        eq(sessionEvents.agentJobId, agentJobId),
+        inArray(sessionEvents.sequenceNum, sequences),
+      ));
+    const existingSequences = new Set(existingRows.map((row) => row.sequenceNum));
+    insertable.push(
+      ...jobEvents.filter((event) => !existingSequences.has(event.sequenceNum)),
+    );
+  }
+
+  if (insertable.length === 0) return 0;
+
+  await db.insert(sessionEvents).values(insertable);
+  return insertable.length;
 };
 
 export const getSessionEventsByJobId = async (
