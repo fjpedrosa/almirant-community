@@ -600,6 +600,50 @@ describe("Web Bridge: Canonical → WS message mapping", () => {
     expect(published.length).toBe(1);
     expect(published[0].payload.message.payload.sequenceNum).toBe(42);
   });
+
+  it("includes jobId in sequenced planning payloads so the frontend can scope dedup per run", async () => {
+    const { redis, published } = createMockRedis();
+    const renderer = createWebRenderer({
+      pubsubRedis: redis,
+      pubsubChannel: TEST_CHANNEL,
+      log: noop as any,
+    });
+    const router = createCanonicalRouter(renderer);
+
+    await router(
+      wrapInEnvelope({ kind: "agent.text", content: "hello" }, 0),
+    );
+    await router(
+      wrapInEnvelope({ kind: "agent.thinking", content: "hmm" }, 1),
+    );
+    await router(
+      wrapInEnvelope(
+        {
+          kind: "agent.tool_call.start",
+          toolName: "Read",
+          toolCallId: "tc-1",
+          inputPreview: "file.ts",
+        },
+        2,
+      ),
+    );
+    await router(
+      wrapInEnvelope(
+        {
+          kind: "agent.subagent.spawn",
+          subagentId: "sa-1",
+          description: "explore",
+          isBackground: false,
+        },
+        3,
+      ),
+    );
+
+    expect(published.length).toBe(4);
+    for (const entry of published) {
+      expect(entry.payload.message.payload.jobId).toBe("job-001");
+    }
+  });
 });
 
 // ===========================================================================

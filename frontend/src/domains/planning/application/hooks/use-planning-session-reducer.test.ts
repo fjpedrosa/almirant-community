@@ -2262,6 +2262,104 @@ describe("Sequence dedup in reducer", () => {
     expect(state.lastSeenSequenceNum).toBe(0);
   });
 
+  it("descarta la retransmisión del run anterior tras START_STREAMING cuando el job no cambió", () => {
+    let state: PlanningSessionState = {
+      ...INITIAL_STATE,
+      phase: "booting",
+      sessionId: "sess-job-boundary",
+    };
+
+    // Turn 1: events from job-1 advance the per-job sequence
+    state = planningReducer(state, {
+      type: "RECEIVE_TEXT",
+      content: "First turn",
+      sequenceNum: 41,
+      jobId: "job-1",
+    });
+    state = planningReducer(state, {
+      type: "RECEIVE_TEXT",
+      content: " tail",
+      sequenceNum: 42,
+      jobId: "job-1",
+    });
+    expect(state.streamingContent).toBe("First turn tail");
+
+    // Turn boundary: response complete + new prompt
+    state = planningReducer(state, { type: "RECEIVE_RESPONSE_COMPLETE" });
+    state = planningReducer(state, { type: "ADD_USER_MESSAGE", content: "Next" });
+    state = planningReducer(state, { type: "START_STREAMING" });
+    expect(state.lastSeenSequenceNum).toBe(-1);
+
+    // A WS replay retransmits an old event of the same job — must be ignored
+    // even though lastSeenSequenceNum was reset for the new turn.
+    state = planningReducer(state, {
+      type: "RECEIVE_TEXT",
+      content: "First turn tail",
+      sequenceNum: 42,
+      jobId: "job-1",
+    });
+    expect(state.streamingContent).toBe("");
+
+    // The same job continuing into the new turn (higher seq) is accepted
+    state = planningReducer(state, {
+      type: "RECEIVE_TEXT",
+      content: "Second turn",
+      sequenceNum: 43,
+      jobId: "job-1",
+    });
+    expect(state.streamingContent).toBe("Second turn");
+    expect(state.lastSeenSequenceNum).toBe(43);
+  });
+
+  it("acepta un run nuevo que reinicia la numeración en seq 0 y sigue descartando el run viejo", () => {
+    let state: PlanningSessionState = {
+      ...INITIAL_STATE,
+      phase: "booting",
+      sessionId: "sess-new-run",
+    };
+
+    state = planningReducer(state, {
+      type: "RECEIVE_TEXT",
+      content: "Old run",
+      sequenceNum: 42,
+      jobId: "job-1",
+    });
+    expect(state.streamingContent).toBe("Old run");
+
+    state = planningReducer(state, { type: "RECEIVE_RESPONSE_COMPLETE" });
+    state = planningReducer(state, { type: "ADD_USER_MESSAGE", content: "Next" });
+    state = planningReducer(state, { type: "START_STREAMING" });
+
+    // New job legitimately restarts the per-job numbering at 0 → accepted
+    state = planningReducer(state, {
+      type: "RECEIVE_TEXT",
+      content: "New run",
+      sequenceNum: 0,
+      jobId: "job-2",
+    });
+    expect(state.streamingContent).toBe("New run");
+    expect(state.lastSeenSequenceNum).toBe(0);
+
+    // A late retransmission from the previous run must still be dropped
+    state = planningReducer(state, {
+      type: "RECEIVE_TEXT",
+      content: "Old run replayed",
+      sequenceNum: 40,
+      jobId: "job-1",
+    });
+    expect(state.streamingContent).toBe("New run");
+    expect(state.lastSeenSequenceNum).toBe(0);
+
+    // The new run keeps streaming normally
+    state = planningReducer(state, {
+      type: "RECEIVE_TEXT",
+      content: " continues",
+      sequenceNum: 1,
+      jobId: "job-2",
+    });
+    expect(state.streamingContent).toBe("New run continues");
+  });
+
   it("applies dedup to RECEIVE_THINKING as well", () => {
     let state: PlanningSessionState = {
       ...INITIAL_STATE,

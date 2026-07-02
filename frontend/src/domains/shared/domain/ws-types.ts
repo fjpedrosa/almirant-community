@@ -463,6 +463,8 @@ export interface WsServerPlanningText {
     content: string;
     /** Monotonic sequence number for dedup/ordering (optional for backward compat). */
     sequenceNum?: number;
+    /** JobId of the run that produced the event — scopes sequenceNum dedup per run. */
+    jobId?: string;
   };
 }
 
@@ -473,6 +475,8 @@ export interface WsServerPlanningThinking {
     content: string;
     /** Monotonic sequence number for dedup/ordering (optional for backward compat). */
     sequenceNum?: number;
+    /** JobId of the run that produced the event — scopes sequenceNum dedup per run. */
+    jobId?: string;
   };
 }
 
@@ -484,6 +488,8 @@ export interface WsServerPlanningStep {
     stepIndex: number;
     /** Monotonic sequence number for dedup/ordering (optional for backward compat). */
     sequenceNum?: number;
+    /** JobId of the run that produced the event — scopes sequenceNum dedup per run. */
+    jobId?: string;
   };
 }
 
@@ -603,6 +609,8 @@ export interface WsServerPlanningToolCallStart {
     inputPreview?: string;
     /** Monotonic sequence number for dedup/ordering (optional for backward compat). */
     sequenceNum?: number;
+    /** JobId of the run that produced the event — scopes sequenceNum dedup per run. */
+    jobId?: string;
   };
 }
 
@@ -616,6 +624,8 @@ export interface WsServerPlanningToolCallResult {
     outputPreview?: string;
     /** Monotonic sequence number for dedup/ordering (optional for backward compat). */
     sequenceNum?: number;
+    /** JobId of the run that produced the event — scopes sequenceNum dedup per run. */
+    jobId?: string;
   };
 }
 
@@ -627,6 +637,8 @@ export interface WsServerPlanningFileRead {
     lineRange?: string;
     /** Monotonic sequence number for dedup/ordering (optional for backward compat). */
     sequenceNum?: number;
+    /** JobId of the run that produced the event — scopes sequenceNum dedup per run. */
+    jobId?: string;
   };
 }
 
@@ -638,6 +650,8 @@ export interface WsServerPlanningFileChange {
     operation: "write" | "edit";
     /** Monotonic sequence number for dedup/ordering (optional for backward compat). */
     sequenceNum?: number;
+    /** JobId of the run that produced the event — scopes sequenceNum dedup per run. */
+    jobId?: string;
   };
 }
 
@@ -649,6 +663,8 @@ export interface WsServerPlanningBashExecute {
     description?: string;
     /** Monotonic sequence number for dedup/ordering (optional for backward compat). */
     sequenceNum?: number;
+    /** JobId of the run that produced the event — scopes sequenceNum dedup per run. */
+    jobId?: string;
   };
 }
 
@@ -662,6 +678,8 @@ export interface WsServerPlanningSubagentSpawn {
     subagentType?: string;
     /** Monotonic sequence number for dedup/ordering (optional for backward compat). */
     sequenceNum?: number;
+    /** JobId of the run that produced the event — scopes sequenceNum dedup per run. */
+    jobId?: string;
   };
 }
 
@@ -673,6 +691,8 @@ export interface WsServerPlanningSubagentComplete {
     success: boolean;
     /** Monotonic sequence number for dedup/ordering (optional for backward compat). */
     sequenceNum?: number;
+    /** JobId of the run that produced the event — scopes sequenceNum dedup per run. */
+    jobId?: string;
   };
 }
 

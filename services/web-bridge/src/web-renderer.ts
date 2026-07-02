@@ -38,14 +38,14 @@ export const createWebRenderer = (deps: WebRendererDeps): BridgeRenderer => {
     renderText: async (event, ctx) => {
       await publish(ctx, {
         type: "planning:text",
-        payload: { sessionId: ctx.sessionId, content: event.content, sequenceNum: ctx.sequenceNumber },
+        payload: { sessionId: ctx.sessionId, content: event.content, sequenceNum: ctx.sequenceNumber, jobId: ctx.jobId },
       });
     },
 
     renderThinking: async (event, ctx) => {
       await publish(ctx, {
         type: "planning:thinking",
-        payload: { sessionId: ctx.sessionId, content: event.content, sequenceNum: ctx.sequenceNumber },
+        payload: { sessionId: ctx.sessionId, content: event.content, sequenceNum: ctx.sequenceNumber, jobId: ctx.jobId },
       });
     },
 
@@ -60,6 +60,7 @@ export const createWebRenderer = (deps: WebRendererDeps): BridgeRenderer => {
           toolName: event.toolName,
           inputPreview: event.inputPreview,
           sequenceNum: ctx.sequenceNumber,
+          jobId: ctx.jobId,
         },
       });
     },
@@ -74,6 +75,7 @@ export const createWebRenderer = (deps: WebRendererDeps): BridgeRenderer => {
           success: event.success,
           outputPreview: event.outputPreview,
           sequenceNum: ctx.sequenceNumber,
+          jobId: ctx.jobId,
         },
       });
     },
@@ -88,6 +90,7 @@ export const createWebRenderer = (deps: WebRendererDeps): BridgeRenderer => {
           filePath: event.filePath,
           lineRange: event.lineRange,
           sequenceNum: ctx.sequenceNumber,
+          jobId: ctx.jobId,
         },
       });
     },
@@ -100,6 +103,7 @@ export const createWebRenderer = (deps: WebRendererDeps): BridgeRenderer => {
           filePath: event.filePath,
           operation: "write",
           sequenceNum: ctx.sequenceNumber,
+          jobId: ctx.jobId,
         },
       });
     },
@@ -112,6 +116,7 @@ export const createWebRenderer = (deps: WebRendererDeps): BridgeRenderer => {
           filePath: event.filePath,
           operation: "edit",
           sequenceNum: ctx.sequenceNumber,
+          jobId: ctx.jobId,
         },
       });
     },
@@ -126,6 +131,7 @@ export const createWebRenderer = (deps: WebRendererDeps): BridgeRenderer => {
           command: event.command,
           description: event.description,
           sequenceNum: ctx.sequenceNumber,
+          jobId: ctx.jobId,
         },
       });
     },
@@ -142,6 +148,7 @@ export const createWebRenderer = (deps: WebRendererDeps): BridgeRenderer => {
           isBackground: event.isBackground,
           subagentType: event.subagentType,
           sequenceNum: ctx.sequenceNumber,
+          jobId: ctx.jobId,
         },
       });
     },
@@ -154,6 +161,7 @@ export const createWebRenderer = (deps: WebRendererDeps): BridgeRenderer => {
           subagentId: event.subagentId,
           success: event.success,
           sequenceNum: ctx.sequenceNumber,
+          jobId: ctx.jobId,
         },
       });
     },
@@ -227,7 +235,7 @@ export const createWebRenderer = (deps: WebRendererDeps): BridgeRenderer => {
     renderStep: async (event, ctx) => {
       await publish(ctx, {
         type: "planning:step",
-        payload: { sessionId: ctx.sessionId, stepName: event.description, stepIndex: 0, sequenceNum: ctx.sequenceNumber },
+        payload: { sessionId: ctx.sessionId, stepName: event.description, stepIndex: 0, sequenceNum: ctx.sequenceNumber, jobId: ctx.jobId },
       });
     },
 
