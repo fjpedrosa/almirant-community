@@ -299,6 +299,11 @@ const providerFromAiProvider = (aiProvider: string | undefined): string | undefi
   }
 };
 
+// NOTE: these are runner-side last-resort defaults, applied only when the job
+// carries no explicit model and the org connection has none configured. They
+// are intentionally decoupled from the API-side provider defaults in
+// backend/packages/shared/src/agents/runtime-selection.ts (PROVIDER_MAP):
+// the anthropic default stays on claude-sonnet-4-6 here for cost reasons.
 const defaultModelForProvider = (provider: string): string => {
   switch (provider) {
     case "anthropic":
