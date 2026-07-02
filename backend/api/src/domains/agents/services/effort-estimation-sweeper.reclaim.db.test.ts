@@ -68,7 +68,7 @@ describe.skipIf(!HAS_DB_URL)(
         VALUES (${boardId}, 'reclaim-test', 'story')
         RETURNING id
       `;
-      return rows[0].id as string;
+      return rows[0]!.id as string;
     };
 
     const insertRequest = async (opts: {
@@ -88,7 +88,7 @@ describe.skipIf(!HAS_DB_URL)(
         )
         RETURNING id
       `;
-      const id = rows[0].id as string;
+      const id = rows[0]!.id as string;
       requestIds.push(id);
       return id;
     };
@@ -104,7 +104,7 @@ describe.skipIf(!HAS_DB_URL)(
         VALUES (${workspaceId}, 'reclaim board')
         RETURNING id
       `;
-      boardId = boards[0].id as string;
+      boardId = boards[0]!.id as string;
     });
 
     afterEach(async () => {

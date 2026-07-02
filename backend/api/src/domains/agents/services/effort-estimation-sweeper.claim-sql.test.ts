@@ -71,7 +71,7 @@ describe("effort-estimation-sweeper claimBatch SQL", () => {
   const getClaimBatchSql = async (): Promise<string> => {
     const { __internals } = await import("./effort-estimation-sweeper");
     await __internals.claimBatch(5, 15 * 60 * 1000);
-    const query = executeCalls[0];
+    const query = executeCalls[0]!;
     return query.strings.join("?");
   };
 
