@@ -635,3 +635,20 @@ export const memoryTelemetryEventEnum = pgEnum("memory_telemetry_event", [
   "save",
   "inject",
 ]);
+
+// Effort Estimation Enums (A-F-445)
+export const effortEstimateConfidenceEnum = pgEnum("effort_estimate_confidence", [
+  "low",
+  "medium",
+  "high",
+]);
+
+export const effortEstimateSourceEnum = pgEnum("effort_estimate_source", [
+  "llm",
+  "fallback_heuristic",
+]);
+
+export const effortEstimationRequestStatusEnum = pgEnum(
+  "effort_estimation_request_status",
+  ["pending", "processing", "done", "failed"]
+);

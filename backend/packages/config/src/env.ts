@@ -22,6 +22,8 @@ const envSchema = z.object({
   AGENT_JOB_LOG_SWEEPER_BATCH_SIZE: z.coerce.number().default(1_000),
   ALMIRANT_INVESTIGATION_TIMEOUT_MINUTES: z.coerce.number().int().positive().default(30),
   ALMIRANT_INVESTIGATION_SWEEPER_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
+  EFFORT_ESTIMATION_SWEEPER_INTERVAL_MS: z.coerce.number().int().min(5_000).default(15_000),
+  EFFORT_ESTIMATION_TIMEOUT_MINUTES: z.coerce.number().int().positive().default(10),
   // Telegram (optional - only required if enabling the Telegram bot integration)
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_WEBHOOK_SECRET_TOKEN: z.string().optional(),
@@ -116,6 +118,8 @@ const envSchema = z.object({
   // PostHog (optional - only required if enabling server-side analytics)
   POSTHOG_API_KEY: z.string().optional(),
   POSTHOG_HOST: z.string().default("https://eu.i.posthog.com"),
+  // PostHog personal API key (optional - enables local feature-flag evaluation instead of remote calls)
+  POSTHOG_PERSONAL_API_KEY: z.string().optional(),
   // Health check sweeper (optional - automated health monitoring)
   HEALTH_CHECK_INTERVAL_MS: z.coerce.number().default(300_000),
   // VPS reachability probe (optional) — set to your own VPS IP/hostname to

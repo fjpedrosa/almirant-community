@@ -120,9 +120,13 @@ export * from "./waitlist/contact-submission-repository";
 export * from "./admin/admin-settings.repository";
 export * from "./admin/instance-settings.repository";
 export * from "./admin/instance-tailnet-database-access.repository";
+export * from "./admin/effort-estimator-config-repository";
 
 // ── observability ──
 export * from "./observability/analytics-repository";
 
 // ── debug ──
 export * from "./debug/incident-bundle-repository";
+
+// ── effort estimation ──
+export * from "./work-item-effort-repository";

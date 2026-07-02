@@ -44,6 +44,7 @@
     "db:migrate-seed-entity-types:prod": "bun run --env-file .env src/scripts/migrate-seed-entity-types.ts",
     "db:migrate-error-log": "bun run --env-file .env.local src/scripts/migrate-error-log.ts",
     "db:backfill:embeddings": "bun run --env-file .env.local src/scripts/backfill-embeddings.ts",
+    "backfill:effort-estimations": "bun run src/scripts/backfill-effort-estimations.ts",
     "db:snapshot": "./scripts/db-snapshot.sh",
     "db:restore": "./scripts/db-restore.sh",
     "staging:setup": "bun run src/preview/staging-setup.ts",

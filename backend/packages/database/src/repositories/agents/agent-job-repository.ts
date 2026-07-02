@@ -690,11 +690,17 @@ export const getOrgRunningJobCount = async (orgId: string): Promise<number> => {
   return row?.count ?? 0;
 };
 
+export type ClaimedJobRow = typeof agentJobs.$inferSelect & {
+  estimatedMemoryMb: number | null;
+  estimatedSubagents: number | null;
+  childCount: number;
+};
+
 export const claimJobs = async (
   workerId: string,
   count: number,
   acceptedCodingAgents?: string[]
-): Promise<typeof agentJobs.$inferSelect[]> => {
+): Promise<ClaimedJobRow[]> => {
   const safeCount = Math.max(0, Math.min(count, 50));
   if (safeCount === 0) return [];
 
@@ -743,6 +749,15 @@ export const claimJobs = async (
     // The picked CTE also excludes jobs from workspaces that have reached their
     // max_concurrent_jobs limit (from workspace_settings). A max_concurrent_jobs of 0
     // or NULL means no limit.
+    //
+    // A-1945: the picked CTE LEFT JOINs `work_item_effort_estimates` so we can
+    //  - surface `estimated_memory_mb` / `estimated_subagents` for the runner, and
+    //  - gate `runner-implement` / `runner-document` jobs on the estimate being
+    //    present (or the job being older than 10 minutes — escape valve so the
+    //    queue can never fully stall if the estimator is degraded).
+    // The lock clause is narrowed to `FOR UPDATE OF aj SKIP LOCKED` so we only
+    // lock `agent_jobs` rows; the estimates table stays unlocked and writers can
+    // keep populating it without serializing against the claim path.
     const rows = (await tx.execute(sql`
       WITH orgs_at_limit AS (
         SELECT os.workspace_id
@@ -756,76 +771,120 @@ export const claimJobs = async (
           ) >= os.max_concurrent_jobs
       ),
       picked AS (
-        SELECT id
-        FROM agent_jobs
-        WHERE status = 'queued'
-          AND (available_at IS NULL OR available_at <= ${now})
+        SELECT
+          aj.id,
+          aj.work_item_id,
+          e.id AS estimate_id,
+          e.estimated_memory_mb,
+          e.estimated_subagents
+        FROM agent_jobs aj
+        LEFT JOIN work_item_effort_estimates e ON e.work_item_id = aj.work_item_id
+        WHERE aj.status = 'queued'
+          AND (aj.available_at IS NULL OR aj.available_at <= ${now})
           AND (
-            workspace_id IS NULL
-            OR workspace_id NOT IN (SELECT workspace_id FROM orgs_at_limit)
+            aj.workspace_id IS NULL
+            OR aj.workspace_id NOT IN (SELECT workspace_id FROM orgs_at_limit)
+          )
+          AND (
+            (aj.skill_name NOT IN ('runner-implement', 'runner-document')
+             AND aj.prompt_template NOT IN ('runner-implement', 'runner-document'))
+            OR e.id IS NOT NULL
+            OR aj.created_at < NOW() - INTERVAL '10 minutes'
           )
           ${codingAgentFilter}
-        ORDER BY created_at ASC
+        ORDER BY aj.created_at ASC
         LIMIT ${actualCount}
-        FOR UPDATE SKIP LOCKED
+        FOR UPDATE OF aj SKIP LOCKED
       )
-      UPDATE agent_jobs
+      UPDATE agent_jobs aj
       SET status = 'running',
           worker_id = ${workerId},
           available_at = NULL,
-          started_at = COALESCE(started_at, ${now}::timestamptz),
+          started_at = COALESCE(aj.started_at, ${now}::timestamptz),
           updated_at = ${now}::timestamptz
-      WHERE id IN (SELECT id FROM picked)
+      FROM picked p
+      WHERE aj.id = p.id
       RETURNING
-        id,
-        project_id AS "projectId",
-        work_item_id AS "workItemId",
-        board_id AS "boardId",
-        planning_session_id AS "planningSessionId",
-        created_by_user_id AS "createdByUserId",
-        workspace_id AS "workspaceId",
-        job_type AS "jobType",
-        status,
-        provider,
-        priority,
-        config,
-        result,
-        worker_id AS "workerId",
-        branch_name AS "branchName",
-        worktree_path AS "worktreePath",
-        retry_count AS "retryCount",
-        max_retries AS "maxRetries",
-        available_at AS "availableAt",
-        session_id AS "sessionId",
-        started_at AS "startedAt",
-        completed_at AS "completedAt",
-        failed_at AS "failedAt",
-        error_message AS "errorMessage",
-        error_type AS "errorType",
-        pr_url AS "prUrl",
-        pr_number AS "prNumber",
-        commit_sha AS "commitSha",
-        cost,
-        tokens_used AS "tokensUsed",
-        duration_ms AS "durationMs",
-        cumulative_duration_ms AS "cumulativeDurationMs",
-        created_at AS "createdAt",
-        updated_at AS "updatedAt",
-        coding_agent AS "codingAgent",
-        ai_provider AS "aiProvider",
-        model,
-        skill_name AS "skillName",
-        prompt,
-        prompt_template AS "promptTemplate",
-        trigger_type AS "triggerType",
-        interactive
-    `)) as unknown as typeof agentJobs.$inferSelect[];
+        aj.id,
+        aj.project_id AS "projectId",
+        aj.work_item_id AS "workItemId",
+        aj.board_id AS "boardId",
+        aj.planning_session_id AS "planningSessionId",
+        aj.created_by_user_id AS "createdByUserId",
+        aj.workspace_id AS "workspaceId",
+        aj.job_type AS "jobType",
+        aj.status,
+        aj.provider,
+        aj.priority,
+        aj.config,
+        aj.result,
+        aj.worker_id AS "workerId",
+        aj.branch_name AS "branchName",
+        aj.worktree_path AS "worktreePath",
+        aj.retry_count AS "retryCount",
+        aj.max_retries AS "maxRetries",
+        aj.available_at AS "availableAt",
+        aj.session_id AS "sessionId",
+        aj.started_at AS "startedAt",
+        aj.completed_at AS "completedAt",
+        aj.failed_at AS "failedAt",
+        aj.error_message AS "errorMessage",
+        aj.error_type AS "errorType",
+        aj.pr_url AS "prUrl",
+        aj.pr_number AS "prNumber",
+        aj.commit_sha AS "commitSha",
+        aj.cost,
+        aj.tokens_used AS "tokensUsed",
+        aj.duration_ms AS "durationMs",
+        aj.cumulative_duration_ms AS "cumulativeDurationMs",
+        aj.created_at AS "createdAt",
+        aj.updated_at AS "updatedAt",
+        aj.coding_agent AS "codingAgent",
+        aj.ai_provider AS "aiProvider",
+        aj.model,
+        aj.skill_name AS "skillName",
+        aj.prompt,
+        aj.prompt_template AS "promptTemplate",
+        aj.trigger_type AS "triggerType",
+        aj.interactive,
+        p.estimated_memory_mb AS "estimatedMemoryMb",
+        p.estimated_subagents AS "estimatedSubagents",
+        (
+          SELECT COUNT(*)::int
+          FROM work_items wi
+          WHERE wi.parent_id = aj.work_item_id
+        ) AS "childCount"
+    `)) as unknown as ClaimedJobRow[];
 
     if (rows.length < actualCount) {
       logger.debug(
         { workerId, requested: actualCount, claimed: rows.length },
         "claimJobs: fewer jobs claimed than requested — some orgs may be at concurrency limit"
       );
+    }
+
+    // A-1945: emit a WARN for any runner-implement/runner-document job that
+    // slipped through via the 10-minute escape (i.e. no estimate row). Runners
+    // read this to apply fallback resource tiers instead of an oversized default.
+    for (const row of rows) {
+      const skill = (row as unknown as { skillName: string | null }).skillName ?? null;
+      const template = (row as unknown as { promptTemplate: string | null }).promptTemplate ?? null;
+      const isGated =
+        skill === "runner-implement" ||
+        skill === "runner-document" ||
+        template === "runner-implement" ||
+        template === "runner-document";
+
+      if (isGated && row.estimatedMemoryMb == null && row.estimatedSubagents == null) {
+        logger.warn(
+          {
+            jobId: row.id,
+            workItemId: row.workItemId,
+            createdAt: row.createdAt,
+          },
+          "claimJobs: 10-minute estimate escape triggered — proceeding without estimate"
+        );
+      }
     }
 
     return rows;

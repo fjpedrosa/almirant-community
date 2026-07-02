@@ -1,16 +1,13 @@
-import { createHash } from "crypto";
 import { db } from "../../client";
 import { skills } from "../../schema";
 import { eq, and, or, ilike, desc, sql, isNull } from "drizzle-orm";
 import type { PaginationParams } from "../../domain/types";
 import type { SkillDb, NewSkill } from "../../schema/skills";
+import { computeContentHash } from "../../lib/content-hash";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-const computeContentHash = (content: string): string =>
-  createHash("sha256").update(content.trim()).digest("hex");
 
 /**
  * Builds the dual-scope WHERE condition:

@@ -81,6 +81,9 @@ import { scheduledAgentRuns } from "./scheduled-agent-runs";
 import { skills } from "./skills";
 import { projectMembers } from "./project-members";
 import { agentObservations } from "./agent-observations";
+import { workItemEffortEstimates } from "./work-item-effort-estimates";
+import { effortEstimationRequests } from "./effort-estimation-requests";
+import { effortEstimatorConfigs } from "./effort-estimator-configs";
 
 export const tagsRelations = relations(tags, ({ one, many }) => ({
   workspace: one(workspace, {
@@ -224,7 +227,43 @@ export const workItemsRelations = relations(workItems, ({ one, many }) => ({
   seedWorkItemLinks: many(seedWorkItemLinks),
   workItemCommits: many(workItemCommits, { relationName: "workItemCommits" }),
   planningSessionWorkItems: many(planningSessionWorkItems),
+  effortEstimate: one(workItemEffortEstimates, {
+    fields: [workItems.id],
+    references: [workItemEffortEstimates.workItemId],
+  }),
+  effortEstimationRequests: many(effortEstimationRequests),
 }));
+
+// Effort Estimate Relations (A-F-445)
+export const workItemEffortEstimatesRelations = relations(
+  workItemEffortEstimates,
+  ({ one }) => ({
+    workItem: one(workItems, {
+      fields: [workItemEffortEstimates.workItemId],
+      references: [workItems.id],
+    }),
+  })
+);
+
+export const effortEstimationRequestsRelations = relations(
+  effortEstimationRequests,
+  ({ one }) => ({
+    workItem: one(workItems, {
+      fields: [effortEstimationRequests.workItemId],
+      references: [workItems.id],
+    }),
+  })
+);
+
+export const effortEstimatorConfigsRelations = relations(
+  effortEstimatorConfigs,
+  ({ one }) => ({
+    updatedByUser: one(user, {
+      fields: [effortEstimatorConfigs.updatedByUserId],
+      references: [user.id],
+    }),
+  })
+);
 
 export const workItemAssigneesRelations = relations(workItemAssignees, ({ one }) => ({
   workItem: one(workItems, {

@@ -8,6 +8,7 @@ import { instanceVersionRoutes } from "./routes/instance-version.routes";
 import { instanceUpdateRoutes } from "./routes/instance-update.routes";
 import { instanceCapacityRoutes } from "./routes/instance-capacity.routes";
 import { instanceServiceOperationsRoutes } from "./routes/instance-service-operations.routes";
+import { effortEstimatorRoutes } from "./routes/effort-estimator.routes";
 
 export const instanceModule = {
   /** Public config endpoint -- mounted at root level (no session auth) */
@@ -22,5 +23,6 @@ export const instanceModule = {
       .use(instanceVersionRoutes)
       .use(instanceUpdateRoutes)
       .use(instanceCapacityRoutes)
-      .use(instanceServiceOperationsRoutes),
+      .use(instanceServiceOperationsRoutes)
+      .use(effortEstimatorRoutes),
 };

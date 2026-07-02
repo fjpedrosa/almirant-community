@@ -19,6 +19,12 @@ export {
   type BuildClusterSummaryInput,
 } from "./lib/cluster-summary-builder";
 
+export {
+  computeContentHash,
+  computeWorkItemContentHash,
+  type WorkItemContentHashInput,
+} from "./lib/content-hash";
+
 // Re-export all repository functions
 export * from "./repositories";
 
