@@ -21,26 +21,42 @@ export const SENSITIVE_ORGANIZATION_MEMBER_PATHS = new Set([
 ]);
 
 type OrganizationMemberRoleLookup = (params: {
-  activeOrganizationId: string;
+  organizationId: string;
   userId: string;
 }) => Promise<string | null>;
 
 type OrganizationMemberManagementAccessParams = {
   findMemberRole: OrganizationMemberRoleLookup;
   path: string;
-  session: {
-    activeOrganizationId: string | null;
-    userId: string | null;
-  };
+  userId: string | null;
+  /**
+   * The TARGET workspace of the request — already resolved via
+   * `resolveTargetOrganizationId` (body override, falling back to the active
+   * workspace). The caller's role must be checked here, not in whatever
+   * workspace happens to be active on the session.
+   */
+  organizationId: string | null;
 };
 
 export const isSensitiveOrganizationMemberPath = (path: string): boolean =>
   SENSITIVE_ORGANIZATION_MEMBER_PATHS.has(path);
 
+/**
+ * Resolve the workspace a member-management request actually targets. The
+ * Better-Auth organization endpoints accept a body `organizationId` that
+ * overrides the session's active workspace (and the plugin itself checks the
+ * caller's role against that target). We mirror that resolution so the guard
+ * authorizes against the same workspace the plugin will mutate.
+ */
+export const resolveTargetOrganizationId = (
+  body: { organizationId?: string | null } | null | undefined,
+  session: { activeOrganizationId: string | null },
+): string | null => body?.organizationId ?? session.activeOrganizationId ?? null;
+
 export const findOrganizationMemberRole = async (
   database: typeof db,
   params: {
-    activeOrganizationId: string;
+    organizationId: string;
     userId: string;
   },
 ): Promise<string | null> => {
@@ -52,7 +68,7 @@ export const findOrganizationMemberRole = async (
         eq(schema.member.userId, params.userId),
         eq(
           betterAuthOrganizationColumns.memberOrganizationId,
-          params.activeOrganizationId,
+          params.organizationId,
         ),
       ),
     )
@@ -64,21 +80,22 @@ export const findOrganizationMemberRole = async (
 export const assertCanManageOrganizationMembers = async ({
   findMemberRole,
   path,
-  session,
+  userId,
+  organizationId,
 }: OrganizationMemberManagementAccessParams): Promise<void> => {
   if (!isSensitiveOrganizationMemberPath(path)) {
     return;
   }
 
-  if (!session.userId || !session.activeOrganizationId) {
+  if (!userId || !organizationId) {
     throw new APIError('UNAUTHORIZED', {
       message: 'Not authenticated',
     });
   }
 
   const callerRole = await findMemberRole({
-    userId: session.userId,
-    activeOrganizationId: session.activeOrganizationId,
+    userId,
+    organizationId,
   });
 
   if (callerRole === 'owner' || callerRole === 'admin') {
