@@ -51,7 +51,7 @@ const PROVIDER_MAP: Record<AgentProvider, {
   aiProvider: AiProviderName;
   defaultModel: string;
 }> = {
-  "claude-code": { codingAgent: "claude-code", aiProvider: "anthropic", defaultModel: "claude-opus-4-7" },
+  "claude-code": { codingAgent: "claude-code", aiProvider: "anthropic", defaultModel: "claude-opus-4-8" },
   codex:         { codingAgent: "codex",       aiProvider: "openai",    defaultModel: "gpt-5.5" },
   zipu:          { codingAgent: "opencode",    aiProvider: "zai",       defaultModel: "glm-5.1" },
   grok:          { codingAgent: "opencode",    aiProvider: "xai",       defaultModel: "grok-4.20-reasoning" },
@@ -93,7 +93,7 @@ const PROVIDER_ALIASES: Record<string, AgentProvider> = {
  * // => { provider: "claude-code", codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-sonnet-4-20250514" }
  *
  * resolveRuntime({})
- * // => { provider: "claude-code", codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-opus-4-7" }
+ * // => { provider: "claude-code", codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-opus-4-8" }
  * ```
  */
 export const resolveRuntime = (input?: RuntimeSelectionInput): RuntimeSelection => {
