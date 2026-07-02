@@ -953,8 +953,11 @@ export const planningReducer = (
       if (!canTransition(state.phase, "booting")) {
         return state;
       }
-      // Graduate previous turn's persistent blocks before clearing
-      const persistentTypes = new Set(["text", "tool_call", "subagent", "file_read", "file_change", "bash"]);
+      // Graduate previous turn's persistent blocks before clearing.
+      // "thinking" is included: when RECEIVE_RESPONSE_COMPLETE never arrived
+      // (e.g. lost over a WS drop) the thinking blocks were not graduated to
+      // messages yet, and dropping them here would erase them from the timeline.
+      const persistentTypes = new Set(["thinking", "text", "tool_call", "subagent", "file_read", "file_change", "bash"]);
       const prevPersistent = state.streamingBlocks.filter((b) => persistentTypes.has(b.type));
       const nextCompleted = prevPersistent.length > 0
         ? [...state.completedTurnBlocks, prevPersistent]

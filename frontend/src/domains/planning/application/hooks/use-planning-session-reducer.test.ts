@@ -764,6 +764,30 @@ describe("START_STREAMING after response complete", () => {
     );
     expect(thinkingMsgs).toHaveLength(1);
   });
+
+  it("preserva los bloques thinking al cruzar de turno cuando RECEIVE_RESPONSE_COMPLETE no llegó antes", () => {
+    // Simulate: the previous turn's response-complete was lost (WS drop) and
+    // the user starts a new turn directly — streamingBlocks still hold the
+    // previous turn's thinking/text blocks.
+    let state = buildStreamingDoneState({ phase: "chatting" });
+
+    state = planningReducer(state, { type: "START_STREAMING" });
+
+    // The previous turn's blocks must graduate to completedTurnBlocks —
+    // including thinking, which would otherwise disappear from the timeline.
+    expect(state.streamingBlocks).toEqual([]);
+    expect(state.completedTurnBlocks).toHaveLength(1);
+
+    const graduated = state.completedTurnBlocks[0];
+    const thinkingBlocks = graduated.filter((b) => b.type === "thinking");
+    expect(thinkingBlocks).toHaveLength(1);
+    // Chronological order preserved: thinking was the first block of the turn
+    expect(graduated[0].type).toBe("thinking");
+    // The rest of the persistent blocks survive too
+    expect(graduated.filter((b) => b.type === "text")).toHaveLength(2);
+    expect(graduated.filter((b) => b.type === "tool_call")).toHaveLength(1);
+    expect(graduated.filter((b) => b.type === "subagent")).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
