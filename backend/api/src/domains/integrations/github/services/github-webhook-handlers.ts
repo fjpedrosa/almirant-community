@@ -21,9 +21,11 @@ import {
   getBugFixAttemptsByFixPrUrl,
   getLatestBugFixAttemptByFeedbackItemId,
   updateBugFixAttempt,
+  markAttemptAsMergedIfActive,
   updateFeedbackItem,
   getFeedbackItemById,
   getFeedbackClusterById,
+  recoverClusterToResolved,
   transitionCluster,
   getBatchByFinalPrNumber,
   updateBatchStatus,
@@ -620,14 +622,19 @@ export const moveFeedbackBugsToPendingValidationOnPrMerge = async (pr: {
 
   const results = await Promise.allSettled(
     attempts.map(async (attempt) => {
+      // Compare-and-swap: only flip to `merged` from an active status. If a
+      // competing writer (timeout sweeper / job-cancel cascade) already moved
+      // this attempt to a terminal `failed` — e.g. a stale PR merging late —
+      // markAttemptAsMergedIfActive returns null and we skip, rather than
+      // resurrecting a dead attempt and re-triggering cluster resolution.
       const mergedAttempt =
         attempt.status === "merged"
           ? attempt
-          : await updateBugFixAttempt(attempt.id, { status: "merged" });
+          : await markAttemptAsMergedIfActive(attempt.id);
 
       if (!mergedAttempt) {
         logger.warn(
-          `[github-webhook] Could not mark bug-fix attempt ${attempt.id} as merged for PR #${pr.number}`
+          `[github-webhook] Skipped marking bug-fix attempt ${attempt.id} as merged for PR #${pr.number}: attempt is no longer active (already terminal)`
         );
         return null;
       }
@@ -729,30 +736,20 @@ export const moveFeedbackBugsToPendingValidationOnPrMerge = async (pr: {
     );
   }
 
-  // Hook 2: PR merged → cluster fix_ready → resolved. Runs after the feedback
-  // item transitions so we only touch the cluster once per attempt, and uses
-  // `triggeredByAttemptId` so `resolved_by_attempt_id` is set on the cluster.
+  // Hook 2: PR merged → cluster → resolved. Uses `recoverClusterToResolved`
+  // (not `transitionCluster`) because the strict human lifecycle matrix only
+  // permits `fix_ready → resolved`, and in practice the cluster can be on
+  // `open`/`investigating`/`regression` when the PR merge lands:
+  //   - `investigating → fix_ready` is emitted by the MCP
+  //     `update_bug_fix_attempt` tool. That call / webhook can be lost.
+  //   - The PR-merge webhook itself can be redelivered; recover short-circuits
+  //     on `alreadyResolved` without writing another history row.
+  //   - `regression → resolved` preserves the first-resolution metadata so
+  //     MTTR stays stable; the cluster_status_history row records the re-fix.
+  // `dismissed` and `promoted` remain protected: recover refuses them.
   const clusterResults = await Promise.allSettled(
     attemptsToResolveCluster.map(async ({ attemptId, clusterId }) => {
-      const cluster = await getFeedbackClusterById(clusterId);
-      if (!cluster) {
-        logger.warn(
-          `[github-webhook] Could not load cluster ${clusterId} for merged PR #${pr.number}`
-        );
-        return null;
-      }
-
-      // Only auto-resolve from fix_ready. Skipping investigating/open prevents
-      // a redeployed "closed (merged=false)" → "merged" race from overwriting
-      // human intent.
-      if (cluster.status !== "fix_ready") {
-        logger.info(
-          `[github-webhook] PR #${pr.number} merged for cluster ${clusterId} already in status ${cluster.status}; skipping resolved transition`
-        );
-        return null;
-      }
-
-      const result = await transitionCluster(clusterId, "resolved", {
+      const result = await recoverClusterToResolved(clusterId, {
         triggeredByKind: "webhook",
         reason: "pr_merged",
         triggeredByAttemptId: attemptId,
@@ -763,14 +760,27 @@ export const moveFeedbackBugsToPendingValidationOnPrMerge = async (pr: {
       });
 
       if (!result.success) {
-        logger.warn(
-          `[github-webhook] Cluster ${clusterId} transition to resolved rejected on PR #${pr.number} merge: ${result.reason}`
-        );
+        if (result.reason === "cluster_not_found") {
+          logger.warn(
+            `[github-webhook] Could not load cluster ${clusterId} for merged PR #${pr.number}`
+          );
+        } else {
+          logger.info(
+            `[github-webhook] PR #${pr.number} merged for cluster ${clusterId} in terminal status ${result.from}; skipping resolved recovery (human decision preserved)`
+          );
+        }
         return null;
       }
 
+      if (result.alreadyResolved) {
+        logger.info(
+          `[github-webhook] Cluster ${clusterId} already resolved when PR #${pr.number} merge webhook fired (attempt ${attemptId}); idempotent no-op`
+        );
+        return clusterId;
+      }
+
       logger.info(
-        `[github-webhook] Cluster ${clusterId} transitioned ${result.from} → ${result.to} after PR #${pr.number} merge (attempt ${attemptId})`
+        `[github-webhook] Cluster ${clusterId} recovered ${result.from} → resolved after PR #${pr.number} merge (attempt ${attemptId}, preservedResolvedAt=${result.preservedResolvedAt}, preservedResolvedByAttemptId=${result.preservedResolvedByAttemptId})`
       );
       return clusterId;
     })

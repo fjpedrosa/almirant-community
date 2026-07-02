@@ -18,12 +18,23 @@ type MockFeedbackItem = {
 type MockCluster = {
   id: string;
   status: string;
+  resolvedAt?: string | null;
+  resolvedByAttemptId?: string | null;
 };
 
 type ClusterTransitionCall = {
   clusterId: string;
   toStatus: string;
   event: Record<string, unknown>;
+};
+
+type ClusterRecoveryCall = {
+  clusterId: string;
+  event: Record<string, unknown>;
+  from: string;
+  alreadyResolved: boolean;
+  preservedResolvedAt: boolean;
+  preservedResolvedByAttemptId: boolean;
 };
 
 const state = {
@@ -37,6 +48,7 @@ const state = {
   attemptUpdates: [] as Array<{ id: string; data: Record<string, unknown> }>,
   feedbackUpdates: [] as Array<{ id: string; data: Record<string, unknown> }>,
   clusterTransitions: [] as Array<ClusterTransitionCall>,
+  clusterRecoveries: [] as Array<ClusterRecoveryCall>,
   releaseWorkItemRows: [] as Array<{
     id: string;
     taskId: string | null;
@@ -134,6 +146,28 @@ mock.module("@almirant/database", () =>
         null;
       return current ? { ...current, ...data } : null;
     },
+    // Mirrors the real compare-and-swap merge write: only flips an active
+    // attempt to `merged`, returns null (skipped) when it already reached a
+    // terminal state. Pushes the same attemptUpdates shape as the previous
+    // updateBugFixAttempt({ status: "merged" }) call so existing assertions hold.
+    markAttemptAsMergedIfActive: async (id: string) => {
+      const current =
+        state.bugFixAttemptsByPrUrl.find((attempt) => attempt.id === id) ??
+        Object.values(state.latestAttemptByFeedbackId).find(
+          (attempt) => attempt?.id === id
+        ) ??
+        null;
+      if (!current) return null;
+      if (
+        !["analyzing", "proposed", "implementing"].includes(
+          current.status as string
+        )
+      ) {
+        return null;
+      }
+      state.attemptUpdates.push({ id, data: { status: "merged" } });
+      return { ...current, status: "merged" };
+    },
     updateFeedbackItem: async (id: string, data: Record<string, unknown>) => {
       state.feedbackUpdates.push({ id, data });
       return { id, ...data };
@@ -161,6 +195,88 @@ mock.module("@almirant/database", () =>
         from,
         to: toStatus,
         cluster: state.clustersById[clusterId]!,
+      };
+    },
+    recoverClusterToResolved: async (
+      clusterId: string,
+      event: Record<string, unknown>
+    ) => {
+      const current = state.clustersById[clusterId];
+      if (!current) {
+        state.clusterRecoveries.push({
+          clusterId,
+          event,
+          from: "",
+          alreadyResolved: false,
+          preservedResolvedAt: false,
+          preservedResolvedByAttemptId: false,
+        });
+        return { success: false, reason: "cluster_not_found" as const };
+      }
+      const from = current.status;
+      if (from === "dismissed" || from === "promoted") {
+        state.clusterRecoveries.push({
+          clusterId,
+          event,
+          from,
+          alreadyResolved: false,
+          preservedResolvedAt: false,
+          preservedResolvedByAttemptId: false,
+        });
+        return {
+          success: false,
+          reason: "terminal_state" as const,
+          from,
+        };
+      }
+      if (from === "resolved") {
+        state.clusterRecoveries.push({
+          clusterId,
+          event,
+          from,
+          alreadyResolved: true,
+          preservedResolvedAt: true,
+          preservedResolvedByAttemptId: true,
+        });
+        return {
+          success: true,
+          from,
+          to: "resolved" as const,
+          cluster: current,
+          alreadyResolved: true,
+          preservedResolvedAt: true,
+          preservedResolvedByAttemptId: true,
+        };
+      }
+      const preservedResolvedAt = current.resolvedAt != null;
+      const preservedResolvedByAttemptId = current.resolvedByAttemptId != null;
+      const updated: MockCluster = {
+        ...current,
+        status: "resolved",
+        resolvedAt: preservedResolvedAt
+          ? current.resolvedAt
+          : new Date().toISOString(),
+        resolvedByAttemptId: preservedResolvedByAttemptId
+          ? current.resolvedByAttemptId
+          : (event.triggeredByAttemptId as string | undefined) ?? null,
+      };
+      state.clustersById[clusterId] = updated;
+      state.clusterRecoveries.push({
+        clusterId,
+        event,
+        from,
+        alreadyResolved: false,
+        preservedResolvedAt,
+        preservedResolvedByAttemptId,
+      });
+      return {
+        success: true,
+        from,
+        to: "resolved" as const,
+        cluster: updated,
+        alreadyResolved: false,
+        preservedResolvedAt,
+        preservedResolvedByAttemptId,
       };
     },
     updateWorkItem: async (
@@ -267,6 +383,7 @@ describe("github-webhook-handlers", () => {
     state.attemptUpdates = [];
     state.feedbackUpdates = [];
     state.clusterTransitions = [];
+    state.clusterRecoveries = [];
     state.releaseWorkItemRows = [];
     state.releaseDescendantLeafRows = [];
     state.movedWorkItems = [];
@@ -463,7 +580,7 @@ describe("github-webhook-handlers", () => {
     expect(state.feedbackUpdates).toHaveLength(0);
   });
 
-  it("transitions the cluster to resolved when the bug-fix PR is merged (A-1826)", async () => {
+  it("recovers the cluster to resolved when the bug-fix PR is merged from fix_ready (happy path)", async () => {
     state.bugFixAttemptsByPrUrl = [
       {
         id: "attempt-resolved",
@@ -519,16 +636,232 @@ describe("github-webhook-handlers", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(state.clusterTransitions).toHaveLength(1);
-    expect(state.clusterTransitions[0]).toMatchObject({
+    expect(state.clusterRecoveries).toHaveLength(1);
+    expect(state.clusterRecoveries[0]).toMatchObject({
       clusterId: "cluster-resolved",
-      toStatus: "resolved",
+      from: "fix_ready",
+      alreadyResolved: false,
       event: {
         triggeredByKind: "webhook",
         reason: "pr_merged",
         triggeredByAttemptId: "attempt-resolved",
       },
     });
+    // The strict fix_ready → resolved transition is no longer emitted; the
+    // recovery path handles the whole shortcut via recoverClusterToResolved.
+    expect(state.clusterTransitions).toHaveLength(0);
+  });
+
+  it("recovers the cluster to resolved when PR merge webhook fires on an open cluster (drift backstop)", async () => {
+    // Reproduces the production drift: webhook-missed `fix_ready` flip left
+    // the cluster on `open` while the attempt was still `implementing`. The
+    // new recovery path must resolve the cluster end-to-end.
+    state.bugFixAttemptsByPrUrl = [
+      {
+        id: "attempt-open-drift",
+        feedbackItemId: "feedback-open-drift",
+        clusterId: "cluster-open-drift",
+        status: "implementing",
+        fixPrUrl: "https://github.com/owner/repo/pull/70",
+        metadata: {
+          workflowGuards: {
+            errorSave: { performedAt: "2026-04-18T10:00:00.000Z" },
+          },
+        },
+      },
+    ];
+    state.latestAttemptByFeedbackId["feedback-open-drift"] =
+      state.bugFixAttemptsByPrUrl[0]!;
+    state.feedbackItemsById["feedback-open-drift"] = {
+      id: "feedback-open-drift",
+      status: "implementing",
+    };
+    state.clustersById["cluster-open-drift"] = {
+      id: "cluster-open-drift",
+      status: "open",
+    };
+
+    const { handlePullRequestEvent } = await import("./github-webhook-handlers");
+
+    await handlePullRequestEvent(
+      {
+        action: "closed",
+        repository: { full_name: "owner/repo" },
+        pull_request: {
+          number: 70,
+          title: "fix(auto): drift recovery from open",
+          html_url: "https://github.com/owner/repo/pull/70",
+          merged: true,
+          state: "closed",
+          draft: false,
+          body: "",
+          user: { login: "author-login", avatar_url: null },
+          head: { ref: "fix/auto-feedback-open-drift-attempt-1" },
+          base: { ref: "main" },
+          labels: [],
+          additions: 2,
+          deletions: 1,
+          merged_at: "2026-04-18T20:00:00.000Z",
+          closed_at: "2026-04-18T20:00:00.000Z",
+        },
+        sender: { login: "merger-login", avatar_url: null },
+      },
+      "delivery-open-drift"
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(state.clusterRecoveries).toHaveLength(1);
+    expect(state.clusterRecoveries[0]).toMatchObject({
+      clusterId: "cluster-open-drift",
+      from: "open",
+      alreadyResolved: false,
+      preservedResolvedAt: false,
+      preservedResolvedByAttemptId: false,
+    });
+    expect(state.clustersById["cluster-open-drift"]?.status).toBe("resolved");
+  });
+
+  it("recovers the cluster to resolved from investigating when PR merges", async () => {
+    state.bugFixAttemptsByPrUrl = [
+      {
+        id: "attempt-investigating-drift",
+        feedbackItemId: "feedback-investigating-drift",
+        clusterId: "cluster-investigating-drift",
+        status: "implementing",
+        fixPrUrl: "https://github.com/owner/repo/pull/71",
+        metadata: {
+          workflowGuards: {
+            errorSave: { performedAt: "2026-04-18T10:00:00.000Z" },
+          },
+        },
+      },
+    ];
+    state.latestAttemptByFeedbackId["feedback-investigating-drift"] =
+      state.bugFixAttemptsByPrUrl[0]!;
+    state.feedbackItemsById["feedback-investigating-drift"] = {
+      id: "feedback-investigating-drift",
+      status: "implementing",
+    };
+    state.clustersById["cluster-investigating-drift"] = {
+      id: "cluster-investigating-drift",
+      status: "investigating",
+    };
+
+    const { handlePullRequestEvent } = await import("./github-webhook-handlers");
+
+    await handlePullRequestEvent(
+      {
+        action: "closed",
+        repository: { full_name: "owner/repo" },
+        pull_request: {
+          number: 71,
+          title: "fix(auto): recovery from investigating",
+          html_url: "https://github.com/owner/repo/pull/71",
+          merged: true,
+          state: "closed",
+          draft: false,
+          body: "",
+          user: { login: "author-login", avatar_url: null },
+          head: { ref: "fix/auto-feedback-investigating-drift-attempt-1" },
+          base: { ref: "main" },
+          labels: [],
+          additions: 1,
+          deletions: 0,
+          merged_at: "2026-04-18T20:05:00.000Z",
+          closed_at: "2026-04-18T20:05:00.000Z",
+        },
+        sender: { login: "merger-login", avatar_url: null },
+      },
+      "delivery-investigating-drift"
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(state.clusterRecoveries[0]).toMatchObject({
+      clusterId: "cluster-investigating-drift",
+      from: "investigating",
+      alreadyResolved: false,
+    });
+    expect(state.clustersById["cluster-investigating-drift"]?.status).toBe(
+      "resolved"
+    );
+  });
+
+  it("preserves first-resolution metadata when recovering a regression cluster", async () => {
+    // When a regression cluster is re-resolved we must KEEP the original
+    // resolvedAt/resolvedByAttemptId — audit preserves "first fix" for MTTR
+    // analytics and cluster_status_history tracks the re-resolution.
+    state.bugFixAttemptsByPrUrl = [
+      {
+        id: "attempt-regression-refix",
+        feedbackItemId: "feedback-regression-refix",
+        clusterId: "cluster-regression",
+        status: "implementing",
+        fixPrUrl: "https://github.com/owner/repo/pull/72",
+        metadata: {
+          workflowGuards: {
+            errorSave: { performedAt: "2026-04-18T10:00:00.000Z" },
+          },
+        },
+      },
+    ];
+    state.latestAttemptByFeedbackId["feedback-regression-refix"] =
+      state.bugFixAttemptsByPrUrl[0]!;
+    state.feedbackItemsById["feedback-regression-refix"] = {
+      id: "feedback-regression-refix",
+      status: "implementing",
+    };
+    state.clustersById["cluster-regression"] = {
+      id: "cluster-regression",
+      status: "regression",
+      resolvedAt: "2026-03-01T10:00:00.000Z",
+      resolvedByAttemptId: "attempt-original-fix",
+    };
+
+    const { handlePullRequestEvent } = await import("./github-webhook-handlers");
+
+    await handlePullRequestEvent(
+      {
+        action: "closed",
+        repository: { full_name: "owner/repo" },
+        pull_request: {
+          number: 72,
+          title: "fix(auto): re-fix after regression",
+          html_url: "https://github.com/owner/repo/pull/72",
+          merged: true,
+          state: "closed",
+          draft: false,
+          body: "",
+          user: { login: "author-login", avatar_url: null },
+          head: { ref: "fix/auto-feedback-regression-refix-attempt-1" },
+          base: { ref: "main" },
+          labels: [],
+          additions: 1,
+          deletions: 0,
+          merged_at: "2026-04-18T20:10:00.000Z",
+          closed_at: "2026-04-18T20:10:00.000Z",
+        },
+        sender: { login: "merger-login", avatar_url: null },
+      },
+      "delivery-regression-refix"
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(state.clusterRecoveries[0]).toMatchObject({
+      clusterId: "cluster-regression",
+      from: "regression",
+      alreadyResolved: false,
+      preservedResolvedAt: true,
+      preservedResolvedByAttemptId: true,
+    });
+    expect(state.clustersById["cluster-regression"]?.resolvedAt).toBe(
+      "2026-03-01T10:00:00.000Z"
+    );
+    expect(state.clustersById["cluster-regression"]?.resolvedByAttemptId).toBe(
+      "attempt-original-fix"
+    );
   });
 
   it("does not re-resolve a cluster already in resolved status (idempotency)", async () => {
@@ -587,8 +920,83 @@ describe("github-webhook-handlers", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // The cluster is no longer in fix_ready, so no transition is attempted.
+    // The recovery path is still invoked (webhook may be redelivered) but it
+    // short-circuits on `alreadyResolved` without writing history or mutating
+    // resolvedAt / resolvedByAttemptId.
+    expect(state.clusterRecoveries).toHaveLength(1);
+    expect(state.clusterRecoveries[0]).toMatchObject({
+      clusterId: "cluster-already-resolved",
+      from: "resolved",
+      alreadyResolved: true,
+      preservedResolvedAt: true,
+      preservedResolvedByAttemptId: true,
+    });
     expect(state.clusterTransitions).toHaveLength(0);
+  });
+
+  it("skips recovery for dismissed clusters (human decision is protected)", async () => {
+    state.bugFixAttemptsByPrUrl = [
+      {
+        id: "attempt-dismissed-bypass",
+        feedbackItemId: "feedback-dismissed-bypass",
+        clusterId: "cluster-dismissed",
+        status: "implementing",
+        fixPrUrl: "https://github.com/owner/repo/pull/73",
+        metadata: {
+          workflowGuards: {
+            errorSave: { performedAt: "2026-04-18T10:00:00.000Z" },
+          },
+        },
+      },
+    ];
+    state.latestAttemptByFeedbackId["feedback-dismissed-bypass"] =
+      state.bugFixAttemptsByPrUrl[0]!;
+    state.feedbackItemsById["feedback-dismissed-bypass"] = {
+      id: "feedback-dismissed-bypass",
+      status: "implementing",
+    };
+    state.clustersById["cluster-dismissed"] = {
+      id: "cluster-dismissed",
+      status: "dismissed",
+    };
+
+    const { handlePullRequestEvent } = await import("./github-webhook-handlers");
+
+    await handlePullRequestEvent(
+      {
+        action: "closed",
+        repository: { full_name: "owner/repo" },
+        pull_request: {
+          number: 73,
+          title: "fix(auto): should not override dismissal",
+          html_url: "https://github.com/owner/repo/pull/73",
+          merged: true,
+          state: "closed",
+          draft: false,
+          body: "",
+          user: { login: "author-login", avatar_url: null },
+          head: { ref: "fix/auto-feedback-dismissed-bypass-attempt-1" },
+          base: { ref: "main" },
+          labels: [],
+          additions: 1,
+          deletions: 0,
+          merged_at: "2026-04-18T20:15:00.000Z",
+          closed_at: "2026-04-18T20:15:00.000Z",
+        },
+        sender: { login: "merger-login", avatar_url: null },
+      },
+      "delivery-dismissed-bypass"
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Attempt is still flipped to merged (GitHub is source of truth for the
+    // PR), but the cluster recovery must refuse to touch the dismissed row.
+    expect(state.clusterRecoveries[0]).toMatchObject({
+      clusterId: "cluster-dismissed",
+      from: "dismissed",
+    });
+    expect(state.clustersById["cluster-dismissed"]?.status).toBe("dismissed");
   });
 
   it("fails the attempt and reopens the cluster when PR is closed without merge (A-1826)", async () => {

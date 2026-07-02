@@ -583,7 +583,53 @@ export const updateJobStatus = async (
     .where(eq(agentJobs.id, id))
     .returning();
 
+  if (updated && (status === "cancelled" || status === "failed")) {
+    await cascadeTerminalJobToBugFixAttempt(id, status);
+  }
+
   return updated ?? null;
+};
+
+/**
+ * When an agent_jobs row transitions to a terminal state — `cancelled`
+ * (runner shutdown, explicit user cancel, internal sweeper) or `failed`
+ * (stale-job recovery, timeout, quota/retry exhaustion, worker-reported
+ * failure) — the linked bug_fix_attempt (if any) must transition to
+ * `failed` right away. Without this cascade the attempt lingers in an
+ * active status until the ~30-min zombie sweeper cleans it up, blocking
+ * the feedback item from being re-triaged (and, before the sweeper was
+ * wired in community, forever).
+ *
+ * Isolated as a fire-and-log helper so a DB hiccup on the cascade never
+ * masks the job-status update itself.
+ *
+ * The bug-fix repository is imported lazily (not statically) on purpose:
+ * it transitively pulls `feedback-cluster-repository` →
+ * `work-item-repository`, and a static import would drag that whole graph
+ * into every consumer of this module — including the SQL-mock suite
+ * (`agent-job-repository.claim-sql.test.ts`), whose minimal drizzle mocks
+ * cannot evaluate those modules and would poison bun's module cache for
+ * the rest of the test run. The module is cached after the first call,
+ * so the runtime cost is a one-time lookup.
+ */
+const cascadeTerminalJobToBugFixAttempt = async (
+  jobId: string,
+  terminalStatus: "cancelled" | "failed"
+): Promise<void> => {
+  try {
+    const { failActiveAttemptForCancelledJob, failActiveAttemptForFailedJob } =
+      await import("./bug-fix-attempt-repository");
+    if (terminalStatus === "cancelled") {
+      await failActiveAttemptForCancelledJob(jobId);
+    } else {
+      await failActiveAttemptForFailedJob(jobId);
+    }
+  } catch (err) {
+    logger.warn(
+      { err, jobId, terminalStatus, traceId: getCurrentTraceId() },
+      "failed to cascade terminal job to bug_fix_attempts"
+    );
+  }
 };
 
 export const cancelJob = async (id: string): Promise<typeof agentJobs.$inferSelect | null> => {
@@ -608,6 +654,10 @@ export const cancelJob = async (id: string): Promise<typeof agentJobs.$inferSele
     })
     .where(and(eq(agentJobs.id, id), inArray(agentJobs.status, ACTIVE_AGENT_JOB_STATUSES)))
     .returning();
+
+  if (updated) {
+    await cascadeTerminalJobToBugFixAttempt(id, "cancelled");
+  }
 
   return updated ?? null;
 };

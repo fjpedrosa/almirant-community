@@ -12,6 +12,8 @@ import { startWsPubSubSubscriber } from "./shared/ws/ws-pubsub-subscriber";
 import { wsConnectionManager } from "./shared/ws/ws-connection-manager";
 import { startMemoryGcSweeper } from "./domains/agents/services/memory-gc-sweeper";
 import { startEffortEstimationSweeper } from "./domains/agents/services/effort-estimation-sweeper";
+import { startBugFixAttemptPrReconciler } from "./domains/integrations/github/services/bug-fix-attempt-pr-reconciler";
+import { startInvestigationTimeoutSweeper } from "./domains/observability/services/investigation-timeout-sweeper";
 
 interface BackgroundJobHandles {
   stop: () => Promise<void>;
@@ -49,6 +51,21 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
     intervalMs: env.EFFORT_ESTIMATION_SWEEPER_INTERVAL_MS,
     batchSize: 5,
   });
+  const stopBugFixAttemptPrReconciler =
+    env.BUG_FIX_PR_RECONCILER_ENABLED === "true"
+      ? startBugFixAttemptPrReconciler({
+          intervalMs: env.BUG_FIX_PR_RECONCILER_INTERVAL_MS,
+          olderThanMinutes: env.BUG_FIX_PR_RECONCILER_OLDER_THAN_MINUTES,
+          batchSize: env.BUG_FIX_PR_RECONCILER_BATCH_SIZE,
+        })
+      : null;
+  const stopInvestigationTimeoutSweeper =
+    env.ALMIRANT_INVESTIGATION_SWEEPER_ENABLED === "true"
+      ? startInvestigationTimeoutSweeper({
+          intervalMs: env.ALMIRANT_INVESTIGATION_SWEEPER_INTERVAL_MS,
+          timeoutMinutes: env.ALMIRANT_INVESTIGATION_TIMEOUT_MINUTES,
+        })
+      : null;
   const stopWsPubSub = env.REDIS_URL
     ? startWsPubSubSubscriber({
         redisUrl: env.REDIS_URL,
@@ -72,6 +89,8 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
       stopUsageAggregation();
       stopMemoryGcSweeper();
       stopEffortEstimationSweeper();
+      if (stopBugFixAttemptPrReconciler) stopBugFixAttemptPrReconciler();
+      if (stopInvestigationTimeoutSweeper) stopInvestigationTimeoutSweeper();
       wsConnectionManager.stopSweepInterval();
       await wsConnectionManager.stopPubSubPublisher();
       if (stopWsPubSub) await stopWsPubSub();

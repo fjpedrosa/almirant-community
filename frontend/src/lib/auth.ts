@@ -1,5 +1,5 @@
 import { betterAuth, generateId } from 'better-auth';
-import { APIError } from 'better-auth/api';
+import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { organization } from 'better-auth/plugins';
 import { nextCookies } from 'better-auth/next-js';
@@ -16,6 +16,11 @@ import {
   getAuthBootstrapStatus,
   hasPendingInvitation,
 } from './auth-bootstrap';
+import {
+  assertCanManageOrganizationMembers,
+  findOrganizationMemberRole,
+  resolveTargetOrganizationId,
+} from './organization-member-management-guard';
 import { ac, roles } from './auth-permissions';
 import { getDefaultLocalFrontendOrigins } from './runtime-service-url';
 import { getInvitationAppBaseUrl } from './site-url';
@@ -469,6 +474,27 @@ const createAuthInstance = (runtimePublicUrl: string | null) =>
           },
         },
       },
+    },
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        const session = ctx.context.session ?? (await getSessionFromCtx(ctx));
+
+        // Resolve the workspace the request TARGETS (body override falling back
+        // to the active workspace), matching how the Better-Auth organization
+        // endpoints pick the workspace they mutate — so the caller's role is
+        // authorized against the same workspace, not just whatever is active.
+        const body = ctx.body as { organizationId?: string | null } | undefined;
+
+        await assertCanManageOrganizationMembers({
+          findMemberRole: (params) => findOrganizationMemberRole(db, params),
+          path: ctx.path,
+          userId: session?.user?.id ?? null,
+          organizationId: resolveTargetOrganizationId(body, {
+            activeOrganizationId:
+              session?.session?.activeOrganizationId ?? null,
+          }),
+        });
+      }),
     },
     databaseHooks: {
       user: {

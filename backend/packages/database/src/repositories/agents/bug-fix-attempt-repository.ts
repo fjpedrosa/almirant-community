@@ -787,6 +787,14 @@ export const markAttemptAsFailed = async (
   reason: string,
   detectedBy: string
 ): Promise<BugFixAttempt | null> => {
+  // Compare-and-swap: only transition attempts that are still active. A
+  // separate reader (failActiveAttemptForCancelledJob, the timeout sweeper, or
+  // an abort service) may have observed the attempt as active moments before,
+  // but a concurrent PR-merge webhook / reconciler could flip it to `merged`
+  // in between. Guarding the UPDATE on the active statuses makes this a no-op
+  // when the row already reached a terminal state (`merged` / `failed`), so a
+  // just-merged attempt is never clobbered back to `failed`. 0 rows updated ⇒
+  // already terminal ⇒ return null.
   const [updated] = await db
     .update(bugFixAttempts)
     .set({
@@ -795,7 +803,12 @@ export const markAttemptAsFailed = async (
       failureDetectedBy: detectedBy,
       updatedAt: new Date(),
     })
-    .where(eq(bugFixAttempts.id, id))
+    .where(
+      and(
+        eq(bugFixAttempts.id, id),
+        inArray(bugFixAttempts.status, [...ACTIVE_STATUSES])
+      )
+    )
     .returning();
 
   if (!updated) return null;
@@ -836,6 +849,98 @@ export const markAttemptAsFailed = async (
 
   return updated;
 };
+
+/**
+ * Compare-and-swap merge write for the PR-merge path. Only flips an attempt to
+ * `merged` when it is still active (`analyzing` / `proposed` / `implementing`).
+ *
+ * This is the symmetric guard to `markAttemptAsFailed`: the PR-merge webhook /
+ * reconciler both SELECT the attempt (via `getBugFixAttemptsByFixPrUrl`) and
+ * then write `merged` in a separate statement. Between the two, a competing
+ * fail write (timeout sweeper, job-cancel cascade) may have moved the attempt
+ * to a terminal `failed` state — e.g. a stale PR from an already-failed attempt
+ * merging late. Guarding the UPDATE on the active statuses prevents that late
+ * merge from resurrecting a dead attempt and re-triggering cluster resolution.
+ *
+ * Returns null when the attempt is no longer active (already `merged` — the
+ * caller short-circuits that case separately — or already `failed`).
+ */
+export const markAttemptAsMergedIfActive = async (
+  id: string
+): Promise<BugFixAttempt | null> => {
+  const [updated] = await db
+    .update(bugFixAttempts)
+    .set({
+      status: "merged",
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(bugFixAttempts.id, id),
+        inArray(bugFixAttempts.status, [...ACTIVE_STATUSES])
+      )
+    )
+    .returning();
+
+  return updated ?? null;
+};
+
+/**
+ * Cascade helper for the job-cancel path: when an agent_jobs row transitions
+ * to `cancelled` (via `cancelJob` or a runner-driven `updateJobStatus`), the
+ * linked bug_fix_attempts row should transition to `failed` immediately so
+ * downstream pipelines (feedback-bug-triage cron, cluster auto-transitions)
+ * can react within minutes instead of waiting ~30 min for the zombie
+ * sweeper to notice a stalled attempt.
+ *
+ * Behaviour:
+ *   - Finds the attempt referenced by `agent_job_id = jobId` whose status is
+ *     still active (`analyzing` / `proposed` / `implementing`).
+ *   - Delegates to `markAttemptAsFailed` so the existing cluster-transition
+ *     hook (open-on-abort) fires consistently with other failure paths.
+ *   - Idempotent: returns `null` when the attempt is already terminal
+ *     (`merged` / `failed`) or when the job is not linked to any attempt.
+ */
+const failActiveAttemptForTerminalJob = async (
+  jobId: string,
+  reason: string,
+  detectedBy: string
+): Promise<BugFixAttempt | null> => {
+  const [candidate] = await db
+    .select({ id: bugFixAttempts.id })
+    .from(bugFixAttempts)
+    .where(
+      and(
+        eq(bugFixAttempts.agentJobId, jobId),
+        inArray(bugFixAttempts.status, [...ACTIVE_STATUSES])
+      )
+    )
+    .limit(1);
+
+  if (!candidate) return null;
+
+  // markAttemptAsFailed is compare-and-swap guarded, so a race where the
+  // attempt turned terminal between the select above and this write is a no-op.
+  return markAttemptAsFailed(candidate.id, reason, detectedBy);
+};
+
+export const failActiveAttemptForCancelledJob = (
+  jobId: string
+): Promise<BugFixAttempt | null> =>
+  failActiveAttemptForTerminalJob(jobId, "job_cancelled", "job_cancel");
+
+/**
+ * Sibling of `failActiveAttemptForCancelledJob` for the `failed` termination
+ * path. The overwhelming majority of real job terminations are `failed`
+ * (stale-job recovery, the 4h timeout sweep, orchestrator quota/retry-window
+ * exhaustion, the worker POST /status endpoint), so without cascading on
+ * `failed` a linked attempt lingers active ("implementing") indefinitely and
+ * the cluster never reopens for re-triage.
+ */
+export const failActiveAttemptForFailedJob = (
+  jobId: string
+): Promise<BugFixAttempt | null> =>
+  failActiveAttemptForTerminalJob(jobId, "job_failed", "job_failure");
 
 export const getActiveAttemptForCluster = async (
   clusterId: string

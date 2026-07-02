@@ -21,6 +21,7 @@ import {
   getPlanningSessionById,
   getWorkItemsBySession,
   getSeedsBySession,
+  failActiveAttemptForFailedJob,
 } from "@almirant/database";
 import type { AgentJobConfig, InterruptionContext } from "@almirant/database";
 import { wsConnectionManager } from "../../../shared/ws/ws-connection-manager";
@@ -229,6 +230,24 @@ const resumePausedQuotaJob = async (
   );
 };
 
+/**
+ * CRÍTICO 1(a): the stale-recovery sweeps fail jobs via direct
+ * `db.update(agentJobs)` writes that bypass `updateJobStatus`, so they must
+ * cascade to the linked bug_fix_attempt themselves — otherwise an attempt whose
+ * job dies `failed` stays active ("implementing") forever and the cluster never
+ * reopens. Fire-and-log: a cascade hiccup must never mask the job recovery.
+ */
+const cascadeFailedJobToBugFixAttempt = async (jobId: string): Promise<void> => {
+  try {
+    await failActiveAttemptForFailedJob(jobId);
+  } catch (err) {
+    logger.warn(
+      { err, jobId },
+      "Stale job recovery: failed to cascade job failure to bug_fix_attempts"
+    );
+  }
+};
+
 const failRecoveredJob = async (
   job: typeof agentJobs.$inferSelect,
   now: Date,
@@ -259,6 +278,8 @@ const failRecoveredJob = async (
     .returning();
 
   if (!updated) return;
+
+  await cascadeFailedJobToBugFixAttempt(updated.id);
 
   void broadcastStatusChanged({ jobId: updated.id, status: updated.status, workItemId: updated.workItemId ?? null, workspaceId: updated.workspaceId });
 
@@ -505,6 +526,7 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
           .returning();
 
         if (updated) {
+          await cascadeFailedJobToBugFixAttempt(updated.id);
           void broadcastStatusChanged({ jobId: updated.id, status: updated.status, workItemId: updated.workItemId ?? null, workspaceId: updated.workspaceId });
           const orgId = job.workspaceId ?? await resolveOrgIdFromWorkItem(job.workItemId);
           if (orgId) {
@@ -603,6 +625,7 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
           .returning();
 
         if (updated) {
+          await cascadeFailedJobToBugFixAttempt(updated.id);
           void broadcastStatusChanged({ jobId: updated.id, status: updated.status, workItemId: updated.workItemId ?? null, workspaceId: updated.workspaceId });
           const orgId = jobRow.workspaceId ?? await resolveOrgIdFromWorkItem(jobRow.workItemId);
           if (orgId) {
