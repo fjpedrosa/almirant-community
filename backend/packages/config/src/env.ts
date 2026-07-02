@@ -22,6 +22,10 @@ const envSchema = z.object({
   AGENT_JOB_LOG_SWEEPER_BATCH_SIZE: z.coerce.number().default(1_000),
   ALMIRANT_INVESTIGATION_TIMEOUT_MINUTES: z.coerce.number().int().positive().default(30),
   ALMIRANT_INVESTIGATION_SWEEPER_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
+  // Kill switch for the investigation-timeout sweeper (fails zombie bug_fix
+  // attempts whose agent_job died). Enabled by default; set to "false" to stop
+  // it without a redeploy of the sweeper code.
+  ALMIRANT_INVESTIGATION_SWEEPER_ENABLED: z.enum(["true", "false"]).default("true"),
   // Bug-fix PR reconciler (drift backstop for missed PR-merge webhooks).
   // Polls GitHub for attempts stuck in a pre-terminal status with a
   // `fix_pr_number` and reconciles the cluster/attempt state. Default cadence

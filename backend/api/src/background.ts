@@ -12,6 +12,7 @@ import { startWsPubSubSubscriber } from "./shared/ws/ws-pubsub-subscriber";
 import { wsConnectionManager } from "./shared/ws/ws-connection-manager";
 import { startMemoryGcSweeper } from "./domains/agents/services/memory-gc-sweeper";
 import { startBugFixAttemptPrReconciler } from "./domains/integrations/github/services/bug-fix-attempt-pr-reconciler";
+import { startInvestigationTimeoutSweeper } from "./domains/observability/services/investigation-timeout-sweeper";
 
 interface BackgroundJobHandles {
   stop: () => Promise<void>;
@@ -53,6 +54,13 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
           batchSize: env.BUG_FIX_PR_RECONCILER_BATCH_SIZE,
         })
       : null;
+  const stopInvestigationTimeoutSweeper =
+    env.ALMIRANT_INVESTIGATION_SWEEPER_ENABLED === "true"
+      ? startInvestigationTimeoutSweeper({
+          intervalMs: env.ALMIRANT_INVESTIGATION_SWEEPER_INTERVAL_MS,
+          timeoutMinutes: env.ALMIRANT_INVESTIGATION_TIMEOUT_MINUTES,
+        })
+      : null;
   const stopWsPubSub = env.REDIS_URL
     ? startWsPubSubSubscriber({
         redisUrl: env.REDIS_URL,
@@ -76,6 +84,7 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
       stopUsageAggregation();
       stopMemoryGcSweeper();
       if (stopBugFixAttemptPrReconciler) stopBugFixAttemptPrReconciler();
+      if (stopInvestigationTimeoutSweeper) stopInvestigationTimeoutSweeper();
       wsConnectionManager.stopSweepInterval();
       await wsConnectionManager.stopPubSubPublisher();
       if (stopWsPubSub) await stopWsPubSub();
