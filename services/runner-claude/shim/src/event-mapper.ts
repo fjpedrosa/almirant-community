@@ -310,8 +310,16 @@ export const mapClaudeEventToSse = (
     return { events };
   }
 
-  // Interactive stream-json mode: type="system" signals session readiness
+  // Interactive stream-json mode: type="system" signals session readiness.
+  // Only subtype "init" (or a missing subtype) marks readiness. Informational
+  // subtypes verified live against claude-code 2.1.198: "status" (progress
+  // ping, since 2.1.119), "thinking_tokens" (NEW in 2.1.198), and
+  // "hook_started"/"hook_response" — none of them should emit SSE noise.
   if (eventType === "system") {
+    const subtype = asString(event.subtype);
+    if (subtype && subtype !== "init") {
+      return { events };
+    }
     events.push({
       type: "session.status",
       properties: { sessionId, status: "running", message: "Session initialized" },

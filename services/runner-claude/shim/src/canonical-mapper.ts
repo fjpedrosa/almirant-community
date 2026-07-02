@@ -331,7 +331,18 @@ export const mapClaudeToCanonical = (
       return { events };
     }
 
-    // Default: init or unknown subtype → session.connected with metadata
+    // Informational subtypes — no canonical mapping.
+    // Verified live against claude-code 2.1.198 (2026-07):
+    //   - "status"           {status:"requesting"} progress ping (since 2.1.119)
+    //   - "thinking_tokens"  {estimated_tokens,...} heartbeat, NEW in 2.1.198
+    //   - "hook_started"/"hook_response"  user-hook lifecycle
+    // Emitting session.connected for these would flood consumers mid-turn,
+    // so only "init" (or a missing subtype) signals session readiness below.
+    if (subtype && subtype !== "init") {
+      return { events };
+    }
+
+    // init (or missing subtype) → session.connected with metadata
     const initMetadata: Record<string, unknown> = {};
     if (event.model) initMetadata.model = event.model;
     if (event.claude_code_version) initMetadata.claudeCodeVersion = event.claude_code_version;

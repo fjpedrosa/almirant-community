@@ -264,4 +264,61 @@ describe("mapClaudeEventToSse", () => {
       expect(r.snapshotText).toBe("## Phase 1: Capture & Understand");
     });
   });
+
+  // ---- system event subtypes (contract verified live against claude-code 2.1.198) ----
+  //
+  // 2.1.198 introduces `system:thinking_tokens` (~3 per turn) alongside the
+  // `system:status` and hook subtypes already emitted by 2.1.119. Only
+  // `system:init` marks session readiness — emitting "Session initialized"
+  // for every informational ping is misleading and noisy over SSE.
+  describe("system event subtypes (claude-code 2.1.198)", () => {
+    test("system:init produces session.status 'Session initialized'", () => {
+      const r = mapClaudeEventToSse(SESSION, {
+        type: "system",
+        subtype: "init",
+        model: "claude-sonnet-5",
+        claude_code_version: "2.1.198",
+      });
+      expect(r.events).toHaveLength(1);
+      expect(r.events[0]?.type).toBe("session.status");
+      expect(
+        (r.events[0]?.properties as Record<string, unknown>).message,
+      ).toBe("Session initialized");
+    });
+
+    test("system:thinking_tokens does NOT emit session.status (2.1.198 payload)", () => {
+      const r = mapClaudeEventToSse(SESSION, {
+        type: "system",
+        subtype: "thinking_tokens",
+        estimated_tokens: 184,
+        estimated_tokens_delta: 134,
+      });
+      expect(r.events).toHaveLength(0);
+    });
+
+    test("system:status / hook subtypes do NOT emit session.status", () => {
+      const status = mapClaudeEventToSse(SESSION, {
+        type: "system",
+        subtype: "status",
+        status: "requesting",
+      });
+      const hookStarted = mapClaudeEventToSse(SESSION, {
+        type: "system",
+        subtype: "hook_started",
+        hook_name: "PreToolUse",
+      });
+      expect(status.events).toHaveLength(0);
+      expect(hookStarted.events).toHaveLength(0);
+    });
+  });
+
+  describe("rate_limit_event (present in 2.1.119 and 2.1.198)", () => {
+    test("rate_limit_event is ignored", () => {
+      const r = mapClaudeEventToSse(SESSION, {
+        type: "rate_limit_event",
+        rate_limit_info: { status: "allowed", rateLimitType: "five_hour" },
+      });
+      expect(r.events).toHaveLength(0);
+    });
+  });
 });

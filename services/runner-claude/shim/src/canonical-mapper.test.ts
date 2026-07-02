@@ -322,4 +322,89 @@ describe("mapClaudeToCanonical", () => {
       expect(write.filePath).toBe("/src/new-file.ts");
     });
   });
+
+  // ---- system event subtypes (contract verified live against claude-code 2.1.198) ----
+  //
+  // 2.1.198 introduces `system:thinking_tokens` (progress heartbeat, ~3 per turn)
+  // and keeps `system:status` (status:"requesting") and hook_started/hook_response
+  // subtypes seen since 2.1.119. None of these mark session readiness — only
+  // `system:init` may emit session.connected. Emitting session.connected for
+  // every informational subtype would flood consumers mid-turn.
+  describe("system event subtypes (claude-code 2.1.198)", () => {
+    test("system:init produces session.connected with metadata", () => {
+      const result = mapClaudeToCanonical(SESSION, {
+        type: "system",
+        subtype: "init",
+        model: "claude-sonnet-5",
+        claude_code_version: "2.1.198",
+        permissionMode: "bypassPermissions",
+        tools: ["Bash", "Read", "Write"],
+      });
+      const connected = eventsOfKind(result.events, "session.connected");
+      expect(connected).toHaveLength(1);
+      const meta = (connected[0] as { metadata?: Record<string, unknown> }).metadata;
+      expect(meta?.model).toBe("claude-sonnet-5");
+      expect(meta?.claudeCodeVersion).toBe("2.1.198");
+      expect(meta?.toolCount).toBe(3);
+    });
+
+    test("system:thinking_tokens does NOT emit session.connected (2.1.198 payload)", () => {
+      // Exact shape captured live from claude-code 2.1.198
+      const result = mapClaudeToCanonical(SESSION, {
+        type: "system",
+        subtype: "thinking_tokens",
+        estimated_tokens: 184,
+        estimated_tokens_delta: 134,
+        uuid: "c8031c9a-826e-4d71-8827-77e29ca98589",
+        session_id: "6d98c855-5272-4155-80e7-a34b773dfe3f",
+      });
+      expect(eventsOfKind(result.events, "session.connected")).toHaveLength(0);
+      expect(result.events).toHaveLength(0);
+    });
+
+    test("system:status does NOT emit session.connected (payload since 2.1.119)", () => {
+      const result = mapClaudeToCanonical(SESSION, {
+        type: "system",
+        subtype: "status",
+        status: "requesting",
+        uuid: "86f4b5a6-7fa1-428c-b60f-5cf1c16565c8",
+        session_id: "b20b662c-c950-45f3-b4ee-37348d996845",
+      });
+      expect(eventsOfKind(result.events, "session.connected")).toHaveLength(0);
+      expect(result.events).toHaveLength(0);
+    });
+
+    test("system:hook_started / hook_response do NOT emit session.connected", () => {
+      const started = mapClaudeToCanonical(SESSION, {
+        type: "system",
+        subtype: "hook_started",
+        hook_id: "h1",
+        hook_name: "PreToolUse",
+        hook_event: "PreToolUse",
+      });
+      const response = mapClaudeToCanonical(SESSION, {
+        type: "system",
+        subtype: "hook_response",
+        hook_id: "h1",
+        outcome: "success",
+        exit_code: 0,
+      });
+      expect(started.events).toHaveLength(0);
+      expect(response.events).toHaveLength(0);
+    });
+  });
+
+  describe("rate_limit_event (top-level type, present in 2.1.119 and 2.1.198)", () => {
+    test("rate_limit_event is ignored without emitting session.error", () => {
+      const result = mapClaudeToCanonical(SESSION, {
+        type: "rate_limit_event",
+        rate_limit_info: {
+          status: "allowed",
+          resetsAt: 1782990000,
+          rateLimitType: "five_hour",
+        },
+      });
+      expect(result.events).toHaveLength(0);
+    });
+  });
 });
