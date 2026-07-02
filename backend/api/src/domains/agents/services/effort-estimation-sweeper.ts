@@ -18,6 +18,19 @@ import { getCachedActiveConfig, runEffortEstimation } from "./effort-estimator";
 const FEATURE_FLAG_KEY = "effort-estimation-v1";
 const MAX_ATTEMPTS = 3;
 
+/**
+ * How long a request may sit in 'processing' before the sweeper reclaims it.
+ *
+ * A crashed sweeper or a hung LLM call leaves a row stuck in 'processing'
+ * forever; because the partial unique index on (work_item_id) WHERE status IN
+ * ('pending','processing') then makes every future enqueue for that work item a
+ * DB-level no-op, the estimate would never be produced or refreshed. Reclaiming
+ * stale 'processing' rows past this timeout lets a later tick retry them (up to
+ * MAX_ATTEMPTS). 15 minutes comfortably exceeds a worst-case LLM run (3 attempts
+ * with backoff) so we never reclaim a row that is still legitimately in flight.
+ */
+const DEFAULT_PROCESSING_RECLAIM_MS = 15 * 60 * 1000;
+
 type RequestRow = {
   id: string;
   workItemId: string;
@@ -32,6 +45,8 @@ export type EffortEstimationSweeperTickResult = {
 export type EffortEstimationSweeperConfig = {
   intervalMs: number;
   batchSize: number;
+  /** How long a row may sit in 'processing' before being reclaimed. */
+  processingReclaimMs?: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -40,19 +55,41 @@ export type EffortEstimationSweeperConfig = {
 // can process them outside the transaction (LLM calls must not hold DB locks).
 // ---------------------------------------------------------------------------
 
-const claimBatch = async (batchSize: number): Promise<RequestRow[]> => {
+const claimBatch = async (
+  batchSize: number,
+  processingReclaimMs: number = DEFAULT_PROCESSING_RECLAIM_MS,
+): Promise<RequestRow[]> => {
+  const reclaimSeconds = Math.max(1, Math.floor(processingReclaimMs / 1000));
   return db.transaction(async (tx) => {
     // FOR UPDATE SKIP LOCKED is not supported directly by Drizzle's fluent
     // builder, so we use a raw CTE that selects + locks + updates in one round
     // trip. Attempt count is incremented and last_attempt_at is touched here
     // so a crash between claim and processing still leaves the row visible to
     // a later sweep tick (no silent data loss).
+    //
+    // We claim two kinds of rows:
+    //   * fresh 'pending' rows, and
+    //   * stale 'processing' rows whose last attempt is older than the reclaim
+    //     timeout (crashed sweeper / hung LLM). Without this, a stuck row would
+    //     block the (work_item_id) WHERE status IN ('pending','processing')
+    //     unique index forever, making enqueue a permanent no-op for that item.
+    // The attempt_count < MAX_ATTEMPTS guard applies to both so genuinely stuck
+    // rows still terminate at 'failed' instead of being reclaimed indefinitely.
     const rows = (await tx.execute(sql`
       WITH picked AS (
         SELECT id
         FROM effort_estimation_requests
-        WHERE status = 'pending'
-          AND attempt_count < ${MAX_ATTEMPTS}
+        WHERE attempt_count < ${MAX_ATTEMPTS}
+          AND (
+            status = 'pending'
+            OR (
+              status = 'processing'
+              AND (
+                last_attempt_at IS NULL
+                OR last_attempt_at < NOW() - make_interval(secs => ${reclaimSeconds})
+              )
+            )
+          )
         ORDER BY created_at ASC
         LIMIT ${batchSize}
         FOR UPDATE SKIP LOCKED
@@ -235,11 +272,14 @@ const processRow = async (row: RequestRow): Promise<"done" | "failed"> => {
 
 export const runEffortEstimationSweeperOnce = async (cfg: {
   batchSize: number;
+  processingReclaimMs?: number;
 }): Promise<EffortEstimationSweeperTickResult> => {
   const started = Date.now();
   const batchSize = Math.max(1, cfg.batchSize);
+  const processingReclaimMs =
+    cfg.processingReclaimMs ?? DEFAULT_PROCESSING_RECLAIM_MS;
 
-  const claimed = await claimBatch(batchSize);
+  const claimed = await claimBatch(batchSize, processingReclaimMs);
 
   let processed = 0;
   let failed = 0;
@@ -303,6 +343,8 @@ export const startEffortEstimationSweeper = (
 ): (() => void) => {
   const intervalMs = cfg.intervalMs;
   const batchSize = cfg.batchSize;
+  const processingReclaimMs =
+    cfg.processingReclaimMs ?? DEFAULT_PROCESSING_RECLAIM_MS;
 
   let stopped = false;
   let running = false;
@@ -313,7 +355,7 @@ export const startEffortEstimationSweeper = (
     if (stopped || running) return;
     running = true;
     try {
-      await runEffortEstimationSweeperOnce({ batchSize });
+      await runEffortEstimationSweeperOnce({ batchSize, processingReclaimMs });
     } catch (err) {
       // Swallow at tick level — setInterval must never die.
       logger.error(
@@ -354,4 +396,6 @@ export const __internals = {
   computeWorkItemContentHash,
   MAX_ATTEMPTS,
   FEATURE_FLAG_KEY,
+  DEFAULT_PROCESSING_RECLAIM_MS,
+  claimBatch,
 };
