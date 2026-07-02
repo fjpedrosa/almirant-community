@@ -142,7 +142,10 @@ describe("claimJobs SQL regression", () => {
     const claimQuery = executeCalls[2] as { strings: string[] };
     const sqlText = claimQuery.strings.join("?");
 
+    // Built dynamically so the rename codemod cannot rewrite the legacy name.
+    const legacyTable = ["organization", "settings"].join("_");
+
     expect(sqlText).toContain("workspace_settings");
-    expect(sqlText).not.toContain("organization_settings");
+    expect(sqlText).not.toContain(legacyTable);
   });
 });
