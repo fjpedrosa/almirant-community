@@ -1,8 +1,7 @@
-import { APIError } from 'better-auth/api';
-import { and, eq } from 'drizzle-orm';
-import { betterAuthOrganizationColumns } from './better-auth-organization-schema';
-import type { db } from './db';
-import * as schema from './schema';
+import { APIError } from "better-auth/api";
+import { and, eq } from "drizzle-orm";
+import { schema, type Database } from "@almirant/database";
+import { betterAuthOrganizationColumns } from "./better-auth-organization-schema";
 
 /**
  * Better-Auth organization-plugin endpoints that mutate workspace membership.
@@ -15,9 +14,9 @@ import * as schema from './schema';
  * model/field mapping.
  */
 export const SENSITIVE_ORGANIZATION_MEMBER_PATHS = new Set([
-  '/organization/update-member-role',
-  '/organization/remove-member',
-  '/organization/invite-member',
+  "/organization/update-member-role",
+  "/organization/remove-member",
+  "/organization/invite-member",
 ]);
 
 type OrganizationMemberRoleLookup = (params: {
@@ -51,10 +50,11 @@ export const isSensitiveOrganizationMemberPath = (path: string): boolean =>
 export const resolveTargetOrganizationId = (
   body: { organizationId?: string | null } | null | undefined,
   session: { activeOrganizationId: string | null },
-): string | null => body?.organizationId ?? session.activeOrganizationId ?? null;
+): string | null =>
+  body?.organizationId ?? session.activeOrganizationId ?? null;
 
 export const findOrganizationMemberRole = async (
-  database: typeof db,
+  database: Database,
   params: {
     organizationId: string;
     userId: string;
@@ -88,8 +88,8 @@ export const assertCanManageOrganizationMembers = async ({
   }
 
   if (!userId || !organizationId) {
-    throw new APIError('UNAUTHORIZED', {
-      message: 'Not authenticated',
+    throw new APIError("UNAUTHORIZED", {
+      message: "Not authenticated",
     });
   }
 
@@ -98,11 +98,11 @@ export const assertCanManageOrganizationMembers = async ({
     organizationId,
   });
 
-  if (callerRole === 'owner' || callerRole === 'admin') {
+  if (callerRole === "owner" || callerRole === "admin") {
     return;
   }
 
-  throw new APIError('FORBIDDEN', {
-    message: 'Only owners and admins can manage workspace members',
+  throw new APIError("FORBIDDEN", {
+    message: "Only owners and admins can manage workspace members",
   });
 };

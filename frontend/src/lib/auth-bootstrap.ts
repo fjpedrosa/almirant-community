@@ -1,162 +1,44 @@
-import { sql } from "drizzle-orm";
-import { db } from "./db";
 import type { AuthBootstrapStatus } from "@/domains/auth/domain/types";
+import { authBackendFetch } from "./server-session";
 
-const INITIAL_ADMIN_BOOTSTRAP_LOCK_KEY = 20_260_421;
-
-type SqlExecutor = {
-  execute(query: unknown): Promise<unknown[]>;
+/**
+ * Auth bootstrap status now lives on the BACKEND (Elysia API): the frontend is a
+ * thin client with NO database connection. Server components on the public
+ * login/signup pages fetch `GET /api/auth/bootstrap-status` (mounted alongside
+ * `/api/auth/providers`, before the Better-Auth wildcard).
+ *
+ * Fail-closed default when the backend is unreachable: assume an initialized,
+ * registration-closed instance so a transient backend blip never accidentally
+ * exposes the signup form or the first-admin setup flow.
+ */
+const FALLBACK: AuthBootstrapStatus = {
+  hasUsers: true,
+  needsInitialAdminSetup: false,
+  allowRegistration: false,
 };
 
-type SqlDatabase = SqlExecutor & {
-  transaction<T>(callback: (tx: SqlExecutor) => Promise<T>): Promise<T>;
-};
+export const getAuthBootstrapStatus = async (): Promise<AuthBootstrapStatus> => {
+  try {
+    const res = await authBackendFetch("/bootstrap-status");
+    if (!res.ok) return FALLBACK;
 
-type UserCountRow = {
-  userCount: number;
-};
+    // The API wraps payloads in `{ success, data }`; tolerate a bare object too.
+    const json = (await res.json()) as
+      | { data?: AuthBootstrapStatus }
+      | AuthBootstrapStatus;
+    const status =
+      (json as { data?: AuthBootstrapStatus }).data ??
+      (json as AuthBootstrapStatus);
 
-type SettingsRow = {
-  id: string;
-  allowNewRegistrations: boolean;
-};
-
-type UserIdRow = {
-  id: string;
-};
-
-type InvitationRow = {
-  id: string;
-};
-
-const executeRows = async <T>(
-  executor: SqlExecutor,
-  query: unknown
-): Promise<T[]> => executor.execute(query) as Promise<T[]>;
-
-const getSystemSettings = async (
-  executor: SqlExecutor = db as unknown as SqlExecutor
-): Promise<SettingsRow | null> => {
-  const [settings] = await executeRows<SettingsRow>(executor, sql`
-    SELECT
-      id,
-      allow_new_registrations AS "allowNewRegistrations"
-    FROM system_settings
-    LIMIT 1
-  `);
-
-  return settings ?? null;
-};
-
-export const getAuthBootstrapStatus = async (
-  executor: SqlExecutor = db as unknown as SqlExecutor
-): Promise<AuthBootstrapStatus> => {
-  const [userCountRows, settings] = await Promise.all([
-    executeRows<UserCountRow>(executor, sql`
-      SELECT count(*)::int AS "userCount"
-      FROM "user"
-    `),
-    getSystemSettings(executor),
-  ]);
-
-  const hasUsers = (userCountRows[0]?.userCount ?? 0) > 0;
-
-  return {
-    hasUsers,
-    needsInitialAdminSetup: !hasUsers,
-    allowRegistration: !hasUsers || (settings?.allowNewRegistrations ?? true),
-  };
-};
-
-export const hasPendingInvitation = async (
-  email: string,
-  executor: SqlExecutor = db as unknown as SqlExecutor
-): Promise<boolean> => {
-  const normalizedEmail = email.trim().toLowerCase();
-
-  if (!normalizedEmail) {
-    return false;
+    if (
+      !status ||
+      typeof status.hasUsers !== "boolean" ||
+      typeof status.allowRegistration !== "boolean"
+    ) {
+      return FALLBACK;
+    }
+    return status;
+  } catch {
+    return FALLBACK;
   }
-
-  const rows = await executeRows<InvitationRow>(executor, sql`
-    SELECT id
-    FROM invitation
-    WHERE lower(email) = ${normalizedEmail}
-      AND status = 'pending'
-    LIMIT 1
-  `);
-
-  return rows.length > 0;
-};
-
-export const ensureInitialAdminUser = async (
-  database: SqlDatabase = db as unknown as SqlDatabase
-): Promise<string | null> => {
-  return database.transaction(async (tx) => {
-    await tx.execute(sql`
-      SELECT pg_advisory_xact_lock(${INITIAL_ADMIN_BOOTSTRAP_LOCK_KEY})
-    `);
-
-    const [existingAdmin] = await executeRows<UserIdRow>(tx, sql`
-      SELECT id
-      FROM "user"
-      WHERE role = 'admin'
-      LIMIT 1
-    `);
-
-    if (existingAdmin) {
-      return null;
-    }
-
-    const [oldestUser] = await executeRows<UserIdRow>(tx, sql`
-      SELECT id
-      FROM "user"
-      ORDER BY created_at ASC, id ASC
-      LIMIT 1
-    `);
-
-    if (!oldestUser) {
-      return null;
-    }
-
-    await tx.execute(sql`
-      UPDATE "user"
-      SET role = 'admin',
-          updated_at = now()
-      WHERE id = ${oldestUser.id}
-    `);
-
-    const [settings] = await executeRows<SettingsRow>(tx, sql`
-      SELECT
-        id,
-        allow_new_registrations AS "allowNewRegistrations"
-      FROM system_settings
-      LIMIT 1
-    `);
-
-    if (settings) {
-      await tx.execute(sql`
-        UPDATE system_settings
-        SET allow_new_registrations = false,
-            updated_by = ${oldestUser.id},
-            updated_at = now()
-        WHERE id = ${settings.id}::uuid
-      `);
-    } else {
-      await tx.execute(sql`
-        INSERT INTO system_settings (
-          allow_new_registrations,
-          updated_by,
-          updated_at
-        )
-        VALUES (
-          false,
-          ${oldestUser.id},
-          now()
-        )
-      `);
-    }
-
-    return oldestUser.id;
-  });
 };

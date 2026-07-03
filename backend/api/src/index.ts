@@ -44,6 +44,8 @@ import { bootstrapExtensions, bootstrapRuntimeSettings } from "./bootstrap";
 
 // Public auth-providers listing (no session required — consumed by the login page)
 import { authProvidersRoutes } from "./routes/auth-providers.routes";
+// Better-Auth issuer handler (mounted at ROOT, serves all /api/auth/*)
+import { betterAuthRoutes } from "./domains/auth/routes/better-auth.routes";
 import {
   buildMcpOAuthAuthorizationServerMetadata,
   buildMcpOAuthProtectedResourceMetadata,
@@ -125,7 +127,13 @@ const app = new Elysia({
   // Dev-only test session endpoint (disabled in production)
   .use(authModule.public())
   // Public list of configured auth providers (consumed by the login page before auth)
+  // Registered BEFORE the Better-Auth wildcard so the static
+  // GET /api/auth/providers resolves first.
   .use(authProvidersRoutes)
+  // Better-Auth issuer: handles all /api/auth/* (sign-in, sign-up, email/password,
+  // Google OAuth, session, organization plugin). Mounted at ROOT (outside the
+  // /api session-auth group) so it ISSUES sessions instead of consuming them.
+  .use(betterAuthRoutes)
   // Public instance config (no auth) — consumed by frontend for runtime config
   .use(instanceModule.public())
   // Root endpoint with API metadata

@@ -1,6 +1,6 @@
 "use server";
 
-import { sendMemberRemovedEmailViaBackend } from "@/lib/auth";
+import { sendMemberRemovedEmailViaBackend } from "@/lib/email-notifications-client";
 
 export async function sendMemberRemovedEmail(args: {
   email: string;

@@ -71,6 +71,24 @@ const envSchema = z.object({
   // Google OAuth (optional - only required if enabling Google sign-in)
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
+  // ── Better-Auth issuer ─────────────────────────────────────────────────
+  // The backend is now the auth issuer (Google OAuth + email/password +
+  // organization plugin). BETTER_AUTH_SECRET signs sessions/cookies and MUST
+  // match any peer that validates them. Required in production (enforced after
+  // parse); optional in dev/test where Better-Auth derives a dev secret.
+  BETTER_AUTH_SECRET: optional(z.string().min(1)),
+  // Explicit issuer base URL (e.g. https://api.almirant.ai). When unset the
+  // backend falls back to the runtime publicUrl from instance_settings.
+  BETTER_AUTH_URL: optional(z.string()),
+  // Extra comma-separated origins added to Better-Auth trustedOrigins on top of
+  // CORS_ORIGIN + the dev origins + the runtime publicUrl.
+  BETTER_AUTH_TRUSTED_ORIGINS: optional(z.string()),
+  // Cookie domain for cross-subdomain session sharing (e.g. ".almirant.ai").
+  // Unset ⇒ host-only cookie (self-host default).
+  AUTH_COOKIE_DOMAIN: optional(z.string()),
+  // Optional registration allowlist (comma-separated emails). Empty ⇒ open
+  // registration (still gated by system_settings / pending invitations).
+  ALLOWED_EMAILS: optional(z.string()),
   S3_ACCESS_KEY: z.string().optional(),
   S3_SECRET_KEY: z.string().optional(),
   S3_REGION: z.string().default("eu-central"),
@@ -218,6 +236,19 @@ export const env = parseResult.data;
 export const isDev = env.NODE_ENV === "development";
 export const isProd = env.NODE_ENV === "production";
 export const isTest = env.NODE_ENV === "test";
+
+// The backend is the Better-Auth issuer: a stable signing secret is mandatory
+// in production so sessions survive restarts and match any peer that validates
+// them. Fail fast with a clear message rather than letting Better-Auth derive
+// an ephemeral secret at runtime.
+if (isProd && !env.BETTER_AUTH_SECRET) {
+  console.error("Invalid environment variables:", {
+    BETTER_AUTH_SECRET: [
+      "BETTER_AUTH_SECRET is required in production (the backend is the Better-Auth issuer)",
+    ],
+  });
+  process.exit(1);
+}
 
 // `ALMIRANT_PROJECT_ID` is optional in all environments: self-hosted bootstrap
 // auto-provisions an internal feedback project and injects it via

@@ -1,30 +1,42 @@
-import { betterAuth, generateId } from 'better-auth';
-import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api';
-import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { organization } from 'better-auth/plugins';
-import { nextCookies } from 'better-auth/next-js';
-import { randomBytes, createHash } from 'crypto';
-import { and, eq, desc, sql, isNotNull } from 'drizzle-orm';
-import { db } from './db';
-import * as schema from './schema';
+import { betterAuth, generateId } from "better-auth";
+import {
+  APIError,
+  createAuthMiddleware,
+  getSessionFromCtx,
+} from "better-auth/api";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { organization } from "better-auth/plugins";
+import { and, eq, desc, isNotNull } from "drizzle-orm";
+import {
+  db,
+  schema,
+  provisionDefaultBoard,
+  provisionDefaultServiceAccount,
+} from "@almirant/database";
+import { env } from "@almirant/config";
+import { getPublicInstanceConfig } from "../../instance/services/instance-config-service";
+import { sendEmail } from "../../../shared/services/email-service";
+import { buildInvitationEmailHtml } from "../../../shared/services/email/templates/invitation";
 import {
   betterAuthOrganizationColumns,
   betterAuthOrganizationPluginSchema,
-} from './better-auth-organization-schema';
+} from "./better-auth-organization-schema";
 import {
   ensureInitialAdminUser,
   getAuthBootstrapStatus,
   hasPendingInvitation,
-} from './auth-bootstrap';
+} from "./auth-bootstrap";
 import {
   assertCanManageOrganizationMembers,
   findOrganizationMemberRole,
   resolveTargetOrganizationId,
-} from './organization-member-management-guard';
-import { ac, roles } from './auth-permissions';
-import { getDefaultLocalFrontendOrigins } from './runtime-service-url';
-import { getInvitationAppBaseUrl } from './site-url';
-import { getInstancePublicConfig } from './instance-public-config';
+} from "./organization-member-management-guard";
+import { ac, roles } from "./auth-permissions";
+import { getDefaultLocalFrontendOrigins } from "./dev-frontend-origins";
+import {
+  getInvitationAppBaseUrl,
+  normalizeSiteUrl,
+} from "./invitation-app-base-url";
 
 // ──────────────────────────────────────────────
 // Helpers for auto-org creation
@@ -35,11 +47,10 @@ import { getInstancePublicConfig } from './instance-public-config';
  * Uses the local part (before @), lowercased, non-alphanumeric replaced with hyphens.
  */
 const slugFromEmail = (email: string): string =>
-  email
-    .split('@')[0]
+  (email.split("@")[0] ?? email)
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 
 /**
  * Build a workspace name from the user's display name.
@@ -49,123 +60,17 @@ const workspaceName = (
   name: string | null | undefined,
   email: string,
 ): string => {
-  const displayName = name?.trim() || email.split('@')[0];
+  const displayName = name?.trim() || email.split("@")[0];
   return `${displayName}'s Workspace`;
-};
-
-/** Default "Desarrollo" board columns (matches the built-in template). */
-const DEFAULT_BOARD_COLUMNS = [
-  {
-    name: 'Backlog',
-    color: '#94a3b8',
-    order: 0,
-    isDone: false,
-    role: 'backlog',
-  },
-  {
-    name: 'In Progress',
-    color: '#f59e0b',
-    order: 1,
-    isDone: false,
-    role: 'in_progress',
-  },
-  {
-    name: 'Reviewing',
-    color: '#8b5cf6',
-    order: 2,
-    isDone: false,
-    role: 'review',
-  },
-  {
-    name: 'Validating',
-    color: '#ec4899',
-    order: 3,
-    isDone: false,
-    role: 'validating',
-  },
-  {
-    name: 'Release',
-    color: '#a855f7',
-    order: 4,
-    isDone: false,
-    role: 'release',
-  },
-  { name: 'Done', color: '#22c55e', order: 5, isDone: true, role: 'done' },
-] as const;
-
-const SA_KEY_PREFIX = 'alm_sa_';
-
-/**
- * Provision a default "runner" service account + API key for a new workspace.
- * Idempotent: skips if a runner SA already exists for the org.
- * Uses raw SQL since the frontend schema doesn't include service-account tables.
- */
-const provisionDefaultServiceAccount = async (
-  organizationId: string,
-): Promise<void> => {
-  // Check if a runner SA already exists
-  const existing = await db.execute<{ id: string }>(sql`
-    SELECT id FROM service_accounts
-    WHERE workspace_id = ${organizationId}
-      AND type = 'runner'
-      AND is_active = true
-    LIMIT 1
-  `);
-
-  if (existing.length > 0) return; // Already provisioned
-
-  // Create the service account and its API key in a single transaction-like block
-  const [sa] = await db.execute<{ id: string }>(sql`
-    INSERT INTO service_accounts (workspace_id, name, type, is_active, created_at, updated_at)
-    VALUES (${organizationId}, 'Default Runner', 'runner', true, NOW(), NOW())
-    RETURNING id
-  `);
-
-  if (!sa) return;
-
-  const rawHex = randomBytes(32).toString('hex');
-  const keyHash = createHash('sha256').update(rawHex).digest('hex');
-  const keyPrefix = `${SA_KEY_PREFIX}${rawHex.slice(0, 8)}`;
-
-  await db.execute(sql`
-    INSERT INTO api_keys (name, key_hash, key_prefix, workspace_id, service_account_id)
-    VALUES (
-      'Default Runner API Key',
-      ${keyHash},
-      ${keyPrefix},
-      ${organizationId},
-      ${sa.id}::uuid
-    )
-  `);
-};
-
-/**
- * Create a default "Desarrollo" board for a new workspace.
- * Uses raw SQL since the frontend schema doesn't include board tables.
- */
-const createDefaultBoard = async (organizationId: string): Promise<void> => {
-  const [board] = await db.execute<{ id: string }>(sql`
-    INSERT INTO boards (workspace_id, name, description, area, is_default)
-    VALUES (${organizationId}, 'Desarrollo', 'Board de desarrollo', 'desarrollo', true)
-    RETURNING id
-  `);
-
-  if (!board) return;
-
-  const values = DEFAULT_BOARD_COLUMNS.map(
-    (col) =>
-      sql`(${board.id}::uuid, ${col.name}, ${col.color}, ${col.order}, ${col.role}::column_role, ${col.isDone})`,
-  );
-
-  await db.execute(sql`
-    INSERT INTO board_columns (board_id, name, color, "order", role, is_done)
-    VALUES ${sql.join(values, sql`, `)}
-  `);
 };
 
 /**
  * Create a personal organization for a newly registered user.
  * Idempotent: skips creation if the user already belongs to at least one org.
+ *
+ * Board + service-account provisioning is delegated to the shared repository
+ * helpers (`provisionDefaultBoard` / `provisionDefaultServiceAccount`) instead
+ * of the frontend's raw-SQL versions — same column set, no drift.
  */
 const createPersonalOrganization = async (user: {
   id: string;
@@ -199,19 +104,15 @@ const createPersonalOrganization = async (user: {
     id: memberId,
     workspaceId: orgId,
     userId: user.id,
-    role: 'owner',
+    role: "owner",
     createdAt: new Date(),
   });
 
   // Auto-create default "Desarrollo" board for the new workspace
   try {
-    await createDefaultBoard(orgId);
+    await provisionDefaultBoard(orgId);
   } catch (error) {
-    console.error(
-      '[auth] Failed to create default board for org',
-      orgId,
-      error,
-    );
+    console.error("[auth] Failed to create default board for org", orgId, error);
   }
 
   // Auto-provision default "runner" service account + API key
@@ -219,7 +120,7 @@ const createPersonalOrganization = async (user: {
     await provisionDefaultServiceAccount(orgId);
   } catch (error) {
     console.error(
-      '[auth] Failed to provision default service account for org',
+      "[auth] Failed to provision default service account for org",
       orgId,
       error,
     );
@@ -228,127 +129,63 @@ const createPersonalOrganization = async (user: {
   return orgId;
 };
 
-const allowedEmails = (process.env.ALLOWED_EMAILS ?? '')
-  .split(',')
+const allowedEmails = (env.ALLOWED_EMAILS ?? "")
+  .split(",")
   .map((email) => email.trim().toLowerCase())
   .filter(Boolean);
 
-const getAppBaseUrl = (): string => getInvitationAppBaseUrl(process.env);
+/**
+ * Resolve the base URL used to build invitation accept links. The accept page
+ * lives on the FRONTEND, so an explicit site URL wins; in a self-hosted install
+ * the frontend shares the instance public URL, so we prefer that over the
+ * frontend's localhost default.
+ */
+const resolveInvitationAppBaseUrl = (runtimePublicUrl: string | null): string => {
+  const explicit =
+    normalizeSiteUrl(process.env.NEXT_PUBLIC_SITE_URL) ??
+    normalizeSiteUrl(process.env.BETTER_AUTH_URL);
+  if (explicit) return explicit;
 
-type InvitationEmailRequest = {
+  const runtimeBase = runtimePublicUrl
+    ? normalizeSiteUrl(runtimePublicUrl)
+    : null;
+  if (runtimeBase) return runtimeBase;
+
+  return getInvitationAppBaseUrl(process.env);
+};
+
+/**
+ * Send an organization invitation email IN-PROCESS. Replaces the frontend's
+ * HTTP POST to `/internal/emails/invitations` (which no longer exists) with a
+ * direct `sendEmail(...)` + `buildInvitationEmailHtml(...)` call.
+ */
+const sendInvitationEmailInProcess = async (payload: {
   acceptUrl: string;
   email: string;
-  inviterEmail: string;
+  organizationName: string;
   inviterName: string;
-  organizationName: string;
+  inviterEmail: string;
   role: string;
-};
-
-const getInvitationEmailEndpoint = (): string => {
-  const backendUrl = process.env.BACKEND_URL?.trim();
-  if (backendUrl) {
-    return `${backendUrl.replace(/\/+$/, '')}/internal/emails/invitations`;
-  }
-
-  const publicApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
-  if (publicApiUrl && !publicApiUrl.startsWith('/')) {
-    return `${publicApiUrl.replace(/\/+$/, '')}/internal/emails/invitations`;
-  }
-
-  return 'http://localhost:3001/internal/emails/invitations';
-};
-
-const sendInvitationEmailViaBackend = async (
-  payload: InvitationEmailRequest,
-): Promise<void> => {
-  const secret = process.env.INTERNAL_EMAIL_API_SECRET?.trim();
-  if (!secret) {
-    throw new Error('INTERNAL_EMAIL_API_SECRET is not configured');
-  }
-
-  const response = await fetch(getInvitationEmailEndpoint(), {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-internal-email-secret': secret,
-    },
-    body: JSON.stringify(payload),
-    cache: 'no-store',
+}): Promise<void> => {
+  const html = buildInvitationEmailHtml({
+    acceptUrl: payload.acceptUrl,
+    workspaceName: payload.organizationName,
+    inviterName: payload.inviterName,
+    inviterEmail: payload.inviterEmail,
+    role: payload.role,
   });
 
-  if (response.ok) return;
-
-  let message = `Invitation email request failed (${response.status})`;
-  try {
-    const data = (await response.json()) as { error?: string };
-    if (data.error) {
-      message = `Invitation email request failed (${response.status}): ${data.error}`;
-    }
-  } catch {
-    const body = await response.text().catch(() => '');
-    if (body) {
-      message = `Invitation email request failed (${response.status}): ${body}`;
-    }
-  }
-
-  throw new Error(message);
-};
-
-type MemberRemovedEmailRequest = {
-  email: string;
-  memberName: string;
-  organizationName: string;
-  removedAt: string;
-};
-
-const getMemberRemovedEmailEndpoint = (): string => {
-  const backendUrl = process.env.BACKEND_URL?.trim();
-  if (backendUrl) {
-    return `${backendUrl.replace(/\/+$/, '')}/internal/emails/member-removed`;
-  }
-
-  const publicApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
-  if (publicApiUrl && !publicApiUrl.startsWith('/')) {
-    return `${publicApiUrl.replace(/\/+$/, '')}/internal/emails/member-removed`;
-  }
-
-  return 'http://localhost:3001/internal/emails/member-removed';
-};
-
-export const sendMemberRemovedEmailViaBackend = async (
-  payload: MemberRemovedEmailRequest,
-): Promise<void> => {
-  const secret = process.env.INTERNAL_EMAIL_API_SECRET?.trim();
-  if (!secret) {
-    throw new Error('INTERNAL_EMAIL_API_SECRET is not configured');
-  }
-
-  const response = await fetch(getMemberRemovedEmailEndpoint(), {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-internal-email-secret': secret,
-    },
-    body: JSON.stringify(payload),
-    cache: 'no-store',
+  const result = await sendEmail({
+    to: payload.email,
+    subject: `You've been invited to ${payload.organizationName}`,
+    html,
   });
 
-  if (response.ok) return;
-
-  let message = `Member removal email request failed (${response.status})`;
-  try {
-    const data = (await response.json()) as { error?: string };
-    if (data.error) {
-      message = `Member removal email request failed (${response.status}): ${data.error}`;
-    }
-  } catch {
-    const body = await response.text().catch(() => '');
-    if (body) {
-      message = `Member removal email request failed (${response.status}): ${body}`;
-    }
+  if (!result.success) {
+    throw new Error(
+      result.error ?? "Failed to send invitation email",
+    );
   }
-
-  throw new Error(message);
 };
 
 const normalizeOrigin = (value: string): string | null => {
@@ -365,10 +202,10 @@ const withWwwVariants = (origin: string): string[] => {
   try {
     const url = new URL(origin);
     const { protocol, port } = url;
-    const portSuffix = port ? `:${port}` : '';
+    const portSuffix = port ? `:${port}` : "";
     const host = url.hostname;
 
-    if (host.startsWith('www.')) {
+    if (host.startsWith("www.")) {
       return [origin, `${protocol}//${host.slice(4)}${portSuffix}`];
     }
 
@@ -378,20 +215,32 @@ const withWwwVariants = (origin: string): string[] => {
   }
 };
 
+/**
+ * Union of trusted origins for Better-Auth:
+ *   - dev frontend origins (localhost:3000, orbstack) in non-prod
+ *   - `env.CORS_ORIGIN` (comma list — the configured frontend allowlist)
+ *   - the runtime public URL from `instance_settings` (Tailscale / reverse
+ *     proxy origin set via the onboarding wizard, so it works without restart)
+ *   - `env.BETTER_AUTH_TRUSTED_ORIGINS` (comma list — explicit overrides)
+ * Every origin is expanded with its www / apex variant.
+ */
 const getTrustedOrigins = (runtimePublicUrl: string | null): string[] => {
-  const fromEnv = (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? '')
-    .split(',')
+  const fromCors = env.CORS_ORIGIN.split(",")
     .map((value) => normalizeOrigin(value))
     .filter((value): value is string => Boolean(value));
 
-  const fallbackBase = normalizeOrigin(getAppBaseUrl());
+  const fromEnv = (env.BETTER_AUTH_TRUSTED_ORIGINS ?? "")
+    .split(",")
+    .map((value) => normalizeOrigin(value))
+    .filter((value): value is string => Boolean(value));
+
   const runtimeOrigin = runtimePublicUrl
     ? normalizeOrigin(runtimePublicUrl)
     : null;
 
   const origins = [
     ...getDefaultLocalFrontendOrigins(process.env),
-    ...(fallbackBase ? [fallbackBase] : []),
+    ...fromCors,
     ...(runtimeOrigin ? [runtimeOrigin] : []),
     ...fromEnv,
   ];
@@ -408,14 +257,14 @@ const getTrustedOrigins = (runtimePublicUrl: string | null): string[] => {
 // the onboarding wizard to take effect WITHOUT a process restart, we lazily
 // (re)create the auth instance whenever the resolved `publicUrl` changes.
 //
-// `getInstancePublicConfig()` caches internally with a 30s TTL, so the DB is
-// not queried on every request. The auth instance is only recreated when the
-// publicUrl actually changes (typically once, during initial onboarding).
+// `getPublicInstanceConfig()` reads the in-process instance-settings cache, so
+// the DB is not queried on every request. The auth instance is only recreated
+// when the publicUrl actually changes (typically once, during onboarding).
 
 // Preserve the FULL narrow type (including additionalFields like `role` and
-// `locale`) so `inferAdditionalFields<typeof auth>()` in auth-client.ts picks
-// them up. Using ReturnType<typeof betterAuth> directly erases the config
-// generics and the client loses those fields.
+// `locale`) so `inferAdditionalFields<typeof auth>()` in the frontend
+// auth-client picks them up. Using ReturnType<typeof betterAuth> directly
+// erases the config generics and the client loses those fields.
 type AuthInstance = ReturnType<typeof createAuthInstance>;
 
 let cachedAuth: AuthInstance | null = null;
@@ -423,30 +272,26 @@ let cachedPublicUrl: string | null | undefined; // undefined = not yet resolved
 
 const createAuthInstance = (runtimePublicUrl: string | null) =>
   betterAuth({
-    // Prefer runtime publicUrl from DB (set via onboarding wizard / Tailscale config)
-    // so the stack doesn't need a restart after initial setup. Falls back to env.
-    baseURL:
-      runtimePublicUrl ||
-      process.env.BETTER_AUTH_URL ||
-      (process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : undefined),
+    // Explicit issuer URL (`BETTER_AUTH_URL`) wins; otherwise use the runtime
+    // publicUrl from `instance_settings` (set via the onboarding wizard) so the
+    // stack doesn't need a restart after initial setup.
+    baseURL: env.BETTER_AUTH_URL || runtimePublicUrl || undefined,
     trustedOrigins: getTrustedOrigins(runtimePublicUrl),
-    secret: process.env.BETTER_AUTH_SECRET,
+    secret: env.BETTER_AUTH_SECRET,
     database: drizzleAdapter(db, {
-      provider: 'pg',
+      provider: "pg",
       schema,
     }),
     user: {
       additionalFields: {
         role: {
-          type: 'string',
-          defaultValue: 'user',
+          type: "string",
+          defaultValue: "user",
           input: false,
         },
         locale: {
-          type: 'string',
-          defaultValue: 'en',
+          type: "string",
+          defaultValue: "en",
           input: false,
         },
       },
@@ -455,12 +300,12 @@ const createAuthInstance = (runtimePublicUrl: string | null) =>
       enabled: true,
       requireEmailVerification: false,
     },
-    ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+    ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
       ? {
           socialProviders: {
             google: {
-              clientId: process.env.GOOGLE_CLIENT_ID,
-              clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+              clientId: env.GOOGLE_CLIENT_ID,
+              clientSecret: env.GOOGLE_CLIENT_SECRET,
               overrideUserInfoOnSignIn: true,
             },
           },
@@ -473,6 +318,13 @@ const createAuthInstance = (runtimePublicUrl: string | null) =>
             httpOnly: false,
           },
         },
+      },
+      // Only meaningful when AUTH_COOKIE_DOMAIN is set (e.g. ".almirant.ai" to
+      // share the session cookie across api.* and app.* subdomains). Unset for
+      // self-host ⇒ host-only cookie (no cross-subdomain sharing).
+      crossSubDomainCookies: {
+        enabled: Boolean(env.AUTH_COOKIE_DOMAIN),
+        domain: env.AUTH_COOKIE_DOMAIN,
       },
     },
     hooks: {
@@ -500,7 +352,7 @@ const createAuthInstance = (runtimePublicUrl: string | null) =>
       user: {
         create: {
           before: async (user: { email?: string | null }) => {
-            const email = (user.email ?? '').toLowerCase();
+            const email = (user.email ?? "").toLowerCase();
             const pendingInvitation = await hasPendingInvitation(email);
             const bootstrapStatus = await getAuthBootstrapStatus();
 
@@ -509,9 +361,9 @@ const createAuthInstance = (runtimePublicUrl: string | null) =>
               !bootstrapStatus.allowRegistration &&
               !pendingInvitation
             ) {
-              throw new APIError('FORBIDDEN', {
+              throw new APIError("FORBIDDEN", {
                 message:
-                  'Registration is closed. Ask an administrator for an invitation.',
+                  "Registration is closed. Ask an administrator for an invitation.",
               });
             }
 
@@ -519,8 +371,8 @@ const createAuthInstance = (runtimePublicUrl: string | null) =>
             if (!allowedEmails.includes(email)) {
               if (pendingInvitation) return; // bypass allowlist
 
-              throw new APIError('FORBIDDEN', {
-                message: `Email ${email} is not authorized. Allowed: ${allowedEmails.join(', ')}`,
+              throw new APIError("FORBIDDEN", {
+                message: `Email ${email} is not authorized. Allowed: ${allowedEmails.join(", ")}`,
               });
             }
           },
@@ -535,7 +387,7 @@ const createAuthInstance = (runtimePublicUrl: string | null) =>
               }
             } catch (error) {
               console.error(
-                '[auth] Failed to ensure initial admin user',
+                "[auth] Failed to ensure initial admin user",
                 error,
               );
             }
@@ -549,7 +401,7 @@ const createAuthInstance = (runtimePublicUrl: string | null) =>
             } catch (error) {
               // Log but don't block registration -- the org can be created later
               console.error(
-                '[auth] Failed to create personal organization for user',
+                "[auth] Failed to create personal organization for user",
                 user.id,
                 error,
               );
@@ -643,7 +495,7 @@ const createAuthInstance = (runtimePublicUrl: string | null) =>
           member: roles.member,
         },
         allowUserToCreateOrganization: true,
-        creatorRole: 'owner',
+        creatorRole: "owner",
         // The DB table was renamed to "workspace"; Better-Auth maps the logical
         // "organization" model / fields to the Drizzle schema keys below.
         schema: betterAuthOrganizationPluginSchema,
@@ -654,16 +506,15 @@ const createAuthInstance = (runtimePublicUrl: string | null) =>
           organization: { name: string };
           inviter: { user: { name: string; email: string } };
         }) => {
-          const baseUrl = getAppBaseUrl();
+          const baseUrl = resolveInvitationAppBaseUrl(runtimePublicUrl);
           const acceptUrl = `${baseUrl}/accept-invitation/${data.id}`;
-          const endpoint = getInvitationEmailEndpoint();
 
           console.log(
-            `[auth] Sending invitation email to ${data.email} via ${endpoint}`,
+            `[auth] Sending invitation email to ${data.email} (accept: ${acceptUrl})`,
           );
 
           const inviterUser = data.inviter.user;
-          await sendInvitationEmailViaBackend({
+          await sendInvitationEmailInProcess({
             acceptUrl,
             email: data.email,
             organizationName: data.organization.name,
@@ -673,17 +524,16 @@ const createAuthInstance = (runtimePublicUrl: string | null) =>
           });
         },
       }),
-      nextCookies(),
     ],
   });
 
 /**
  * Returns the Better-Auth instance, recreating it if the runtime publicUrl
- * (from instance_settings) has changed since last call.
- * The 30s cache in getInstancePublicConfig limits DB queries.
+ * (from instance_settings) has changed since last call. The in-process
+ * instance-settings cache limits DB queries.
  */
 export const getAuth = async (): Promise<AuthInstance> => {
-  const config = await getInstancePublicConfig();
+  const config = await getPublicInstanceConfig();
   const publicUrl = config.publicUrl ?? null;
 
   if (cachedAuth && cachedPublicUrl === publicUrl) {
@@ -697,7 +547,8 @@ export const getAuth = async (): Promise<AuthInstance> => {
 
 /**
  * Eagerly created auth instance for call sites that need a synchronous export
- * (e.g. `toNextJsHandler`). Updated in the background by `getAuth()` calls.
- * Consumers that can await should prefer `getAuth()` for the freshest config.
+ * (e.g. type inference for the frontend auth-client). Created with a null
+ * runtime publicUrl so module load never touches the DB / blocks startup;
+ * `getAuth()` refreshes it in the background once the publicUrl resolves.
  */
 export const auth = createAuthInstance(null);

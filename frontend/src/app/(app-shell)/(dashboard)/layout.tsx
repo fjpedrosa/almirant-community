@@ -7,7 +7,11 @@ import { NavigationContainer } from "./components/navigation-container";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WebSocketProvider } from "@/domains/shared/presentation/containers/websocket-provider";
 import { onboardingServerApi } from "@/lib/api/server-client";
-import { getAuth } from "@/lib/auth";
+import {
+  authBackendFetch,
+  forwardSetCookies,
+  getServerSession,
+} from "@/lib/server-session";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { OnboardingBannerContainer } from "@/domains/onboarding/presentation/containers/onboarding-banner-container";
@@ -20,11 +24,7 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const reqHeaders = await headers();
-  const auth = await getAuth();
-
-  const session = await auth.api.getSession({
-    headers: reqHeaders,
-  });
+  const session = await getServerSession();
 
   if (!session) {
     redirect("/sign-in");
@@ -33,17 +33,29 @@ export default async function DashboardLayout({
   // Auto-select an active organization if the session has none.
   // This covers existing users who registered before auto-org creation was added,
   // or sessions that were created without the session.create.before hook.
+  //
+  // Auth lives on the backend now, so we call the Better-Auth organization
+  // endpoints directly (forwarding cookies). Per Better-Auth: `organization/list`
+  // is GET, `organization/set-active` is POST { organizationId }. `set-active`
+  // persists the active org to the session row server-side; any returned
+  // Set-Cookie is best-effort propagated (a no-op during RSC render).
   if (!session.session.activeOrganizationId) {
     try {
-      const orgs = await auth.api.listOrganizations({
-        headers: reqHeaders,
-      });
+      const listRes = await authBackendFetch("/organization/list");
 
-      if (orgs && orgs.length > 0) {
-        await auth.api.setActiveOrganization({
-          headers: reqHeaders,
-          body: { organizationId: orgs[0].id },
-        });
+      if (listRes.ok) {
+        const orgs = (await listRes.json()) as Array<{ id: string }> | null;
+        const firstOrg = orgs?.[0];
+
+        if (firstOrg) {
+          const setActiveRes = await authBackendFetch("/organization/set-active", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ organizationId: firstOrg.id }),
+          });
+
+          await forwardSetCookies(setActiveRes);
+        }
       }
     } catch {
       // Non-critical: org auto-selection failed; the user can switch manually

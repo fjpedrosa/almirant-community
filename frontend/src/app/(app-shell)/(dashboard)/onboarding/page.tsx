@@ -1,6 +1,5 @@
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { getAuth } from "@/lib/auth";
+import { getServerSession } from "@/lib/server-session";
 import { getInstanceOnboardingState } from "@/lib/instance-status";
 import { OnboardingWizardContainer } from "@/domains/onboarding/presentation/containers/onboarding-wizard-container";
 
@@ -9,12 +8,7 @@ export default async function OnboardingPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const reqHeaders = await headers();
-
-  const auth = await getAuth();
-  const session = await auth.api.getSession({
-    headers: reqHeaders,
-  });
+  const session = await getServerSession();
 
   // Dashboard layout already guards unauthenticated users, but be defensive
   if (!session) {
@@ -22,8 +16,7 @@ export default async function OnboardingPage({
   }
 
   // Only admins can access onboarding
-  const userRole = (session.user as { role?: string }).role;
-  if (userRole !== "admin") {
+  if (session.user.role !== "admin") {
     redirect("/board");
   }
 

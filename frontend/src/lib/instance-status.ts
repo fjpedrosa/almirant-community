@@ -1,13 +1,4 @@
-import { sql } from "drizzle-orm";
-import { db } from "./db";
-
-type InstanceOnboardingRow = {
-  onboardingCompletedAt: Date | null;
-};
-
-type UserCountRow = {
-  userCount: number;
-};
+import { authBackendFetch } from "./server-session";
 
 export interface InstanceOnboardingState {
   completed: boolean;
@@ -15,25 +6,38 @@ export interface InstanceOnboardingState {
 }
 
 /**
- * Reads the instance onboarding state directly from the database (server-side only).
- * Returns whether onboarding has been completed and whether users exist.
+ * Instance onboarding state, read from the BACKEND (the frontend has no database
+ * connection). Sourced from `GET /api/auth/bootstrap-status`, which returns
+ * `hasUsers` + `onboardingCompleted` (alongside the auth bootstrap fields).
+ *
+ * Fail-safe default when the backend is unreachable: assume onboarding is done
+ * and users exist, so a transient blip never traps a user in the setup wizard.
  */
+const FALLBACK: InstanceOnboardingState = { completed: true, hasUsers: true };
+
+type BootstrapPayload = {
+  onboardingCompleted?: boolean;
+  hasUsers?: boolean;
+};
+
 export const getInstanceOnboardingState =
   async (): Promise<InstanceOnboardingState> => {
-    const [settingsRows, userCountRows] = await Promise.all([
-      db.execute(sql`
-      SELECT onboarding_completed_at AS "onboardingCompletedAt"
-      FROM instance_settings
-      LIMIT 1
-    `) as Promise<InstanceOnboardingRow[]>,
-      db.execute(sql`
-      SELECT count(*)::int AS "userCount"
-      FROM "user"
-    `) as Promise<UserCountRow[]>,
-    ]);
+    try {
+      const res = await authBackendFetch("/bootstrap-status");
+      if (!res.ok) return FALLBACK;
 
-    const completed = settingsRows[0]?.onboardingCompletedAt != null;
-    const hasUsers = (userCountRows[0]?.userCount ?? 0) > 0;
+      const json = (await res.json()) as
+        | { data?: BootstrapPayload }
+        | BootstrapPayload;
+      const data =
+        (json as { data?: BootstrapPayload }).data ??
+        (json as BootstrapPayload);
 
-    return { completed, hasUsers };
+      return {
+        completed: data?.onboardingCompleted ?? true,
+        hasUsers: data?.hasUsers ?? true,
+      };
+    } catch {
+      return FALLBACK;
+    }
   };
