@@ -22,4 +22,10 @@ export const betterAuthRoutes = new Elysia({ name: "better-auth-routes" }).all(
     const auth = await getAuth();
     return auth.handler(request);
   },
+  // CRITICAL: skip Elysia's body parsing. A Web Standard Request body can be
+  // read only once; if Elysia parses it (by Content-Type) before we delegate,
+  // Better-Auth's handler re-reads it and throws `TypeError: Body already used`
+  // → 500 on every POST (sign-in/email, sign-in/social, sign-up, …). `parse:
+  // "none"` hands Better-Auth the raw, unconsumed request.
+  { parse: "none" },
 );
