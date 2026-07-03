@@ -360,6 +360,21 @@ export const createAuthInstance = (runtimePublicUrl: string | null) =>
         enabled: Boolean(env.AUTH_COOKIE_DOMAIN),
         domain: env.AUTH_COOKIE_DOMAIN,
       },
+      // Behind Cloudflare/Traefik the socket peer is the proxy, so IP-based rate
+      // limiting would bucket every client under the proxy IP (→ spurious 429s
+      // on the first sign-in). Track the real client IP from forwarded headers;
+      // Cloudflare sets cf-connecting-ip, with x-forwarded-for as a fallback.
+      ipAddress: {
+        ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for"],
+      },
+    },
+    // Better-Auth enables rate limiting by default in production. Make it
+    // explicit and generous — now keyed by the real client IP (see
+    // advanced.ipAddress), so normal sign-in / OAuth flows never trip it.
+    rateLimit: {
+      enabled: true,
+      window: 60,
+      max: 100,
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {

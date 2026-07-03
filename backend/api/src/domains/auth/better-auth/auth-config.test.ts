@@ -119,3 +119,24 @@ describe("createAuthInstance trusted origins", () => {
     expect(options.trustedOrigins).toContain("https://runtime.example.com");
   });
 });
+
+describe("createAuthInstance rate limiting behind a proxy", () => {
+  it("tracks the real client IP via forwarded headers (Cloudflare/Traefik)", () => {
+    const options = createAuthInstance(null).options;
+
+    // Without this, IP-based rate limiting buckets every client under the proxy
+    // IP → spurious 429 on the first sign-in behind Cloudflare.
+    expect(options.advanced!.ipAddress!.ipAddressHeaders).toEqual([
+      "cf-connecting-ip",
+      "x-forwarded-for",
+    ]);
+  });
+
+  it("enables an explicit, generous per-IP rate limit", () => {
+    const options = createAuthInstance(null).options;
+
+    expect(options.rateLimit!.enabled).toBe(true);
+    expect(options.rateLimit!.window).toBe(60);
+    expect(options.rateLimit!.max).toBe(100);
+  });
+});
