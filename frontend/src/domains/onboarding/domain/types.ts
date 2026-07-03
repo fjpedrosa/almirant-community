@@ -69,6 +69,10 @@ export interface GithubAppStatus {
 // --- Presentational Props ---
 
 export interface WizardShellProps {
+  /** Steps to render in the sidebar / drive the "next step" hint (deployment-aware). */
+  steps: OnboardingStepKey[];
+  /** i18n key for the header subtitle (self-hosted vs cloud copy). */
+  subtitleKey: "subtitle" | "subtitleCloud";
   currentStep: OnboardingStepKey;
   onStepChange: (step: OnboardingStepKey) => void;
   adminDone: boolean;

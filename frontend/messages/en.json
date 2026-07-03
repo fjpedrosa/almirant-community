@@ -1791,6 +1791,7 @@
   "onboarding": {
     "title": "Welcome to Almirant",
     "subtitle": "Let's finish setting up your self-hosted instance in three quick steps.",
+    "subtitleCloud": "Connect your GitHub to get started.",
     "goToDashboard": "Go to dashboard",
     "stepOf": "Step {step} of {total}",
     "steps": {

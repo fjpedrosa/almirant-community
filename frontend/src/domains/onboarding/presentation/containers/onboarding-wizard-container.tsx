@@ -12,6 +12,8 @@ import { StepGithubCard } from "../components/step-github-card";
 const OnboardingWizardContent = () => {
   const { user } = useAuth();
   const {
+    isCloud,
+    visibleSteps,
     isLoading,
     error,
     currentStep,
@@ -52,6 +54,8 @@ const OnboardingWizardContent = () => {
 
   return (
     <WizardShell
+      steps={visibleSteps}
+      subtitleKey={isCloud ? "subtitleCloud" : "subtitle"}
       currentStep={currentStep}
       onStepChange={handleStepChange}
       adminDone={adminDone}

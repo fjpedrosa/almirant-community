@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useOnboardingStatus } from "../../application/hooks/use-onboarding-status";
 import { SetupCompletionBanner } from "../components/setup-completion-banner";
+import { isCloudDeployment } from "@/lib/deployment-mode";
 
 export const OnboardingBannerContainer = () => {
   const router = useRouter();
@@ -13,11 +14,17 @@ export const OnboardingBannerContainer = () => {
     return null;
   }
 
-  const pendingSteps = [
-    status.admin.done,
-    status.tailscale.done || status.tailscale.skipped,
-    status.github.done || status.github.skipped,
-  ].filter((v) => !v).length;
+  // Cloud only surfaces the GitHub App step; the admin account and public URL
+  // are managed by the platform, so they never count as pending there.
+  const pendingSteps = isCloudDeployment()
+    ? status.github.done || status.github.skipped
+      ? 0
+      : 1
+    : [
+        status.admin.done,
+        status.tailscale.done || status.tailscale.skipped,
+        status.github.done || status.github.skipped,
+      ].filter((v) => !v).length;
 
   if (pendingSteps === 0) {
     return null;

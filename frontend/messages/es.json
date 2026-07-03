@@ -1791,6 +1791,7 @@
   "onboarding": {
     "title": "Bienvenido a Almirant",
     "subtitle": "Termina de configurar tu instancia auto-alojada en tres pasos rápidos.",
+    "subtitleCloud": "Conecta tu GitHub para empezar.",
     "goToDashboard": "Ir al dashboard",
     "stepOf": "Paso {step} de {total}",
     "steps": {

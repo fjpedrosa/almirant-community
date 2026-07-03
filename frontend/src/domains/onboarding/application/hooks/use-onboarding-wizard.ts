@@ -10,16 +10,30 @@ import {
 import { useTailscaleSetup } from "./use-tailscale-setup";
 import { useGithubAppSetup } from "./use-github-app-setup";
 import type { OnboardingStepKey } from "../../domain/types";
+import { getVisibleOnboardingSteps } from "../../domain/steps";
+import { isCloudDeployment } from "@/lib/deployment-mode";
 
 export const useOnboardingWizard = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Derive current step from URL or default
-  const stepParam = searchParams.get("step") as OnboardingStepKey | null;
-  const [currentStep, setCurrentStep] = useState<OnboardingStepKey>(
-    stepParam ?? "admin"
+  // Which deployment is this build? Cloud shows only the GitHub App step.
+  const isCloud = isCloudDeployment();
+  const visibleSteps = useMemo(
+    () => getVisibleOnboardingSteps(isCloud),
+    [isCloud],
   );
+
+  // Derive current step from URL or default. Ignore any ?step that is not part
+  // of the visible flow (e.g. ?step=admin in cloud) and fall back to the first
+  // visible step.
+  const stepParam = searchParams.get("step") as OnboardingStepKey | null;
+  const initialStep =
+    stepParam && visibleSteps.includes(stepParam)
+      ? stepParam
+      : visibleSteps[0];
+  const [currentStep, setCurrentStep] =
+    useState<OnboardingStepKey>(initialStep);
 
   // Data hooks
   const {
@@ -44,7 +58,12 @@ export const useOnboardingWizard = () => {
     return [adminDone, tailscaleDone, githubDone].filter(Boolean).length;
   }, [adminDone, tailscaleDone, githubDone]);
 
-  const canComplete = doneCount >= 2;
+  // Completion gate is scoped to the visible steps:
+  // - cloud: the GitHub App step is the only one, so onboarding is completable
+  //   as soon as it is done.
+  // - self-hosted: unchanged 2-of-3 rule (admin is always done, so this means
+  //   "at least one of tailscale/github").
+  const canComplete = isCloud ? githubDone : doneCount >= 2;
 
   const handleStepChange = useCallback((step: OnboardingStepKey) => {
     setCurrentStep(step);
@@ -63,10 +82,27 @@ export const useOnboardingWizard = () => {
   }, [skipMutation]);
 
   const handleSkipGithub = useCallback(() => {
-    skipMutation.mutate("github");
-  }, [skipMutation]);
+    // Self-hosted: record the skip and stay in the wizard (other steps remain).
+    if (!isCloud) {
+      skipMutation.mutate("github");
+      return;
+    }
+
+    // Cloud: GitHub is the only step. Skipping it finishes onboarding and sends
+    // the user straight to the app, so they are never stuck on the wizard.
+    skipMutation.mutate("github", {
+      onSuccess: () => {
+        completeMutation.mutate(undefined, {
+          onSuccess: () => router.push("/board"),
+        });
+      },
+    });
+  }, [isCloud, skipMutation, completeMutation, router]);
 
   return {
+    // Deployment / steps
+    isCloud,
+    visibleSteps,
     // Loading / Error
     isLoading: isLoadingStatus,
     error: statusError,
@@ -90,7 +126,7 @@ export const useOnboardingWizard = () => {
     handleSkipTailscale,
     // GitHub
     githubApp,
-    isSkippingGithub: skipMutation.isPending,
+    isSkippingGithub: skipMutation.isPending || completeMutation.isPending,
     handleSkipGithub,
   };
 };

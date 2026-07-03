@@ -17,6 +17,7 @@ import { redirect } from "next/navigation";
 import { OnboardingBannerContainer } from "@/domains/onboarding/presentation/containers/onboarding-banner-container";
 import { VersionUpdateBannerContainer } from "@/domains/shared/presentation/containers/version-update-banner-container";
 import { DashboardSkeleton } from "@/components/skeletons";
+import { isCloudDeployment } from "@/lib/deployment-mode";
 
 export default async function DashboardLayout({
   children,
@@ -77,10 +78,13 @@ export default async function DashboardLayout({
       const status = await onboardingServerApi.getStatus();
       onboardingComplete = !!status.completedAt;
 
-      // Count pending steps (not done and not skipped)
-      hasPendingSteps =
-        (!status.tailscale.done && !status.tailscale.skipped) ||
-        (!status.github.done && !status.github.skipped);
+      // Count pending steps (not done and not skipped). In cloud the admin
+      // account and public URL are managed by the platform, so only the GitHub
+      // App step can be pending — never nag about tailscale/admin there.
+      hasPendingSteps = isCloudDeployment()
+        ? !status.github.done && !status.github.skipped
+        : (!status.tailscale.done && !status.tailscale.skipped) ||
+          (!status.github.done && !status.github.skipped);
     } catch {
       // Non-critical: if onboarding API fails, don't block the user
     }

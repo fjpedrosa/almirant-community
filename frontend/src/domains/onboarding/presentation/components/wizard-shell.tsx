@@ -3,12 +3,6 @@ import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { WizardShellProps, OnboardingStepKey } from "../../domain/types";
 
-const STEPS: { key: OnboardingStepKey; labelKey: string }[] = [
-  { key: "admin", labelKey: "admin" },
-  { key: "tailscale", labelKey: "tailscale" },
-  { key: "github", labelKey: "github" },
-];
-
 const stepDoneMap = (
   adminDone: boolean,
   tailscaleDone: boolean,
@@ -20,21 +14,26 @@ const stepDoneMap = (
 });
 
 const getNextPendingStep = (
+  steps: OnboardingStepKey[],
   currentStep: OnboardingStepKey,
   doneFlags: Record<OnboardingStepKey, boolean>,
-) => {
+): OnboardingStepKey | null => {
   if (!doneFlags[currentStep]) return null;
 
-  const currentIndex = STEPS.findIndex((step) => step.key === currentStep);
+  const currentIndex = steps.indexOf(currentStep);
+  if (currentIndex === -1) return null;
+
   const orderedSteps = [
-    ...STEPS.slice(currentIndex + 1),
-    ...STEPS.slice(0, currentIndex),
+    ...steps.slice(currentIndex + 1),
+    ...steps.slice(0, currentIndex),
   ];
 
-  return orderedSteps.find((step) => !doneFlags[step.key]) ?? null;
+  return orderedSteps.find((step) => !doneFlags[step]) ?? null;
 };
 
 export const WizardShell = ({
+  steps,
+  subtitleKey,
   currentStep,
   onStepChange,
   adminDone,
@@ -47,19 +46,19 @@ export const WizardShell = ({
 }: WizardShellProps) => {
   const t = useTranslations("onboarding");
   const doneFlags = stepDoneMap(adminDone, tailscaleDone, githubDone);
-  const nextPendingStep = getNextPendingStep(currentStep, doneFlags);
+  const nextPendingStep = getNextPendingStep(steps, currentStep, doneFlags);
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-10">
       <div className="mb-8">
         <h1 className="text-2xl font-bold">{t("title")}</h1>
-        <p className="text-muted-foreground mt-1">{t("subtitle")}</p>
+        <p className="text-muted-foreground mt-1">{t(subtitleKey)}</p>
       </div>
 
       <div className="flex gap-8">
         {/* Sidebar steps */}
         <nav className="w-56 shrink-0 space-y-1">
-          {STEPS.map(({ key, labelKey }) => {
+          {steps.map((key) => {
             const done = doneFlags[key];
             const isActive = currentStep === key;
 
@@ -84,7 +83,7 @@ export const WizardShell = ({
                 >
                   {done ? <Check className="h-3 w-3" /> : null}
                 </span>
-                {t(`steps.${labelKey}`)}
+                {t(`steps.${key}`)}
               </button>
             );
           })}
@@ -100,10 +99,10 @@ export const WizardShell = ({
             <Button
               size="lg"
               variant={canComplete ? "secondary" : "default"}
-              onClick={() => onStepChange(nextPendingStep.key)}
+              onClick={() => onStepChange(nextPendingStep)}
             >
               {t("continueToStep", {
-                step: t(`steps.${nextPendingStep.labelKey}`),
+                step: t(`steps.${nextPendingStep}`),
               })}
             </Button>
           ) : null}
