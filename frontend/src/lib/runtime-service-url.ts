@@ -138,7 +138,7 @@ export const resolveBrowserWsBaseUrl = (
 
   const normalizedApiUrl = normalizeApiBaseUrl(envApiUrl);
   if (normalizedApiUrl?.startsWith("http")) {
-    return normalizedApiUrl.replace(/^http/, "ws").replace(/\/api\/?$/, "");
+    return `${normalizedApiUrl.replace(/^http/, "ws").replace(/\/api\/?$/, "")}/ws`;
   }
 
   const protocol = locationLike?.protocol === "https:" ? "wss:" : "ws:";

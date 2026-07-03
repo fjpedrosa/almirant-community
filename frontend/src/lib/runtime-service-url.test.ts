@@ -121,12 +121,21 @@ describe("runtime-service-url", () => {
     ).toBe("wss://macbook-m1-pro.tail6de2a1.ts.net/ws");
   });
 
-  it("derives WebSocket URL from a normalized absolute API URL", () => {
+  it("derives WebSocket URL with the /ws path from a normalized absolute API URL", () => {
     expect(
       resolveBrowserWsBaseUrl(undefined, "https://example.com/api/api/", {
         protocol: "https:",
         host: "example.com",
       })
-    ).toBe("wss://example.com");
+    ).toBe("wss://example.com/ws");
+  });
+
+  it("appends the /ws path for a split-origin cloud deployment with an absolute API URL", () => {
+    expect(
+      resolveBrowserWsBaseUrl(undefined, "https://api.almirant.ai/api", {
+        protocol: "https:",
+        host: "cloud.almirant.ai",
+      })
+    ).toBe("wss://api.almirant.ai/ws");
   });
 });
