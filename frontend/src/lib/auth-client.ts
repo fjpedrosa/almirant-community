@@ -35,8 +35,11 @@ export const authClient = createAuthClient({
     // type cannot be imported.
     inferAdditionalFields({
       user: {
-        role: { type: "string" },
-        locale: { type: "string" },
+        // `input: false` mirrors the backend auth instance — these are
+        // server-managed fields, NOT part of the sign-up/sign-in input (without
+        // this the client would type them as required signUp args).
+        role: { type: "string", input: false },
+        locale: { type: "string", input: false },
       },
     }),
   ],
