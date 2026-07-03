@@ -416,6 +416,52 @@ export const computeChildrenToMove = (
   return idsToMove;
 };
 
+/**
+ * Resolve a multi-select drag to the concrete leaf IDs that must be moved.
+ *
+ * A selection may contain a mix of regular leaf cards and grouped/virtual
+ * parent cards (`isVirtualColumn` with a `childrenSummary`). Parent cards own
+ * no board column of their own, so sending their raw IDs to the bulk-move
+ * endpoint would resolve to zero leaf items. Instead, each selected parent is
+ * expanded to its descendant leaves using the SAME directional semantics as a
+ * single grouped-card drag (`computeChildrenToMove`): only children that need
+ * to catch up/retreat toward the target column move. Regular leaf selections
+ * pass through unchanged; unknown IDs (not on the current board view) are kept
+ * as a defensive fallback. Results are de-duplicated.
+ *
+ * Returns an empty array when nothing needs to move (e.g. the only selected
+ * parents already have all children at/past the target) — callers must abort
+ * the mutation in that case.
+ */
+export const resolveSelectionToLeafIds = (
+  selectedIds: Set<string>,
+  items: WorkItemWithContext[],
+  targetColumnId: string,
+  columns: { id: string; order: number }[],
+): string[] => {
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  const leafIds = new Set<string>();
+
+  for (const id of selectedIds) {
+    const item = itemById.get(id);
+
+    if (item?.isVirtualColumn && item.childrenSummary) {
+      // Grouped/parent card: expand directionally to its descendant leaves.
+      for (const leafId of computeChildrenToMove(item.childrenSummary, targetColumnId, columns)) {
+        leafIds.add(leafId);
+      }
+    } else if (item) {
+      // Regular leaf card.
+      leafIds.add(item.id);
+    } else {
+      // Unknown selection (not on this board view) — pass through unchanged.
+      leafIds.add(id);
+    }
+  }
+
+  return [...leafIds];
+};
+
 export const topmostProjectionToGroups = (
   projections: TopmostNodeProjection[],
 ): HierarchyGroupNode[] =>

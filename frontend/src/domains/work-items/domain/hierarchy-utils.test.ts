@@ -16,6 +16,7 @@ import {
   buildTopmostNodeProjection,
   computeChildrenToMove,
   topmostProjectionToGroups,
+  resolveSelectionToLeafIds,
 } from "./hierarchy-utils";
 import type { BoardColumn } from "@/domains/boards/domain/types";
 import type { WorkItemWithContext, ChildrenSummary } from "./types";
@@ -623,6 +624,112 @@ describe("topmostProjectionToGroups", () => {
     expect(groups[0].totalItemCount).toBe(2);
     expect(groups[0].depth).toBe(0);
     expect(groups[0].children).toHaveLength(0);
+  });
+});
+
+describe("resolveSelectionToLeafIds (multi-drag)", () => {
+  const columns = [
+    { id: "backlog", order: 0 },
+    { id: "todo", order: 1 },
+    { id: "in-progress", order: 2 },
+    { id: "done", order: 3 },
+  ];
+
+  const makeParentCard = (
+    id: string,
+    leafIdsByColumn: Record<string, string[]>,
+  ): WorkItemWithContext => {
+    const summary: ChildrenSummary = {
+      totalLeafCount: Object.values(leafIdsByColumn).flat().length,
+      doneCount: 0,
+      progressPercent: 0,
+      countPerColumn: Object.fromEntries(
+        Object.entries(leafIdsByColumn).map(([col, ids]) => [col, ids.length]),
+      ),
+      leafIdsByColumn,
+    };
+    return createMockItem(id, {
+      type: "epic",
+      boardColumnId: null,
+      isVirtualColumn: true,
+      childrenSummary: summary,
+    });
+  };
+
+  it("expands a selected parent card to its descendant leaves and never emits the parent id", () => {
+    const parent = makeParentCard("epic-1", {
+      backlog: ["leaf-1"],
+      done: ["leaf-3"],
+    });
+    const items = [parent];
+
+    // Target "in-progress" (order 2): only children BEHIND it (backlog) move.
+    const result = resolveSelectionToLeafIds(
+      new Set(["epic-1"]),
+      items,
+      "in-progress",
+      columns,
+    );
+
+    // Directional (mirror of computeChildrenToMove), NOT a flatten-all.
+    expect(result).toEqual(["leaf-1"]);
+    expect(result).not.toContain("leaf-3"); // already at/past target
+    expect(result).not.toContain("epic-1"); // raw parent id must be dropped
+  });
+
+  it("keeps regular leaf selections unchanged", () => {
+    const items = [
+      createMockItem("leaf-a", { boardColumnId: "backlog" }),
+      createMockItem("leaf-b", { boardColumnId: "todo" }),
+    ];
+
+    const result = resolveSelectionToLeafIds(
+      new Set(["leaf-a", "leaf-b"]),
+      items,
+      "done",
+      columns,
+    );
+
+    expect(result.sort()).toEqual(["leaf-a", "leaf-b"]);
+  });
+
+  it("handles a mixed selection: expands parents, keeps leaves, and dedupes", () => {
+    const parent = makeParentCard("epic-1", {
+      backlog: ["leaf-1", "leaf-2"],
+    });
+    const standaloneLeaf = createMockItem("leaf-9", { boardColumnId: "todo" });
+    const items = [parent, standaloneLeaf];
+
+    const result = resolveSelectionToLeafIds(
+      new Set(["epic-1", "leaf-9"]),
+      items,
+      "done",
+      columns,
+    );
+
+    expect(result).toContain("leaf-1");
+    expect(result).toContain("leaf-2");
+    expect(result).toContain("leaf-9");
+    expect(result).not.toContain("epic-1");
+    // No duplicates.
+    expect(new Set(result).size).toBe(result.length);
+  });
+
+  it("returns empty when the only selected parent has nothing to move in that direction", () => {
+    // All children already sit exactly at the target column → nothing to move.
+    const parent = makeParentCard("epic-1", {
+      done: ["leaf-1", "leaf-2"],
+    });
+    const items = [parent];
+
+    const result = resolveSelectionToLeafIds(
+      new Set(["epic-1"]),
+      items,
+      "done",
+      columns,
+    );
+
+    expect(result).toEqual([]);
   });
 });
 
