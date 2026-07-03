@@ -83,6 +83,18 @@ describe("auth-bootstrap", () => {
       expect(result).toBe(false);
       expect(executor.execute).not.toHaveBeenCalled();
     });
+
+    it("returns false when no pending invitation row matches", async () => {
+      const executor = createMockExecutor([[]]);
+
+      const result = await hasPendingInvitation(
+        "nobody@example.com",
+        executor as never
+      );
+
+      expect(result).toBe(false);
+      expect(executor.execute).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("ensureInitialAdminUser", () => {
