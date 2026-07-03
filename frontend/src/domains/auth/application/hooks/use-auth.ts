@@ -1,5 +1,22 @@
 import { authClient } from "@/lib/auth-client";
 
+/**
+ * Better-Auth resolves a RELATIVE `callbackURL` against its own `baseURL` — the
+ * issuer, `api.almirant.ai`. On a split deploy (frontend on cloud.almirant.ai,
+ * issuer on api.almirant.ai) that sends the post-OAuth redirect to
+ * `api.almirant.ai/board` (a backend host that has no such route → NOT_FOUND).
+ * Anchor the callback to the FRONTEND origin so the user lands back on the app.
+ * cloud.almirant.ai must be in the issuer's trustedOrigins (it is).
+ */
+const toAbsoluteCallback = (callbackURL: string): string => {
+  if (typeof window === "undefined") return callbackURL;
+  try {
+    return new URL(callbackURL, window.location.origin).toString();
+  } catch {
+    return callbackURL;
+  }
+};
+
 const clearBetterAuthCookies = () => {
   if (typeof document === "undefined") return;
 
@@ -29,16 +46,16 @@ export const useAuth = () => {
   const signInWithGoogle = (callbackURL = "/") => {
     authClient.signIn.social({
       provider: "google",
-      callbackURL,
-      errorCallbackURL: "/sign-in?error=unauthorized",
+      callbackURL: toAbsoluteCallback(callbackURL),
+      errorCallbackURL: toAbsoluteCallback("/sign-in?error=unauthorized"),
     });
   };
 
   const signInWithGithub = (callbackURL = "/") => {
     authClient.signIn.social({
       provider: "github",
-      callbackURL,
-      errorCallbackURL: "/sign-in?error=unauthorized",
+      callbackURL: toAbsoluteCallback(callbackURL),
+      errorCallbackURL: toAbsoluteCallback("/sign-in?error=unauthorized"),
     });
   };
 
