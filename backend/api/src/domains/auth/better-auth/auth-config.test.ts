@@ -138,5 +138,11 @@ describe("createAuthInstance rate limiting behind a proxy", () => {
     expect(options.rateLimit!.enabled).toBe(true);
     expect(options.rateLimit!.window).toBe(60);
     expect(options.rateLimit!.max).toBe(100);
+    // Sensitive auth paths get explicit, generous per-path budgets — Better-Auth's
+    // built-in defaults (~3/window on /sign-in/social) trip legitimate OAuth clicks.
+    expect(options.rateLimit!.customRules!["/sign-in/social"]).toEqual({
+      window: 60,
+      max: 30,
+    });
   });
 });

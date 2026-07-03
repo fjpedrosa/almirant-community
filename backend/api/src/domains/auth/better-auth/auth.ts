@@ -375,6 +375,17 @@ export const createAuthInstance = (runtimePublicUrl: string | null) =>
       enabled: true,
       window: 60,
       max: 100,
+      // Better-Auth applies much stricter built-in limits to sensitive auth
+      // paths (e.g. /sign-in/social trips after ~3 requests/window), which the
+      // global `max` does NOT override. Raise them explicitly so legitimate
+      // OAuth / credential attempts never 429. Still per real client IP (see
+      // advanced.ipAddress), so this only loosens a single client's budget.
+      customRules: {
+        "/sign-in/social": { window: 60, max: 30 },
+        "/sign-in/email": { window: 60, max: 20 },
+        "/sign-up/email": { window: 60, max: 20 },
+        "/get-session": { window: 60, max: 200 },
+      },
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
