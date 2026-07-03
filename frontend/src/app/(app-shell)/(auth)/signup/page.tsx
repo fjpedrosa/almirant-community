@@ -1,6 +1,7 @@
 import { SignInContainer } from "@/domains/auth/presentation/containers/sign-in-container";
 import { canAccessSignUpPage } from "@/domains/auth/application/lib/auth-route-state";
 import { getAuthBootstrapStatus } from "@/lib/auth-bootstrap";
+import { getEnabledAuthProviders } from "@/lib/auth-providers";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -40,9 +41,12 @@ export default async function SignUpPage({
     redirect("/sign-in");
   }
 
+  const socialProviders = await getEnabledAuthProviders();
+
   return (
     <SignInContainer
       mode={bootstrapStatus.needsInitialAdminSetup ? "initial_admin_setup" : "sign_up"}
+      socialProviders={socialProviders}
     />
   );
 }

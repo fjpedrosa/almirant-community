@@ -3,12 +3,28 @@
 import { Suspense, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import type { AuthPageMode } from '../../domain/types';
+import type {
+  AuthPageMode,
+  EnabledAuthProviders,
+  SocialAuthProvider,
+} from '../../domain/types';
 import { useAuth } from '../../application/hooks/use-auth';
 import { SignInCard } from '../components/sign-in-card';
 
-const SignInContent = ({ mode }: { mode: AuthPageMode }) => {
-  const { signInWithEmail, signUpWithEmail, isLoading } = useAuth();
+const SignInContent = ({
+  mode,
+  socialProviders,
+}: {
+  mode: AuthPageMode;
+  socialProviders?: EnabledAuthProviders;
+}) => {
+  const {
+    signInWithEmail,
+    signUpWithEmail,
+    signInWithGoogle,
+    signInWithGithub,
+    isLoading,
+  } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [credentials, setCredentials] = useState({
@@ -101,6 +117,14 @@ const SignInContent = ({ mode }: { mode: AuthPageMode }) => {
     }
   };
 
+  const handleSocialSignIn = (provider: SocialAuthProvider) => {
+    if (provider === 'github') {
+      signInWithGithub(redirectTarget);
+      return;
+    }
+    signInWithGoogle(redirectTarget);
+  };
+
   return (
     <SignInCard
       mode={mode}
@@ -111,18 +135,22 @@ const SignInContent = ({ mode }: { mode: AuthPageMode }) => {
       onSubmit={handleSubmit}
       isLoading={isLoading || isSubmitting}
       error={errorMessage}
+      socialProviders={socialProviders}
+      onSocialSignIn={handleSocialSignIn}
     />
   );
 };
 
 export const SignInContainer = ({
   mode,
+  socialProviders,
 }: {
   mode: AuthPageMode;
+  socialProviders?: EnabledAuthProviders;
 }) => {
   return (
     <Suspense>
-      <SignInContent mode={mode} />
+      <SignInContent mode={mode} socialProviders={socialProviders} />
     </Suspense>
   );
 };

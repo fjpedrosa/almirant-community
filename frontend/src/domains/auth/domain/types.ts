@@ -14,6 +14,15 @@ export interface AuthBootstrapStatus {
 export type AuthCredentialsView = "sign_in" | "sign_up";
 export type AuthPageMode = AuthCredentialsView | "initial_admin_setup";
 
+/** Social OAuth providers the UI can surface, gated by backend availability. */
+export type SocialAuthProvider = "google" | "github";
+
+/** Which social providers the backend has enabled (resolved server-side). */
+export interface EnabledAuthProviders {
+  google: boolean;
+  github: boolean;
+}
+
 export interface SignInCardProps {
   mode: AuthPageMode;
   values: {
@@ -29,6 +38,9 @@ export interface SignInCardProps {
   onSubmit: () => void | Promise<void>;
   isLoading: boolean;
   error?: string | null;
+  /** Social providers to offer. Omitted/empty ⇒ no social buttons rendered. */
+  socialProviders?: Partial<EnabledAuthProviders>;
+  onSocialSignIn?: (provider: SocialAuthProvider) => void;
 }
 
 export type AcceptInvitationStatus =

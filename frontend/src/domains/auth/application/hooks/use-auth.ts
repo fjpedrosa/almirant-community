@@ -34,6 +34,14 @@ export const useAuth = () => {
     });
   };
 
+  const signInWithGithub = (callbackURL = "/") => {
+    authClient.signIn.social({
+      provider: "github",
+      callbackURL,
+      errorCallbackURL: "/sign-in?error=unauthorized",
+    });
+  };
+
   const signInWithEmail = async (
     email: string,
     password: string,
@@ -75,6 +83,7 @@ export const useAuth = () => {
     isLoading: session.isPending,
     isAuthenticated: !!session.data?.user,
     signInWithGoogle,
+    signInWithGithub,
     signInWithEmail,
     signUpWithEmail,
     signOut,

@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2 } from "lucide-react";
+import { GoogleIcon } from "@/components/icons/google-icon";
+import { Github, Loader2 } from "lucide-react";
 
 export const SignInCard = ({
   mode,
@@ -19,10 +20,17 @@ export const SignInCard = ({
   onSubmit,
   isLoading,
   error,
+  socialProviders,
+  onSocialSignIn,
 }: SignInCardProps) => {
   const t = useTranslations("auth");
   const isInitialAdminSetup = mode === "initial_admin_setup";
   const isSignUp = isInitialAdminSetup || mode === "sign_up";
+  // The first-admin bootstrap must use email/password only; never surface OAuth
+  // there. Otherwise show whichever providers the backend reports as enabled.
+  const showSocial =
+    !isInitialAdminSetup &&
+    Boolean(socialProviders?.google || socialProviders?.github);
   const cardTitle = isInitialAdminSetup ? t("createAdminTitle") : t("title");
   const cardDescription = isInitialAdminSetup
     ? t("createAdminDescription")
@@ -123,6 +131,48 @@ export const SignInCard = ({
                 : t("signIn")}
           </Button>
         </form>
+
+        {showSocial && (
+          <>
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">
+                  {t("orContinueWith")}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {socialProviders?.google && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  disabled={isLoading}
+                  onClick={() => onSocialSignIn?.("google")}
+                >
+                  <GoogleIcon className="mr-2 h-4 w-4" />
+                  {t("continueWithGoogle")}
+                </Button>
+              )}
+              {socialProviders?.github && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  disabled={isLoading}
+                  onClick={() => onSocialSignIn?.("github")}
+                >
+                  <Github className="mr-2 h-4 w-4" />
+                  {t("continueWithGithub")}
+                </Button>
+              )}
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );

@@ -1373,6 +1373,8 @@
     "title": "Almirant",
     "signInToContinue": "Sign in to continue",
     "continueWithGoogle": "Continue with Google",
+    "continueWithGithub": "Continue with GitHub",
+    "orContinueWith": "or continue with",
     "signingIn": "Signing in...",
     "signIn": "Sign in",
     "createAccount": "Create account",
