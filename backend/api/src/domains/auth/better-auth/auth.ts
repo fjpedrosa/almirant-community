@@ -38,6 +38,17 @@ import {
   normalizeSiteUrl,
 } from "./invitation-app-base-url";
 
+// The API is the Better-Auth issuer: a stable signing secret is mandatory in
+// production so sessions survive restarts and match any peer that validates
+// them. Scoped to this module (imported only by the API) instead of shared
+// @almirant/config, which every backend service loads (bridges, worker, …).
+if (env.NODE_ENV === "production" && !env.BETTER_AUTH_SECRET) {
+  console.error(
+    "BETTER_AUTH_SECRET is required in production (the API is the Better-Auth issuer)",
+  );
+  process.exit(1);
+}
+
 // ──────────────────────────────────────────────
 // Helpers for auto-org creation
 // ──────────────────────────────────────────────

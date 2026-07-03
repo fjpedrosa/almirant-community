@@ -237,18 +237,10 @@ export const isDev = env.NODE_ENV === "development";
 export const isProd = env.NODE_ENV === "production";
 export const isTest = env.NODE_ENV === "test";
 
-// The backend is the Better-Auth issuer: a stable signing secret is mandatory
-// in production so sessions survive restarts and match any peer that validates
-// them. Fail fast with a clear message rather than letting Better-Auth derive
-// an ephemeral secret at runtime.
-if (isProd && !env.BETTER_AUTH_SECRET) {
-  console.error("Invalid environment variables:", {
-    BETTER_AUTH_SECRET: [
-      "BETTER_AUTH_SECRET is required in production (the backend is the Better-Auth issuer)",
-    ],
-  });
-  process.exit(1);
-}
+// NOTE: BETTER_AUTH_SECRET is validated where it is actually needed — the API
+// service (the Better-Auth issuer), in its auth module — NOT here. This config
+// package is shared by every backend service (api, bridges, worker); a hard
+// requirement here would crash services that never run Better-Auth.
 
 // `ALMIRANT_PROJECT_ID` is optional in all environments: self-hosted bootstrap
 // auto-provisions an internal feedback project and injects it via

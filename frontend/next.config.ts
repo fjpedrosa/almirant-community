@@ -54,7 +54,9 @@ const NEXT_LOCAL_API_ROUTES = "auth|ws-token";
 const nextConfig: NextConfig = {
   // Emit a minimal production server with only traced runtime files.
   // Docker can then copy .next/standalone instead of the whole app + node_modules.
-  output: "standalone",
+  // On Vercel, leave output at its default — `standalone` breaks Vercel routing
+  // (every route 404s), so only emit it for the Docker/Coolify self-host build.
+  output: process.env.VERCEL ? undefined : "standalone",
   // Required for PostHog reverse proxy — prevents 308 redirects on POST requests to /ingest/e/
   skipTrailingSlashRedirect: true,
   images: {
