@@ -72,13 +72,33 @@ const workspaceName = (
  * helpers (`provisionDefaultBoard` / `provisionDefaultServiceAccount`) instead
  * of the frontend's raw-SQL versions — same column set, no drift.
  */
-const createPersonalOrganization = async (user: {
-  id: string;
-  name: string;
-  email: string;
-}): Promise<string | null> => {
+/**
+ * Injectable dependencies for {@link createPersonalOrganization}. Default to the
+ * real `@almirant/database` bindings; overridable in tests with fakes (matches
+ * the DI style of `auth-bootstrap.ts`). Runtime call sites pass nothing, so
+ * production behavior is unchanged.
+ */
+interface CreatePersonalOrganizationDeps {
+  db?: typeof db;
+  provisionDefaultBoard?: typeof provisionDefaultBoard;
+  provisionDefaultServiceAccount?: typeof provisionDefaultServiceAccount;
+}
+
+export const createPersonalOrganization = async (
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  },
+  deps: CreatePersonalOrganizationDeps = {},
+): Promise<string | null> => {
+  const database = deps.db ?? db;
+  const provisionBoard = deps.provisionDefaultBoard ?? provisionDefaultBoard;
+  const provisionServiceAccount =
+    deps.provisionDefaultServiceAccount ?? provisionDefaultServiceAccount;
+
   // Check if the user already belongs to any org (e.g. was invited before registering)
-  const existingMemberships = await db
+  const existingMemberships = await database
     .select({ id: schema.member.id })
     .from(schema.member)
     .where(eq(schema.member.userId, user.id))
@@ -93,14 +113,14 @@ const createPersonalOrganization = async (user: {
   const slug = slugFromEmail(user.email);
   const name = workspaceName(user.name, user.email);
 
-  await db.insert(schema.workspace).values({
+  await database.insert(schema.workspace).values({
     id: orgId,
     name,
     slug,
     createdAt: new Date(),
   });
 
-  await db.insert(schema.member).values({
+  await database.insert(schema.member).values({
     id: memberId,
     workspaceId: orgId,
     userId: user.id,
@@ -110,14 +130,14 @@ const createPersonalOrganization = async (user: {
 
   // Auto-create default "Desarrollo" board for the new workspace
   try {
-    await provisionDefaultBoard(orgId);
+    await provisionBoard(orgId);
   } catch (error) {
     console.error("[auth] Failed to create default board for org", orgId, error);
   }
 
   // Auto-provision default "runner" service account + API key
   try {
-    await provisionDefaultServiceAccount(orgId);
+    await provisionServiceAccount(orgId);
   } catch (error) {
     console.error(
       "[auth] Failed to provision default service account for org",
@@ -159,7 +179,7 @@ const resolveInvitationAppBaseUrl = (runtimePublicUrl: string | null): string =>
  * HTTP POST to `/internal/emails/invitations` (which no longer exists) with a
  * direct `sendEmail(...)` + `buildInvitationEmailHtml(...)` call.
  */
-const sendInvitationEmailInProcess = async (payload: {
+export const sendInvitationEmailInProcess = async (payload: {
   acceptUrl: string;
   email: string;
   organizationName: string;
@@ -224,12 +244,26 @@ const withWwwVariants = (origin: string): string[] => {
  *   - `env.BETTER_AUTH_TRUSTED_ORIGINS` (comma list — explicit overrides)
  * Every origin is expanded with its www / apex variant.
  */
-const getTrustedOrigins = (runtimePublicUrl: string | null): string[] => {
-  const fromCors = env.CORS_ORIGIN.split(",")
+/**
+ * Config-env slice consumed by {@link getTrustedOrigins}. Defaults to the real
+ * `@almirant/config` `env`; injectable so the resolution can be unit-tested
+ * with explicit maps and no module side effects.
+ */
+interface TrustedOriginsConfigEnv {
+  CORS_ORIGIN: string;
+  BETTER_AUTH_TRUSTED_ORIGINS?: string | null;
+}
+
+export const getTrustedOrigins = (
+  runtimePublicUrl: string | null,
+  configEnv: TrustedOriginsConfigEnv = env,
+  processEnv: { NODE_ENV?: string } = process.env,
+): string[] => {
+  const fromCors = configEnv.CORS_ORIGIN.split(",")
     .map((value) => normalizeOrigin(value))
     .filter((value): value is string => Boolean(value));
 
-  const fromEnv = (env.BETTER_AUTH_TRUSTED_ORIGINS ?? "")
+  const fromEnv = (configEnv.BETTER_AUTH_TRUSTED_ORIGINS ?? "")
     .split(",")
     .map((value) => normalizeOrigin(value))
     .filter((value): value is string => Boolean(value));
@@ -239,7 +273,7 @@ const getTrustedOrigins = (runtimePublicUrl: string | null): string[] => {
     : null;
 
   const origins = [
-    ...getDefaultLocalFrontendOrigins(process.env),
+    ...getDefaultLocalFrontendOrigins(processEnv),
     ...fromCors,
     ...(runtimeOrigin ? [runtimeOrigin] : []),
     ...fromEnv,
@@ -270,7 +304,7 @@ type AuthInstance = ReturnType<typeof createAuthInstance>;
 let cachedAuth: AuthInstance | null = null;
 let cachedPublicUrl: string | null | undefined; // undefined = not yet resolved
 
-const createAuthInstance = (runtimePublicUrl: string | null) =>
+export const createAuthInstance = (runtimePublicUrl: string | null) =>
   betterAuth({
     // Explicit issuer URL (`BETTER_AUTH_URL`) wins; otherwise use the runtime
     // publicUrl from `instance_settings` (set via the onboarding wizard) so the

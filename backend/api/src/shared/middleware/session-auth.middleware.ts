@@ -15,7 +15,7 @@ export interface ActiveWorkspace {
  * better-auth cookie format is "token.signature" — DB stores only the token part.
  * Multiple cookie names may coexist (__Host/__Secure/plain), so we return candidates.
  */
-function extractTokenCandidates(request: Request): string[] {
+export function extractTokenCandidates(request: Request): string[] {
   const rawCandidates: string[] = [];
 
   // 1. Try Authorization header
