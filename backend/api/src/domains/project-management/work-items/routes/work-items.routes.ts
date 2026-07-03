@@ -256,14 +256,43 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         return errorResponse("Board column ID is required");
       }
 
+      // Resolve the selection to concrete leaf work items. Parent-type items
+      // (epic/feature/story) have no board column of their own, so a bulk move
+      // must cascade to their descendant leaf tasks instead of being silently
+      // dropped by the repository — mirroring the single-item
+      // PATCH /work-items/:id/move handler, which expands via getDescendantLeafIds.
+      const selectedItems = await Promise.all(
+        body.workItemIds.map((id) => getWorkItemById(id, orgId))
+      );
+
+      const leafIdSet = new Set<string>();
+      for (let i = 0; i < body.workItemIds.length; i++) {
+        const selectedId = body.workItemIds[i]!;
+        const selectedItem = selectedItems[i];
+        if (selectedItem && isParentType(selectedItem.type)) {
+          const descendantLeafIds = await getDescendantLeafIds(selectedItem.id);
+          for (const leafId of descendantLeafIds) leafIdSet.add(leafId);
+        } else {
+          // Leaf items (task/idea) — and ids the repository will scope-check —
+          // are passed through unchanged.
+          leafIdSet.add(selectedId);
+        }
+      }
+      const moveIds = [...leafIdSet];
+
+      if (moveIds.length === 0) {
+        set.status = 400;
+        return errorResponse("No movable tasks in selection");
+      }
+
       // Capture before states for event tracking
       const beforeItems = await Promise.all(
-        body.workItemIds.map((id) => getWorkItemById(id, orgId))
+        moveIds.map((id) => getWorkItemById(id, orgId))
       );
 
       let success: boolean;
       try {
-        success = await bulkMoveWorkItems(orgId, body.workItemIds, body.boardColumnId);
+        success = await bulkMoveWorkItems(orgId, moveIds, body.boardColumnId);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (
@@ -285,7 +314,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
       }
 
       const movedItems = await Promise.all(
-        body.workItemIds.map((workItemId) => getWorkItemById(workItemId, orgId))
+        moveIds.map((workItemId) => getWorkItemById(workItemId, orgId))
       );
 
       // Create move events for each item that actually changed columns
@@ -324,7 +353,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         });
       }
 
-      return successResponse({ moved: true, count: body.workItemIds.length });
+      return successResponse({ moved: true, count: moveIds.length });
     },
     {
       body: t.Object({

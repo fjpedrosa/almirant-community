@@ -21,7 +21,7 @@ import { useMoveWorkItem } from "./use-work-item-board";
 import { useBulkMove } from "./use-work-item-bulk";
 import { workItemKeys } from "./use-work-items";
 import type { WorkItemWithContext, WorkItemsByColumn } from "../../domain/types";
-import { computeChildrenToMove } from "../../domain/hierarchy-utils";
+import { computeChildrenToMove, resolveSelectionToLeafIds } from "../../domain/hierarchy-utils";
 import { parseChecklistStatus } from "../../domain/types";
 
 const getColumnsFingerprint = (input: WorkItemsByColumn[]): string =>
@@ -317,9 +317,24 @@ export const useWorkItemKanban = (
         }
 
         if (columnChanged) {
+          // Resolve the selection to concrete leaf IDs before moving: any
+          // selected parent/grouped card must be expanded to its descendant
+          // leaves (directional, mirroring the single grouped-card drag), never
+          // sent as a raw parent id — which the bulk-move endpoint cannot move.
+          const columnsWithOrder = cols.map((c) => ({ id: c.column.id, order: c.column.order }));
+          const allBoardItems = columns.flatMap((c) => c.items);
+          const idsToMove = resolveSelectionToLeafIds(selectedIds, allBoardItems, destColumnId, columnsWithOrder);
+
+          if (idsToMove.length === 0) {
+            isMutatingRef.current = false;
+            setLocalColumns(columns);
+            showToast.info("No hay tareas que mover");
+            return;
+          }
+
           queryClient.cancelQueries({ queryKey: workItemKeys.all });
           bulkMove.mutate(
-            { workItemIds: Array.from(selectedIds), boardColumnId: destColumnId },
+            { workItemIds: idsToMove, boardColumnId: destColumnId },
             {
               onSuccess: () => {
                 setJustDroppedIds(new Set(selectedIds));

@@ -399,6 +399,108 @@ describe("workItemsRoutes", () => {
       expect(body.success).toBe(false);
       expect(body.error).toContain("Board column ID is required");
     });
+
+    it("expands parent-type selections to their descendant leaf tasks", async () => {
+      const parentId = "epic-parent-1";
+      const leafIds = ["task-child-1", "task-child-2"];
+      // Parent-type ids the repository would silently filter out.
+      const parentIds = new Set([parentId]);
+      let receivedIds: string[] = [];
+
+      const itemById: Record<
+        string,
+        { id: string; type: string; boardColumnId: string | null; boardId: string }
+      > = {
+        [parentId]: { id: parentId, type: "epic", boardColumnId: null, boardId: "board-test-1" },
+        "task-child-1": { id: "task-child-1", type: "task", boardColumnId: "col-test-1", boardId: "board-test-1" },
+        "task-child-2": { id: "task-child-2", type: "task", boardColumnId: "col-test-1", boardId: "board-test-1" },
+      };
+
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getWorkItemById: async (id: string) => itemById[id] ?? null,
+          getDescendantLeafIds: async (id: string) => (id === parentId ? [...leafIds] : []),
+          // Mirror the real repository: parent-type ids get filtered; an
+          // all-parent set yields nothing movable and returns false.
+          bulkMoveWorkItems: async (_orgId: string, ids: string[]) => {
+            receivedIds = ids;
+            return ids.some((id) => !parentIds.has(id));
+          },
+        })
+      );
+
+      const { Elysia } = await import("elysia");
+      const { workItemsRoutes } = await import("./work-items.routes");
+      const app = new Elysia().use(withTestOrg).use(workItemsRoutes);
+
+      try {
+        const res = await app.handle(
+          makeRequest(
+            "/work-items/bulk/move",
+            jsonBody({ workItemIds: [parentId], boardColumnId: "col-target" })
+          )
+        );
+        const { status, body } = await parseResponse<{
+          success: boolean;
+          data: { moved: boolean; count: number };
+        }>(res);
+
+        expect(status).toBe(200);
+        expect(body.success).toBe(true);
+        expect(body.data.moved).toBe(true);
+        // The parent id must never reach the repository — only its leaf tasks.
+        expect(receivedIds).toEqual(leafIds);
+        expect(receivedIds).not.toContain(parentId);
+      } finally {
+        mock.module("@almirant/database", () => dbMocks);
+      }
+    });
+
+    it("returns a specific error when the selection resolves to no movable tasks", async () => {
+      const parentId = "epic-empty-1";
+      let bulkCalled = false;
+
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getWorkItemById: async (id: string) =>
+            id === parentId
+              ? { id: parentId, type: "epic", boardColumnId: null, boardId: "board-test-1" }
+              : null,
+          getDescendantLeafIds: async () => [],
+          bulkMoveWorkItems: async () => {
+            bulkCalled = true;
+            return false;
+          },
+        })
+      );
+
+      const { Elysia } = await import("elysia");
+      const { workItemsRoutes } = await import("./work-items.routes");
+      const app = new Elysia().use(withTestOrg).use(workItemsRoutes);
+
+      try {
+        const res = await app.handle(
+          makeRequest(
+            "/work-items/bulk/move",
+            jsonBody({ workItemIds: [parentId], boardColumnId: "col-target" })
+          )
+        );
+        const { status, body } = await parseResponse<{
+          success: boolean;
+          error: string;
+        }>(res);
+
+        expect(status).toBe(400);
+        expect(body.success).toBe(false);
+        expect(body.error).toContain("No movable tasks in selection");
+        // The generic guard must not be the one that fired.
+        expect(body.error).not.toContain("Failed to move work items");
+        // Nothing movable → the repository must not be invoked at all.
+        expect(bulkCalled).toBe(false);
+      } finally {
+        mock.module("@almirant/database", () => dbMocks);
+      }
+    });
   });
 
   // ── PATCH /work-items/bulk/priority ──
