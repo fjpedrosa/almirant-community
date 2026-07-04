@@ -14,10 +14,16 @@ import type {
   AgentSessionOutput,
   SessionEventRecord,
 } from "../../domain/types";
+import { activeJobPollInterval } from "@/domains/agents/domain/polling";
 import { isAgentSessionActive, mergeChunks, sortChunks } from "../../domain/utils";
 import { buildSessionDisplayChunks } from "../utils/session-events-to-display-chunks";
 
 export { isAgentSessionActive };
+
+// Status only needs coarse freshness (WS also pushes status changes); the live
+// content streams below stay at 4s so the transcript keeps flowing.
+const SESSION_DETAIL_STATUS_POLL_MS = 8_000;
+const SESSION_LIVE_POLL_MS = 4_000;
 
 export const useSessionDetail = (sessionId: string | null | undefined) => {
   const { confirmedActiveTeamId } = useActiveTeam();
@@ -30,7 +36,10 @@ export const useSessionDetail = (sessionId: string | null | undefined) => {
     staleTime: 15_000,
     refetchInterval: (query) => {
       const detail = query.state.data as AgentSessionDetail | undefined;
-      return isAgentSessionActive(detail?.job.status) ? 4_000 : false;
+      return activeJobPollInterval(
+        isAgentSessionActive(detail?.job.status),
+        SESSION_DETAIL_STATUS_POLL_MS,
+      );
     },
   });
 };
@@ -73,10 +82,13 @@ export const useSessionOutput = (
   const lastRawSeq = rawChunks.at(-1)?.seq;
   const liveCursor = typeof lastRawSeq === "number" ? `&cursor=${lastRawSeq}` : "";
 
+  // Key intentionally omits `lastRawSeq`: including it minted a brand-new query
+  // (and cache entry) on every batch, fragmenting the cache and forcing an
+  // immediate extra fetch per advance. The cursor still travels via `liveCursor`
+  // read at fetch time, so incremental streaming is preserved with a stable key.
   const liveScopedKey = useOrgScopedKey([
     ...sessionKeys.output(sessionId ?? ""),
     "live",
-    typeof lastRawSeq === "number" ? lastRawSeq : "start",
   ]);
 
   const liveQuery = useQuery({
@@ -90,7 +102,7 @@ export const useSessionOutput = (
       !!confirmedActiveTeamId &&
       (options?.enabled ?? true) &&
       isLive,
-    refetchInterval: 4_000,
+    refetchInterval: SESSION_LIVE_POLL_MS,
   });
 
   useEffect(() => {
@@ -137,10 +149,12 @@ export const useSessionOutput = (
   const liveSessionEventsCursor =
     typeof lastSessionEventSeq === "number" ? `&after=${lastSessionEventSeq}` : "";
 
+  // Stable key (see `liveScopedKey` above): the `after=` cursor rides on
+  // `liveSessionEventsCursor`, so removing `lastSessionEventSeq` from the key
+  // stops the per-batch cache churn without breaking live event streaming.
   const liveSessionEventsScopedKey = useOrgScopedKey([
     ...sessionKeys.sessionEvents(sessionId ?? ""),
     "live",
-    typeof lastSessionEventSeq === "number" ? lastSessionEventSeq : "start",
   ]);
 
   const liveSessionEventsQuery = useQuery({
@@ -155,7 +169,7 @@ export const useSessionOutput = (
       (options?.enabled ?? true) &&
       shouldLoadSessionEvents &&
       isLive,
-    refetchInterval: 4_000,
+    refetchInterval: SESSION_LIVE_POLL_MS,
   });
 
   useEffect(() => {

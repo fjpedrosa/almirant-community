@@ -4,8 +4,14 @@ import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { agentJobsApi } from "@/lib/api/client";
 import { useWsContextOptional } from "@/domains/shared/application/hooks/use-ws-context";
+import { activeJobPollInterval } from "@/domains/agents/domain/polling";
 import { sessionKeys } from "../../domain/query-keys";
 import type { WorkerInteraction } from "@/domains/agents/domain/types";
+
+// WebSocket events (created/responded/expired) already invalidate this query in
+// real time; the interval is only a fallback for when the socket is down, so a
+// slow 30s poll while active is plenty (was 5s → ~12x fewer requests).
+const INTERACTIONS_FALLBACK_POLL_MS = 30_000;
 
 export const useSessionInteractions = (
   jobId: string | null | undefined,
@@ -21,7 +27,7 @@ export const useSessionInteractions = (
     queryKey,
     queryFn: () => agentJobsApi.getInteractions(jobId!),
     enabled: !!jobId,
-    refetchInterval: isActive ? 5_000 : false,
+    refetchInterval: activeJobPollInterval(isActive, INTERACTIONS_FALLBACK_POLL_MS),
     staleTime: 3_000,
   });
 
