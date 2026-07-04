@@ -1,11 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { withTraceSinkReducer } from "@/domains/debug/application/with-trace-sink-reducer";
 import { showToast } from "@/domains/shared/presentation/utils/show-toast";
 import { useWsContextOptional } from "@/domains/shared/application/hooks/use-ws-context";
+import { useSeededActiveOrgId } from "@/domains/teams/application/active-org-context";
 import { request } from "@/lib/api/client";
+import { planningReplayCacheKeys } from "../../domain/replay-cache-keys";
+import {
+  advanceWsRecovery,
+  initialWsRecoverySnapshot,
+  shouldRecoverSession,
+  type WsRecoverySnapshot,
+} from "../../domain/ws-recovery";
 import { buildSessionDisplayChunks } from "@/domains/sessions/application/utils/session-events-to-display-chunks";
 import { chunksToConversationMessages } from "@/domains/sessions/application/utils/chunks-to-conversation-messages";
 import { parseChunksToStreamingBlocks } from "@/domains/sessions/application/utils/chunk-to-block-parser";
@@ -2830,12 +2839,33 @@ const loadReplayTraceForJob = async (
 };
 
 /**
+ * Cache handle threaded into the loaders so each per-job replay trace is fetched via
+ * `queryClient.fetchQuery` (deduped/cached) instead of a raw network call. `staleTime`
+ * is shared with the outer `messagesFromLogs` query: navigation reuse gets the
+ * moderate window, WS-drop recovery passes 0 so BOTH the outer load and the inner
+ * traces are refetched fresh.
+ */
+interface ReplayCacheCtx {
+  queryClient: QueryClient;
+  orgId: string | null | undefined;
+  staleTime: number;
+}
+
+// Navigation reuse window: re-opening the same session within this window serves
+// the cached transcript instead of re-downloading up to ~20k chunks. Kept short so
+// a live session's initial snapshot cannot go far stale — resume() and WS-drop
+// recovery both pass `fresh: true` (staleTime 0) to bypass it entirely, and the
+// live turn keeps streaming into the reducer via WS after load.
+const PLANNING_REPLAY_STALE_MS = 15_000;
+
+/**
  * Load historical planning replay using the same canonical chunk pipeline used by
  * the sessions detail view. Falls back to planning-session level canonical events
  * when the original agent job rows are gone but replayable events still exist.
  */
 const loadMessagesFromLogs = async (
   sessionId: string,
+  cache?: ReplayCacheCtx,
 ): Promise<PlanningReplayLoadResult> => {
   try {
     const jobs = await request<HistoricalPlanningReplayJob[]>(
@@ -2850,7 +2880,20 @@ const loadMessagesFromLogs = async (
 
     const traces =
       sortedJobs.length > 0
-        ? await Promise.all(sortedJobs.map(loadReplayTraceForJob))
+        ? await Promise.all(
+            sortedJobs.map((job) =>
+              cache
+                ? cache.queryClient.fetchQuery({
+                    queryKey: planningReplayCacheKeys.replayTrace(
+                      job.id,
+                      cache.orgId,
+                    ),
+                    queryFn: () => loadReplayTraceForJob(job),
+                    staleTime: cache.staleTime,
+                  })
+                : loadReplayTraceForJob(job),
+            ),
+          )
         : [];
     const latestJobStatus = sortedJobs.at(-1)?.status;
     const latestJobStartedAt =
@@ -2923,6 +2966,62 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
     messagesRef.current = messages;
     replayDedupeRef.current = primeStreamingReplayDedupe(messages, Date.now());
   }, []);
+
+  // --- Transcript/replay loads routed through the React Query cache ---
+  // Direct fetches here previously BYPASSED the cache, so A -> B -> A navigation
+  // (and every spurious remount) re-downloaded the whole transcript. Routing them
+  // through `fetchQuery` with org-scoped, stable keys dedupes and caches instead.
+  // `fresh` forces staleTime 0 for WS-drop recovery so a real reconnection re-syncs
+  // against the authoritative backend rather than serving a stale snapshot.
+  // Org id for cache-key partitioning. Sourced from the server-seeded context
+  // (render-0 stable, auth-client-free) rather than `useActiveTeam` so this module
+  // — which also exports the pure reducer consumed by unit tests — does NOT eagerly
+  // construct the Better-Auth client at import. These replay keys are internal to
+  // this hook and their queryFns fetch by (globally-unique) sessionId/jobId, so the
+  // seed is a sufficient partition key even across a client-side workspace switch.
+  const queryClient = useQueryClient();
+  const activeOrgId = useSeededActiveOrgId();
+
+  const loadMessagesCached = useCallback(
+    (
+      sessionId: string,
+      opts?: { fresh?: boolean },
+    ): Promise<PlanningReplayLoadResult> => {
+      const staleTime = opts?.fresh ? 0 : PLANNING_REPLAY_STALE_MS;
+      return queryClient.fetchQuery({
+        queryKey: planningReplayCacheKeys.messagesFromLogs(
+          sessionId,
+          activeOrgId,
+        ),
+        queryFn: () =>
+          loadMessagesFromLogs(sessionId, {
+            queryClient,
+            orgId: activeOrgId,
+            staleTime,
+          }),
+        staleTime,
+      });
+    },
+    [queryClient, activeOrgId],
+  );
+
+  const loadGeneratedItemsCached = useCallback(
+    (
+      sessionId: string,
+      opts?: { fresh?: boolean },
+    ): Promise<GeneratedWorkItem[]> => {
+      const staleTime = opts?.fresh ? 0 : PLANNING_REPLAY_STALE_MS;
+      return queryClient.fetchQuery({
+        queryKey: planningReplayCacheKeys.generatedItems(
+          sessionId,
+          activeOrgId,
+        ),
+        queryFn: () => loadGeneratedItemsFromSession(sessionId),
+        staleTime,
+      });
+    },
+    [queryClient, activeOrgId],
+  );
 
   useEffect(() => {
     sessionIdRef.current = state.sessionId;
@@ -3308,14 +3407,23 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
     };
   }, [wsContext, t]);
 
-  // Recover session on WS reconnection
-  const prevConnectedRef = useRef(isWsConnected);
+  // Recover session on a REAL WS reconnection only.
+  //
+  // The recovery re-fetches session + full transcript (expensive: up to ~20k
+  // chunks), so it must fire only on a genuine drop -> reconnect cycle — NOT on the
+  // first connect after mount, nor on a tab-focus remount where the socket was
+  // already connected. `shouldRecoverSession` encodes that predicate (see
+  // ws-recovery.ts); the snapshot is advanced every run to track the connection.
+  const wsRecoveryRef = useRef<WsRecoverySnapshot>(
+    initialWsRecoverySnapshot(isWsConnected),
+  );
   useEffect(() => {
-    const wasDisconnected = !prevConnectedRef.current;
-    const isNowConnected = isWsConnected;
-    prevConnectedRef.current = isNowConnected;
+    const prev = wsRecoveryRef.current;
+    const next = { isConnected: isWsConnected };
+    const isRealReconnect = shouldRecoverSession(prev, next);
+    wsRecoveryRef.current = advanceWsRecovery(prev, next);
 
-    if (wasDisconnected && isNowConnected && sessionIdRef.current) {
+    if (isRealReconnect && sessionIdRef.current) {
       const activePhase = phaseRef.current;
       if (
         activePhase === "streaming" ||
@@ -3330,13 +3438,15 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         // turn is actually in progress.
         // Previously we passed messages: [] which caused empty timelines when
         // local state had no messages (e.g., after a Suspense remount).
+        // `fresh: true` bypasses the navigation cache so a real reconnection always
+        // re-syncs against the authoritative backend (no stale snapshot).
         const sessionId = sessionIdRef.current;
         void (async () => {
           try {
             const [session, { messages: apiMessages }, generatedItems] = await Promise.all([
               planningSessionsApi.get(sessionId),
-              loadMessagesFromLogs(sessionId),
-              loadGeneratedItemsFromSession(sessionId).catch(() => []),
+              loadMessagesCached(sessionId, { fresh: true }),
+              loadGeneratedItemsCached(sessionId, { fresh: true }).catch(() => []),
             ]);
             primeReplayDedupWindow(apiMessages);
             dispatch({
@@ -3351,7 +3461,12 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         })();
       }
     }
-  }, [isWsConnected, primeReplayDedupWindow]);
+  }, [
+    isWsConnected,
+    primeReplayDedupWindow,
+    loadMessagesCached,
+    loadGeneratedItemsCached,
+  ]);
 
   // --- Actions ---
 
@@ -3533,8 +3648,8 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
     async (sessionId: string): Promise<void> => {
       const [sessionResponse, logResult, generatedItems] = await Promise.all([
         planningSessionsApi.get(sessionId),
-        loadMessagesFromLogs(sessionId),
-        loadGeneratedItemsFromSession(sessionId).catch(() => []),
+        loadMessagesCached(sessionId),
+        loadGeneratedItemsCached(sessionId).catch(() => []),
       ]);
       const isLiveSession =
         sessionResponse.status === "active" &&
@@ -3562,15 +3677,15 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
           readPersistedAnsweredQuestionSignatures(sessionId),
       });
     },
-    [primeReplayDedupWindow]
+    [primeReplayDedupWindow, loadMessagesCached, loadGeneratedItemsCached]
   );
 
   const resumeSession = useCallback(
     async (sessionId: string, forceClose?: boolean): Promise<PlanningSession> => {
       const [resumedRaw, logResult, generatedItems] = await Promise.all([
         planningSessionsApi.resume(sessionId, forceClose),
-        loadMessagesFromLogs(sessionId),
-        loadGeneratedItemsFromSession(sessionId).catch(() => []),
+        loadMessagesCached(sessionId, { fresh: true }),
+        loadGeneratedItemsCached(sessionId, { fresh: true }).catch(() => []),
       ]);
       primeReplayDedupWindow(logResult.messages);
       // Extract pendingInteraction from the enriched resume response
@@ -3589,7 +3704,7 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
       });
       return resumed;
     },
-    [primeReplayDedupWindow]
+    [primeReplayDedupWindow, loadMessagesCached, loadGeneratedItemsCached]
   );
 
   const completeSession = useCallback(() => {
