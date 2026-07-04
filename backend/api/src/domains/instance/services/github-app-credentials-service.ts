@@ -36,6 +36,18 @@ let cached: { value: CredentialsSource | null; expiresAt: number } | null =
   null;
 const CACHE_TTL_MS = 60_000;
 
+// The env-sourced GitHub App slug is NOT provided via env vars — GitHub only
+// issues a slug when the App is created, so cloud installs (app configured via
+// GITHUB_APP_ID / GITHUB_PRIVATE_KEY) have no slug to hand the frontend. We
+// resolve it once from GET /app and cache it for the process lifetime: the env
+// App identity never changes. On failure we leave `resolved` false so the next
+// status request retries (a transient GitHub outage must not permanently hide
+// the install button).
+let envAppSlugCache: { resolved: boolean; value: string | null } = {
+  resolved: false,
+  value: null,
+};
+
 const INSTANCE_SCOPE_ID = "__instance__";
 
 // ---- Public API ----
@@ -224,10 +236,19 @@ export const getGithubAppStatus = async (): Promise<{
   if (!result) {
     return { configured: false, source: null, slug: null, appName: null };
   }
+
+  // DB-sourced credentials always carry their slug (persisted by the
+  // self-hosted create flow). Env-sourced credentials (cloud) never do — the
+  // slug is only known to GitHub, so resolve it from GET /app on demand.
+  let slug = result.credentials.slug || null;
+  if (result.source === "env" && !slug) {
+    slug = await resolveEnvAppSlug(result.credentials);
+  }
+
   return {
     configured: true,
     source: result.source,
-    slug: result.credentials.slug,
+    slug,
     appName: null,
   };
 };
@@ -236,6 +257,71 @@ export const getGithubAppStatus = async (): Promise<{
 
 const invalidateCache = (): void => {
   cached = null;
+};
+
+/**
+ * Resolve (and memoize) the slug of the env-configured GitHub App by calling
+ * GET /app. Reuses the JWT (RS256) pattern from validateGithubAppCredentials.
+ * Returns null — never throws — on any failure so a GitHub outage cannot break
+ * the onboarding status endpoint or the backend at boot.
+ */
+const resolveEnvAppSlug = async (
+  creds: GithubAppCredentials,
+): Promise<string | null> => {
+  if (envAppSlugCache.resolved) return envAppSlugCache.value;
+
+  const slug = await fetchAppSlugFromGithub(creds);
+  if (slug) {
+    envAppSlugCache = { resolved: true, value: slug };
+  }
+  return slug;
+};
+
+const fetchAppSlugFromGithub = async (
+  creds: GithubAppCredentials,
+): Promise<string | null> => {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const token = jwt.sign(
+      { iat: now - 60, exp: now + 600, iss: creds.appId },
+      creds.privateKeyPem,
+      { algorithm: "RS256" },
+    );
+
+    const response = await fetch("https://api.github.com/app", {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+
+    if (!response.ok) {
+      logger.warn(
+        { status: response.status },
+        "Could not resolve env GitHub App slug from GET /app",
+      );
+      return null;
+    }
+
+    const data = (await response.json()) as { slug?: string };
+    return data.slug ?? null;
+  } catch (err) {
+    logger.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "Error resolving env GitHub App slug from GET /app",
+    );
+    return null;
+  }
+};
+
+/**
+ * TEST-ONLY: clears the in-memory credential + env-slug caches so each test
+ * starts from a clean slate. Not part of the runtime API.
+ */
+export const __clearGithubAppCredentialsCacheForTests = (): void => {
+  cached = null;
+  envAppSlugCache = { resolved: false, value: null };
 };
 
 const loadFromDb = async (): Promise<CredentialsSource | null> => {

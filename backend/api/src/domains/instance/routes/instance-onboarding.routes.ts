@@ -5,6 +5,7 @@ import {
   completeOnboarding,
   skipOnboardingStep,
 } from "../services/instance-config-service";
+import { getGithubAppStatus } from "../services/github-app-credentials-service";
 import {
   successResponse,
   errorResponse,
@@ -16,9 +17,10 @@ export const instanceOnboardingRoutes = new Elysia({ prefix: "/onboarding" })
 
   // GET /onboarding/status
   .get("/status", async () => {
-    const [config, [userCountRow]] = await Promise.all([
+    const [config, [userCountRow], githubStatus] = await Promise.all([
       getInstanceConfig(),
       db.select({ value: count() }).from(user),
+      getGithubAppStatus(),
     ]);
 
     const skipped = config.onboardingSkippedSteps ?? [];
@@ -34,9 +36,13 @@ export const instanceOnboardingRoutes = new Elysia({ prefix: "/onboarding" })
         publicUrl: config.publicUrl,
       },
       github: {
-        done: config.githubAppId !== null,
+        // Configured by EITHER source: self-hosted persists into
+        // instance_settings (githubAppId), cloud provides the App via env vars
+        // (surfaced through getGithubAppStatus). appSlug prefers the persisted
+        // value and falls back to the slug resolved from the env App.
+        done: config.githubAppId !== null || githubStatus.configured,
         skipped: skipped.includes("github"),
-        appSlug: config.githubAppSlug,
+        appSlug: config.githubAppSlug ?? githubStatus.slug,
       },
       completedAt: config.onboardingCompletedAt?.toISOString() ?? null,
     });
