@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { authClient } from "@/lib/auth-client";
+import { useSeededActiveOrgId } from "@/domains/teams/application/active-org-context";
+import { resolveActiveOrgId } from "@/domains/teams/domain/active-org";
 
 /**
  * Wraps Better-Auth's `useActiveOrganization()` and provides an optimistic
@@ -12,19 +14,31 @@ export const useActiveTeam = () => {
   const queryClient = useQueryClient();
   const { data: activeOrganization, isPending } =
     authClient.useActiveOrganization();
+  const seededActiveOrgId = useSeededActiveOrgId();
   const [pendingTeamId, setPendingTeamId] = useState<string | null>(null);
   const [isSwitchingTeam, setIsSwitchingTeam] = useState(false);
   const [switchError, setSwitchError] = useState<string | null>(null);
 
-  const confirmedActiveTeamId = activeOrganization?.id ?? null;
+  // Live id from the async org fetch (null until it resolves / no org).
+  const liveConfirmedTeamId = activeOrganization?.id ?? null;
+  // Scoping id: the live value wins once available; until then fall back to the
+  // id seeded from the server session so the scope is stable from render 0
+  // (no `org:none` → `org:<id>` transition, i.e. no double fetch). A client-side
+  // workspace switch is still tracked because the live value overrides the seed.
+  const confirmedActiveTeamId = resolveActiveOrgId(
+    liveConfirmedTeamId,
+    seededActiveOrgId,
+  );
   const effectiveActiveTeamId = pendingTeamId ?? confirmedActiveTeamId;
 
   useEffect(() => {
     if (!pendingTeamId) return;
-    if (confirmedActiveTeamId !== pendingTeamId) return;
+    // Confirm the switch against the LIVE value only — the seed must not
+    // short-circuit switch detection.
+    if (liveConfirmedTeamId !== pendingTeamId) return;
     setPendingTeamId(null);
     setIsSwitchingTeam(false);
-  }, [confirmedActiveTeamId, pendingTeamId]);
+  }, [liveConfirmedTeamId, pendingTeamId]);
 
   const setActiveTeam = useCallback(
     async (organizationId: string | null) => {

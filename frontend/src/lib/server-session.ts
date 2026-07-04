@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies, headers } from "next/headers";
 
 /**
@@ -85,24 +86,26 @@ export async function authBackendFetch(
  * Reuse this in every server component / route handler that previously called
  * `getAuth().api.getSession({ headers })`.
  */
-export async function getServerSession(): Promise<ServerSession | null> {
-  // Cheap short-circuit: no cookies means no session, skip the round trip.
-  const incoming = await headers();
-  if (!incoming.get("cookie")) return null;
+export const getServerSession = cache(
+  async (): Promise<ServerSession | null> => {
+    // Cheap short-circuit: no cookies means no session, skip the round trip.
+    const incoming = await headers();
+    if (!incoming.get("cookie")) return null;
 
-  try {
-    const res = await authBackendFetch("/get-session");
-    if (!res.ok) return null;
+    try {
+      const res = await authBackendFetch("/get-session");
+      if (!res.ok) return null;
 
-    const data = (await res.json()) as ServerSession | null;
-    if (!data || !data.session) return null;
+      const data = (await res.json()) as ServerSession | null;
+      if (!data || !data.session) return null;
 
-    return data;
-  } catch {
-    // Network/parse failure — treat as unauthenticated so callers can redirect.
-    return null;
-  }
-}
+      return data;
+    } catch {
+      // Network/parse failure — treat as unauthenticated so callers can redirect.
+      return null;
+    }
+  },
+);
 
 /**
  * Best-effort propagation of any `Set-Cookie` headers a Better-Auth mutation

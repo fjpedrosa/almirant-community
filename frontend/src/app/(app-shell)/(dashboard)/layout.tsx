@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { NavigationContainer } from "./components/navigation-container";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WebSocketProvider } from "@/domains/shared/presentation/containers/websocket-provider";
+import { ActiveOrgProvider } from "@/domains/teams/application/active-org-context";
 import { onboardingServerApi } from "@/lib/api/server-client";
 import {
   authBackendFetch,
@@ -40,7 +41,11 @@ export default async function DashboardLayout({
   // is GET, `organization/set-active` is POST { organizationId }. `set-active`
   // persists the active org to the session row server-side; any returned
   // Set-Cookie is best-effort propagated (a no-op during RSC render).
-  if (!session.session.activeOrganizationId) {
+  // Active-org id seeded down to client hooks so `useOrgScopedKey` scopes to the
+  // real workspace from render 0 (no `org:none` phase → no double fetch).
+  let activeOrgId = session.session.activeOrganizationId;
+
+  if (!activeOrgId) {
     try {
       const listRes = await authBackendFetch("/organization/list");
 
@@ -56,6 +61,9 @@ export default async function DashboardLayout({
           });
 
           await forwardSetCookies(setActiveRes);
+          // The backend has persisted this as the active org for the session, so
+          // seed it now (the in-memory `session` above still reads null).
+          activeOrgId = firstOrg.id;
         }
       }
     } catch {
@@ -97,6 +105,7 @@ export default async function DashboardLayout({
   return (
     <PostHogProvider>
       <QueryProvider>
+        <ActiveOrgProvider initialActiveOrgId={activeOrgId ?? null}>
         <WebSocketProvider>
           <TooltipProvider delayDuration={300}>
             <PostHogSetup />
@@ -127,6 +136,7 @@ export default async function DashboardLayout({
             <Toaster />
           </TooltipProvider>
         </WebSocketProvider>
+        </ActiveOrgProvider>
       </QueryProvider>
     </PostHogProvider>
   );

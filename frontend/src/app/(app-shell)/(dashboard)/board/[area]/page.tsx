@@ -2,6 +2,8 @@ import { dehydrate, HydrationBoundary, QueryClient } from "@tanstack/react-query
 import { BoardAreaContainer } from "@/domains/boards/presentation/containers/board-area-container";
 import { boardsServerApi } from "@/lib/api/server-client";
 import { boardKeys } from "@/domains/boards/application/hooks/use-boards";
+import { orgScopedKey } from "@/lib/org-scoped-key";
+import { getServerSession } from "@/lib/server-session";
 
 export default async function BoardAreaPage({
   params,
@@ -10,10 +12,14 @@ export default async function BoardAreaPage({
 }) {
   const { area } = await params;
   const queryClient = new QueryClient();
+  const session = await getServerSession();
+  const orgId = session?.session.activeOrganizationId ?? null;
 
   try {
     await queryClient.prefetchQuery({
-      queryKey: boardKeys.listByArea(area),
+      // Scope with the SAME `org:<id>` suffix the client hook uses, so the
+      // dehydrated cache actually hydrates instead of triggering a refetch.
+      queryKey: orgScopedKey(boardKeys.listByArea(area), orgId),
       queryFn: () => boardsServerApi.listByArea(area),
     });
   } catch {
