@@ -7,7 +7,11 @@ import { useActiveTeam } from "@/domains/teams/application/hooks/use-active-team
 import type { WorkItemsByColumn } from "../../domain/types";
 import { workItemKeys } from "./use-work-items";
 
-export const useWorkItemsByBoard = (boardId: string, filterParams?: Record<string, string>) => {
+export const useWorkItemsByBoard = (
+  boardId: string,
+  filterParams?: Record<string, string>,
+  enabled = true,
+) => {
   const { confirmedActiveTeamId } = useActiveTeam();
   const filterKey = filterParams ? JSON.stringify(filterParams) : "";
   const scopedKey = useOrgScopedKey([...workItemKeys.byBoard(boardId), filterKey]);
@@ -15,8 +19,10 @@ export const useWorkItemsByBoard = (boardId: string, filterParams?: Record<strin
     queryKey: scopedKey,
     queryFn: () => workItemsApi.getByBoard(boardId, filterParams) as Promise<WorkItemsByColumn[]>,
     // Gate on a confirmed org: otherwise the query fires once under `org:none`
-    // and refetches under `org:<id>`, doubling the ~550KB board fetch.
-    enabled: !!boardId && !!confirmedActiveTeamId,
+    // and refetches under `org:<id>`, doubling the ~550KB board fetch. The
+    // `enabled` flag additionally lets callers hold the fetch until the sprint
+    // filter is resolved, so it fires once with the correct filter.
+    enabled: !!boardId && !!confirmedActiveTeamId && enabled,
     placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000, // 5 minutes - board updates via mutations, not polling
   });

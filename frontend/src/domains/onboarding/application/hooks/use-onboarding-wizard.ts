@@ -11,6 +11,10 @@ import { useTailscaleSetup } from "./use-tailscale-setup";
 import { useGithubAppSetup } from "./use-github-app-setup";
 import type { OnboardingStepKey } from "../../domain/types";
 import { getVisibleOnboardingSteps } from "../../domain/steps";
+import {
+  githubStepStatusEnabled,
+  tailscaleStatusEnabled,
+} from "../../domain/gating";
 import { isCloudDeployment } from "@/lib/deployment-mode";
 
 export const useOnboardingWizard = () => {
@@ -44,7 +48,10 @@ export const useOnboardingWizard = () => {
 
   const completeMutation = useCompleteOnboarding();
   const skipMutation = useSkipOnboardingStep();
-  const tailscale = useTailscaleSetup();
+  // Cloud never shows the Tailscale step -> don't poll its status there.
+  const tailscale = useTailscaleSetup({
+    enabled: tailscaleStatusEnabled(isCloud),
+  });
 
   // Derived state
   const adminDone = onboardingState?.admin.done ?? false;
@@ -52,7 +59,12 @@ export const useOnboardingWizard = () => {
   const githubDone = onboardingState?.github.done ?? false;
   const publicUrl = onboardingState?.tailscale.publicUrl ?? null;
 
-  const githubApp = useGithubAppSetup({ returnTo: "/onboarding", publicUrl });
+  // GitHub status is only needed while its step is on screen.
+  const githubApp = useGithubAppSetup({
+    returnTo: "/onboarding",
+    publicUrl,
+    enabled: githubStepStatusEnabled(currentStep),
+  });
 
   const doneCount = useMemo(() => {
     return [adminDone, tailscaleDone, githubDone].filter(Boolean).length;

@@ -1,5 +1,20 @@
 import { describe, expect, it } from "bun:test";
-import { expenseKeys, expenseMutationKeys } from "./query-keys";
+import { expenseKeys, expenseMutationKeys, recurringSummaryKey } from "./query-keys";
+
+describe("recurringSummaryKey (dashboard recurring-summary lives under recurring())", () => {
+  it("is nested under expenseKeys.recurring() so recurring mutations invalidate it", () => {
+    const summary = recurringSummaryKey();
+    const recurring = expenseKeys.recurring();
+    // recurring() must be a prefix of the summary key -> invalidateQueries on
+    // recurring() reaches the dashboard summary (previously an orphan key).
+    expect(summary.slice(0, recurring.length)).toEqual([...recurring]);
+    expect(summary.length).toBeGreaterThan(recurring.length);
+  });
+
+  it("is NOT the old orphan key ['recurring-expenses','summary']", () => {
+    expect(recurringSummaryKey()).not.toEqual(["recurring-expenses", "summary"]);
+  });
+});
 
 describe("expenseMutationKeys (S2: root-key invalidation scope)", () => {
   it("invalida lists() + aggregations + detail(id) y NUNCA la raiz all", () => {

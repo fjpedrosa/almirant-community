@@ -23,7 +23,10 @@ export const docLinkIcons: Record<DocLinkType, string> = {
   other: "\uD83D\uDD17",
 };
 
-export const useProjectDetail = (projectId: string) => {
+export const useProjectDetail = (
+  projectId: string,
+  isReposTabActive = false,
+) => {
   const router = useRouter();
 
   // Single batch query replaces 5 individual queries
@@ -114,13 +117,17 @@ export const useProjectDetail = (projectId: string) => {
 
   const isGithubConnected = !!activeInstallationId;
 
+  // Only walk the whole installation's repo pages when the Repos tab is open.
+  // Otherwise this paginated fetch fires on every project-detail mount.
   const { data: githubReposRaw, isLoading: isLoadingGithubRepos } =
-    useGithubInstallationRepos(activeInstallationId);
+    useGithubInstallationRepos(activeInstallationId, {
+      enabled: isReposTabActive,
+    });
 
   const { data: linkedGithubUrls } = useQuery({
     queryKey: projectKeys.linkedGithubUrls(),
     queryFn: () => projectsApi.getLinkedGithubUrls(),
-    enabled: isGithubConnected,
+    enabled: isGithubConnected && isReposTabActive,
     staleTime: 30_000,
   });
 

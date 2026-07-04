@@ -22,6 +22,17 @@ export const expenseKeys = {
 };
 
 /**
+ * Query key for the dashboard's recurring-expenses summary tile.
+ *
+ * Nested UNDER `expenseKeys.recurring()` so that recurring-expense mutations
+ * (which invalidate `recurring()`) also refresh the dashboard summary. It used
+ * to live under an orphan `["recurring-expenses","summary"]` key that no
+ * mutation ever invalidated, leaving the tile stale.
+ */
+export const recurringSummaryKey = () =>
+  [...expenseKeys.recurring(), "summary"] as const;
+
+/**
  * Query keys to invalidate after a single-expense mutation
  * (create / update / delete / invoice upload).
  *

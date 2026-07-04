@@ -8,7 +8,8 @@ import { githubKeys } from "./use-github-summary";
 
 export const useGithubPrs = (
   projectId: string,
-  state?: GithubPrState
+  state?: GithubPrState,
+  enabled = true
 ) => {
   const scopedKey = useOrgScopedKey([...githubKeys.prs(projectId), state]);
   return useQuery({
@@ -17,7 +18,7 @@ export const useGithubPrs = (
       githubApi.getPullRequests(projectId, state) as Promise<
         GithubPullRequest[]
       >,
-    enabled: !!projectId,
+    enabled: !!projectId && enabled,
     staleTime: 30_000,
   });
 };

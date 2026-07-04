@@ -8,14 +8,15 @@ import { githubKeys } from "./use-github-summary";
 
 export const useGithubActions = (
   projectId: string,
-  limit?: number
+  limit?: number,
+  enabled = true
 ) => {
   const scopedKey = useOrgScopedKey([...githubKeys.actions(projectId), limit]);
   return useQuery({
     queryKey: scopedKey,
     queryFn: () =>
       githubApi.getActions(projectId, limit) as Promise<GithubWorkflowRun[]>,
-    enabled: !!projectId,
+    enabled: !!projectId && enabled,
     staleTime: 30_000,
   });
 };

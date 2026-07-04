@@ -5,6 +5,7 @@ import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { useActiveTeam } from "@/domains/teams/application/hooks/use-active-team";
 import { expensesApi, recurringExpensesApi } from "@/lib/api/client";
 import { expenseKeys } from "./use-expenses";
+import { recurringSummaryKey } from "../../domain/query-keys";
 import type {
   ExpenseAggregations,
   RecurringSummary,
@@ -32,10 +33,6 @@ export interface DashboardFilters {
   dateTo?: string;
 }
 
-const recurringKeys = {
-  summary: () => ["recurring-expenses", "summary"] as const,
-};
-
 export const useExpenseDashboard = (filters?: DashboardFilters) => {
   const { confirmedActiveTeamId } = useActiveTeam();
 
@@ -54,7 +51,9 @@ export const useExpenseDashboard = (filters?: DashboardFilters) => {
   });
 
   const recurringSummaryQuery = useQuery({
-    queryKey: [...recurringKeys.summary(), `org:${confirmedActiveTeamId ?? "none"}`],
+    // Nested under expenseKeys.recurring() so recurring-expense mutations
+    // invalidate this summary (previously an orphan key that went stale).
+    queryKey: [...recurringSummaryKey(), `org:${confirmedActiveTeamId ?? "none"}`],
     queryFn: () => recurringExpensesApi.summary() as Promise<RecurringSummary>,
     enabled: !!confirmedActiveTeamId,
   });

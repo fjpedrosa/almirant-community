@@ -40,21 +40,34 @@ export const useIdeasWithPagination = (params?: URLSearchParams) => {
   });
 };
 
-export const useIdeaItem = (id: string | null) => {
+export const useIdeaItem = (
+  id: string | null,
+  options?: { initialData?: IdeaItemWithRelations; staleTime?: number },
+) => {
   const scopedKey = useOrgScopedKey(ideaKeys.detail(id ?? ""));
   return useQuery({
     queryKey: scopedKey,
     queryFn: () => ideasApi.get(id!) as Promise<IdeaItemWithRelations>,
     enabled: !!id,
+    // When the list already carries the full object, seed it and mark it fresh
+    // so opening the panel does not fire a redundant GET /ideas/:id. Mutations
+    // still invalidate the detail key, so edits refetch normally.
+    initialData: options?.initialData,
+    staleTime: options?.staleTime,
   });
 };
 
-export const useIdeaItemTraceability = (id: string | null) => {
+export const useIdeaItemTraceability = (
+  id: string | null,
+  options?: { initialData?: IdeaItemTraceabilityResult; staleTime?: number },
+) => {
   const scopedKey = useOrgScopedKey(ideaKeys.traceabilityById(id ?? ""));
   return useQuery({
     queryKey: scopedKey,
     queryFn: () => ideasApi.getTraceability(id!) as Promise<IdeaItemTraceabilityResult>,
     enabled: !!id,
+    initialData: options?.initialData,
+    staleTime: options?.staleTime,
   });
 };
 

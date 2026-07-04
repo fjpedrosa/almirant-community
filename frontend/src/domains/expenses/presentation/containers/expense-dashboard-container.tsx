@@ -27,11 +27,13 @@ import { ExpenseDetailPanel } from "../components/expense-detail-panel";
 import { CreateExpenseDialog } from "../components/create-expense-dialog";
 import { RecurringExpensesContainer } from "./recurring-expenses-container";
 import { ConfirmDialog } from "@/domains/shared/presentation/components/confirm-dialog";
+import { shouldFetchExpenseList } from "../../domain/dashboard-tabs";
 import type { ExpenseWithRelations } from "../../domain/types";
 
 export const ExpenseDashboardContainer = () => {
   const t = useTranslations("expenses");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("overview");
 
   const dashboard = useExpenseDashboard();
   const {
@@ -48,7 +50,10 @@ export const ExpenseDashboardContainer = () => {
     clearFilters,
     updateFilter,
   } = useExpenseFilters();
-  const { data: expensesData, isLoading: isExpensesLoading } = useExpenses(toSearchParams);
+  const { data: expensesData, isLoading: isExpensesLoading } = useExpenses(
+    toSearchParams,
+    { enabled: shouldFetchExpenseList(activeTab) },
+  );
   const { data: categories = [] } = useExpenseCategories();
   const detailPanel = useExpenseDetailPanel();
   const { mutate: deleteExpense } = useDeleteExpense();
@@ -94,7 +99,7 @@ export const ExpenseDashboardContainer = () => {
           </div>
         }
       >
-        <Tabs defaultValue="overview">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="overview">{t("dashboard.tabs.overview")}</TabsTrigger>
             <TabsTrigger value="list">{t("dashboard.tabs.list")}</TabsTrigger>
@@ -164,17 +169,22 @@ export const ExpenseDashboardContainer = () => {
         </Tabs>
       </ListPageShell>
 
-      <ExpenseDetailPanel
-        open={detailPanel.isOpen}
-        onOpenChange={(open) => {
-          if (!open) detailPanel.closePanel();
-        }}
-        item={detailPanel.selectedExpense}
-        isLoading={false}
-        onStatusChange={detailPanel.handleStatusChange}
-        onDelete={detailPanel.handleDelete}
-        onEdit={() => {}}
-      />
+      {/* Mount only while open: ExpenseDetailPanel internally calls
+          useTeamMembersSelect() -> getFullOrganization, so keeping it mounted
+          fires that org fetch even when no detail is open. */}
+      {detailPanel.isOpen && (
+        <ExpenseDetailPanel
+          open
+          onOpenChange={(open) => {
+            if (!open) detailPanel.closePanel();
+          }}
+          item={detailPanel.selectedExpense}
+          isLoading={false}
+          onStatusChange={detailPanel.handleStatusChange}
+          onDelete={detailPanel.handleDelete}
+          onEdit={() => {}}
+        />
+      )}
 
       <CreateExpenseDialog
         open={isCreateOpen}

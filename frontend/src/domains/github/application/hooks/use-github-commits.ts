@@ -8,14 +8,15 @@ import { githubKeys } from "./use-github-summary";
 
 export const useGithubCommits = (
   projectId: string,
-  limit?: number
+  limit?: number,
+  enabled = true
 ) => {
   const scopedKey = useOrgScopedKey([...githubKeys.commits(projectId), limit]);
   return useQuery({
     queryKey: scopedKey,
     queryFn: () =>
       githubApi.getCommits(projectId, limit) as Promise<GithubCommit[]>,
-    enabled: !!projectId,
+    enabled: !!projectId && enabled,
     staleTime: 30_000,
   });
 };

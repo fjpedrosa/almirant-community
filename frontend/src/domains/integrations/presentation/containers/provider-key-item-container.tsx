@@ -1,6 +1,6 @@
 "use client";
 
-import { useConnectionUsage } from "../../application/hooks/use-connection-usage";
+import { useConnectionUsageFromSummary } from "../../application/hooks/use-connection-usage-from-summary";
 import { ProviderKeyItem } from "../components/provider-key-item";
 import type { ProviderKeyItemProps, ProviderType } from "../../domain/types";
 
@@ -21,7 +21,7 @@ export const ProviderKeyItemContainer: React.FC<ProviderKeyItemContainerProps> =
     isLoading: isLoadingUsage,
     isRefreshing: isRefreshingUsage,
     refreshUsage,
-  } = useConnectionUsage(
+  } = useConnectionUsageFromSummary(
     props.connection.id,
     provider,
   );

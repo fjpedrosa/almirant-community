@@ -21,8 +21,16 @@ import {
   useUpdateSeed,
 } from "@/domains/planning/application/hooks/use-seeds-manager";
 import { useSeedComments } from "./use-seed-comments";
+import {
+  seedDetailInitialData,
+  seedTraceabilityInitialData,
+} from "../../domain/detail-initial-data";
 
 type EditableField = "status" | "owner" | "priority" | "title" | "description" | "project";
+
+// Detail / traceability data comes from the list seed; a short stale window
+// keeps it fresh enough while skipping the on-open GETs.
+const DETAIL_INITIAL_STALE_TIME = 60_000;
 
 export const useSeedDetailPanel = (
   itemId: string | null,
@@ -37,13 +45,25 @@ export const useSeedDetailPanel = (
   const [savingField, setSavingField] = useState<EditableField | null>(null);
 
   // === Queries ===
-  const itemQuery = useSeed(isOpen ? itemId : null);
+  // Reuse the full list seed as initialData (only when it carries the relations
+  // — Phase 5 slims the lists, so this stays a runtime guard).
+  const detailInitialData = seedDetailInitialData(itemFromList);
+  const traceabilityInitialData = seedTraceabilityInitialData(itemFromList);
+
+  const itemQuery = useSeed(
+    isOpen ? itemId : null,
+    detailInitialData
+      ? { initialData: detailInitialData, staleTime: DETAIL_INITIAL_STALE_TIME }
+      : undefined,
+  );
   const item = itemQuery.data ?? itemFromList;
 
   const traceabilityQuery = useQuery({
     queryKey: seedKeys.traceability(itemId ?? ""),
     queryFn: () => seedsApi.getTraceability(itemId!),
     enabled: isOpen && !!itemId,
+    initialData: traceabilityInitialData,
+    staleTime: traceabilityInitialData ? DETAIL_INITIAL_STALE_TIME : undefined,
   });
 
   const historyParams = useMemo(() => {
