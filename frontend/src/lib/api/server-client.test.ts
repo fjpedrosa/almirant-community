@@ -75,6 +75,20 @@ describe("planningServerApi.getSession", () => {
   });
 });
 
+describe("planningServerApi.getLatestOutput", () => {
+  it("targets /planning-sessions/<id>/latest-output (same route as the client hook)", async () => {
+    const { planningServerApi } = await import("./server-client");
+
+    await planningServerApi.getLatestOutput("sess-1");
+
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0].url).toEndWith(
+      "/api/planning-sessions/sess-1/latest-output?limit=1000",
+    );
+    expect(fetchCalls[0].init?.cache).toBe("no-store");
+  });
+});
+
 describe("agentJobsServerApi", () => {
   it("listBySession asks for the single latest job of the session", async () => {
     const { agentJobsServerApi } = await import("./server-client");

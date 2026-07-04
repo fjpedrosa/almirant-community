@@ -19,6 +19,11 @@ export const planningSessionKeys = {
   // Cache key for a single historical agent-job replay trace (keyed by jobId).
   replayTrace: (jobId: string) =>
     [...planningSessionKeys.all, "replay-trace", jobId] as const,
+  // Cache key for the latest-job output batch endpoint (jobs -> output collapsed
+  // into one request). Shared by the SSR prefetch and the client replay hook so
+  // the dehydrated cache hydrates without a client refetch.
+  latestOutput: (id: string) =>
+    [...planningSessionKeys.detail(id), "latest-output"] as const,
   active: () => [...planningSessionKeys.all, "active"] as const,
 };
 

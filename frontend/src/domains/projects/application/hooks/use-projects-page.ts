@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { githubApi } from "@/lib/api/client";
 import { githubKeys } from "@/domains/github/application/hooks/use-github-summary";
@@ -108,21 +108,30 @@ export const useProjectsPage = () => {
     [projects]
   );
 
-  const githubSummaryQueries = useQueries({
-    queries: githubProjects.map((project) => ({
-      queryKey: githubKeys.summary(project.id),
-      queryFn: () =>
-        githubApi.getSummary(project.id) as Promise<GithubProjectSummary>,
-      enabled: !!project.id,
-      staleTime: 300_000,
-    })),
+  // Stable list of the project ids that have a GitHub repo. Used both as the
+  // batch request payload and (joined) as the query key.
+  const githubProjectIds = useMemo(
+    () => githubProjects.map((project) => project.id),
+    [githubProjects]
+  );
+
+  // ONE batch request instead of one summary request per project (N+1 → 1).
+  const githubSummariesQuery = useQuery({
+    queryKey: githubKeys.summaries(githubProjectIds),
+    queryFn: () =>
+      githubApi.getSummaries(githubProjectIds) as Promise<
+        Record<string, GithubProjectSummary>
+      >,
+    enabled: githubProjectIds.length > 0,
+    staleTime: 300_000,
   });
 
   const githubSummaryByProjectId = useMemo(() => {
     const summaryByProjectId: Record<string, ProjectGithubInfo> = {};
+    const summariesByProjectId = githubSummariesQuery.data ?? {};
 
-    githubProjects.forEach((project, index) => {
-      const summary = githubSummaryQueries[index]?.data;
+    githubProjects.forEach((project) => {
+      const summary = summariesByProjectId[project.id];
       const githubRepo = project.repositories.find(
         (repository) => repository.provider === "github"
       );
@@ -137,7 +146,7 @@ export const useProjectsPage = () => {
     });
 
     return summaryByProjectId;
-  }, [githubProjects, githubSummaryQueries]);
+  }, [githubProjects, githubSummariesQuery.data]);
 
   const projectsWithGithub = useMemo(
     () =>

@@ -3,20 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { planningSessionKeys } from "../../domain/query-keys";
 import { planningSessionsApi } from "../../infrastructure/api/planning-api";
-import { request } from "@/lib/api/client";
 import type { PlanningSession, PlanningMessage } from "../../domain/types";
 import type { AgentLogChunk } from "@/domains/shared/domain/types";
-
-interface AgentJobSummary {
-  id: string;
-  status: string;
-  planningSessionId: string | null;
-}
-
-interface AgentSessionOutput {
-  jobId: string;
-  chunks: AgentLogChunk[];
-}
 
 /**
  * Convert agent_job_logs transcript chunks into PlanningMessage[] for replay.
@@ -82,26 +70,12 @@ export const useSessionReplay = (sessionId: string) => {
     enabled: !!sessionId,
   });
 
-  // Find the latest job for this planning session
-  const jobsQuery = useQuery({
-    queryKey: ["agent-jobs", "by-session", sessionId],
-    queryFn: () =>
-      request<AgentJobSummary[]>(
-        `/agent-jobs?planningSessionId=${sessionId}&limit=1&sort=createdAt:desc`
-      ),
-    enabled: !!sessionId,
-  });
-
-  const latestJobId = jobsQuery.data?.[0]?.id ?? null;
-
-  // Fetch the transcript chunks for the latest job
+  // Latest job output resolved in ONE call (jobs -> output collapsed backend-side)
+  // instead of chaining list-jobs then fetch-output round-trips.
   const outputQuery = useQuery({
-    queryKey: ["agent-jobs", latestJobId, "output", "replay"],
-    queryFn: () =>
-      request<AgentSessionOutput>(
-        `/agent-jobs/${latestJobId!}/output?limit=1000`
-      ),
-    enabled: !!latestJobId,
+    queryKey: planningSessionKeys.latestOutput(sessionId),
+    queryFn: () => planningSessionsApi.getLatestOutput(sessionId),
+    enabled: !!sessionId,
   });
 
   const messages =
@@ -112,8 +86,7 @@ export const useSessionReplay = (sessionId: string) => {
   return {
     session: sessionQuery.data ?? null,
     messages,
-    isLoading:
-      sessionQuery.isLoading || jobsQuery.isLoading || outputQuery.isLoading,
-    error: sessionQuery.error ?? jobsQuery.error ?? outputQuery.error ?? null,
+    isLoading: sessionQuery.isLoading || outputQuery.isLoading,
+    error: sessionQuery.error ?? outputQuery.error ?? null,
   };
 };

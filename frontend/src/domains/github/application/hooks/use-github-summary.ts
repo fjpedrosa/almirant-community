@@ -9,6 +9,8 @@ export const githubKeys = {
   all: ["github"] as const,
   summary: (projectId: string) =>
     [...githubKeys.all, "summary", projectId] as const,
+  summaries: (projectIds: string[]) =>
+    [...githubKeys.all, "summaries", [...projectIds].sort().join(",")] as const,
   prs: (projectId: string) =>
     [...githubKeys.all, "prs", projectId] as const,
   commits: (projectId: string) =>

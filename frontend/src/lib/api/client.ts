@@ -1450,6 +1450,14 @@ export const githubApi = {
   getSummary: (projectId: string) =>
     request<unknown>(`/github/projects/${projectId}/summary`),
 
+  // Batch: one call for many projects. Returns { [projectId]: summary },
+  // collapsing the per-project getSummary N+1 fan-out.
+  getSummaries: (projectIds: string[]) =>
+    request<Record<string, unknown>>("/github/projects/summaries", {
+      method: "POST",
+      body: JSON.stringify({ projectIds }),
+    }),
+
   getPullRequests: (projectId: string, state?: string) =>
     request<unknown>(`/github/projects/${projectId}/prs${state ? `?state=${state}` : ""}`),
 

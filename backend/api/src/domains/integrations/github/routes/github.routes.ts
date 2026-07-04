@@ -775,6 +775,36 @@ export const githubRoutes = new Elysia({ prefix: "/github" })
     }),
   })
 
+  // POST /github/projects/summaries — GitHub summaries for many projects in one call
+  // Collapses the per-project N+1 fan-out (one GET /projects/:id/summary each)
+  // into a single request. Reuses the exact same per-project logic
+  // (getGithubSummaryForProject) and scopes every id to the active workspace.
+  .post("/projects/summaries", async ({ body, activeWorkspace }) => {
+    const orgId = (activeWorkspace as { id: string }).id;
+
+    const summaries: Record<
+      string,
+      Awaited<ReturnType<typeof getGithubSummaryForProject>>
+    > = {};
+
+    await Promise.all(
+      body.projectIds.map(async (projectId) => {
+        // Enforce workspace ownership per id, mirroring the single endpoint.
+        const project = await getProjectById(orgId, projectId);
+        if (!project) return;
+
+        const summary = await getGithubSummaryForProject(projectId);
+        if (summary) summaries[projectId] = summary;
+      }),
+    );
+
+    return successResponse(summaries);
+  }, {
+    body: t.Object({
+      projectIds: t.Array(t.String()),
+    }),
+  })
+
   // GET /github/projects/:id/prs — Pull requests for a project
   .get("/projects/:id/prs", async ({ params, query, set, activeWorkspace }) => {
     const orgId = (activeWorkspace as { id: string }).id;

@@ -17,6 +17,14 @@ import type {
   SeedWorkItemLink,
 } from "../../domain/types";
 import type { SessionEventRecord } from "@/domains/sessions/domain/types";
+import type { AgentLogChunk } from "@/domains/shared/domain/types";
+
+export interface PlanningLatestOutput {
+  jobId: string | null;
+  sessionId: string;
+  chunks: AgentLogChunk[];
+  text: string;
+}
 
 type PlanningSessionWorkItem = {
   id: string;
@@ -119,6 +127,15 @@ export const planningSessionsApi = {
   getSessionProjection: (sessionId: string) =>
     request<unknown>(
       `/planning-sessions/${sessionId}/session-projection`
+    ),
+
+  /**
+   * Latest agent-job output for a session in ONE call. Collapses the
+   * jobs -> output chain (list jobs, take the newest, fetch its output).
+   */
+  getLatestOutput: (sessionId: string) =>
+    request<PlanningLatestOutput>(
+      `/planning-sessions/${sessionId}/latest-output?limit=1000`
     ),
 
   addSeed: (sessionId: string, seedId: string) =>

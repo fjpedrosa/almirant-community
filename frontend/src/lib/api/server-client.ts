@@ -140,6 +140,16 @@ export const planningServerApi = {
     serverRequest<PlanningSessionWithPendingInteraction>(
       `/planning-sessions/${encodeURIComponent(id)}`,
     ),
+  /**
+   * Latest agent-job output for a session in ONE call. Mirrors the client
+   * `planningSessionsApi.getLatestOutput` route so the shared
+   * `planningSessionKeys.latestOutput(id)` cache entry hydrates without a
+   * refetch, collapsing the old jobs -> output SSR chain.
+   */
+  getLatestOutput: <T = unknown>(sessionId: string): Promise<T> =>
+    serverRequest<T>(
+      `/planning-sessions/${encodeURIComponent(sessionId)}/latest-output?limit=1000`,
+    ),
 };
 
 export const agentJobsServerApi = {

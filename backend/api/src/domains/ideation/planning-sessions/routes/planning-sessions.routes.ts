@@ -25,6 +25,7 @@ import {
   getSessionEventsBySessionId,
   getRepositories,
   getJobById,
+  listAgentJobLogsByJobId,
 } from "@almirant/database";
 import { resolveRuntime } from "@almirant/shared";
 import {
@@ -1139,6 +1140,79 @@ Examples:
     },
     {
       params: t.Object({ id: t.String() }),
+    }
+  )
+
+  // GET /planning-sessions/:id/latest-output — Output of the latest job in one call
+  // Collapses the jobs->output chain the replay UI does today (list jobs by
+  // session, take the newest, then fetch that job's output) into a single
+  // request. Reuses the existing getLatestJobForPlanningSession +
+  // listAgentJobLogsByJobId logic and returns the same chunk shape as
+  // GET /agent-jobs/:id/output.
+  .get(
+    "/:id/latest-output",
+    async (ctx) => {
+      try {
+        const { params, query, set } = ctx;
+        const workspaceId = getWorkspaceIdFromContext(ctx);
+
+        const session = await getPlanningSessionById(params.id);
+        if (!session || session.workspaceId !== workspaceId) {
+          set.status = 404;
+          return notFoundResponse("Planning session");
+        }
+
+        const latestJob = await getLatestJobForPlanningSession(params.id);
+        if (!latestJob) {
+          return successResponse({
+            jobId: null,
+            sessionId: params.id,
+            chunks: [],
+            text: "",
+            nextCursor: null,
+            hasMore: false,
+          });
+        }
+
+        const limitRaw = query.limit ? Number.parseInt(query.limit, 10) : 1000;
+        const limit =
+          Number.isFinite(limitRaw) && limitRaw > 0
+            ? Math.min(limitRaw, 5000)
+            : 1000;
+
+        const result = await listAgentJobLogsByJobId(latestJob.id, { limit });
+        const chunks = result.logs.map((log) => ({
+          id: log.id,
+          seq: log.seq,
+          level: log.level,
+          phase: log.phase,
+          eventType: log.eventType,
+          message: log.message,
+          contentType: log.contentType,
+          payload: log.payload ?? {},
+          timestamp:
+            log.timestamp instanceof Date
+              ? log.timestamp.toISOString()
+              : new Date(log.timestamp).toISOString(),
+        }));
+
+        return successResponse({
+          jobId: latestJob.id,
+          sessionId: params.id,
+          chunks,
+          text: chunks.map((chunk) => chunk.message).join("\n"),
+          nextCursor: result.nextCursor,
+          hasMore: result.nextCursor !== null,
+        });
+      } catch (error) {
+        const mapped = mapPlanningErrorToHttp(normalizeErrorMessage(error));
+        ctx.set.status = mapped.status;
+        return errorResponse(mapped.message, mapped.status);
+      }
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      query: t.Object({ limit: t.Optional(t.String()) }),
     }
   )
 
