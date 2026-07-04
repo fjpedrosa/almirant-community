@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { agentJobsApi } from "@/lib/api/client";
 import { useOrgScopedKey } from "@/lib/query-keys";
 import { useActiveTeam } from "@/domains/teams/application/hooks/use-active-team";
+import { jobCollectionPollInterval } from "../../domain/polling";
 import type { AgentJob } from "../../domain/types";
 
 export const agentJobKeys = {
@@ -53,6 +54,16 @@ export const useAgentJobStatus = (workItemId: string) => {
     },
     select: (jobs) => jobs.find((j) => j.status === "queued" || j.status === "running" || j.status === "finalizing" || j.status === "waiting_for_input" || j.status === "paused") ?? null,
     enabled: !!workItemId && !!confirmedActiveTeamId,
-    refetchInterval: 10000,
+    // Poll only while this work item has an active job; once it is terminal the
+    // status is fixed. `agent-job:status-changed` WS events invalidate this key,
+    // so a new job for the work item still refreshes the badge.
+    refetchInterval: (query) => {
+      const jobs = (query.state.data as AgentJob[] | undefined) ?? [];
+      return jobCollectionPollInterval(
+        jobs.map((job) => job.status),
+        5000,
+        false,
+      );
+    },
   });
 };

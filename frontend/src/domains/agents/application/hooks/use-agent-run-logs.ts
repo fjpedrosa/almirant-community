@@ -4,6 +4,10 @@ import { useMemo } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { agentJobsApi, requestWithMeta } from "@/lib/api/client";
 import { useActiveTeam } from "@/domains/teams/application/hooks/use-active-team";
+import {
+  activeJobPollInterval,
+  jobCollectionPollInterval,
+} from "../../domain/polling";
 import { agentJobKeys } from "./use-agent-jobs";
 import type {
   AgentJob,
@@ -29,25 +33,14 @@ type UseAgentRunsOptions = {
 type UseAgentJobLogsOptions = {
   enabled?: boolean;
   activeRefetchIntervalMs?: number;
-  idleRefetchIntervalMs?: number;
   isActiveJob?: boolean;
 };
-
-const ACTIVE_STATUS_SET = new Set<AgentJobStatus>([
-  "queued",
-  "running",
-  "finalizing",
-  "waiting_for_input",
-  "paused",
-]);
 
 const DEFAULT_RUNS_LIMIT = 30;
 const DEFAULT_LOGS_LIMIT = 100;
 
 const ACTIVE_RUNS_REFETCH_MS = 8_000;
-const IDLE_RUNS_REFETCH_MS = 20_000;
 const ACTIVE_LOGS_REFETCH_MS = 5_000;
-const IDLE_LOGS_REFETCH_MS = 20_000;
 
 const serializeQuery = (record: Record<string, unknown>): string => {
   const sorted = Object.entries(record)
@@ -132,10 +125,16 @@ export const useAgentRuns = (
     enabled:
       (options?.enabled ?? true) &&
       !!confirmedActiveTeamId,
+    // Poll fast while any run is active; stop entirely once all runs are
+    // terminal. The WebSocket provider invalidates `agentJobKeys.all` on
+    // `agent-job:status-changed`, so new/updated runs still refresh the list.
     refetchInterval: (queryState) => {
       const jobs = queryState.state.data?.data ?? [];
-      const hasActiveRuns = jobs.some((job) => ACTIVE_STATUS_SET.has(job.status));
-      return hasActiveRuns ? ACTIVE_RUNS_REFETCH_MS : IDLE_RUNS_REFETCH_MS;
+      return jobCollectionPollInterval(
+        jobs.map((job) => job.status),
+        ACTIVE_RUNS_REFETCH_MS,
+        false,
+      );
     },
   });
 
@@ -220,10 +219,13 @@ export const useAgentJobLogs = (
       !!jobId &&
       !!confirmedActiveTeamId &&
       (options?.enabled ?? true),
-    refetchInterval:
-      options?.isActiveJob === true
-        ? options?.activeRefetchIntervalMs ?? ACTIVE_LOGS_REFETCH_MS
-        : options?.idleRefetchIntervalMs ?? IDLE_LOGS_REFETCH_MS,
+    // A terminal job's logs are frozen: stop polling and mark them permanently
+    // fresh so remounts don't refetch. Active jobs keep streaming at 5s.
+    refetchInterval: activeJobPollInterval(
+      options?.isActiveJob === true,
+      options?.activeRefetchIntervalMs ?? ACTIVE_LOGS_REFETCH_MS,
+    ),
+    staleTime: options?.isActiveJob === true ? 0 : Infinity,
   });
 
   return {
@@ -301,10 +303,13 @@ export const useInfiniteAgentJobLogs = (
       !!jobId &&
       !!confirmedActiveTeamId &&
       (options?.enabled ?? true),
-    refetchInterval:
-      options?.isActiveJob === true
-        ? options?.activeRefetchIntervalMs ?? ACTIVE_LOGS_REFETCH_MS
-        : options?.idleRefetchIntervalMs ?? IDLE_LOGS_REFETCH_MS,
+    // A terminal job's logs are frozen: stop polling and mark them permanently
+    // fresh so remounts don't refetch. Active jobs keep streaming at 5s.
+    refetchInterval: activeJobPollInterval(
+      options?.isActiveJob === true,
+      options?.activeRefetchIntervalMs ?? ACTIVE_LOGS_REFETCH_MS,
+    ),
+    staleTime: options?.isActiveJob === true ? 0 : Infinity,
   });
 
   const logs = query.data?.pages.flatMap((page) => page.logs) ?? [];

@@ -15,7 +15,8 @@ export const useVercelStatus = () => {
     queryKey: vercelKeys.status(),
     queryFn: () =>
       vercelApi.getStatus() as Promise<VercelConnectionStatus>,
+    // No refetchOnWindowFocus override: the connection status rarely changes, so
+    // it inherits the global `false` instead of re-fetching on every tab focus.
     staleTime: 60_000,
-    refetchOnWindowFocus: true,
   });
 };

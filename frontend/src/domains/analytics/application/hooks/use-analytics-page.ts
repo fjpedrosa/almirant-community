@@ -19,24 +19,28 @@ export const useAnalyticsPage = () => {
   const queryClient = useQueryClient();
   const t = useTranslations("analytics");
 
+  // Overview is a headline KPI card: 60s is fresh enough (was 30s).
   const overviewQuery = useQuery({
     queryKey: analyticsKeys.overview(),
     queryFn: analyticsApi.getOverview,
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   });
 
+  // 12-month trends and the users table are historical/aggregate data that
+  // barely move between visits — no interval, refetch on mount / invalidation.
   const trendsQuery = useQuery({
     queryKey: analyticsKeys.trends(12),
     queryFn: () => analyticsApi.getTrends(12),
-    refetchInterval: 30_000,
+    staleTime: 5 * 60_000,
   });
 
   const usersQuery = useQuery({
     queryKey: analyticsKeys.users(),
     queryFn: () => analyticsApi.getUsers(),
-    refetchInterval: 30_000,
+    staleTime: 5 * 60_000,
   });
 
+  // System monitoring is the one genuinely live panel — keep the short poll.
   const systemMonitoringQuery = useQuery({
     queryKey: analyticsKeys.systemMonitoring("1h"),
     queryFn: () => analyticsApi.getSystemMonitoring("1h"),

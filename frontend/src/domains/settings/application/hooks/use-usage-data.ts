@@ -22,11 +22,16 @@ const usageKeys = {
     [...usageKeys.all, "history", months ?? 6] as const,
 };
 
+// Usage totals are slow-moving aggregates; a 5min refresh is plenty and drops
+// the previous 30s treadmill by 10x.
+const USAGE_REFETCH_MS = 5 * 60_000;
+
 export const useUsageSummary = (projectId?: string) => {
   return useQuery({
     queryKey: usageKeys.summary(projectId),
     queryFn: () => usageApi.getSummary(projectId),
-    refetchInterval: 30_000,
+    refetchInterval: USAGE_REFETCH_MS,
+    staleTime: USAGE_REFETCH_MS,
   });
 };
 
@@ -34,19 +39,23 @@ export const useUsageHistory = (months?: number) => {
   return useQuery({
     queryKey: usageKeys.history(months),
     queryFn: () => usageApi.getHistory(months),
-    refetchInterval: 30_000,
+    refetchInterval: USAGE_REFETCH_MS,
+    staleTime: USAGE_REFETCH_MS,
   });
 };
 
 export const useUsageProjectSummaries = (
   projects: UsageProjectSummaryProject[]
 ) => {
+  // No interval here: this fans out one request PER project every tick — the
+  // worst offender. Fetch once and lean on staleTime; the page-level summary
+  // already refreshes on its own cadence.
   const queries = useQueries({
     queries: projects.map((project) => ({
       queryKey: usageKeys.summary(project.id),
       queryFn: () => usageApi.getSummary(project.id),
       enabled: !!project.id,
-      refetchInterval: 30_000,
+      staleTime: USAGE_REFETCH_MS,
     })),
   });
 
