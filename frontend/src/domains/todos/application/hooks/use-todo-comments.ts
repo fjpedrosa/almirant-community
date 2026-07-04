@@ -6,7 +6,7 @@ import { showToast } from "@/domains/shared/presentation/utils/show-toast";
 import { todosApi } from "@/lib/api/client";
 import { hasVisibleContent } from "@/lib/comment-utils";
 import type { TodoItemComment } from "../../domain/types";
-import { todoKeys } from "./use-todos";
+import { todoMutationKeys } from "../../domain/query-keys";
 
 const commentKeys = {
   all: (todoItemId: string) => ["todos", todoItemId, "comments"] as const,
@@ -74,7 +74,9 @@ export const useTodoComments = (todoItemId: string | null) => {
     mutationFn: (content: string) => todosApi.addComment(todoItemId!, content),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: commentKeys.all(todoItemId!) });
-      queryClient.invalidateQueries({ queryKey: todoKeys.all });
+      for (const queryKey of todoMutationKeys(todoItemId!)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       setNewCommentValue("");
     },
     onError: (error) => {
@@ -99,7 +101,9 @@ export const useTodoComments = (todoItemId: string | null) => {
     mutationFn: (commentId: string) => todosApi.deleteComment(todoItemId!, commentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: commentKeys.all(todoItemId!) });
-      queryClient.invalidateQueries({ queryKey: todoKeys.all });
+      for (const queryKey of todoMutationKeys(todoItemId!)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
     onError: (error) => {
       showToast.error(error instanceof Error ? error.message : "Error al eliminar comentario");

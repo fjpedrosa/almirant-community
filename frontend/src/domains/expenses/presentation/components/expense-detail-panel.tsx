@@ -32,11 +32,10 @@ import {
 } from "@/components/ui/select";
 import { MarkdownPreview } from "@/domains/shared/presentation/components/markdown-preview";
 import { cn } from "@/lib/utils";
-import type { ExpenseDetailPanelProps, ExpenseStatus, InvoiceProcessingStatus, ExpenseWithRelations, ExpenseCategory } from "../../domain/types";
+import type { ExpenseDetailPanelProps, ExpenseStatus, InvoiceProcessingStatus, ExpenseWithRelations, ExpenseCategory, CurrencyCode } from "../../domain/types";
 import type { TeamMemberUser } from "@/domains/teams/domain/types";
 import { useUpdateExpense, useExpenseCategories } from "../../application/hooks/use-expenses";
 import { useTeamMembersSelect } from "@/domains/teams/application/hooks/use-team-members-select";
-import { useQueryClient } from "@tanstack/react-query";
 
 // --- Utility Functions ---
 
@@ -1007,17 +1006,16 @@ export function ExpenseDetailPanel({
     const { members } = useTeamMembersSelect()
     const { mutate: updateExpense, isPending: isUpdating } = useUpdateExpense()
 
-    const queryClient = useQueryClient()
-
-    const handleFieldSave = async (field: string, value: unknown) => {
+    // `useUpdateExpense` already invalidates lists + aggregations + detail on
+    // success, so no manual invalidation is needed here (the previous manual
+    // `invalidateQueries` also raced: it awaited a `mutate`, which returns void).
+    const handleFieldSave = (field: string, value: unknown) => {
         if (!item) return
         setSavingField(field)
-        try {
-            await updateExpense({ id: item.id, data: { [field]: value } })
-            await queryClient.invalidateQueries({ queryKey: ["expenses"] })
-        } finally {
-            setSavingField(null)
-        }
+        updateExpense(
+            { id: item.id, data: { [field]: value } },
+            { onSettled: () => setSavingField(null) },
+        )
     }
 
     const handleTitleSave = (title: string) => handleFieldSave("title", title)
@@ -1027,9 +1025,15 @@ export function ExpenseDetailPanel({
     const handleCategorySave = (categoryId: string | null) => handleFieldSave("categoryId", categoryId)
     const handlePaidBySave = (userId: string | null) => handleFieldSave("paidByUserId", userId)
     const handleStatusFieldSave = (status: ExpenseStatus) => handleFieldSave("status", status)
+    // Combine amount + currency into a SINGLE update so an amount edit fires one
+    // mutation (one PATCH, one invalidation) instead of two racing ones.
     const handleAmountSave = (data: { amount: string; currency: string }) => {
-        handleFieldSave("amount", data.amount)
-        handleFieldSave("currency", data.currency)
+        if (!item) return
+        setSavingField("amount")
+        updateExpense(
+            { id: item.id, data: { amount: data.amount, currency: data.currency as CurrencyCode } },
+            { onSettled: () => setSavingField(null) },
+        )
     }
 
     return (

@@ -13,7 +13,7 @@ import type {
   SeedWithRelations,
   UpdateSeedRequest,
 } from "@/domains/planning/domain/types";
-import { seedKeys } from "@/domains/planning/domain/query-keys";
+import { seedKeys, seedMutationKeys } from "@/domains/planning/domain/query-keys";
 import { seedsApi } from "@/domains/planning/infrastructure/api/planning-api";
 import {
   useSeed,
@@ -73,8 +73,9 @@ export const useSeedDetailPanel = (
     mutationFn: ({ id, ownerUserId }: { id: string; ownerUserId: string | null }) =>
       seedsApi.setOwner(id, ownerUserId),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: seedKeys.all });
-      queryClient.invalidateQueries({ queryKey: seedKeys.detail(variables.id) });
+      for (const queryKey of seedMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 
@@ -145,8 +146,9 @@ export const useSeedDetailPanel = (
         { id: itemId, data },
         {
           onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: seedKeys.all });
-            queryClient.invalidateQueries({ queryKey: seedKeys.detail(itemId) });
+            for (const queryKey of seedMutationKeys(itemId)) {
+              queryClient.invalidateQueries({ queryKey });
+            }
           },
           onSettled: () => setSavingField(null),
         },

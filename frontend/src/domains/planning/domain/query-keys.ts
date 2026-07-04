@@ -1,3 +1,5 @@
+import type { QueryKey } from "@tanstack/react-query";
+
 export const planningSessionKeys = {
   all: ["planning-sessions"] as const,
   lists: () => [...planningSessionKeys.all, "list"] as const,
@@ -24,4 +26,26 @@ export const seedKeys = {
     [...seedKeys.detail(id), "traceability"] as const,
   tags: (id: string) => [...seedKeys.detail(id), "tags"] as const,
   selected: () => [...seedKeys.all, "selected"] as const,
+};
+
+/**
+ * Query keys to invalidate after a single-seed mutation
+ * (create / update / delete / status / owner / priority / tags / selection / comment).
+ *
+ * Narrow scope (S2 fix): only the paginated lists, the "selected for ideation"
+ * list, and the specific seed detail — NEVER the whole `seedKeys.all` namespace,
+ * which additionally refetches every OTHER seed's detail/comments/history/
+ * traceability/tags query.
+ *
+ * Correctness notes:
+ * - `seedKeys.detail(id)` is a prefix of `comments(id)`, `history(id)`,
+ *   `traceability(id)` and `tags(id)`, so invalidating it (default partial match)
+ *   also refreshes those nested detail-panel sub-queries.
+ * - `seedKeys.selected()` is kept because it lives OUTSIDE `lists()`/`detail(id)`;
+ *   selection toggles (and edits to a selected seed) must refresh it.
+ */
+export const seedMutationKeys = (id?: string): QueryKey[] => {
+  const keys: QueryKey[] = [seedKeys.lists(), seedKeys.selected()];
+  if (id) keys.push(seedKeys.detail(id));
+  return keys;
 };

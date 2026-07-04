@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { showToast } from "@/domains/shared/presentation/utils/show-toast";
 import { useAuth } from "@/domains/auth/application/hooks/use-auth";
 import { uploadsApi } from "@/lib/api/client";
@@ -14,7 +13,6 @@ import type {
 import { useTodoComments } from "./use-todo-comments";
 import { useAddTodoTag, useRemoveTodoTag } from "./use-todo-tags";
 import {
-  todoKeys,
   useAssignTodoOwner,
   useSetTodoDueDate,
   useSetTodoPriority,
@@ -32,7 +30,6 @@ export const useTodoDetailPanel = (
   itemFromList: TodoItemWithRelations | null,
 ) => {
   const { user } = useAuth();
-  const queryClient = useQueryClient();
 
   const [savingField, setSavingField] = useState<EditableField | null>(null);
 
@@ -135,18 +132,16 @@ export const useTodoDetailPanel = (
       if (field === "description") data.description = value;
       if (field === "project") data.projectId = value;
 
+      // `useUpdateTodo` already invalidates lists() + detail(id) on success —
+      // no extra invalidation needed here.
       updateItemMutation.mutate(
         { id: itemId, data },
         {
-          onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: todoKeys.all });
-            queryClient.invalidateQueries({ queryKey: todoKeys.detail(itemId) });
-          },
           onSettled: () => setSavingField(null),
         },
       );
     },
-    [itemId, updateItemMutation, queryClient],
+    [itemId, updateItemMutation],
   );
 
   const handleTitleChange = useCallback(

@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ideasApi } from "@/lib/api/client";
-import { ideaKeys } from "./use-ideas";
+import { ideaMutationKeys } from "../../domain/query-keys";
 
 export const useAddIdeaTag = () => {
   const queryClient = useQueryClient();
@@ -15,8 +15,9 @@ export const useAddIdeaTag = () => {
       data: { tagId?: string; name?: string; color?: string };
     }) => ideasApi.addTag(id, data),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: ideaKeys.all });
-      queryClient.invalidateQueries({ queryKey: ideaKeys.detail(variables.id) });
+      for (const queryKey of ideaMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
@@ -27,8 +28,9 @@ export const useRemoveIdeaTag = () => {
     mutationFn: ({ id, tagId }: { id: string; tagId: string }) =>
       ideasApi.removeTag(id, tagId),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: ideaKeys.all });
-      queryClient.invalidateQueries({ queryKey: ideaKeys.detail(variables.id) });
+      for (const queryKey of ideaMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };

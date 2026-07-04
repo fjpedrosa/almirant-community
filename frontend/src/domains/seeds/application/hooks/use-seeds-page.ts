@@ -13,7 +13,7 @@ import { useProjects } from "@/domains/projects/application/hooks/use-projects";
 import { useTags } from "@/domains/tags/application/hooks/use-tags";
 import { useTeamMembersSelect } from "@/domains/teams/application/hooks/use-team-members-select";
 import { workItemKeys } from "@/domains/work-items/application/hooks/use-work-items";
-import { seedKeys } from "@/domains/planning/domain/query-keys";
+import { seedMutationKeys } from "@/domains/planning/domain/query-keys";
 import { seedsApi } from "@/domains/planning/infrastructure/api/planning-api";
 import {
   useDeleteSeed,
@@ -85,8 +85,10 @@ export const useSeedsPage = () => {
       id: string;
       ownerUserId: string | null;
     }) => seedsApi.setOwner(id, ownerUserId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: seedKeys.all });
+    onSuccess: (_result, variables) => {
+      for (const queryKey of seedMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 
@@ -98,8 +100,10 @@ export const useSeedsPage = () => {
       seedId: string;
       data: PromoteSeedRequest;
     }) => seedsApi.promote(seedId, promoteData),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: seedKeys.all });
+    onSuccess: (_result, variables) => {
+      for (const queryKey of seedMutationKeys(variables.seedId)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       queryClient.invalidateQueries({ queryKey: workItemKeys.all });
       showToast.success(t("seedPromoted"));
     },
@@ -117,10 +121,9 @@ export const useSeedsPage = () => {
       data: { tagId?: string; name?: string; color?: string };
     }) => seedsApi.addTag(id, tagData),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: seedKeys.all });
-      queryClient.invalidateQueries({
-        queryKey: seedKeys.detail(variables.id),
-      });
+      for (const queryKey of seedMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 
@@ -128,10 +131,9 @@ export const useSeedsPage = () => {
     mutationFn: ({ id, tagId }: { id: string; tagId: string }) =>
       seedsApi.removeTag(id, tagId),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: seedKeys.all });
-      queryClient.invalidateQueries({
-        queryKey: seedKeys.detail(variables.id),
-      });
+      for (const queryKey of seedMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 

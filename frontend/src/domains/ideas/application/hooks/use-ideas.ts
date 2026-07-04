@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { ideasApi } from "@/lib/api/client";
 import { useOrgScopedKey } from "@/lib/query-keys";
+import { ideaKeys, ideaMutationKeys } from "../../domain/query-keys";
 import type {
   IdeaCommentVersion,
   IdeaItemEvent,
@@ -12,17 +13,8 @@ import type {
   PaginatedIdeaItemsResponse,
 } from "../../domain/types";
 
-export const ideaKeys = {
-  all: ["ideas"] as const,
-  lists: () => [...ideaKeys.all, "list"] as const,
-  list: (filters: string) => [...ideaKeys.lists(), filters] as const,
-  details: () => [...ideaKeys.all, "detail"] as const,
-  detail: (id: string) => [...ideaKeys.details(), id] as const,
-  commentHistory: (ideaItemId: string, commentId: string) =>
-    [...ideaKeys.all, "comment-history", ideaItemId, commentId] as const,
-  traceability: () => [...ideaKeys.all, "traceability"] as const,
-  traceabilityById: (id: string) => [...ideaKeys.traceability(), id] as const,
-};
+// Re-exported so existing imports (`from "./use-ideas"`) keep working.
+export { ideaKeys, ideaMutationKeys };
 
 export const useIdeas = (params?: URLSearchParams) => {
   const scopedKey = useOrgScopedKey(ideaKeys.list(params?.toString() ?? ""));
@@ -102,8 +94,10 @@ export const useDeleteIdeaItem = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => ideasApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ideaKeys.all });
+    onSuccess: (_result, id) => {
+      for (const queryKey of ideaMutationKeys(id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
@@ -114,8 +108,9 @@ export const useSetIdeaItemStatus = () => {
     mutationFn: ({ id, status }: { id: string; status: IdeaItemStatus }) =>
       ideasApi.setStatus(id, status),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: ideaKeys.all });
-      queryClient.invalidateQueries({ queryKey: ideaKeys.detail(variables.id) });
+      for (const queryKey of ideaMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
@@ -126,8 +121,9 @@ export const useAssignIdeaItemOwner = () => {
     mutationFn: ({ id, ownerUserId }: { id: string; ownerUserId: string | null }) =>
       ideasApi.setOwner(id, ownerUserId),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: ideaKeys.all });
-      queryClient.invalidateQueries({ queryKey: ideaKeys.detail(variables.id) });
+      for (const queryKey of ideaMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
@@ -138,8 +134,9 @@ export const useSetIdeaItemDueDate = () => {
     mutationFn: ({ id, dueDate }: { id: string; dueDate: string | null }) =>
       ideasApi.setDueDate(id, dueDate),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: ideaKeys.all });
-      queryClient.invalidateQueries({ queryKey: ideaKeys.detail(variables.id) });
+      for (const queryKey of ideaMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
@@ -149,8 +146,10 @@ export const useToggleDiscussed = () => {
   return useMutation({
     mutationFn: ({ id, discussed }: { id: string; discussed: boolean }) =>
       ideasApi.toggleDiscussed(id, discussed),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ideaKeys.all });
+    onSuccess: (_result, variables) => {
+      for (const queryKey of ideaMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
