@@ -11,6 +11,14 @@ export const planningSessionKeys = {
     [...planningSessionKeys.detail(id), "seeds"] as const,
   workItems: (id: string) =>
     [...planningSessionKeys.detail(id), "work-items"] as const,
+  // Cache key for the composite transcript/replay load (jobs -> traces -> messages)
+  // built by `loadMessagesFromLogs`. Nested under `detail(id)` so it invalidates
+  // alongside the session detail.
+  replayLogs: (id: string) =>
+    [...planningSessionKeys.detail(id), "replay-logs"] as const,
+  // Cache key for a single historical agent-job replay trace (keyed by jobId).
+  replayTrace: (jobId: string) =>
+    [...planningSessionKeys.all, "replay-trace", jobId] as const,
   active: () => [...planningSessionKeys.all, "active"] as const,
 };
 

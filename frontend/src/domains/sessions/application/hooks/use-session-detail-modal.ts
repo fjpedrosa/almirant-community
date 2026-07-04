@@ -19,6 +19,7 @@ import { useChatFeedback } from "@/domains/ai-planning/application/hooks/use-cha
 import { parseChunksToStreamingBlocks } from "../utils/chunk-to-block-parser";
 import { chunksToConversationMessages } from "../utils/chunks-to-conversation-messages";
 import { getSessionDurationMs, formatDuration } from "../../domain/utils";
+import { computeSessionModalGates } from "../../domain/session-modal-gating";
 
 const SESSION_DETAIL_URL_OPTIONS = {
   legacyParamNames: ["sessionId"],
@@ -34,10 +35,16 @@ export const useSessionDetailModal = () => {
   const status = detail?.job.status ?? null;
   const isLive = isAgentSessionActive(status);
 
+  // The jobId is known from the URL (`selectedItemId`), so the secondary queries
+  // fire in PARALLEL with `detail` instead of waterfalling behind it. Only `isOpen`
+  // gates them; data that genuinely needs `detail` (provider for display, isLive for
+  // poll cadence) is still passed through and refines the query once detail arrives.
+  const gates = computeSessionModalGates(isOpen);
+
   const { chunks, rawChunks, isLoading: isOutputLoading } = useSessionOutput(
     selectedItemId,
     status,
-    { enabled: isOpen && !!detail, provider: detail?.job.provider ?? null }
+    { enabled: gates.output, provider: detail?.job.provider ?? null }
   );
 
   const { transcript, segments, isStreaming, isLoading: isTranscriptLoading } =
@@ -47,7 +54,7 @@ export const useSessionDetailModal = () => {
 
   const { data: resourceTimeline, isLoading: isResourceTimelineLoading } =
     useResourceTimeline(selectedItemId, {
-      enabled: isOpen && !!detail,
+      enabled: gates.resourceTimeline,
       isLive,
     });
 
