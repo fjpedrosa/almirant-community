@@ -19,11 +19,12 @@ const feedbackKeys = {
     ["backoffice", "feedback", "comments", feedbackItemId] as const,
 };
 
-mock.module("@/domains/work-items/application/hooks/use-work-items", () => ({
-  workItemKeys: {
-    detail: (id: string) => ["work-items", id] as const,
-  },
-}));
+// NOTE: We intentionally do NOT mock `use-work-items` here. Bun's `mock.module`
+// is global and leaks across files; a partial stub of `use-work-items` (missing
+// its hooks) poisoned the real work-items hook tests. This test never asserts on
+// work-item query keys, so it uses the real module — the auth-client mock below
+// keeps the import chain (query-keys -> use-active-team -> auth-client) from
+// throwing on a null base URL.
 
 mock.module("@/domains/agents/application/hooks/use-agent-jobs", () => ({
   agentJobKeys: {
@@ -111,10 +112,19 @@ mock.module("../../application/hooks/use-websocket", () => ({
   }),
 }));
 
-mock.module("@/domains/teams/application/hooks/use-active-team", () => ({
-  useActiveTeam: () => ({
-    confirmedActiveTeamId: "team-1",
-  }),
+// Mock the better-auth client (not `use-active-team` itself) so the real
+// useActiveTeam runs and resolves a confirmed org, without leaking a
+// use-active-team stub into other files that render real work-item hooks.
+mock.module("@/lib/auth-client", () => ({
+  authClient: {
+    useActiveOrganization: () => ({
+      data: { id: "team-1" },
+      isPending: false,
+    }),
+    organization: {
+      setActive: async () => ({ error: null }),
+    },
+  },
 }));
 
 describe("WebSocketProvider feedback realtime subscriptions", () => {

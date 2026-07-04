@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { workItemsApi } from "@/lib/api/client";
 import { useOrgScopedKey } from "@/lib/query-keys";
+import { useActiveTeam } from "@/domains/teams/application/hooks/use-active-team";
 import type { WorkItemParticipant } from "../../domain/types";
 import { workItemKeys } from "./use-work-items";
 
@@ -11,6 +12,7 @@ const normalizeIds = (ids: string[]) =>
   Array.from(new Set(ids.filter(Boolean))).sort();
 
 export const useWorkItemParticipants = (workItemIds: string[]) => {
+  const { confirmedActiveTeamId } = useActiveTeam();
   const normalizedIds = useMemo(() => normalizeIds(workItemIds), [workItemIds]);
   const idsHash = useMemo(() => normalizedIds.join(","), [normalizedIds]);
   const scopedKey = useOrgScopedKey(workItemKeys.participants(idsHash));
@@ -21,6 +23,7 @@ export const useWorkItemParticipants = (workItemIds: string[]) => {
       const response = await workItemsApi.getParticipants(normalizedIds);
       return response as Record<string, WorkItemParticipant[]>;
     },
-    enabled: normalizedIds.length > 0,
+    // Gate on a confirmed org so we don't fetch under `org:none` then refetch.
+    enabled: normalizedIds.length > 0 && !!confirmedActiveTeamId,
   });
 };

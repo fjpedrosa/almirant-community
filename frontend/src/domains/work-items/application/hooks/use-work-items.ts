@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tansta
 import { showToast } from "@/domains/shared/presentation/utils/show-toast";
 import { workItemsApi } from "@/lib/api/client";
 import { useOrgScopedKey } from "@/lib/query-keys";
+import { useActiveTeam } from "@/domains/teams/application/hooks/use-active-team";
 import type {
   WorkItemWithRelations,
   WorkItemsByColumn,
@@ -25,10 +26,13 @@ export const workItemKeys = {
 };
 
 export const useWorkItems = (params?: URLSearchParams) => {
+  const { confirmedActiveTeamId } = useActiveTeam();
   const scopedKey = useOrgScopedKey(workItemKeys.list(params?.toString() || ""));
   return useQuery({
     queryKey: scopedKey,
     queryFn: () => workItemsApi.list(params) as Promise<WorkItemWithRelations[]>,
+    // Gate on a confirmed org to avoid a fetch under `org:none` then a refetch.
+    enabled: !!confirmedActiveTeamId,
     placeholderData: keepPreviousData,
   });
 };
@@ -62,7 +66,16 @@ export const useCreateWorkItem = () => {
   return useMutation({
     mutationFn: (data: CreateWorkItemRequest) => workItemsApi.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workItemKeys.all });
+      // Scope the invalidation instead of nuking `workItemKeys.all` (which
+      // refetches every work-item query, incl. the heavy board list). A create
+      // can appear on any list/board/area and may add a child or a new parent
+      // candidate, so refresh exactly those structural views.
+      queryClient.invalidateQueries({ queryKey: workItemKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: [...workItemKeys.all, "board"] });
+      queryClient.invalidateQueries({ queryKey: workItemKeys.byAreaPrefix() });
+      queryClient.invalidateQueries({ queryKey: [...workItemKeys.all, "children"] });
+      queryClient.invalidateQueries({ queryKey: [...workItemKeys.all, "hierarchy"] });
+      queryClient.invalidateQueries({ queryKey: [...workItemKeys.all, "parent-candidates"] });
     },
   });
 };
@@ -165,8 +178,16 @@ export const useDeleteWorkItem = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => workItemsApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workItemKeys.all });
+    onSuccess: (_data, id) => {
+      // Scope the invalidation (see useCreateWorkItem). A delete removes the item
+      // from lists/board/area and can change a parent's children/hierarchy view.
+      queryClient.invalidateQueries({ queryKey: workItemKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: workItemKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: [...workItemKeys.all, "board"] });
+      queryClient.invalidateQueries({ queryKey: workItemKeys.byAreaPrefix() });
+      queryClient.invalidateQueries({ queryKey: [...workItemKeys.all, "children"] });
+      queryClient.invalidateQueries({ queryKey: [...workItemKeys.all, "hierarchy"] });
+      queryClient.invalidateQueries({ queryKey: [...workItemKeys.all, "parent-candidates"] });
     },
   });
 };
@@ -175,8 +196,14 @@ export const useResetAiProcessing = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => workItemsApi.resetAi(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workItemKeys.all });
+    onSuccess: (_data, id) => {
+      // Resetting AI only changes one item's AI state (shown on the board card
+      // and detail) — no structural/children/participants impact. Mirror
+      // useUpdateWorkItem instead of nuking `workItemKeys.all`.
+      queryClient.invalidateQueries({ queryKey: workItemKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: workItemKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: [...workItemKeys.all, "board"] });
+      queryClient.invalidateQueries({ queryKey: workItemKeys.byAreaPrefix() });
     },
   });
 };
