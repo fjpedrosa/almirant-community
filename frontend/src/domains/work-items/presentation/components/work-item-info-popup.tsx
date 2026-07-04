@@ -10,6 +10,7 @@ export const WorkItemInfoPopup: React.FC<WorkItemInfoPopupProps> = ({
   title,
   description,
   definitionOfDone,
+  definitionOfDoneAvailable = false,
   children,
 }) => {
   const t = useTranslations("workItems.form");
@@ -32,7 +33,7 @@ export const WorkItemInfoPopup: React.FC<WorkItemInfoPopupProps> = ({
             </div>
           </div>
         )}
-        {definitionOfDone && (
+        {definitionOfDone ? (
           <div>
             <p className="text-[11px] font-medium text-muted-foreground mb-1">{t("definitionOfDone")}</p>
             <div className="!text-[12px] !leading-[1.35] text-foreground/80 [&_*]:!my-0 [&_*]:!py-0 [&_*]:!text-[12px] [&_*]:!leading-[1.35] [&_ul]:!pl-4 [&_ol]:!pl-4 [&_li]:!my-0.5">
@@ -41,7 +42,16 @@ export const WorkItemInfoPopup: React.FC<WorkItemInfoPopupProps> = ({
               </DescriptionErrorBoundary>
             </div>
           </div>
-        )}
+        ) : definitionOfDoneAvailable ? (
+          // Slim board payload: DoD exists but its content was omitted. Keep the
+          // affordance and point to the card's detail view for the full text.
+          <div>
+            <p className="text-[11px] font-medium text-muted-foreground mb-1">{t("definitionOfDone")}</p>
+            <p className="text-[12px] italic text-muted-foreground">
+              {t("definitionOfDoneInDetail")}
+            </p>
+          </div>
+        ) : null}
       </TooltipContent>
     </Tooltip>
   );

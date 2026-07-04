@@ -216,10 +216,14 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
       if (query.tagIds) filters.tagIds = query.tagIds;
 
       const hasFilters = Object.keys(filters).length > 0;
+      // Opt-in slim board DTO: `?view=board` drops description + heavy metadata
+      // blobs the card never renders (detail panel refetches the full row).
+      const slim = query.view === "board";
       const columns = await getWorkItemsByArea(
         orgId,
         params.area as (typeof VALID_AREAS)[number],
-        hasFilters ? filters : undefined
+        hasFilters ? filters : undefined,
+        { slim }
       );
 
       return successResponse(columns);
@@ -235,6 +239,7 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
         assignee: t.Optional(t.String()),
         projectId: t.Optional(t.String()),
         tagIds: t.Optional(t.String()),
+        view: t.Optional(t.String()),
       }),
     }
   )
@@ -874,10 +879,14 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
       if (query.sprintId) filters.sprintId = query.sprintId;
 
       const hasFilters = Object.keys(filters).length > 0;
+      // Opt-in slim board DTO: `?view=board` drops description + heavy metadata
+      // blobs the card never renders (detail panel refetches the full row).
+      const slim = query.view === "board";
       const columns = await getWorkItemsByBoard(
         orgId,
         params.id,
-        hasFilters ? filters : undefined
+        hasFilters ? filters : undefined,
+        { slim }
       );
 
       if (columns.length === 0) {
@@ -899,6 +908,7 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
         projectId: t.Optional(t.String()),
         tagIds: t.Optional(t.String()),
         sprintId: t.Optional(t.String()),
+        view: t.Optional(t.String()),
       }),
     }
   );

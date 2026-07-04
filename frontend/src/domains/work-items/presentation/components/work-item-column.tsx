@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { WorkItemCard } from "./work-item-card";
+import { hasSavedPrompt } from "../../domain/card-fields";
 import { GroupHeader } from "./group-header";
 import {
   TriggerBatchButtonContainer,
@@ -285,7 +286,7 @@ const WorkItemColumnInner: React.FC<WorkItemColumnProps & {
         onClick={() => handleItemClick(item.id)}
         onCopyPrompt={onCopyPrompt ? () => handleCopyPrompt(item) : undefined}
         onCopySavedPrompt={
-          onCopySavedPrompt && item.metadata?.generatedPrompt
+          onCopySavedPrompt && hasSavedPrompt(item)
             ? () => onCopySavedPrompt(item.id)
             : undefined
         }

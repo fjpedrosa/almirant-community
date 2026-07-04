@@ -109,15 +109,17 @@ export const boardsServerApi = {
 
 export const workItemsServerApi = {
   /**
-   * Fetches the columned work-items for an area — the ~550KB above-the-fold
-   * board payload (S6). Mirrors the client `workItemsApi.getByArea(area)`
-   * endpoint (`/boards/area/<area>/work-items`) so the SSR prefetch and the
-   * client hook hit the SAME backend route and the dehydrated cache hydrates
-   * without a client refetch. Prefetches only the no-filter first paint.
+   * Fetches the columned work-items for an area — the above-the-fold board
+   * payload (S6). Mirrors the client `workItemsApi.getByArea(area, _, "board")`
+   * endpoint (`/boards/area/<area>/work-items?view=board`) so the SSR prefetch
+   * and the client hook hit the SAME route AND request the SAME slim DTO — the
+   * dehydrated cache then hydrates (identical shape) without a client refetch.
+   * Prefetches only the no-filter first paint. The queryKey is unchanged; only
+   * the payload shape (slim) differs.
    */
   getByArea: (area: string): Promise<WorkItemsByColumn[]> =>
     serverRequest<WorkItemsByColumn[]>(
-      `/boards/area/${encodeURIComponent(area)}/work-items`,
+      `/boards/area/${encodeURIComponent(area)}/work-items?view=board`,
     ),
 };
 

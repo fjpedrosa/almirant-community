@@ -17,7 +17,7 @@ export const useWorkItemsByBoard = (
   const scopedKey = useOrgScopedKey([...workItemKeys.byBoard(boardId), filterKey]);
   return useQuery({
     queryKey: scopedKey,
-    queryFn: () => workItemsApi.getByBoard(boardId, filterParams) as Promise<WorkItemsByColumn[]>,
+    queryFn: () => workItemsApi.getByBoard(boardId, filterParams, "board") as Promise<WorkItemsByColumn[]>,
     // Gate on a confirmed org: otherwise the query fires once under `org:none`
     // and refetches under `org:<id>`, doubling the ~550KB board fetch. The
     // `enabled` flag additionally lets callers hold the fetch until the sprint
@@ -35,7 +35,7 @@ export const useWorkItemsByArea = (area: string, filterParams?: Record<string, s
   const scopedKey = useOrgScopedKey(workItemKeys.byAreaBase(area, filterParams));
   return useQuery({
     queryKey: scopedKey,
-    queryFn: () => workItemsApi.getByArea(area, filterParams) as Promise<WorkItemsByColumn[]>,
+    queryFn: () => workItemsApi.getByArea(area, filterParams, "board") as Promise<WorkItemsByColumn[]>,
     // Gate on a confirmed org (see useWorkItemsByBoard) to kill the double fetch.
     enabled: !!area && !!confirmedActiveTeamId,
     placeholderData: keepPreviousData,

@@ -37,6 +37,7 @@ import type { RunnerActionType } from "../../domain/column-actions";
 import { isActionAvailable, isActionAvailableByRole, getRunnerActionForRole } from "../../domain/column-actions";
 import { resolveExternalValidationRequirement, resolveHumanActionRequirement } from "../../domain/runner-action-resolution";
 import { stripTitlePrefix } from "../../domain/title-utils";
+import { getCardDescriptionPreview, hasDefinitionOfDone } from "../../domain/card-fields";
 import { priorityColors, priorityIcons, typeBadgeColors } from "./work-item-style";
 import { ParticipantAvatars } from "./participant-avatars";
 import { GroupedCardProgress } from "./grouped-card-progress";
@@ -305,6 +306,10 @@ const WorkItemCardInner: React.FC<WorkItemCardProps> = ({
   const tAgents = useTranslations("agents");
   const isMobile = useIsMobile();
   const aiProviders = normalizeAiProvidersFromMetadata(item.metadata as Record<string, unknown> | undefined);
+  // Works off BOTH DTOs: slim board list (descriptionPreview / has* flags) and
+  // the full item — so no preview/affordance breaks under `?view=board`.
+  const descriptionPreview = getCardDescriptionPreview(item);
+  const hasDod = hasDefinitionOfDone(item);
   const userActions = getUserActionsFromMetadata(item.metadata as Record<string, unknown> | undefined);
   const isDeployChecklist = !!(item.metadata as Record<string, unknown> | undefined)?.deployChecklist && userActions === ((item.metadata as Record<string, unknown> | undefined)?.deployChecklist as string)?.trim();
   const isAiReserved = (item.metadata as WorkItemMetadata | undefined)?.aiReserved === true;
@@ -438,7 +443,7 @@ const WorkItemCardInner: React.FC<WorkItemCardProps> = ({
           <div className="flex-1 px-3 pb-3 space-y-2 min-w-0">
             {(item.projectName || item.taskId) && <span className="text-[10px] block pt-1.5">&nbsp;</span>}
             <div className="mt-3"><p className="text-sm font-medium">{item.title}</p></div>
-            {item.description && <div className="text-xs line-clamp-4">{item.description}</div>}
+            {descriptionPreview && <div className="text-xs line-clamp-4">{descriptionPreview}</div>}
             <div className="text-xs">&nbsp;</div>
             {item.tags.length > 0 && <div className="text-xs">&nbsp;</div>}
           </div>
@@ -889,8 +894,9 @@ const WorkItemCardInner: React.FC<WorkItemCardProps> = ({
             ) : (
               <WorkItemInfoPopup
                 title={item.title}
-                description={item.description}
+                description={descriptionPreview}
                 definitionOfDone={(item.metadata?.definitionOfDone as string) ?? null}
+                definitionOfDoneAvailable={hasDod}
               >
                 <span className="cursor-pointer">
                   <HelpCircle className="h-4 w-4 text-muted-foreground transition-colors duration-300 ease-in-out hover:text-foreground" />
@@ -1136,11 +1142,12 @@ const WorkItemCardInner: React.FC<WorkItemCardProps> = ({
           </span>
         )}
 
-        {/* Description preview — inline markdown with 4-line clamp */}
-        {item.description && (
+        {/* Description preview — inline markdown with 4-line clamp.
+            Uses the slim-safe ≤200-char preview (full text lives in detail). */}
+        {descriptionPreview && (
           <div className="line-clamp-4 text-[12px] leading-[1.35] text-foreground/80">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={createInlineMarkdownComponents()}>
-              {item.description}
+              {descriptionPreview}
             </ReactMarkdown>
           </div>
         )}
@@ -1227,6 +1234,9 @@ export const WorkItemCard = memo(WorkItemCardInner, (prev, next) => {
     prev.item.id === next.item.id &&
     prev.item.title === next.item.title &&
     prev.item.description === next.item.description &&
+    prev.item.descriptionPreview === next.item.descriptionPreview &&
+    prev.item.hasGeneratedPrompt === next.item.hasGeneratedPrompt &&
+    prev.item.hasDefinitionOfDone === next.item.hasDefinitionOfDone &&
     prev.item.type === next.item.type &&
     prev.item.priority === next.item.priority &&
     prev.item.assignee === next.item.assignee &&

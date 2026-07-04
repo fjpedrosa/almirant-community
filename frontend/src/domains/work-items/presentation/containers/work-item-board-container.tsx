@@ -41,6 +41,7 @@ import { useWorkItemKanban } from "../../application/hooks/use-work-item-kanban"
 import { useCreateWorkItemForm } from "../../application/hooks/use-create-work-item-form";
 // useEditWorkItemForm removed - edit flow now uses side panel via useWorkItemDetailPanel
 import { useCopyAsPrompt } from "../../application/hooks/use-copy-as-prompt";
+import { resolvePromptCopyData, resolveSavedPrompt } from "../../application/use-cases/resolve-prompt-copy-data";
 import { useBoardSelection } from "../../application/hooks/use-board-selection";
 import { useBulkMove } from "../../application/hooks/use-work-item-bulk";
 import { useCopyCliCommand } from "../../application/hooks/use-copy-cli-command";
@@ -747,14 +748,16 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
     openParentPanel(itemId);
   }, [openParentPanel]);
 
-  const handleCopyPromptForItem = useCallback((item: PromptCopyItem) => {
-    copyAsPrompt({
-      id: item.id,
-      title: item.title,
-      description: item.description ?? "",
-      definitionOfDone: (item.metadata?.definitionOfDone as string) ?? "",
-    });
-  }, [copyAsPrompt]);
+  const handleCopyPromptForItem = useCallback(async (item: PromptCopyItem) => {
+    // Board list is slim (?view=board) — description + DoD text are omitted.
+    // Load the full item on demand so the prompt is not degraded to title-only.
+    try {
+      const data = await resolvePromptCopyData(item.id);
+      await copyAsPrompt(data);
+    } catch {
+      showToast.error(t("board.copyError"));
+    }
+  }, [copyAsPrompt, t]);
 
   const handleBulkMove = useCallback((columnId: string) => {
     // Resolve parent items (virtual column) to their descendant leaf IDs
@@ -777,20 +780,21 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
   }, [selectedIds, bulkMove, clearSelection, localColumns]);
 
   const handleGenerateCombinedPrompt = useCallback(async () => {
-    const items = localColumns
+    const ids = localColumns
       .filter((col) => col.column.name.toLowerCase() !== "backlog")
       .flatMap((col) => col.items)
       .filter((item) => selectedIds.has(item.id))
-      .map((item) => ({
-        id: item.id,
-        title: item.title,
-        description: item.description ?? "",
-        definitionOfDone: (item.metadata?.definitionOfDone as string) ?? "",
-      }));
-    if (items.length === 0) return;
-    await copyMultipleAsPrompt(items);
-    clearSelection();
-  }, [localColumns, selectedIds, copyMultipleAsPrompt, clearSelection]);
+      .map((item) => item.id);
+    if (ids.length === 0) return;
+    // Load full items on demand (slim list omits description + DoD text).
+    try {
+      const items = await Promise.all(ids.map((id) => resolvePromptCopyData(id)));
+      await copyMultipleAsPrompt(items);
+      clearSelection();
+    } catch {
+      showToast.error(t("board.copyError"));
+    }
+  }, [localColumns, selectedIds, copyMultipleAsPrompt, clearSelection, t]);
 
   const handleCopyTaskCommand = useCallback((taskId: string) => {
     const command = `/implement ${taskId}`;
@@ -851,14 +855,17 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
     copyCliCommand(items);
   }, [localColumns, selectedIds, copyCliCommand]);
 
-  const handleCopySavedPrompt = useCallback((itemId: string) => {
-    const item = localColumns.flatMap(c => c.items).find(i => i.id === itemId);
-    const prompt = item?.metadata?.generatedPrompt as string | undefined;
-    if (!prompt) return;
-    navigator.clipboard.writeText(prompt)
-      .then(() => showToast.success(t("board.promptCopied")))
-      .catch(() => showToast.error(t("board.copyError")));
-  }, [localColumns, t]);
+  const handleCopySavedPrompt = useCallback(async (itemId: string) => {
+    // Saved prompt text is omitted from the slim list — fetch the full item.
+    try {
+      const prompt = await resolveSavedPrompt(itemId);
+      if (!prompt) return;
+      await navigator.clipboard.writeText(prompt);
+      showToast.success(t("board.promptCopied"));
+    } catch {
+      showToast.error(t("board.copyError"));
+    }
+  }, [t]);
 
   // watchedCreateType and watchedEditType come from hooks (no duplicate form.watch() here)
   const stableCreateParentCreated = useCallback(
