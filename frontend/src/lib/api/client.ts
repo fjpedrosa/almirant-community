@@ -671,18 +671,32 @@ export const workItemsApi = {
       body: JSON.stringify({ workItemIds, priority }),
     }),
 
-  getByBoard: (boardId: string, params?: Record<string, string>) => {
-    const query = params
-      ? `?${new URLSearchParams(params).toString()}`
-      : "";
-    return request<unknown>(`/boards/${boardId}/work-items${query}`);
+  getByBoard: (
+    boardId: string,
+    params?: Record<string, string>,
+    // Opt into the slim board DTO (drops description + heavy metadata blobs the
+    // card never renders). The queryKey stays keyed on `params` only.
+    view?: "board",
+  ) => {
+    const search = new URLSearchParams(params);
+    if (view) search.set("view", view);
+    const query = search.toString();
+    return request<unknown>(
+      `/boards/${boardId}/work-items${query ? `?${query}` : ""}`,
+    );
   },
 
-  getByArea: (area: string, params?: Record<string, string>) => {
-    const query = params
-      ? `?${new URLSearchParams(params).toString()}`
-      : "";
-    return request<unknown>(`/boards/area/${area}/work-items${query}`);
+  getByArea: (
+    area: string,
+    params?: Record<string, string>,
+    view?: "board",
+  ) => {
+    const search = new URLSearchParams(params);
+    if (view) search.set("view", view);
+    const query = search.toString();
+    return request<unknown>(
+      `/boards/area/${area}/work-items${query ? `?${query}` : ""}`,
+    );
   },
 
   getHierarchy: (parentId: string) =>

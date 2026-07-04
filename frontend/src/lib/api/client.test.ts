@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { buildApiRequestUrl, githubAppApi, request, requestWithMeta } from "./client";
+import {
+  buildApiRequestUrl,
+  githubAppApi,
+  request,
+  requestWithMeta,
+  workItemsApi,
+} from "./client";
 
 describe("buildApiRequestUrl", () => {
   it("joins the canonical /api base with normal endpoints", () => {
@@ -108,5 +114,52 @@ describe("request credentials", () => {
     });
 
     expect(init?.credentials).toBe("omit");
+  });
+});
+
+describe("workItemsApi board view (?view=board slim DTO)", () => {
+  const captureUrl = () => {
+    let url = "";
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      url = String(input);
+      return new Response(JSON.stringify({ success: true, data: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+    return () => url;
+  };
+
+  it("getByArea appends view=board when the slim view is requested", async () => {
+    const getUrl = captureUrl();
+    await workItemsApi.getByArea("desarrollo", undefined, "board");
+    expect(getUrl()).toEndWith("/boards/area/desarrollo/work-items?view=board");
+  });
+
+  it("getByArea omits the view param by default (full DTO)", async () => {
+    const getUrl = captureUrl();
+    await workItemsApi.getByArea("desarrollo");
+    expect(getUrl()).toEndWith("/boards/area/desarrollo/work-items");
+    expect(getUrl()).not.toContain("view=board");
+  });
+
+  it("getByArea keeps existing filters alongside view=board", async () => {
+    const getUrl = captureUrl();
+    await workItemsApi.getByArea("desarrollo", { priority: "high" }, "board");
+    expect(getUrl()).toContain("priority=high");
+    expect(getUrl()).toContain("view=board");
+  });
+
+  it("getByBoard appends view=board when the slim view is requested", async () => {
+    const getUrl = captureUrl();
+    await workItemsApi.getByBoard("board-1", undefined, "board");
+    expect(getUrl()).toEndWith("/boards/board-1/work-items?view=board");
+  });
+
+  it("getByBoard omits the view param by default (full DTO)", async () => {
+    const getUrl = captureUrl();
+    await workItemsApi.getByBoard("board-1");
+    expect(getUrl()).toEndWith("/boards/board-1/work-items");
+    expect(getUrl()).not.toContain("view=board");
   });
 });

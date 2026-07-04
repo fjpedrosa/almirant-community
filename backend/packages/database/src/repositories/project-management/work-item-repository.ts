@@ -1793,11 +1793,46 @@ const workItemBoardSelectFallback = {
   ...workItemBoardSelect,
   description: sql<string | null>`NULL`.as("description"),
 };
+
+/**
+ * Slim projection for the board/area Kanban list — opt-in via `?view=board`.
+ * Drops the heaviest text payloads the CARD never renders in full, so the board
+ * list stays lean while the detail panel refetches the full row on demand
+ * (via `getWorkItemById`):
+ *  - `description` → NULL; a cheap `descriptionPreview` (left 200 — same
+ *    truncation the full board DTO already applied) feeds the card preview.
+ *  - metadata keys `generatedPrompt` + `definitionOfDone` stripped from the
+ *    jsonb blob (both can be multi-KB), keeping every lightweight card flag
+ *    (isBug, tested, ciStatus, pullRequest, previewUrl, dod_*, …).
+ *  - `hasGeneratedPrompt` / `hasDefinitionOfDone` → boolean existence flags
+ *    (no content) so the card keeps the "copy saved prompt" button and the
+ *    DoD affordance without shipping the blobs. The copy ACTIONS refetch the
+ *    full item on demand.
+ * The base keys mirror `workItemBoardSelect`; the extra derived columns ride
+ * through the `...item` spread and are typed as optional on the card DTO.
+ */
+const workItemBoardSelectSlim = {
+  ...workItemBoardSelect,
+  description: sql<string | null>`NULL`.as("description"),
+  descriptionPreview: sql<
+    string | null
+  >`left(${workItems.description}, 200)`.as("descriptionPreview"),
+  metadata: sql<
+    Record<string, unknown> | null
+  >`${workItems.metadata} - 'generatedPrompt' - 'definitionOfDone'`.as("metadata"),
+  hasGeneratedPrompt: sql<boolean>`coalesce(jsonb_exists(${workItems.metadata}, 'generatedPrompt'), false)`.as(
+    "hasGeneratedPrompt",
+  ),
+  hasDefinitionOfDone: sql<boolean>`coalesce(jsonb_exists(${workItems.metadata}, 'definitionOfDone'), false)`.as(
+    "hasDefinitionOfDone",
+  ),
+};
 // Get work items grouped by board columns (for Kanban view)
 export const getWorkItemsByBoard = async (
   workspaceId: string,
   boardId: string,
-  filters?: WorkItemBoardFilters
+  filters?: WorkItemBoardFilters,
+  options?: { slim?: boolean }
 ): Promise<WorkItemsByColumn[]> => {
   const [boardAccess] = await db
     .select({ id: boards.id })
@@ -1866,17 +1901,27 @@ export const getWorkItemsByBoard = async (
     );
   }
 
+  // Slim projection (opt-in) drops description text + heavy metadata blobs.
+  // Cast keeps the result row type aligned with the full projection (identical
+  // value shape), so downstream grouping/assembly stays a single type.
+  const boardSelection = (
+    options?.slim ? workItemBoardSelectSlim : workItemBoardSelect
+  ) as unknown as typeof workItemBoardSelect;
+  const boardFallbackSelection = (
+    options?.slim ? workItemBoardSelectSlim : workItemBoardSelectFallback
+  ) as unknown as typeof workItemBoardSelect;
+
   const allItems = await (async () => {
     try {
       return await db
-        .select(workItemBoardSelect)
+        .select(boardSelection)
         .from(workItems)
         .where(and(...conditions))
         .orderBy(asc(workItems.position), asc(workItems.createdAt));
     } catch (error) {
       if (!isInvalidUtf8QueryError(error)) throw error;
       return db
-        .select(workItemBoardSelectFallback)
+        .select(boardFallbackSelection)
         .from(workItems)
         .where(and(...conditions))
         .orderBy(asc(workItems.position), asc(workItems.createdAt));
@@ -2074,7 +2119,8 @@ const ROLE_CANONICAL_ORDER: Record<ColumnRole, number> = {
 export const getWorkItemsByArea = async (
   workspaceId: string,
   area: BoardArea,
-  filters?: WorkItemBoardFilters
+  filters?: WorkItemBoardFilters,
+  options?: { slim?: boolean }
 ): Promise<WorkItemsByColumn[]> => {
   // 1. Get all board IDs for the area (filtered by workspace directly)
   const areaBoards = await db
@@ -2178,17 +2224,25 @@ export const getWorkItemsByArea = async (
     );
   }
 
+  // Slim projection (opt-in) drops description text + heavy metadata blobs.
+  const areaSelection = (
+    options?.slim ? workItemBoardSelectSlim : workItemBoardSelect
+  ) as unknown as typeof workItemBoardSelect;
+  const areaFallbackSelection = (
+    options?.slim ? workItemBoardSelectSlim : workItemBoardSelectFallback
+  ) as unknown as typeof workItemBoardSelect;
+
   const allItems = await (async () => {
     try {
       return await db
-        .select(workItemBoardSelect)
+        .select(areaSelection)
         .from(workItems)
         .where(and(...conditions))
         .orderBy(asc(workItems.position), asc(workItems.createdAt));
     } catch (error) {
       if (!isInvalidUtf8QueryError(error)) throw error;
       return db
-        .select(workItemBoardSelectFallback)
+        .select(areaFallbackSelection)
         .from(workItems)
         .where(and(...conditions))
         .orderBy(asc(workItems.position), asc(workItems.createdAt));

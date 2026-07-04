@@ -41,14 +41,16 @@ afterEach(() => {
 });
 
 describe("workItemsServerApi.getByArea", () => {
-  it("targets the same /boards/area/<area>/work-items route as the client", async () => {
+  it("targets the same /boards/area/<area>/work-items route as the client, opting into the slim board view", async () => {
     const { workItemsServerApi } = await import("./server-client");
 
     await workItemsServerApi.getByArea("desarrollo");
 
     expect(fetchCalls).toHaveLength(1);
+    // Must request the SAME slim `?view=board` DTO the client hook uses, so the
+    // dehydrated cache hydrates (same shape) instead of a client refetch.
     expect(fetchCalls[0].url).toEndWith(
-      "/api/boards/area/desarrollo/work-items",
+      "/api/boards/area/desarrollo/work-items?view=board",
     );
     // RSC prefetch must not be served from Next's data cache.
     expect(fetchCalls[0].init?.cache).toBe("no-store");
@@ -59,7 +61,9 @@ describe("workItemsServerApi.getByArea", () => {
 
     await workItemsServerApi.getByArea("a/b");
 
-    expect(fetchCalls[0].url).toEndWith("/api/boards/area/a%2Fb/work-items");
+    expect(fetchCalls[0].url).toEndWith(
+      "/api/boards/area/a%2Fb/work-items?view=board",
+    );
   });
 });
 

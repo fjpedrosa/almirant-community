@@ -371,6 +371,16 @@ export interface WorkItemWithContext extends WorkItem {
   /** True when the item's column placement is computed from its children's progress (parent types). */
   isVirtualColumn: boolean;
   childrenSummary?: ChildrenSummary;
+  // ─── Slim board DTO (`?view=board`) — lightweight derived fields ────────────
+  // Present only in the slim board/area list; the card must NOT depend on the
+  // heavy fields (full `description`, metadata `generatedPrompt`/`definitionOfDone`)
+  // which are omitted there and refetched on demand for detail/copy actions.
+  /** ≤200-char description preview (full text omitted in slim mode). */
+  descriptionPreview?: string | null;
+  /** Whether `metadata.generatedPrompt` exists (content omitted in slim mode). */
+  hasGeneratedPrompt?: boolean;
+  /** Whether `metadata.definitionOfDone` exists (content omitted in slim mode). */
+  hasDefinitionOfDone?: boolean;
 }
 
 // Create work item request
@@ -763,6 +773,12 @@ export interface WorkItemInfoPopupProps {
   title: string;
   description: string | null;
   definitionOfDone: string | null;
+  /**
+   * True when a Definition of Done EXISTS but its content is omitted from the
+   * (slim board) payload. Lets the popup keep the DoD affordance and point the
+   * user to the card's detail view for the full text.
+   */
+  definitionOfDoneAvailable?: boolean;
   children: React.ReactNode;
 }
 

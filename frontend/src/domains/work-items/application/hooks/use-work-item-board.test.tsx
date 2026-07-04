@@ -181,3 +181,31 @@ describe("useWorkItemsByBoard (org-gate)", () => {
     await waitFor(() => expect(getByBoard).toHaveBeenCalledTimes(1));
   });
 });
+
+describe("board hooks request the slim board DTO (?view=board)", () => {
+  // Phase 5 (board perf): the board/area lists must ask the API for the slim
+  // "board" view so the ~550KB payload drops description + heavy metadata blobs.
+  it("useWorkItemsByArea passes the 'board' view to getByArea", async () => {
+    mockConfirmedTeamId = "team-1";
+    const { useWorkItemsByArea } = await import("./use-work-item-board");
+
+    renderHook(() => useWorkItemsByArea("desarrollo"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(getByArea).toHaveBeenCalledTimes(1));
+    expect(getByArea).toHaveBeenLastCalledWith("desarrollo", undefined, "board");
+  });
+
+  it("useWorkItemsByBoard passes the 'board' view to getByBoard", async () => {
+    mockConfirmedTeamId = "team-1";
+    const { useWorkItemsByBoard } = await import("./use-work-item-board");
+
+    renderHook(() => useWorkItemsByBoard("board-1"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(getByBoard).toHaveBeenCalledTimes(1));
+    expect(getByBoard).toHaveBeenLastCalledWith("board-1", undefined, "board");
+  });
+});

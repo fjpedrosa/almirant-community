@@ -50,7 +50,9 @@ export const usePrefetchBoardWorkItems = (boards: BoardWithStats[] | undefined) 
     for (const [, boardId] of firstBoardByArea) {
       queryClient.prefetchQuery({
         queryKey: [...workItemKeys.byBoard(boardId), ""],
-        queryFn: () => workItemsApi.getByBoard(boardId),
+        // Prefetch the SAME slim `?view=board` DTO the board hook consumes so
+        // the cached shape matches and the hook hydrates without a refetch.
+        queryFn: () => workItemsApi.getByBoard(boardId, undefined, "board"),
         staleTime: 30_000,
       });
     }
