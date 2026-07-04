@@ -24,8 +24,9 @@ export const useWorkItemsByBoard = (boardId: string, filterParams?: Record<strin
 
 export const useWorkItemsByArea = (area: string, filterParams?: Record<string, string>) => {
   const { confirmedActiveTeamId } = useActiveTeam();
-  const filterKey = filterParams ? JSON.stringify(filterParams) : "";
-  const scopedKey = useOrgScopedKey([...workItemKeys.all, "byArea", area, filterKey]);
+  // Shared key composer — the board pages prefetch under the SAME
+  // `orgScopedKey(workItemKeys.byAreaBase(area), orgId)` so hydration matches.
+  const scopedKey = useOrgScopedKey(workItemKeys.byAreaBase(area, filterParams));
   return useQuery({
     queryKey: scopedKey,
     queryFn: () => workItemsApi.getByArea(area, filterParams) as Promise<WorkItemsByColumn[]>,

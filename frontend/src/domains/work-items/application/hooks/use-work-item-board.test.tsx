@@ -109,6 +109,53 @@ describe("useWorkItemsByArea (org-gate)", () => {
   });
 });
 
+describe("useWorkItemsByArea SSR prefetch key contract (S6)", () => {
+  // The board pages prefetch work-items server-side under
+  //   orgScopedKey(workItemKeys.byAreaBase(area), orgId)
+  // If the client hook registers a DIFFERENT query key, the dehydrated cache
+  // misses on hydration and the client refetches the ~550KB board payload.
+  // This pins: hook-registered key === server prefetch key. RED until both
+  // sides route through the shared `workItemKeys.byAreaBase` builder.
+  it("registers exactly the org-scoped byAreaBase key the server prefetch uses", async () => {
+    mockConfirmedTeamId = "team-1";
+    // Dynamic imports (like the rest of the suite) so the `@/lib/auth-client`
+    // mock is registered before these modules transitively load it.
+    const { useWorkItemsByArea } = await import("./use-work-item-board");
+    const { orgScopedKey } = await import("@/lib/org-scoped-key");
+    const { workItemKeys } = await import("./use-work-items");
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    // No filterParams — mirrors the clean first paint the SSR prefetch targets.
+    renderHook(() => useWorkItemsByArea("desarrollo"), { wrapper });
+
+    await waitFor(() =>
+      expect(client.getQueryCache().getAll().length).toBeGreaterThan(0),
+    );
+
+    const registeredKey = client.getQueryCache().getAll()[0].queryKey;
+    const serverPrefetchKey = orgScopedKey(
+      workItemKeys.byAreaBase("desarrollo"),
+      "team-1",
+    );
+
+    expect(registeredKey).toEqual(serverPrefetchKey);
+    // Pin the concrete literal so neither side can silently change the shape.
+    expect(registeredKey).toEqual([
+      "work-items",
+      "byArea",
+      "desarrollo",
+      "",
+      "org:team-1",
+    ]);
+  });
+});
+
 describe("useWorkItemsByBoard (org-gate)", () => {
   it("does NOT fire the query while the active org is unconfirmed", async () => {
     mockConfirmedTeamId = null;

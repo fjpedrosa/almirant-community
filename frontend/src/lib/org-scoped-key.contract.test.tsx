@@ -104,6 +104,38 @@ describe("orgScopedKey contract: client hook === server prefetch key", () => {
     expect(result.current).toEqual(serverKey);
     expect(result.current).toEqual(["projects", "list", "", "org:org-abc"]);
   });
+
+  it("work-items: useOrgScopedKey(byAreaBase) === orgScopedKey(byAreaBase, id)", async () => {
+    // S6: the board pages prefetch the ~550KB work-items payload server-side.
+    // Both the RSC prefetch AND the client `useWorkItemsByArea` hook build the
+    // base key through the single `workItemKeys.byAreaBase` composer, so the
+    // dehydrated cache hydrates instead of double-fetching.
+    mockLiveOrg = { id: "org-abc" };
+    mockIsPending = false;
+
+    const { orgScopedKey } = await import("./org-scoped-key");
+    const { useOrgScopedKey } = await import("./query-keys");
+    const { workItemKeys } = await import(
+      "@/domains/work-items/application/hooks/use-work-items"
+    );
+
+    const area = "desarrollo";
+    const { result } = renderHook(
+      () => useOrgScopedKey(workItemKeys.byAreaBase(area)),
+      { wrapper: createWrapper() },
+    );
+
+    const serverKey = orgScopedKey(workItemKeys.byAreaBase(area), "org-abc");
+    expect(result.current).toEqual(serverKey);
+    // Trailing "" is the empty filter-key the clean first paint prefetches.
+    expect(result.current).toEqual([
+      "work-items",
+      "byArea",
+      "desarrollo",
+      "",
+      "org:org-abc",
+    ]);
+  });
 });
 
 describe("org-id seeding (2A): no `org:none` phase when the session has an org", () => {

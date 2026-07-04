@@ -1,7 +1,8 @@
 import { dehydrate, HydrationBoundary, QueryClient } from "@tanstack/react-query";
 import { BoardAreaContainer } from "@/domains/boards/presentation/containers/board-area-container";
-import { boardsServerApi } from "@/lib/api/server-client";
+import { boardsServerApi, workItemsServerApi } from "@/lib/api/server-client";
 import { boardKeys } from "@/domains/boards/application/hooks/use-boards";
+import { workItemKeys } from "@/domains/work-items/application/hooks/use-work-items";
 import { orgScopedKey } from "@/lib/org-scoped-key";
 import { getServerSession } from "@/lib/server-session";
 
@@ -16,12 +17,24 @@ export default async function BoardAreaPage({
   const orgId = session?.session.activeOrganizationId ?? null;
 
   try {
-    await queryClient.prefetchQuery({
-      // Scope with the SAME `org:<id>` suffix the client hook uses, so the
-      // dehydrated cache actually hydrates instead of triggering a refetch.
-      queryKey: orgScopedKey(boardKeys.listByArea(area), orgId),
-      queryFn: () => boardsServerApi.listByArea(area),
-    });
+    // Prefetch boards AND the ~550KB work-items payload in parallel (S6). The
+    // work-items query keys by `area` (route param) with no real dependency on
+    // boards, so it need not wait behind `boardsLoading`; serving it from
+    // hydration removes the client cascade (boards → chunk → work-items ~2.6s).
+    await Promise.all([
+      queryClient.prefetchQuery({
+        // Scope with the SAME `org:<id>` suffix the client hook uses, so the
+        // dehydrated cache actually hydrates instead of triggering a refetch.
+        queryKey: orgScopedKey(boardKeys.listByArea(area), orgId),
+        queryFn: () => boardsServerApi.listByArea(area),
+      }),
+      queryClient.prefetchQuery({
+        // MUST equal `useWorkItemsByArea`'s registered key: the shared
+        // `workItemKeys.byAreaBase(area)` (trailing "" filter) + `org:<id>`.
+        queryKey: orgScopedKey(workItemKeys.byAreaBase(area), orgId),
+        queryFn: () => workItemsServerApi.getByArea(area),
+      }),
+    ]);
   } catch {
     // Prefetch failure is non-fatal. The client-side React Query hook inside
     // BoardAreaContainer will perform its own fetch as a fallback.

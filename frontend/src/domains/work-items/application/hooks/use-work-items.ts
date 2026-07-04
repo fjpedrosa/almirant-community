@@ -21,6 +21,19 @@ export const workItemKeys = {
   detail: (id: string) => [...workItemKeys.details(), id] as const,
   byBoard: (boardId: string) => [...workItemKeys.all, "board", boardId] as const,
   byArea: (area: string) => [...workItemKeys.all, "byArea", area] as const,
+  /**
+   * Full base key (area + serialized filter) used by BOTH the client hook
+   * `useWorkItemsByArea` and the RSC/SSR prefetch in the board pages. Routing
+   * both sides through this single composer guarantees the dehydrated cache
+   * hydrates instead of double-fetching the ~550KB board payload (S6). The
+   * empty-string default mirrors the no-filter clean first paint the SSR
+   * prefetch targets.
+   */
+  byAreaBase: (area: string, filterParams?: Record<string, string>) =>
+    [
+      ...workItemKeys.byArea(area),
+      filterParams ? JSON.stringify(filterParams) : "",
+    ] as const,
   byAreaPrefix: () => [...workItemKeys.all, "byArea"] as const,
   participants: (idsHash: string) => [...workItemKeys.all, "participants", idsHash] as const,
 };

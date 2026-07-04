@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
 import type { ProjectWithRelations } from "@/domains/projects/domain/types";
 import type { BoardWithStats } from "@/domains/boards/domain/types";
+import type { WorkItemsByColumn } from "@/domains/work-items/domain/types";
+import type { PlanningSessionWithPendingInteraction } from "@/domains/planning/domain/types";
 import { normalizeApiBaseUrl } from "@/lib/runtime-service-url";
 
 /**
@@ -103,6 +105,54 @@ export const boardsServerApi = {
   /** Fetches boards filtered by area slug. */
   listByArea: (area: string): Promise<BoardWithStats[]> =>
     serverRequest<BoardWithStats[]>(`/boards/area/${encodeURIComponent(area)}`),
+};
+
+export const workItemsServerApi = {
+  /**
+   * Fetches the columned work-items for an area — the ~550KB above-the-fold
+   * board payload (S6). Mirrors the client `workItemsApi.getByArea(area)`
+   * endpoint (`/boards/area/<area>/work-items`) so the SSR prefetch and the
+   * client hook hit the SAME backend route and the dehydrated cache hydrates
+   * without a client refetch. Prefetches only the no-filter first paint.
+   */
+  getByArea: (area: string): Promise<WorkItemsByColumn[]> =>
+    serverRequest<WorkItemsByColumn[]>(
+      `/boards/area/${encodeURIComponent(area)}/work-items`,
+    ),
+};
+
+/** Minimal shape the session-replay page needs off a job (matches the client hook). */
+export interface PlanningAgentJobSummary {
+  id: string;
+  status: string;
+  planningSessionId: string | null;
+}
+
+export const planningServerApi = {
+  /**
+   * Session detail — the above-the-fold header of the replay page. Mirrors the
+   * client `planningSessionsApi.get(id)` route so the plain (non-org-scoped)
+   * `planningSessionKeys.detail(id)` cache entry hydrates without a refetch.
+   */
+  getSession: (
+    id: string,
+  ): Promise<PlanningSessionWithPendingInteraction> =>
+    serverRequest<PlanningSessionWithPendingInteraction>(
+      `/planning-sessions/${encodeURIComponent(id)}`,
+    ),
+};
+
+export const agentJobsServerApi = {
+  /** Latest job for a planning session (mirrors `useSessionReplay`'s jobsQuery). */
+  listBySession: (sessionId: string): Promise<PlanningAgentJobSummary[]> =>
+    serverRequest<PlanningAgentJobSummary[]>(
+      `/agent-jobs?planningSessionId=${encodeURIComponent(sessionId)}&limit=1&sort=createdAt:desc`,
+    ),
+  /** Transcript chunks for a job (mirrors `useSessionReplay`'s outputQuery). */
+  getOutput: <T = unknown>(jobId: string): Promise<T> =>
+    serverRequest<T>(
+      `/agent-jobs/${encodeURIComponent(jobId)}/output?limit=1000`,
+    ),
 };
 
 export interface OnboardingStatusResponse {
