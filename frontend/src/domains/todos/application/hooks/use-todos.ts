@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tansta
 import { todosApi } from "@/lib/api/client";
 import { useOrgScopedKey } from "@/lib/query-keys";
 import { useActiveTeam } from "@/domains/teams/application/hooks/use-active-team";
+import { todoKeys, todoMutationKeys } from "../../domain/query-keys";
 import type {
   TodoCommentVersion,
   TodoItemEvent,
@@ -14,15 +15,8 @@ import type {
   UpdateTodoItemRequest,
 } from "../../domain/types";
 
-export const todoKeys = {
-  all: ["todos"] as const,
-  lists: () => [...todoKeys.all, "list"] as const,
-  list: (filters: string) => [...todoKeys.lists(), filters] as const,
-  details: () => [...todoKeys.all, "detail"] as const,
-  detail: (id: string) => [...todoKeys.details(), id] as const,
-  commentHistory: (todoId: string, commentId: string) =>
-    [...todoKeys.all, "comment-history", todoId, commentId] as const,
-};
+// Re-exported so existing imports (`from "./use-todos"`) keep working.
+export { todoKeys, todoMutationKeys };
 
 export const useTodos = (params?: URLSearchParams) => {
   const { confirmedActiveTeamId } = useActiveTeam();
@@ -101,7 +95,9 @@ export const useCreateTodo = () => {
   return useMutation({
     mutationFn: (data: unknown) => todosApi.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: todoKeys.all });
+      for (const queryKey of todoMutationKeys()) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
@@ -112,8 +108,9 @@ export const useUpdateTodo = () => {
     mutationFn: ({ id, data }: { id: string; data: UpdateTodoItemRequest }) =>
       todosApi.update(id, data),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: todoKeys.all });
-      queryClient.invalidateQueries({ queryKey: todoKeys.detail(variables.id) });
+      for (const queryKey of todoMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
@@ -122,8 +119,10 @@ export const useDeleteTodo = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => todosApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: todoKeys.all });
+    onSuccess: (_result, id) => {
+      for (const queryKey of todoMutationKeys(id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
@@ -134,8 +133,9 @@ export const useSetTodoStatus = () => {
     mutationFn: ({ id, status }: { id: string; status: TodoItemStatus }) =>
       todosApi.setStatus(id, status),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: todoKeys.all });
-      queryClient.invalidateQueries({ queryKey: todoKeys.detail(variables.id) });
+      for (const queryKey of todoMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
@@ -146,8 +146,9 @@ export const useAssignTodoOwner = () => {
     mutationFn: ({ id, ownerUserId }: { id: string; ownerUserId: string | null }) =>
       todosApi.setOwner(id, ownerUserId),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: todoKeys.all });
-      queryClient.invalidateQueries({ queryKey: todoKeys.detail(variables.id) });
+      for (const queryKey of todoMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
@@ -158,8 +159,9 @@ export const useSetTodoDueDate = () => {
     mutationFn: ({ id, dueDate }: { id: string; dueDate: string | null }) =>
       todosApi.setDueDate(id, dueDate),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: todoKeys.all });
-      queryClient.invalidateQueries({ queryKey: todoKeys.detail(variables.id) });
+      for (const queryKey of todoMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
@@ -170,8 +172,9 @@ export const useSetTodoPriority = () => {
     mutationFn: ({ id, priority }: { id: string; priority: TodoItemPriority | null }) =>
       todosApi.update(id, { priority }),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: todoKeys.all });
-      queryClient.invalidateQueries({ queryKey: todoKeys.detail(variables.id) });
+      for (const queryKey of todoMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };

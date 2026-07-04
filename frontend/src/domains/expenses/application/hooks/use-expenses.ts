@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tansta
 import { showToast } from "@/domains/shared/presentation/utils/show-toast";
 import { expensesApi, expenseCategoriesApi, recurringExpensesApi } from "@/lib/api/client";
 import { useActiveTeam } from "@/domains/teams/application/hooks/use-active-team";
+import { expenseKeys, expenseMutationKeys } from "../../domain/query-keys";
 import type {
   ExpenseWithRelations,
   PaginatedExpensesResponse,
@@ -14,16 +15,8 @@ import type {
   ExpenseAggregations,
 } from "../../domain/types";
 
-export const expenseKeys = {
-  all: ["expenses"] as const,
-  lists: () => [...expenseKeys.all, "list"] as const,
-  list: (filters: string) => [...expenseKeys.lists(), filters] as const,
-  details: () => [...expenseKeys.all, "detail"] as const,
-  detail: (id: string) => [...expenseKeys.details(), id] as const,
-  aggregations: (filters: string) => [...expenseKeys.all, "aggregations", filters] as const,
-  categories: () => [...expenseKeys.all, "categories"] as const,
-  recurring: () => [...expenseKeys.all, "recurring"] as const,
-};
+// Re-exported so existing imports (`from "./use-expenses"`) keep working.
+export { expenseKeys, expenseMutationKeys };
 
 export const useExpenses = (params?: URLSearchParams) => {
   const { confirmedActiveTeamId } = useActiveTeam();
@@ -85,7 +78,9 @@ export const useCreateExpense = () => {
   return useMutation({
     mutationFn: (data: CreateExpenseRequest) => expensesApi.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: expenseKeys.all });
+      for (const queryKey of expenseMutationKeys()) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       showToast.success("Expense created");
     },
     onError: (error: Error) => {
@@ -100,8 +95,9 @@ export const useUpdateExpense = () => {
     mutationFn: ({ id, data }: { id: string; data: UpdateExpenseRequest }) =>
       expensesApi.update(id, data),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: expenseKeys.all });
-      queryClient.invalidateQueries({ queryKey: expenseKeys.detail(variables.id) });
+      for (const queryKey of expenseMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       showToast.success("Expense updated");
     },
     onError: (error: Error) => {
@@ -114,8 +110,10 @@ export const useDeleteExpense = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => expensesApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: expenseKeys.all });
+    onSuccess: (_result, id) => {
+      for (const queryKey of expenseMutationKeys(id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       showToast.success("Expense deleted");
     },
     onError: (error: Error) => {
@@ -130,8 +128,9 @@ export const useUploadInvoice = () => {
     mutationFn: ({ id, file }: { id: string; file: File }) =>
       expensesApi.uploadInvoice(id, file),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: expenseKeys.all });
-      queryClient.invalidateQueries({ queryKey: expenseKeys.detail(variables.id) });
+      for (const queryKey of expenseMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       showToast.success("Invoice uploaded");
     },
     onError: (error: Error) => {
@@ -145,7 +144,9 @@ export const useCreateExpenseWithInvoice = () => {
   return useMutation({
     mutationFn: (file: File) => expensesApi.createWithInvoice(file),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: expenseKeys.all });
+      for (const queryKey of expenseMutationKeys()) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       showToast.success("Expense created from invoice");
     },
     onError: (error: Error) => {

@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { showToast } from "@/domains/shared/presentation/utils/show-toast";
 import { hasVisibleContent } from "@/lib/comment-utils";
-import { seedKeys } from "@/domains/planning/domain/query-keys";
+import { seedKeys, seedMutationKeys } from "@/domains/planning/domain/query-keys";
 import { seedsApi } from "@/domains/planning/infrastructure/api/planning-api";
 import type { SeedComment } from "@/domains/planning/domain/types";
 
@@ -30,7 +30,9 @@ export const useSeedComments = (seedId: string | null) => {
     mutationFn: (content: string) => seedsApi.addComment(seedId!, content),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: seedKeys.comments(seedId!) });
-      queryClient.invalidateQueries({ queryKey: seedKeys.all });
+      for (const queryKey of seedMutationKeys(seedId!)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       setNewCommentValue("");
     },
     onError: (error) =>
@@ -55,7 +57,9 @@ export const useSeedComments = (seedId: string | null) => {
     mutationFn: (commentId: string) => seedsApi.deleteComment(seedId!, commentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: seedKeys.comments(seedId!) });
-      queryClient.invalidateQueries({ queryKey: seedKeys.all });
+      for (const queryKey of seedMutationKeys(seedId!)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
     onError: (error) =>
       showToast.error(error instanceof Error ? error.message : t("deleteCommentError")),

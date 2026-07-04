@@ -14,8 +14,8 @@ import type {
   UpdateIdeaItemRequest,
 } from "../../domain/types";
 import { useIdeaItemComments } from "./use-idea-item-comments";
+import { ideaMutationKeys } from "../../domain/query-keys";
 import {
-  ideaKeys,
   useAssignIdeaItemOwner,
   useIdeaItem,
   useIdeaItemHistory,
@@ -125,8 +125,9 @@ export const useIdeaDetailPanel = (
         { id: itemId, data },
         {
           onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ideaKeys.all });
-            queryClient.invalidateQueries({ queryKey: ideaKeys.detail(itemId) });
+            for (const queryKey of ideaMutationKeys(itemId)) {
+              queryClient.invalidateQueries({ queryKey });
+            }
           },
           onSettled: () => setSavingField(null),
         },

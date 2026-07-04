@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { showToast } from "@/domains/shared/presentation/utils/show-toast";
 import { ideasApi } from "@/lib/api/client";
 import type { UpdateIdeaItemRequest } from "../../domain/types";
-import { ideaKeys } from "./use-ideas";
+import { ideaMutationKeys } from "../../domain/query-keys";
 
 export const useUpdateIdeaItem = () => {
   const t = useTranslations("ideas.toasts");
@@ -15,8 +15,9 @@ export const useUpdateIdeaItem = () => {
     mutationFn: ({ id, data }: { id: string; data: UpdateIdeaItemRequest }) =>
       ideasApi.update(id, data),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: ideaKeys.all });
-      queryClient.invalidateQueries({ queryKey: ideaKeys.detail(variables.id) });
+      for (const queryKey of ideaMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       showToast.success(t("itemUpdated"));
     },
     onError: (error) => {

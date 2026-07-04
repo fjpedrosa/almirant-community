@@ -7,7 +7,7 @@ import { showToast } from "@/domains/shared/presentation/utils/show-toast";
 import { ideasApi } from "@/lib/api/client";
 import { hasVisibleContent } from "@/lib/comment-utils";
 import type { IdeaItemComment } from "../../domain/types";
-import { ideaKeys } from "./use-ideas";
+import { ideaMutationKeys } from "../../domain/query-keys";
 
 export const commentKeys = {
   all: (ideaItemId: string) => ["ideas", ideaItemId, "comments"] as const,
@@ -32,7 +32,9 @@ export const useIdeaItemComments = (ideaItemId: string | null) => {
     mutationFn: (content: string) => ideasApi.addComment(ideaItemId!, content),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: commentKeys.all(ideaItemId!) });
-      queryClient.invalidateQueries({ queryKey: ideaKeys.all });
+      for (const queryKey of ideaMutationKeys(ideaItemId!)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       setNewCommentValue("");
     },
     onError: (error) => {
@@ -57,7 +59,9 @@ export const useIdeaItemComments = (ideaItemId: string | null) => {
     mutationFn: (commentId: string) => ideasApi.deleteComment(ideaItemId!, commentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: commentKeys.all(ideaItemId!) });
-      queryClient.invalidateQueries({ queryKey: ideaKeys.all });
+      for (const queryKey of ideaMutationKeys(ideaItemId!)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
     onError: (error) => {
       showToast.error(error instanceof Error ? error.message : t("deleteCommentError"));

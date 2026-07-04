@@ -6,7 +6,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { seedKeys } from "../../domain/query-keys";
+import { seedKeys, seedMutationKeys } from "../../domain/query-keys";
 import { seedsApi } from "../../infrastructure/api/planning-api";
 import type {
   CreateSeedRequest,
@@ -69,7 +69,9 @@ export const useCreateSeed = () => {
     mutationFn: (data: CreateSeedRequest) =>
       seedsApi.create(data) as Promise<Seed>,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: seedKeys.all });
+      for (const queryKey of seedMutationKeys()) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
@@ -80,10 +82,9 @@ export const useUpdateSeed = () => {
     mutationFn: ({ id, data }: { id: string; data: UpdateSeedRequest }) =>
       seedsApi.update(id, data),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: seedKeys.all });
-      queryClient.invalidateQueries({
-        queryKey: seedKeys.detail(variables.id),
-      });
+      for (const queryKey of seedMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
@@ -92,8 +93,10 @@ export const useDeleteSeed = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => seedsApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: seedKeys.all });
+    onSuccess: (_result, id) => {
+      for (const queryKey of seedMutationKeys(id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
@@ -104,10 +107,9 @@ export const useSetSeedStatus = () => {
     mutationFn: ({ id, status }: { id: string; status: SeedStatus }) =>
       seedsApi.setStatus(id, status),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: seedKeys.all });
-      queryClient.invalidateQueries({
-        queryKey: seedKeys.detail(variables.id),
-      });
+      for (const queryKey of seedMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
@@ -118,10 +120,9 @@ export const useToggleSeedSelection = () => {
     mutationFn: ({ id, selected }: { id: string; selected: boolean }) =>
       seedsApi.toggleSelectedForIdeation(id, selected),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: seedKeys.all });
-      queryClient.invalidateQueries({
-        queryKey: seedKeys.detail(variables.id),
-      });
+      for (const queryKey of seedMutationKeys(variables.id)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
@@ -132,7 +133,9 @@ export const useBulkSeedSelection = () => {
     mutationFn: ({ ids, selected }: { ids: string[]; selected: boolean }) =>
       seedsApi.bulkSelectForIdeation(ids, selected),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: seedKeys.all });
+      for (const queryKey of seedMutationKeys()) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 };
