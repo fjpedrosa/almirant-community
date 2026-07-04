@@ -15,3 +15,22 @@ export const resolveActiveOrgId = (
   liveOrgId: string | null | undefined,
   seededOrgId: string | null | undefined,
 ): string | null => liveOrgId ?? seededOrgId ?? null;
+
+/**
+ * Pick the active-org id to seed off the server session, agnostic to the build.
+ *
+ * Community exposes the Better-Auth organization plugin's `activeOrganizationId`.
+ * The cloud fork renames the plugin (organization→workspace), so its session
+ * carries a custom `activeWorkspaceId` and leaves `activeOrganizationId` unset.
+ * Preferring the workspace field, then falling back to the organization field,
+ * keeps Phase 2 hydration (the fix for the `org:none` double fetch) working on
+ * BOTH builds — in community `activeWorkspaceId` is `undefined`, so it always
+ * falls through to `activeOrganizationId` (zero regression).
+ *
+ * Returns `null` only when neither field resolves an id.
+ */
+export const pickActiveOrgId = (session: {
+  activeWorkspaceId?: string | null;
+  activeOrganizationId?: string | null;
+}): string | null =>
+  session.activeWorkspaceId ?? session.activeOrganizationId ?? null;

@@ -44,6 +44,13 @@ export interface ServerSession {
     expiresAt: string;
     /** Populated by the organization plugin. `null` until a workspace is active. */
     activeOrganizationId: string | null;
+    /**
+     * Cloud-fork only: the fork renames the plugin (organization→workspace) and
+     * exposes this custom field instead of `activeOrganizationId`. Absent (→
+     * `undefined`) in community. Carried straight through from the raw
+     * get-session body so `pickActiveOrgId` can seed off it agnostically.
+     */
+    activeWorkspaceId?: string | null;
   };
   user: {
     id: string;

@@ -7,6 +7,7 @@ import { NavigationContainer } from "./components/navigation-container";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WebSocketProvider } from "@/domains/shared/presentation/containers/websocket-provider";
 import { ActiveOrgProvider } from "@/domains/teams/application/active-org-context";
+import { pickActiveOrgId } from "@/domains/teams/domain/active-org";
 import { onboardingServerApi } from "@/lib/api/server-client";
 import {
   authBackendFetch,
@@ -43,7 +44,9 @@ export default async function DashboardLayout({
   // Set-Cookie is best-effort propagated (a no-op during RSC render).
   // Active-org id seeded down to client hooks so `useOrgScopedKey` scopes to the
   // real workspace from render 0 (no `org:none` phase → no double fetch).
-  let activeOrgId = session.session.activeOrganizationId;
+  // Agnostic to the build: community seeds off `activeOrganizationId`, the cloud
+  // fork off its renamed `activeWorkspaceId` (see `pickActiveOrgId`).
+  let activeOrgId = pickActiveOrgId(session.session);
 
   if (!activeOrgId) {
     try {
