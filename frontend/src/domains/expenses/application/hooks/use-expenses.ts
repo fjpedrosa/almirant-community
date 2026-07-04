@@ -18,7 +18,10 @@ import type {
 // Re-exported so existing imports (`from "./use-expenses"`) keep working.
 export { expenseKeys, expenseMutationKeys };
 
-export const useExpenses = (params?: URLSearchParams) => {
+export const useExpenses = (
+  params?: URLSearchParams,
+  options?: { enabled?: boolean },
+) => {
   const { confirmedActiveTeamId } = useActiveTeam();
   return useQuery({
     queryKey: [
@@ -30,7 +33,9 @@ export const useExpenses = (params?: URLSearchParams) => {
       return { items: result.data as ExpenseWithRelations[], meta: result.meta };
     },
     placeholderData: keepPreviousData,
-    enabled: !!confirmedActiveTeamId,
+    // Also gate on the caller (the list tab) so the paginated list is not
+    // fetched while the user is on the overview/recurring tabs.
+    enabled: !!confirmedActiveTeamId && (options?.enabled ?? true),
   });
 };
 

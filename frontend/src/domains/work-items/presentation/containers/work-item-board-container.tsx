@@ -219,6 +219,7 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
     sprintOptions,
     selectedSprintId,
     setSelectedSprintId,
+    isSprintResolved,
   } = useSprintFilter(activeBoardId);
 
   // Merge sprint filter into filterParams
@@ -259,7 +260,13 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
     });
   }, []);
 
-  const boardQuery = useWorkItemsByBoard(area ? "" : activeBoardId, area ? undefined : mergedFilterParams);
+  // Single-board: hold the fetch until the sprint auto-selection resolves so it
+  // fires ONCE with the correct sprint filter (no empty-filter fetch + refetch).
+  const boardQuery = useWorkItemsByBoard(
+    area ? "" : activeBoardId,
+    area ? undefined : mergedFilterParams,
+    area ? true : isSprintResolved,
+  );
   const areaQuery = useWorkItemsByArea(area ?? "", area ? filterParams : undefined);
   const { data: columnData, isLoading } = area ? areaQuery : boardQuery;
   const columns = useMemo(
@@ -938,7 +945,10 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
     return () => resetAiProcessing.mutate(panelItemId);
   }, [panelItemJob, isPanelItemAiActive, panelItemId, cancelAgentJob, resetAiProcessing]);
 
-  if (isLoading || !isPrefsLoaded) {
+  // Keep the skeleton up while the single-board query is intentionally held for
+  // sprint resolution (a disabled query reports isLoading=false), so the board
+  // never flashes empty before firing with the correct sprint filter.
+  if (isLoading || !isPrefsLoaded || (!area && !isSprintResolved)) {
     return <KanbanBoardSkeleton />;
   }
 

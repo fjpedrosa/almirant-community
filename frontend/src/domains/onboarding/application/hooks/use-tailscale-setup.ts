@@ -30,7 +30,7 @@ const detectBrowserPublicUrl = (): string => {
   }
 };
 
-export const useTailscaleSetup = () => {
+export const useTailscaleSetup = (options?: { enabled?: boolean }) => {
   const queryClient = useQueryClient();
   const [port, setPort] = useState(8080);
   const [detectedPublicUrl] = useState(detectBrowserPublicUrl);
@@ -43,6 +43,8 @@ export const useTailscaleSetup = () => {
   const statusQuery = useQuery<TailscaleSetupState>({
     queryKey: tailscaleKeys.status(),
     queryFn: () => tailscaleApi.getStatus(),
+    // Cloud deployments never expose the Tailscale step, so skip the poll there.
+    enabled: options?.enabled ?? true,
   });
 
   const serveMutation = useMutation({

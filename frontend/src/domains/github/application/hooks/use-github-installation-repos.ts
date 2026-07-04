@@ -30,13 +30,14 @@ const fetchAllInstallationRepos = async (
 };
 
 export const useGithubInstallationRepos = (
-  installationId: number | null
+  installationId: number | null,
+  options?: { enabled?: boolean }
 ) => {
   const scopedKey = useOrgScopedKey(githubKeys.installationRepos(installationId!));
   return useQuery({
     queryKey: scopedKey,
     queryFn: () => fetchAllInstallationRepos(installationId!),
-    enabled: !!installationId,
+    enabled: !!installationId && (options?.enabled ?? true),
     staleTime: 5 * 60 * 1000,
   });
 };

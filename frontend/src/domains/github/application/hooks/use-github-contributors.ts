@@ -6,7 +6,7 @@ import { useOrgScopedKey } from "@/lib/query-keys";
 import type { GithubContributor } from "../../domain/types";
 import { githubKeys } from "./use-github-summary";
 
-export const useGithubContributors = (projectId: string) => {
+export const useGithubContributors = (projectId: string, enabled = true) => {
   const scopedKey = useOrgScopedKey(githubKeys.contributors(projectId));
   return useQuery({
     queryKey: scopedKey,
@@ -40,7 +40,7 @@ export const useGithubContributors = (projectId: string) => {
         (a, b) => b.commitCount - a.commitCount
       );
     },
-    enabled: !!projectId,
+    enabled: !!projectId && enabled,
     staleTime: 60_000,
   });
 };

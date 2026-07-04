@@ -25,13 +25,13 @@ export const githubKeys = {
     [...githubKeys.all, "installation-repos", installationId] as const,
 };
 
-export const useGithubSummary = (projectId: string) => {
+export const useGithubSummary = (projectId: string, enabled = true) => {
   const scopedKey = useOrgScopedKey(githubKeys.summary(projectId));
   return useQuery({
     queryKey: scopedKey,
     queryFn: () =>
       githubApi.getSummary(projectId) as Promise<GithubProjectSummary>,
-    enabled: !!projectId,
+    enabled: !!projectId && enabled,
     staleTime: 30_000,
   });
 };

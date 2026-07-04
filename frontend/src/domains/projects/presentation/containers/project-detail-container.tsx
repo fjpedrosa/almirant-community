@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,6 +20,7 @@ import { ProjectSprintsContainer } from "./project-sprints-container";
 import { ProjectSettingsContainer } from "./project-settings-container";
 import { Eye, GitBranch, Zap, StickyNote, Settings } from "lucide-react";
 import { useCurrentUserTeams } from "@/domains/teams/application/hooks/use-current-user-teams";
+import { shouldFetchRepos } from "../../domain/repos-tab";
 
 interface ProjectDetailContainerProps {
   projectId: string;
@@ -27,6 +29,8 @@ interface ProjectDetailContainerProps {
 export const ProjectDetailContainer: React.FC<ProjectDetailContainerProps> = ({
   projectId,
 }) => {
+  const [activeTab, setActiveTab] = useState("overview");
+
   const {
     project,
     isLoading,
@@ -67,7 +71,7 @@ export const ProjectDetailContainer: React.FC<ProjectDetailContainerProps> = ({
     setGithubRepoSearchQuery,
     handleGithubRepoSelect,
     isGithubConnected,
-  } = useProjectDetail(projectId);
+  } = useProjectDetail(projectId, shouldFetchRepos(activeTab));
 
   const t = useTranslations("projects");
   const { teams, isLoading: isLoadingWorkspaces } = useCurrentUserTeams();
@@ -169,7 +173,7 @@ export const ProjectDetailContainer: React.FC<ProjectDetailContainerProps> = ({
         completedTaskCount={project.completedTaskCount}
       />
 
-      <Tabs defaultValue="overview">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="-mx-4 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
           <TabsList className="w-max min-w-full justify-start sm:min-w-0">
           <TabsTrigger value="overview" className="flex items-center gap-1.5">

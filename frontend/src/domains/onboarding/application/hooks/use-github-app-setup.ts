@@ -62,10 +62,16 @@ export interface UseGithubAppSetupOptions {
   returnTo?: "/onboarding" | "/settings/github";
   /** Public URL of the instance — used to detect Tailscale Funnel. */
   publicUrl?: string | null;
+  /**
+   * Whether the GitHub status queries should fire. Defaults to `true` (e.g. the
+   * settings page). Onboarding gates this to when the GitHub step is visible so
+   * the status calls are not made on unrelated steps.
+   */
+  enabled?: boolean;
 }
 
 export const useGithubAppSetup = (options: UseGithubAppSetupOptions = {}) => {
-  const { returnTo = "/onboarding", publicUrl = null } = options;
+  const { returnTo = "/onboarding", publicUrl = null, enabled = true } = options;
   const router = useRouter();
   const queryClient = useQueryClient();
   const waitingForInstall = useRef(false);
@@ -79,9 +85,10 @@ export const useGithubAppSetup = (options: UseGithubAppSetupOptions = {}) => {
   const statusQuery = useQuery<GithubAppStatus>({
     queryKey: githubAppKeys.status(),
     queryFn: () => githubAppApi.getStatus(),
+    enabled,
   });
 
-  const { data: githubConnectionStatus } = useGithubStatus();
+  const { data: githubConnectionStatus } = useGithubStatus({ enabled });
 
   const saveCredentialsMutation = useMutation({
     mutationFn: () => githubAppApi.saveCredentials(formValues),

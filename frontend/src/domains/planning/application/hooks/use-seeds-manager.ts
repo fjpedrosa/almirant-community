@@ -43,11 +43,18 @@ export const useSeedsWithPagination = (params?: URLSearchParams) => {
   });
 };
 
-export const useSeed = (id: string | null) => {
+export const useSeed = (
+  id: string | null,
+  options?: { initialData?: SeedWithRelations; staleTime?: number },
+) => {
   return useQuery({
     queryKey: seedKeys.detail(id ?? ""),
     queryFn: () => seedsApi.get(id!) as Promise<SeedWithRelations>,
     enabled: !!id,
+    // Seed from the list object (when complete) + short stale window so opening
+    // the panel skips the redundant GET /seeds/:id. Mutations still invalidate.
+    initialData: options?.initialData,
+    staleTime: options?.staleTime,
   });
 };
 

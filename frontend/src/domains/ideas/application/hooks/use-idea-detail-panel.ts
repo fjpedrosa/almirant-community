@@ -24,8 +24,16 @@ import {
   useSetIdeaItemStatus,
 } from "./use-ideas";
 import { useUpdateIdeaItem } from "./use-update-idea-item";
+import {
+  ideaDetailInitialData,
+  ideaTraceabilityInitialData,
+} from "../../domain/detail-initial-data";
 
 type EditableField = "status" | "owner" | "dueDate" | "project" | "title" | "description" | "type";
+
+// Detail / traceability data comes from the list object; a short stale window
+// keeps it fresh enough while skipping the on-open GETs.
+const DETAIL_INITIAL_STALE_TIME = 60_000;
 
 export const useIdeaDetailPanel = (
   itemId: string | null,
@@ -40,10 +48,28 @@ export const useIdeaDetailPanel = (
   const [savingField, setSavingField] = useState<EditableField | null>(null);
 
   // === Queries ===
-  const itemQuery = useIdeaItem(isOpen ? itemId : null);
+  // Reuse the full list object as initialData (only when it actually carries the
+  // relations — Phase 5 slims the lists, so this stays a runtime guard).
+  const detailInitialData = ideaDetailInitialData(itemFromList);
+  const traceabilityInitialData = ideaTraceabilityInitialData(itemFromList);
+
+  const itemQuery = useIdeaItem(
+    isOpen ? itemId : null,
+    detailInitialData
+      ? { initialData: detailInitialData, staleTime: DETAIL_INITIAL_STALE_TIME }
+      : undefined,
+  );
   const item = itemQuery.data ?? itemFromList;
 
-  const traceabilityQuery = useIdeaItemTraceability(isOpen ? itemId : null);
+  const traceabilityQuery = useIdeaItemTraceability(
+    isOpen ? itemId : null,
+    traceabilityInitialData
+      ? {
+          initialData: traceabilityInitialData,
+          staleTime: DETAIL_INITIAL_STALE_TIME,
+        }
+      : undefined,
+  );
   const historyParams = useMemo(() => {
     const params = new URLSearchParams();
     params.set("page", "1");
