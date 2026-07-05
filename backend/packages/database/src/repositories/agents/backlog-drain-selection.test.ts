@@ -322,7 +322,7 @@ describe("selectBacklogDrainCandidates", () => {
       codingAgent: "codex",
       aiProvider: "xai",
       provider: "grok",
-      model: "grok-4.20-reasoning",
+      model: "grok-4.3",
     });
   });
 

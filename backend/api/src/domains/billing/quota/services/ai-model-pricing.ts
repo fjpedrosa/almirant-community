@@ -283,7 +283,75 @@ const AI_MODEL_PRICING: AiModelPricing[] = [
     matches: (m) => m === "o3-mini",
   },
 
+  // Google (Gemini)
+  {
+    provider: "google",
+    model: "gemini-3.1-pro-preview",
+    label: "Gemini 3.1 Pro (Preview)",
+    inputUsdPerMTok: 2,
+    outputUsdPerMTok: 12,
+    matches: (m) => m === "gemini-3.1-pro-preview" || m.startsWith("gemini-3.1-pro"),
+  },
+  {
+    provider: "google",
+    model: "gemini-3.5-flash",
+    label: "Gemini 3.5 Flash",
+    inputUsdPerMTok: 1.5,
+    outputUsdPerMTok: 9,
+    matches: (m) => m === "gemini-3.5-flash" || m.startsWith("gemini-3.5-flash-"),
+  },
+  {
+    provider: "google",
+    model: "gemini-3.1-flash-lite",
+    label: "Gemini 3.1 Flash Lite",
+    inputUsdPerMTok: 0.25,
+    outputUsdPerMTok: 1.5,
+    matches: (m) => m === "gemini-3.1-flash-lite" || m.startsWith("gemini-3.1-flash-lite"),
+  },
+  {
+    provider: "google",
+    model: "gemini-3-flash-preview",
+    label: "Gemini 3 Flash (Preview)",
+    inputUsdPerMTok: 0.5,
+    outputUsdPerMTok: 3,
+    matches: (m) => m === "gemini-3-flash-preview" || m.startsWith("gemini-3-flash-preview"),
+  },
+  {
+    provider: "google",
+    model: "gemini-2.5-pro",
+    label: "Gemini 2.5 Pro",
+    inputUsdPerMTok: 1.25,
+    outputUsdPerMTok: 10,
+    matches: (m) => m === "gemini-2.5-pro" || m.startsWith("gemini-2.5-pro-"),
+  },
+  // NOTE: flash-lite MUST come before flash — "gemini-2.5-flash-lite"
+  // startsWith("gemini-2.5-flash-") would otherwise be caught by the flash entry.
+  {
+    provider: "google",
+    model: "gemini-2.5-flash-lite",
+    label: "Gemini 2.5 Flash Lite",
+    inputUsdPerMTok: 0.1,
+    outputUsdPerMTok: 0.4,
+    matches: (m) => m === "gemini-2.5-flash-lite" || m.startsWith("gemini-2.5-flash-lite"),
+  },
+  {
+    provider: "google",
+    model: "gemini-2.5-flash",
+    label: "Gemini 2.5 Flash",
+    inputUsdPerMTok: 0.3,
+    outputUsdPerMTok: 2.5,
+    matches: (m) => m === "gemini-2.5-flash" || m.startsWith("gemini-2.5-flash-"),
+  },
+
   // Z.AI (GLM family)
+  {
+    provider: "zai",
+    model: "glm-5.2",
+    label: "GLM-5.2",
+    inputUsdPerMTok: 1.4,
+    outputUsdPerMTok: 4.4,
+    matches: (m) => m === "glm-5.2" || m.startsWith("glm-5.2-"),
+  },
   {
     provider: "zai",
     model: "glm-5.1",
@@ -528,11 +596,45 @@ const AI_MODEL_PRICING: AiModelPricing[] = [
   },
   {
     provider: "xai",
+    model: "grok-4.3",
+    label: "Grok 4.3",
+    inputUsdPerMTok: 1.25,
+    outputUsdPerMTok: 2.5,
+    matches: (m) => m.includes("grok-4.3"),
+  },
+  // NOTE: order matters — the "grok-4.20" base catch-all below matches
+  // m.includes("grok-4.20"), so the more specific 4.20 variants MUST come first.
+  {
+    provider: "xai",
+    model: "grok-4.20-multi-agent",
+    label: "Grok 4.20 Multi-Agent",
+    inputUsdPerMTok: 1.25,
+    outputUsdPerMTok: 2.5,
+    matches: (m) => m.includes("grok-4.20-multi-agent"),
+  },
+  {
+    provider: "xai",
     model: "grok-4.20-reasoning",
     label: "Grok 4.20 Reasoning",
-    inputUsdPerMTok: 3,
-    outputUsdPerMTok: 15,
-    matches: (m) => m.includes("grok-4.20-reasoning") || m.includes("grok-4.20"),
+    inputUsdPerMTok: 1.25,
+    outputUsdPerMTok: 2.5,
+    matches: (m) => m.includes("grok-4.20-reasoning"),
+  },
+  {
+    provider: "xai",
+    model: "grok-4.20",
+    label: "Grok 4.20",
+    inputUsdPerMTok: 1.25,
+    outputUsdPerMTok: 2.5,
+    matches: (m) => m.includes("grok-4.20"),
+  },
+  {
+    provider: "xai",
+    model: "grok-build-0.1",
+    label: "Grok Build 0.1",
+    inputUsdPerMTok: 1,
+    outputUsdPerMTok: 2,
+    matches: (m) => m.includes("grok-build-0.1"),
   },
   {
     provider: "xai",

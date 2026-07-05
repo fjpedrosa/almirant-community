@@ -215,7 +215,7 @@ export const createJob = async (input: CreateAgentJobInput): Promise<typeof agen
       aiProvider:
         input.aiProvider ??
         ((routingOverride?.aiProvider ?? "anthropic") as AiProvider),
-      model: input.model ?? routingOverride?.model ?? "claude-opus-4-7",
+      model: input.model ?? routingOverride?.model ?? "claude-opus-4-8",
     })
     .returning();
 
@@ -274,7 +274,7 @@ export const createBatchJobs = async (
         aiProvider:
           j.aiProvider ??
           ((routingOverride?.aiProvider ?? "anthropic") as AiProvider),
-        model: j.model ?? routingOverride?.model ?? "claude-opus-4-7",
+        model: j.model ?? routingOverride?.model ?? "claude-opus-4-8",
       };
     }),
   );

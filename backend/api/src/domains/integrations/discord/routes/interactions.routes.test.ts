@@ -187,12 +187,12 @@ describe("discordInteractionsRoutes slash command runtime resolution", () => {
 
     await waitForJobCreation();
 
-    // resolveRuntime({ provider: "zipu" }) => opencode / zai / glm-5.1
+    // resolveRuntime({ provider: "zipu" }) => opencode / zai / glm-5.2
     expect(state.createdJobInput).toMatchObject({
       provider: "zipu",
       codingAgent: "opencode",
       aiProvider: "zai",
-      model: "glm-5.1",
+      model: "glm-5.2",
     });
   });
 });

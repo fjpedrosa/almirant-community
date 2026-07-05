@@ -412,7 +412,7 @@ describe("buildInjectedEnv", () => {
       openaiApiKey: "zai-api-key",
       openaiAuthMethod: "api_key",
       baseUrl: "https://api.z.ai/api/anthropic",
-      implementationModel: "glm-5.1",
+      implementationModel: "glm-5.2",
     };
     const result = await buildInjectedEnv({
       workerClient: buildMockClient(keys),
@@ -425,15 +425,15 @@ describe("buildInjectedEnv", () => {
     expect(result.env.BASH_MAX_TIMEOUT_MS).toBe("3000000");
     expect(result.env.API_TIMEOUT_MS).toBe("3000000");
     expect(result.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe("1");
-    expect(result.env.ANTHROPIC_MODEL).toBe("glm-5.1");
-    expect(result.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe("glm-5.1");
-    expect(result.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe("glm-5.1");
+    expect(result.env.ANTHROPIC_MODEL).toBe("glm-5.2");
+    expect(result.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe("glm-5.2");
+    expect(result.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe("glm-5.2");
     expect(result.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe("glm-5-turbo");
     expect(result.env.ANTHROPIC_SMALL_FAST_MODEL).toBe("glm-5-turbo");
     expect(result.env.MAX_MCP_OUTPUT_TOKENS).toBe("50000");
     expect(result.env.DISABLE_COST_WARNINGS).toBe("1");
     expect(result.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBe("1");
-    expect(result.env.CLAUDE_CODE_SUBAGENT_MODEL).toBe("glm-5.1");
+    expect(result.env.CLAUDE_CODE_SUBAGENT_MODEL).toBe("glm-5.2");
     expect(result.env.OPENAI_API_KEY).toBeUndefined();
   });
 

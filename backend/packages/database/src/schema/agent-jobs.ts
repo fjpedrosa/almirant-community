@@ -94,7 +94,7 @@ export interface AgentJobConfig {
   locale?: string;
   /** Which coding agent to use for this job (e.g. claude-code, codex, opencode) */
   codingAgent?: "claude-code" | "codex" | "opencode";
-  /** Explicit model override (e.g. claude-opus-4-6, glm-5.1). Takes priority over provider defaults. */
+  /** Explicit model override (e.g. claude-opus-4-8, glm-5.2). Takes priority over provider defaults. */
   model?: string;
   /** Explicit reasoning effort override for this job. Runtime-specific values are normalized by shims. */
   reasoningLevel?: string;
@@ -184,7 +184,7 @@ export const agentJobs = pgTable(
     provider: agentProviderEnum("provider").notNull(),
     codingAgent: codingAgentEnum("coding_agent").notNull().default("claude-code"),
     aiProvider: aiProviderEnum("ai_provider").notNull().default("anthropic"),
-    model: varchar("model", { length: 100 }).notNull().default("claude-opus-4-6"),
+    model: varchar("model", { length: 100 }).notNull().default("claude-opus-4-8"),
     priority: priorityEnum("priority").notNull().default("medium"),
 
     // New model columns (prompt + trigger)

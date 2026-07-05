@@ -25,7 +25,7 @@ describe("resolveRuntime", () => {
   });
 
   it("keeps the zipu default model untouched", () => {
-    expect(resolveRuntime({ provider: "zipu" }).model).toBe("glm-5.1");
+    expect(resolveRuntime({ provider: "zipu" }).model).toBe("glm-5.2");
   });
 
   it("maps grok provider to OpenCode over xAI with the current Grok coding default", () => {
@@ -33,7 +33,7 @@ describe("resolveRuntime", () => {
       provider: "grok",
       codingAgent: "opencode",
       aiProvider: "xai",
-      model: "grok-4.20-reasoning",
+      model: "grok-4.3",
     });
   });
 

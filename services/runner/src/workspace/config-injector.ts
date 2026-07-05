@@ -303,18 +303,18 @@ const providerFromAiProvider = (aiProvider: string | undefined): string | undefi
 // carries no explicit model and the org connection has none configured. They
 // are intentionally decoupled from the API-side provider defaults in
 // backend/packages/shared/src/agents/runtime-selection.ts (PROVIDER_MAP):
-// the anthropic default stays on claude-sonnet-4-6 here for cost reasons.
+// the anthropic default stays on claude-sonnet-5 here for cost reasons.
 const defaultModelForProvider = (provider: string): string => {
   switch (provider) {
     case "anthropic":
-      return "claude-sonnet-4-6";
+      return "claude-sonnet-5";
     case "openai":
       return "gpt-5.5";
     case "zai-coding-plan":
     case "zai":
-      return "glm-5.1";
+      return "glm-5.2";
     case "xai":
-      return "grok-4.20-reasoning";
+      return "grok-4.3";
     case "openai-compatible":
       return "glm-4.7";
     default:
@@ -326,7 +326,7 @@ const defaultSmallModelForProvider = (provider: string): string | undefined => {
   switch (provider) {
     case "zai-coding-plan":
     case "zai":
-      return "glm-4.5-air";
+      return "glm-4.7-flashx";
     default:
       return undefined;
   }
@@ -660,7 +660,7 @@ export const buildInjectedEnv = async (
 
   if (isZipuClaudeRuntime) {
     const claudeSmallModel =
-      resolvedModel === "glm-5.1" ? "glm-5-turbo" : resolvedSmallModel;
+      resolvedModel === "glm-5.2" ? "glm-5-turbo" : resolvedSmallModel;
 
     applyClaudeAnthropicCompatibleEnv(env, {
       baseUrl: ZAI_CLAUDE_BASE_URL,

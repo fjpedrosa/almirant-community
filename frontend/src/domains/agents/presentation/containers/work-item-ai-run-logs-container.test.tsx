@@ -51,7 +51,7 @@ mock.module("../../application/hooks/use-agent-run-logs", () => ({
         failedAt: null,
         errorMessage: null,
         sessionId: null,
-        config: { model: "claude-sonnet-4-6" },
+        config: { model: "claude-sonnet-5" },
       },
     ],
     total: 1,

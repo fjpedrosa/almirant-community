@@ -1,14 +1,15 @@
 import type { ModelDefinition, ProviderType } from "@/domains/integrations/domain/types";
 
 /**
- * Comprehensive catalog of AI models updated for July 2026 (Anthropic Claude 5 wave).
- * Organized by provider with display names and categories for UI components.
+ * Comprehensive catalog of AI models updated for July 2026.
+ * Only currently-available (non-deprecated) models are listed, organized by
+ * provider with display names and categories for UI components.
  */
 
-// Anthropic models - July 2026
+// Anthropic models - July 2026 (verified against platform.claude.com models + pricing)
 // Order matters: use-model-selector picks the FIRST entry as the default selection,
-// so Opus 4.8 (the claude-code default) must stay first. Fable 5 is selectable
-// but intentionally NOT the default.
+// so Opus 4.8 (the claude-code default) must stay first. Fable 5 is the most capable
+// model but is intentionally NOT the default (premium price + 30-day retention).
 const ANTHROPIC_MODELS: ModelDefinition[] = [
   {
     id: "claude-opus-4-8",
@@ -16,7 +17,7 @@ const ANTHROPIC_MODELS: ModelDefinition[] = [
     category: "best",
   },
   {
-    // Mythos-class frontier model ($10/$50 MTok, 1M context, 128K output).
+    // Most capable widely-released model ($10/$50 MTok, 1M context, 128K output).
     // Thinking is always on and it requires 30-day data retention — keep it
     // opt-in (never the default selection).
     id: "claude-fable-5",
@@ -26,16 +27,11 @@ const ANTHROPIC_MODELS: ModelDefinition[] = [
   {
     id: "claude-opus-4-7",
     displayName: "Claude Opus 4.7",
-    category: "best",
+    category: "reasoning",
   },
   {
     id: "claude-sonnet-5",
     displayName: "Claude Sonnet 5",
-    category: "fast",
-  },
-  {
-    id: "claude-sonnet-4-6",
-    displayName: "Claude Sonnet 4.6",
     category: "fast",
   },
   {
@@ -45,12 +41,17 @@ const ANTHROPIC_MODELS: ModelDefinition[] = [
   },
 ];
 
-// OpenAI models - April 2026 (verified against OpenAI model catalog)
+// OpenAI models - July 2026 (verified against OpenAI models + pricing pages)
 const OPENAI_MODELS: ModelDefinition[] = [
   {
     id: "gpt-5.5",
     displayName: "GPT-5.5",
     category: "best",
+  },
+  {
+    id: "gpt-5.5-pro",
+    displayName: "GPT-5.5 Pro",
+    category: "reasoning",
   },
   {
     id: "gpt-5.4",
@@ -85,16 +86,36 @@ const OPENAI_MODELS: ModelDefinition[] = [
   {
     id: "gpt-4.1-mini",
     displayName: "GPT-4.1 Mini",
-    category: "fast",
+    category: "cheap",
   },
 ];
 
-// Google models - March 2026
+// Google models - July 2026 (verified against ai.google.dev models + pricing)
 const GOOGLE_MODELS: ModelDefinition[] = [
+  {
+    id: "gemini-3.1-pro-preview",
+    displayName: "Gemini 3.1 Pro",
+    category: "best",
+  },
+  {
+    id: "gemini-3.5-flash",
+    displayName: "Gemini 3.5 Flash",
+    category: "fast",
+  },
+  {
+    id: "gemini-3.1-flash-lite",
+    displayName: "Gemini 3.1 Flash-Lite",
+    category: "cheap",
+  },
+  {
+    id: "gemini-3-flash-preview",
+    displayName: "Gemini 3 Flash",
+    category: "fast",
+  },
   {
     id: "gemini-2.5-pro",
     displayName: "Gemini 2.5 Pro",
-    category: "best",
+    category: "reasoning",
   },
   {
     id: "gemini-2.5-flash",
@@ -103,22 +124,23 @@ const GOOGLE_MODELS: ModelDefinition[] = [
   },
   {
     id: "gemini-2.5-flash-lite",
-    displayName: "Gemini 2.5 Flash Lite",
+    displayName: "Gemini 2.5 Flash-Lite",
     category: "cheap",
-  },
-  {
-    id: "gemini-3.1-pro-preview",
-    displayName: "Gemini 3.1 Pro Preview",
-    category: "best",
   },
 ];
 
-// OpenAI-compatible models (current z.ai GLM model catalog)
+// OpenAI-compatible models (current z.ai GLM catalog, verified against z.ai pricing)
+// GLM-5.2 is the flagship and the zai default.
 const OPENAI_COMPATIBLE_MODELS: ModelDefinition[] = [
+  {
+    id: "glm-5.2",
+    displayName: "GLM-5.2",
+    category: "best",
+  },
   {
     id: "glm-5.1",
     displayName: "GLM-5.1",
-    category: "best",
+    category: "reasoning",
   },
   {
     id: "glm-5",
@@ -138,12 +160,12 @@ const OPENAI_COMPATIBLE_MODELS: ModelDefinition[] = [
   {
     id: "glm-4.7",
     displayName: "GLM-4.7",
-    category: "fast",
+    category: "cheap",
   },
   {
     id: "glm-4.7-flashx",
     displayName: "GLM-4.7-FlashX",
-    category: "fast",
+    category: "cheap",
   },
   {
     id: "glm-4.7-flash",
@@ -151,58 +173,18 @@ const OPENAI_COMPATIBLE_MODELS: ModelDefinition[] = [
     category: "cheap",
   },
   {
-    id: "glm-4.6",
-    displayName: "GLM-4.6",
-    category: "fast",
-  },
-  {
     id: "glm-4.6v",
     displayName: "GLM-4.6V",
-    category: "cheap",
+    category: "reasoning",
   },
   {
     id: "glm-4.6v-flashx",
     displayName: "GLM-4.6V-FlashX",
-    category: "fast",
+    category: "cheap",
   },
   {
     id: "glm-4.6v-flash",
     displayName: "GLM-4.6V-Flash",
-    category: "cheap",
-  },
-  {
-    id: "glm-4.5",
-    displayName: "GLM-4.5",
-    category: "cheap",
-  },
-  {
-    id: "glm-4.5-x",
-    displayName: "GLM-4.5-X",
-    category: "best",
-  },
-  {
-    id: "glm-4.5-air",
-    displayName: "GLM-4.5 Air",
-    category: "fast",
-  },
-  {
-    id: "glm-4.5-airx",
-    displayName: "GLM-4.5 AirX",
-    category: "fast",
-  },
-  {
-    id: "glm-4.5-flash",
-    displayName: "GLM-4.5 Flash",
-    category: "cheap",
-  },
-  {
-    id: "glm-4.5v",
-    displayName: "GLM-4.5V",
-    category: "best",
-  },
-  {
-    id: "glm-4-32b-0414-128k",
-    displayName: "GLM-4-32B-0414-128K",
     category: "cheap",
   },
   {
@@ -215,17 +197,20 @@ const OPENAI_COMPATIBLE_MODELS: ModelDefinition[] = [
 // ZAI models (same as OpenAI-compatible for now)
 const ZAI_MODELS: ModelDefinition[] = OPENAI_COMPATIBLE_MODELS;
 
-// xAI Grok models - April 2026 (verified against xAI docs)
+// xAI Grok models - July 2026 (verified against docs.x.ai; grok-4.3 is the flagship
+// and every retired legacy slug now redirects to it).
+// NOTE: docs.x.ai lists dated snapshots (e.g. grok-4.20-0309-*). The undated aliases
+// below resolve today; confirm the exact grok-4.20 id against a live API key before prod.
 const XAI_MODELS: ModelDefinition[] = [
+  {
+    id: "grok-4.3",
+    displayName: "Grok 4.3",
+    category: "best",
+  },
   {
     id: "grok-4.20-reasoning",
     displayName: "Grok 4.20 Reasoning",
     category: "reasoning",
-  },
-  {
-    id: "grok-4.20",
-    displayName: "Grok 4.20",
-    category: "best",
   },
   {
     id: "grok-4.20-multi-agent",
@@ -233,33 +218,13 @@ const XAI_MODELS: ModelDefinition[] = [
     category: "reasoning",
   },
   {
-    id: "grok-4-1-fast",
-    displayName: "Grok 4.1 Fast",
+    id: "grok-4.20",
+    displayName: "Grok 4.20",
     category: "fast",
   },
   {
-    id: "grok-code-fast-1",
-    displayName: "Grok Code Fast 1",
-    category: "fast",
-  },
-  {
-    id: "grok-4-fast-reasoning",
-    displayName: "Grok 4 Fast Reasoning",
-    category: "reasoning",
-  },
-  {
-    id: "grok-4-fast-non-reasoning",
-    displayName: "Grok 4 Fast Non-Reasoning",
-    category: "fast",
-  },
-  {
-    id: "grok-3",
-    displayName: "Grok 3",
-    category: "best",
-  },
-  {
-    id: "grok-3-mini",
-    displayName: "Grok 3 Mini",
+    id: "grok-build-0.1",
+    displayName: "Grok Build 0.1",
     category: "cheap",
   },
 ];

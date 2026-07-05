@@ -126,7 +126,7 @@ const DEFAULT_MAX_CONCURRENT_PER_PROJECT = 1;
 const DEFAULT_STABILIZATION_WINDOW_MS = 15 * 60 * 1000;
 const DEFAULT_CODING_AGENT: BacklogDrainCodingAgent = "claude-code";
 const DEFAULT_AI_PROVIDER: BacklogDrainAiProvider = "anthropic";
-const DEFAULT_MODEL = "claude-opus-4-7";
+const DEFAULT_MODEL = "claude-opus-4-8";
 const MAX_AUTOMATED_DOD_INCOMPLETE_COUNT = 3;
 
 const codingAgentToProvider = (codingAgent: BacklogDrainCodingAgent): BacklogDrainProvider => {
@@ -154,7 +154,7 @@ const codingAgentToAiProvider = (codingAgent: BacklogDrainCodingAgent): BacklogD
 
 const defaultModelForCodingAgent = (codingAgent: BacklogDrainCodingAgent): string => {
   if (codingAgent === "codex") return "gpt-5.5";
-  if (codingAgent === "opencode") return "glm-5.1";
+  if (codingAgent === "opencode") return "glm-5.2";
   return DEFAULT_MODEL;
 };
 
@@ -162,8 +162,8 @@ const defaultModelForRuntime = (
   codingAgent: BacklogDrainCodingAgent,
   aiProvider: BacklogDrainAiProvider,
 ): string => {
-  if (aiProvider === "xai") return "grok-4.20-reasoning";
-  if (aiProvider === "zai") return "glm-5.1";
+  if (aiProvider === "xai") return "grok-4.3";
+  if (aiProvider === "zai") return "glm-5.2";
   return defaultModelForCodingAgent(codingAgent);
 };
 

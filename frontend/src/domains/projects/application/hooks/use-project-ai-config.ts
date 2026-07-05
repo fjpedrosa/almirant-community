@@ -17,15 +17,15 @@ const providerToImplementationDefaults = (
   provider: AiConfigProvider | null,
 ): NonNullable<ProjectAgentDefaults["implementation"]> => {
   if (provider === "codex") return { codingAgent: "codex", aiProvider: "openai", model: "gpt-5.5", reasoningLevel: null };
-  if (provider === "zipu") return { codingAgent: "opencode", aiProvider: "zai", model: "glm-5.1", reasoningLevel: null };
-  if (provider === "grok") return { codingAgent: "opencode", aiProvider: "xai", model: "grok-4.20-reasoning", reasoningLevel: null };
+  if (provider === "zipu") return { codingAgent: "opencode", aiProvider: "zai", model: "glm-5.2", reasoningLevel: null };
+  if (provider === "grok") return { codingAgent: "opencode", aiProvider: "xai", model: "grok-4.3", reasoningLevel: null };
   return { codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-opus-4-8", reasoningLevel: null };
 };
 
 const defaultModelForAiProvider = (aiProvider: ProjectImplementationAiProvider): string => {
   if (aiProvider === "openai") return "gpt-5.5";
-  if (aiProvider === "zai") return "glm-5.1";
-  if (aiProvider === "xai") return "grok-4.20-reasoning";
+  if (aiProvider === "zai") return "glm-5.2";
+  if (aiProvider === "xai") return "grok-4.3";
   return "claude-opus-4-8";
 };
 
@@ -104,7 +104,7 @@ export const useProjectAiConfig = (projectId: string) => {
     if (codingAgent === "codex") {
       handleImplementationDefaultChange({ codingAgent, aiProvider: "openai", model: "gpt-5.5", reasoningLevel: null });
     } else if (codingAgent === "opencode") {
-      handleImplementationDefaultChange({ codingAgent, aiProvider: "zai", model: "glm-5.1", reasoningLevel: null });
+      handleImplementationDefaultChange({ codingAgent, aiProvider: "zai", model: "glm-5.2", reasoningLevel: null });
     } else {
       handleImplementationDefaultChange({ codingAgent, aiProvider: "anthropic", model: "claude-opus-4-8", reasoningLevel: null });
     }

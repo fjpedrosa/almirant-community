@@ -35,7 +35,7 @@ describe("coding agent compatibility", () => {
     expect(modelIds).toContain("claude-sonnet-5");
     // Previous generation stays selectable for existing configs.
     expect(modelIds).toContain("claude-opus-4-7");
-    expect(modelIds).toContain("claude-sonnet-4-6");
+    expect(modelIds).toContain("claude-sonnet-5");
     expect(modelIds).toContain("claude-haiku-4-5");
   });
 

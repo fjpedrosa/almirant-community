@@ -18,7 +18,7 @@ describe("opencode config-generator", () => {
   it("builds provider map with options and apiKey using {env:} format", () => {
     const config = buildOpenCodeConfig({
       provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-5",
       apiKeyEnvVar: "ANTHROPIC_API_KEY",
     });
 
@@ -29,11 +29,11 @@ describe("opencode config-generator", () => {
   it("includes endpoint for providers with baseUrl", () => {
     const config = buildOpenCodeConfig({
       provider: "openai-compatible",
-      model: "glm-4.5",
+      model: "glm-5.2",
       baseUrl: "https://api.z.ai/v1",
     });
 
-    expect(config.model).toBe("openai-compatible/glm-4.5");
+    expect(config.model).toBe("openai-compatible/glm-5.2");
     expect(config.provider["openai-compatible"].options.endpoint).toBe("https://api.z.ai/v1");
   });
 
@@ -41,19 +41,19 @@ describe("opencode config-generator", () => {
     const config = buildOpenCodeConfig({
       provider: "zai",
       model: "glm-5",
-      smallModel: "glm-4.5-air",
+      smallModel: "glm-4.7-flash",
       apiKeyEnvVar: "OPENAI_API_KEY",
     });
 
     expect(config.model).toBe("zai/glm-5");
-    expect(config.small_model).toBe("zai/glm-4.5-air");
+    expect(config.small_model).toBe("zai/glm-4.7-flash");
     expect(config.provider.zai.options.apiKey).toBe("{env:OPENAI_API_KEY}");
   });
 
   it("configures OpenCode in YOLO mode", () => {
     const config = buildOpenCodeConfig({
       provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-5",
     });
 
     expect(config.instructions).toEqual(["AGENTS.md"]);
@@ -90,10 +90,10 @@ describe("opencode config-generator", () => {
   it("serializes to valid JSON with schema", () => {
     const json = buildOpenCodeConfigJson({
       provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-5",
     });
     const parsed = JSON.parse(json);
     expect(parsed.$schema).toBe("https://opencode.ai/config.json");
-    expect(parsed.model).toBe("anthropic/claude-sonnet-4-6");
+    expect(parsed.model).toBe("anthropic/claude-sonnet-5");
   });
 });

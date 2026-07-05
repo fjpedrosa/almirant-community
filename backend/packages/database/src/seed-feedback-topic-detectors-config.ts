@@ -15,7 +15,7 @@
  *
  * Optional env vars:
  *   ENABLED=true|false   (default: true)
- *   AI_MODEL=<model-id>  (default: claude-sonnet-4-6)
+ *   AI_MODEL=<model-id>  (default: claude-sonnet-5)
  *   TIMEZONE=<tz>        (default: Europe/Madrid)
  */
 
@@ -30,7 +30,7 @@ type DetectorSeed = {
   cron: string;
 };
 
-const DEFAULT_AI_MODEL = "claude-sonnet-4-6";
+const DEFAULT_AI_MODEL = "claude-sonnet-5";
 const DEFAULT_TIMEZONE = "Europe/Madrid";
 
 const DETECTOR_SEEDS: DetectorSeed[] = [

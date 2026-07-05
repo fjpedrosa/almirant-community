@@ -53,8 +53,8 @@ const PROVIDER_MAP: Record<AgentProvider, {
 }> = {
   "claude-code": { codingAgent: "claude-code", aiProvider: "anthropic", defaultModel: "claude-opus-4-8" },
   codex:         { codingAgent: "codex",       aiProvider: "openai",    defaultModel: "gpt-5.5" },
-  zipu:          { codingAgent: "opencode",    aiProvider: "zai",       defaultModel: "glm-5.1" },
-  grok:          { codingAgent: "opencode",    aiProvider: "xai",       defaultModel: "grok-4.20-reasoning" },
+  zipu:          { codingAgent: "opencode",    aiProvider: "zai",       defaultModel: "glm-5.2" },
+  grok:          { codingAgent: "opencode",    aiProvider: "xai",       defaultModel: "grok-4.3" },
 };
 
 /** Aliases that callers may send instead of the canonical provider name. */
@@ -87,10 +87,10 @@ const PROVIDER_ALIASES: Record<string, AgentProvider> = {
  * @example
  * ```ts
  * resolveRuntime({ provider: "zai" })
- * // => { provider: "zipu", codingAgent: "opencode", aiProvider: "zai", model: "glm-5.1" }
+ * // => { provider: "zipu", codingAgent: "opencode", aiProvider: "zai", model: "glm-5.2" }
  *
- * resolveRuntime({ provider: "claude-code", model: "claude-sonnet-4-20250514" })
- * // => { provider: "claude-code", codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-sonnet-4-20250514" }
+ * resolveRuntime({ provider: "claude-code", model: "claude-sonnet-5" })
+ * // => { provider: "claude-code", codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-sonnet-5" }
  *
  * resolveRuntime({})
  * // => { provider: "claude-code", codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-opus-4-8" }

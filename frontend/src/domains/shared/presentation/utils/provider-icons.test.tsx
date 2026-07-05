@@ -62,7 +62,7 @@ describe("provider icon mappings", () => {
 
     expect(markup).toContain('aria-label="OpenCode"');
     expect(markup).toContain('fill="currentColor"');
-    expect(markup).toContain("M16 6H8v12h8V6");
+    expect(markup).toContain("M384 416H128V96H384V416Z");
     expect(markup).not.toContain('stroke="currentColor"');
   });
 

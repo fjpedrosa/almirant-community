@@ -123,17 +123,18 @@ describe("calculateCostUsd", () => {
   it("maps openai-compatible GLM models to Z.AI pricing", () => {
     const cost = calculateCostUsd({
       provider: "zai",
-      model: "glm-4.5-air-250828",
+      model: "glm-5.2-250828",
       inputTokens: 1_000_000,
       outputTokens: 1_000_000,
     });
-    expect(cost).toBe(1.3);
+    // glm-5.2 snapshot id fuzzy-matches the base glm-5.2 pricing: 1.4 + 4.4 = 5.8
+    expect(cost).toBe(5.8);
   });
 
   it("supports free GLM flash models", () => {
     const cost = calculateCostUsd({
       provider: "zai",
-      model: "glm-4.5-flash",
+      model: "glm-4.7-flash",
       inputTokens: 2_000_000,
       outputTokens: 2_000_000,
     });
@@ -151,10 +152,10 @@ describe("calculateCostUsd", () => {
   });
 
   it("includes Anthropic cache read cost at 10% of input rate", () => {
-    // Anthropic Sonnet 4.6: input $3/MTok. Cache read = $3 * 0.1 = $0.30 / MTok.
+    // Anthropic Sonnet 5: input $3/MTok. Cache read = $3 * 0.1 = $0.30 / MTok.
     const cost = calculateCostUsd({
       provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-5",
       inputTokens: 1_000_000,
       outputTokens: 0,
       cacheReadInputTokens: 1_000_000,
@@ -164,10 +165,10 @@ describe("calculateCostUsd", () => {
   });
 
   it("includes Anthropic cache creation cost at 125% of input rate", () => {
-    // Anthropic Sonnet 4.6: input $3/MTok. Cache creation = $3 * 1.25 = $3.75 / MTok.
+    // Anthropic Sonnet 5: input $3/MTok. Cache creation = $3 * 1.25 = $3.75 / MTok.
     const cost = calculateCostUsd({
       provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-5",
       inputTokens: 0,
       outputTokens: 0,
       cacheCreationInputTokens: 1_000_000,
@@ -192,13 +193,13 @@ describe("calculateCostUsd", () => {
   it("treats undefined cache tokens as zero (backward compat)", () => {
     const costNoCache = calculateCostUsd({
       provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-5",
       inputTokens: 1_000_000,
       outputTokens: 1_000_000,
     });
     const costExplicitZero = calculateCostUsd({
       provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-5",
       inputTokens: 1_000_000,
       outputTokens: 1_000_000,
       cacheReadInputTokens: 0,

@@ -68,11 +68,11 @@ const PROVIDER_NAMES: Record<string, string> = {
 };
 
 const MODEL_PLACEHOLDERS: Record<string, string> = {
-  anthropic: "claude-sonnet-4-6",
+  anthropic: "claude-sonnet-5",
   openai: "gpt-5.5",
-  google: "gemini-2.5-flash",
-  zai: "glm-5.1",
-  xai: "grok-4.20-reasoning",
+  google: "gemini-3.5-flash",
+  zai: "glm-5.2",
+  xai: "grok-4.3",
 };
 
 // ---------------------------------------------------------------------------

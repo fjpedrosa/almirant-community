@@ -65,7 +65,7 @@ async function main() {
       'Runs every 30 minutes. Finds failed agent jobs, debugs them using error memory, and opens PRs for code fixes.',
       'claude-code',
       'anthropic',
-      'claude-sonnet-4-6',
+      'claude-sonnet-5',
       'cron',
       ${sql.json({ expression: "*/30 * * * *" })},
       'Europe/Madrid',

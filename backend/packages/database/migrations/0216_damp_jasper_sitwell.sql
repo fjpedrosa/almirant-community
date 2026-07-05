@@ -1,0 +1,1 @@
+ALTER TABLE "agent_jobs" ALTER COLUMN "model" SET DEFAULT 'claude-opus-4-8';

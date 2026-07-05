@@ -41,16 +41,16 @@ const PROVIDER_NAMES: Record<ProviderType, string> = {
 };
 
 const MODEL_PLACEHOLDERS: Record<ProviderType, string> = {
-  anthropic: "claude-sonnet-4-6",
+  anthropic: "claude-sonnet-5",
   openai: "gpt-5.5",
-  google: "gemini-2.5-pro",
-  zai: "glm-5.1",
-  xai: "grok-4.20-reasoning",
+  google: "gemini-3.1-pro-preview",
+  zai: "glm-5.2",
+  xai: "grok-4.3",
   github: "",
   vercel: "",
   sentry: "",
   posthog: "",
-  zipu: "glm-5.1",
+  zipu: "glm-5.2",
   discord: "",
   gitlab: "",
 };

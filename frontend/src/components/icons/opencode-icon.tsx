@@ -9,12 +9,13 @@ export const OpenCodeIcon: React.FC<OpenCodeIconProps> = ({ className }) => (
     fillRule="evenodd"
     height="1em"
     style={{ flex: "none", lineHeight: 1 }}
-    viewBox="0 0 24 24"
+    viewBox="0 0 512 512"
     width="1em"
     role="img"
     className={className}
     aria-label="OpenCode"
   >
-    <path d="M16 6H8v12h8V6zm4 16H4V2h16v20z" />
+    <path d="M320 224V352H192V224H320Z" />
+    <path clipRule="evenodd" d="M384 416H128V96H384V416ZM320 160H192V352H320V160Z" />
   </svg>
 );
