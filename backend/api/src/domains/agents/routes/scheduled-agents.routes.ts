@@ -21,6 +21,7 @@ import { getInstanceConfig } from "../../instance/services/instance-config-servi
 import { executeScheduledAgentConfig } from "../services/execute-scheduled-agent-config";
 import {
   assertValidScheduledAgentRuntime,
+  canonicalizeAiModelForStorage,
   SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR,
 } from "../services/scheduled-agent-runtime-validation";
 
@@ -448,7 +449,7 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
           description: body.description ?? null,
           codingAgent: body.codingAgent ?? null,
           aiProvider: body.aiProvider ?? null,
-          aiModel: body.aiModel ?? null,
+          aiModel: canonicalizeAiModelForStorage(body.aiModel),
           reasoningLevel: body.reasoningLevel ?? null,
           mcpServers: normalizedMcpServers,
         });
@@ -527,6 +528,12 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
           // Re-enabling inside an active time window should not be blocked by the
           // previous run timestamp; the runner will pick it up on the next tick.
           ...(becameEnabled ? { lastRunAt: null } : {}),
+          // Canonicalize the model on write so display-name casing (e.g.
+          // "GLM-5.2") never persists out of sync with the catalog ids. Only
+          // override when the field is actually part of this update.
+          ...(body.aiModel !== undefined
+            ? { aiModel: canonicalizeAiModelForStorage(body.aiModel) }
+            : {}),
         });
         return successResponse(config);
       } catch (error) {

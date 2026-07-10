@@ -37,6 +37,10 @@ import {
 import type { SkillSelectorItem } from "@/domains/skills/domain/types";
 import { resolveDefaultCronExpression } from "../../presentation/components/cron-form-defaults";
 import { scheduledAgentsApi } from "@/lib/api/client";
+import {
+  resolveCanonicalModelId,
+  reconcileModelWithAvailable,
+} from "@/lib/ai-models-catalog";
 
 // Extended schema with 5 new optional fields
 export const scheduledAgentFormSchema = z
@@ -428,7 +432,10 @@ export const useAgentFormDrawer = ({
         description: config.description ?? "",
         codingAgent: normalizeScheduledCodingAgent(config.codingAgent) ?? "claude-code",
         aiProvider: config.aiProvider ?? "",
-        aiModel: config.aiModel ?? "",
+        // Canonicalize the persisted model so a value stored with the wrong
+        // casing (e.g. "GLM-5.2") or as a dated snapshot still matches a Select
+        // option; fall back to the raw value rather than dropping it.
+        aiModel: resolveCanonicalModelId(config.aiModel) ?? config.aiModel ?? "",
         reasoningLevel: (config.reasoningLevel as FormValues["reasoningLevel"]) ?? undefined,
         mcpServersJson: formatMcpServersJson(config.mcpServers),
         agentKind: inferred.agentKind,
@@ -676,13 +683,19 @@ export const useAgentFormDrawer = ({
 
   useEffect(() => {
     if (!open) return;
-    if (
-      availableModels.length > 0 &&
-      watchedAiProvider &&
-      form.getValues("aiModel") &&
-      !availableModels.some((m) => m.value === form.getValues("aiModel"))
-    ) {
-      form.setValue("aiModel", "");
+    if (availableModels.length === 0) return;
+    if (!watchedAiProvider) return;
+    const current = form.getValues("aiModel");
+    if (!current) return;
+    // Reconcile against the provider's options: canonicalize case/snapshot
+    // mismatches instead of wiping a valid value; only clear when the model
+    // truly does not belong to the selected provider.
+    const next = reconcileModelWithAvailable(
+      current,
+      availableModels.map((m) => m.value),
+    );
+    if (next !== current) {
+      form.setValue("aiModel", next);
     }
   }, [availableModels, open, form, watchedAiProvider]);
 
