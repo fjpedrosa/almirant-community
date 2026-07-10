@@ -227,7 +227,7 @@ fi
 # IMPORTANT: keep secrets out of the repository workspace. The project-level
 # .claude/settings.json above contains permissions only; provider credentials
 # are written under $HOME instead.
-if [[ -n "${ANTHROPIC_AUTH_TOKEN:-}" || -n "${ANTHROPIC_BASE_URL:-}" ]]; then
+if [[ -n "${ANTHROPIC_AUTH_TOKEN:-}" || -n "${ANTHROPIC_BASE_URL:-}" || -n "${CLAUDE_CODE_SUBAGENT_MODEL:-}" ]]; then
   CLAUDE_USER_SETTINGS_DIR="${HOME:-/home/opencode}/.claude"
   mkdir -p "$CLAUDE_USER_SETTINGS_DIR"
   jq -n \

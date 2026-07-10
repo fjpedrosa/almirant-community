@@ -10,11 +10,13 @@ import { requiresInternalMcp } from "../shared/internal-skills";
 import { normalizeRunnerCustomMcpServersConfig } from "@almirant/shared";
 import {
   applyClaudeAnthropicCompatibleEnv,
+  applyClaudeTeamingEnv,
   isClaudeAnthropicCompatibleRuntime,
   resolveClaudeInjectedKeyEnvName,
 } from "../runtime-executors/claude";
 import { resolveJobIntent } from "../orchestration/job-intent";
 import { resolveJobCodingAgent } from "../shared/job-helpers";
+import { resolveUltracode } from "./ultracode-preset";
 
 type ConfigInjectorInput = {
   workerClient: Pick<
@@ -478,7 +480,19 @@ export const buildInjectedEnv = async (
     : isValidationSkill
       ? keys.validationReasoningBudget
       : keys.implementationReasoningBudget;
-  const reasoningBudget = jobReasoningLevel ?? connectionReasoningBudget;
+
+  // Opt-in "ultracode" preset (per-job jsonb flag): forces maximum reasoning
+  // and multi-agent teaming. When absent, `resolveUltracode` is a pure
+  // pass-through that preserves the pre-existing behavior byte-for-byte.
+  const ultracode = jobConfig.ultracode === true;
+  const ultracodeResolution = resolveUltracode({
+    ultracode,
+    reasoningBudget: jobReasoningLevel ?? connectionReasoningBudget,
+    resolvedModel,
+    subagentModel: asString(jobConfig.subagentModel),
+    isZipuClaudeRuntime,
+  });
+  const reasoningBudget = ultracodeResolution.reasoningBudget;
 
   // Build MCP servers for the OpenCode config.
   // Prefer a scoped session token over the global API key when available.
@@ -666,6 +680,14 @@ export const buildInjectedEnv = async (
       baseUrl: ZAI_CLAUDE_BASE_URL,
       resolvedModel,
       resolvedSmallModel: claudeSmallModel,
+      subagentModel: ultracodeResolution.subagentModel,
+    });
+  } else if (ultracodeResolution.enableTeaming) {
+    // Native-Anthropic Claude under the ultracode preset: enable teaming without
+    // the ZAI Anthropic-compatible base-URL/model overrides (which would break
+    // native auth). Only the runtime-agnostic teaming env is applied.
+    applyClaudeTeamingEnv(env, {
+      subagentModel: ultracodeResolution.subagentModel ?? resolvedModel,
     });
   }
 

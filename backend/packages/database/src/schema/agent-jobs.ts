@@ -99,6 +99,19 @@ export interface AgentJobConfig {
   /** Explicit reasoning effort override for this job. Runtime-specific values are normalized by shims. */
   reasoningLevel?: string;
   /**
+   * Opt-in "ultracode" preset. When true, the runner forces maximum reasoning
+   * ("xhigh") and enables multi-agent teaming for the coding agent, regardless
+   * of runtime. When absent, behavior is unchanged. Lives in the jsonb config
+   * blob (no dedicated DB column).
+   */
+  ultracode?: boolean;
+  /**
+   * Explicit model to use for spawned subagents when teaming is active. When
+   * omitted, teaming falls back to the resolved job model. Lives in the jsonb
+   * config blob (no dedicated DB column).
+   */
+  subagentModel?: string;
+  /**
    * UUID of the specific `provider_connections` row the runner should use for
    * AI credentials. Set by `createJob` when the admin has pinned an account
    * for the job's skill in system_settings.agent_routing. The runner

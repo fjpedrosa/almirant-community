@@ -41,7 +41,7 @@ const buildClaudeShimMcpFallbackNote = (): string => {
     "In this Claude runner environment, specialist agents MUST use the SAME model already selected for the current job/session.",
     "",
     "- Ignore any earlier instruction in the skill that says `model: \"opus\"` or pins a specific `claude-opus-*` model.",
-    "- Do NOT pass `model` to `Agent`/`Task` unless the user or job explicitly requested a subagent model override.",
+    "- Do NOT pass `model` to `Agent`/`Task` unless the user or job explicitly requested a subagent model override (e.g. via the `ultracode` preset or an explicit `subagentModel`). When such an override is set, honor it.",
     "- If a reporting step asks you to translate `model: \"opus\"` into a Claude model ID, do NOT do that here. Record the actual running model instead.",
   ].join("\n");
 };
@@ -90,12 +90,30 @@ export const isClaudeAnthropicCompatibleRuntime = (params: {
   );
 };
 
+/**
+ * Enable Claude Code multi-agent teaming. This is the minimal, runtime-agnostic
+ * subset shared by the zai/Claude-compatible path and the native-Anthropic
+ * ultracode path — it only toggles teaming and pins the subagent model, without
+ * touching ANTHROPIC_BASE_URL / model overrides (those are zai-specific).
+ */
+export const applyClaudeTeamingEnv = (
+  env: Record<string, string>,
+  params: {
+    subagentModel: string;
+  },
+): void => {
+  env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1";
+  env.CLAUDE_CODE_SUBAGENT_MODEL = params.subagentModel;
+};
+
 export const applyClaudeAnthropicCompatibleEnv = (
   env: Record<string, string>,
   params: {
     baseUrl?: string;
     resolvedModel: string;
     resolvedSmallModel?: string;
+    /** Explicit subagent model override. Defaults to `resolvedModel`. */
+    subagentModel?: string;
   },
 ): void => {
   env.ANTHROPIC_BASE_URL = params.baseUrl ?? ZAI_CLAUDE_BASE_URL;
@@ -111,7 +129,8 @@ export const applyClaudeAnthropicCompatibleEnv = (
     params.resolvedSmallModel ?? "glm-5-turbo";
   env.MAX_MCP_OUTPUT_TOKENS = "50000";
   env.DISABLE_COST_WARNINGS = "1";
-  env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1";
-  env.CLAUDE_CODE_SUBAGENT_MODEL = params.resolvedModel;
+  applyClaudeTeamingEnv(env, {
+    subagentModel: params.subagentModel ?? params.resolvedModel,
+  });
   env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
 };
