@@ -398,6 +398,14 @@ export const mapClaudeToCanonical = (
           success: !isError,
           outputPreview: outputText.slice(0, 200) || undefined,
         });
+
+        // Complete the subagent at its tool_result (mirrors opencode-shim).
+        // complete() self-guards: returns null for non-subagent ids, so this
+        // is a no-op for ordinary tools. Background subagents that never
+        // return a synchronous result still fall back to completeAll(true)
+        // at the terminal `result` event.
+        const subagentComplete = subagentTracker.complete(toolUseId, !isError);
+        if (subagentComplete) events.push(subagentComplete);
       }
     }
 

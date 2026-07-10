@@ -407,4 +407,88 @@ describe("mapClaudeToCanonical", () => {
       expect(result.events).toHaveLength(0);
     });
   });
+
+  // A foreground subagent (Task/Agent) returns its result mid-turn. Its
+  // completion must be emitted at that tool_result — not deferred to the
+  // terminal `result` event (completeAll). Deferring makes the UI show the
+  // subagent "running" until the whole parent turn ends.
+  describe("subagent completes on tool_result (mid-turn, not only at session.idle)", () => {
+    test("Task tool_result emits agent.subagent.complete with success=true", () => {
+      mapClaudeToCanonical(SESSION, toolBlockStart("Task", "tc-sub-complete-1"));
+      mapClaudeToCanonical(
+        SESSION,
+        inputJsonDelta('{"description":"Foreground task","run_in_background":false}'),
+      );
+      mapClaudeToCanonical(SESSION, blockStop());
+
+      const result = mapClaudeToCanonical(SESSION, {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "tc-sub-complete-1", content: "ok" },
+          ],
+        },
+      });
+
+      const completions = eventsOfKind(result.events, "agent.subagent.complete");
+      expect(completions).toHaveLength(1);
+      const c = completions[0] as {
+        kind: "agent.subagent.complete";
+        subagentId: string;
+        success: boolean;
+      };
+      expect(c.subagentId).toBe("tc-sub-complete-1");
+      expect(c.success).toBe(true);
+    });
+
+    test("failed Task tool_result emits agent.subagent.complete with success=false", () => {
+      mapClaudeToCanonical(SESSION, toolBlockStart("Task", "tc-sub-complete-2"));
+      mapClaudeToCanonical(SESSION, inputJsonDelta('{"description":"Failing task"}'));
+      mapClaudeToCanonical(SESSION, blockStop());
+
+      const result = mapClaudeToCanonical(SESSION, {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tc-sub-complete-2",
+              is_error: true,
+              content: "boom",
+            },
+          ],
+        },
+      });
+
+      const completions = eventsOfKind(result.events, "agent.subagent.complete");
+      expect(completions).toHaveLength(1);
+      const c = completions[0] as {
+        kind: "agent.subagent.complete";
+        subagentId: string;
+        success: boolean;
+      };
+      expect(c.subagentId).toBe("tc-sub-complete-2");
+      expect(c.success).toBe(false);
+    });
+
+    test("non-subagent tool_result does NOT emit agent.subagent.complete", () => {
+      mapClaudeToCanonical(SESSION, toolBlockStart("Read", "tc-read-nonsub"));
+      mapClaudeToCanonical(SESSION, inputJsonDelta('{"file_path":"/x.ts"}'));
+      mapClaudeToCanonical(SESSION, blockStop());
+
+      const result = mapClaudeToCanonical(SESSION, {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "tc-read-nonsub", content: "data" },
+          ],
+        },
+      });
+
+      expect(eventsOfKind(result.events, "agent.subagent.complete")).toHaveLength(0);
+    });
+  });
 });
