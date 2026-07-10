@@ -624,6 +624,10 @@ export const buildInjectedEnv = async (
     baseUrl: baseUrlForOpenCodeProvider(openCodeProviderName) ??
       (openCodeProviderName === "openai-compatible" ? keys.baseUrl : undefined),
     mcpServers,
+    // Forward the resolved reasoning level so OpenCode (grok/zipu) honors it,
+    // matching how it is exported as REASONING_BUDGET for the claude/codex
+    // shims. `reasoningBudget` already reflects the ultracode preset.
+    reasoningBudget,
   });
 
   // Map the raw job provider to the normalized AI provider name used in MCP

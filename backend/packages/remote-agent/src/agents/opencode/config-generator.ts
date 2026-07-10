@@ -38,12 +38,28 @@ export type OpenCodeProviderOptions = {
   baseURL?: string;
 };
 
+/**
+ * Per-model options passed straight through to the underlying provider by
+ * OpenCode. `reasoningEffort` mirrors the runner's `REASONING_BUDGET`
+ * vocabulary 1:1 (`minimal|low|medium|high|xhigh|max`, plus OpenAI-style
+ * `none`).
+ */
+export type OpenCodeModelOptions = {
+  reasoningEffort: string;
+};
+
+export type OpenCodeProviderEntry = {
+  options: OpenCodeProviderOptions;
+  /** Optional per-model overrides, e.g. `{ "grok-4.3": { options: { reasoningEffort } } }`. */
+  models?: Record<string, { options: OpenCodeModelOptions }>;
+};
+
 export type OpenCodeConfig = {
   $schema: "https://opencode.ai/config.json";
   instructions: string[];
   model: string;
   small_model?: string;
-  provider: Record<string, { options: OpenCodeProviderOptions }>;
+  provider: Record<string, OpenCodeProviderEntry>;
   /** OpenCode YOLO mode: allow all permissions without prompting. */
   permission: "allow";
   /** Keep the built-in build agent explicitly permissive as well. */
@@ -68,6 +84,48 @@ export type OpenCodeConfigGeneratorInput = {
   apiKeyEnvVar?: string;
   baseUrl?: string;
   mcpServers?: Record<string, OpenCodeMcpServer>;
+  /**
+   * Resolved reasoning level (the runner's `REASONING_BUDGET` value). When set
+   * to a recognized level, it is injected as `reasoningEffort` on the primary
+   * model's options so OpenCode honors the configured reasoning budget. When
+   * unset/unrecognized, no model override is emitted.
+   */
+  reasoningBudget?: string;
+};
+
+/**
+ * OpenCode's built-in reasoning-effort variant names. The runner's
+ * `REASONING_BUDGET` vocabulary maps onto these 1:1 (OpenAI-style
+ * `none/minimal/low/medium/high/xhigh`; Anthropic `high/max`; Google
+ * `low/high`), so the value passes through directly.
+ */
+const OPENCODE_REASONING_EFFORTS = new Set([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
+
+/**
+ * Normalize a runner `REASONING_BUDGET` value into an OpenCode model option.
+ *
+ * Pure and dependency-free. Returns `{ reasoningEffort }` for a recognized
+ * level, or `undefined` when the budget is absent or unrecognized (so callers
+ * can omit the override entirely and keep the generated config unchanged).
+ */
+export const buildOpenCodeReasoningOption = (
+  reasoningBudget: string | undefined,
+): { reasoningEffort: string } | undefined => {
+  if (!reasoningBudget) return undefined;
+  const normalized = reasoningBudget.trim().toLowerCase();
+  if (normalized === "") return undefined;
+  // `min` is an alias used by the claude/codex shims for `minimal`.
+  const effort = normalized === "min" ? "minimal" : normalized;
+  if (!OPENCODE_REASONING_EFFORTS.has(effort)) return undefined;
+  return { reasoningEffort: effort };
 };
 
 /**
@@ -114,15 +172,23 @@ export const buildOpenCodeConfig = (input: OpenCodeConfigGeneratorInput): OpenCo
     providerOptions.baseURL = input.baseUrl;
   }
 
+  // Reasoning effort is a per-model option. Only inject it when a recognized
+  // budget is set; otherwise the provider entry is byte-identical to before.
+  const reasoningOption = buildOpenCodeReasoningOption(input.reasoningBudget);
+  const providerEntry: OpenCodeProviderEntry = {
+    options: providerOptions,
+    ...(reasoningOption
+      ? { models: { [input.model]: { options: reasoningOption } } }
+      : {}),
+  };
+
   return {
     $schema: "https://opencode.ai/config.json",
     instructions: ["AGENTS.md"],
     model: modelString,
     ...(smallModelString ? { small_model: smallModelString } : {}),
     provider: {
-      [input.provider]: {
-        options: providerOptions,
-      },
+      [input.provider]: providerEntry,
     },
     // OpenCode's current YOLO mode is permission: "allow". The build agent is
     // also made explicit so both global and agent-scoped permission resolution
