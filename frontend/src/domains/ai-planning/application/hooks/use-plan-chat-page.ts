@@ -218,6 +218,8 @@ export const usePlanChatPage = () => {
     // 4. Messages (chat data + send)
     messages: {
       items: messages.messages,
+      // Live specialist-agent wave (agent.wave.* signals) for the WavePanel.
+      waveInfo: planningSession.waveInfo,
       streamingContent: messages.streamingContent,
       streamingThinkingContent: planningSession.streamingThinkingContent,
       streamingBlocks: messages.streamingBlocks,

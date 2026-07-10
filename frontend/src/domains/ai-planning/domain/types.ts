@@ -774,3 +774,28 @@ export interface SeedReferenceChipsProps {
   annotations: Record<string, string>;
   onChipClick: (seed: SeedWithRelations) => void;
 }
+
+// ---------------------------------------------------------------------------
+// Wave Panel (live specialist-agent wave from `agent.wave.*` signals)
+// ---------------------------------------------------------------------------
+
+export interface WavePanelAgent {
+  id: string;
+  name: string;
+  role: string;
+  /** Undefined while the agent is still running. */
+  done?: boolean;
+  /** Only meaningful once `done` is true. */
+  success?: boolean;
+}
+
+export interface WavePanelInfo {
+  agents: WavePanelAgent[];
+  successCount: number;
+  totalCount: number;
+}
+
+export interface WavePanelProps {
+  /** Live wave state from the planning session hook; null when no wave is active. */
+  waveInfo: WavePanelInfo | null;
+}

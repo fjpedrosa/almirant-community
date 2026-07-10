@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { buildWaveMarkerCommand } from "@almirant/canonical-events";
 import { createSseCanonicalAdapter } from "./sse-canonical-adapter";
 import { runtimeEventFixtures } from "../../test/fixtures/runtime-event-contract-fixtures";
 
@@ -640,5 +641,81 @@ describe("createSseCanonicalAdapter", () => {
         recoverable: true,
       },
     ]);
+  });
+
+  const runBashMarker = (command: string) => {
+    const adapter = createSseCanonicalAdapter();
+    return adapter.processEvent(
+      createSseEvent("message.part.updated", {
+        sessionID: "ses-wave",
+        part: {
+          id: "part-wave",
+          sessionID: "ses-wave",
+          messageID: "msg-wave",
+          type: "tool",
+          callID: "call-wave-1",
+          tool: "bash",
+          state: {
+            status: "running",
+            input: { command },
+            time: { start: 1 },
+          },
+        },
+        time: 1,
+      }),
+    );
+  };
+
+  it("mapea un marcador wave.start de Bash a agent.wave.start (sin bash.execute)", () => {
+    const events = runBashMarker(
+      buildWaveMarkerCommand({
+        type: "wave.start",
+        agents: [
+          { agent: "frontend-developer", taskId: "A-425", title: "Drawer" },
+          { agent: "backend-architect", taskId: "A-426", title: "API" },
+        ],
+      }),
+    );
+
+    expect(events).toContainEqual({
+      kind: "agent.wave.start",
+      agents: [
+        { agent: "frontend-developer", taskId: "A-425", title: "Drawer" },
+        { agent: "backend-architect", taskId: "A-426", title: "API" },
+      ],
+    });
+    expect(events.some((e) => e.kind === "agent.bash.execute")).toBe(false);
+  });
+
+  it("mapea un marcador wave.agent_done de Bash a agent.wave.agent_done", () => {
+    const events = runBashMarker(
+      buildWaveMarkerCommand({
+        type: "wave.agent_done",
+        agent: "backend-architect",
+        taskId: "A-426",
+        success: false,
+        reason: "type error",
+      }),
+    );
+
+    expect(events).toContainEqual({
+      kind: "agent.wave.agent_done",
+      agent: "backend-architect",
+      taskId: "A-426",
+      success: false,
+      reason: "type error",
+    });
+  });
+
+  it("mapea un marcador wave.end de Bash a agent.wave.end", () => {
+    const events = runBashMarker(
+      buildWaveMarkerCommand({ type: "wave.end", successCount: 1, totalCount: 2 }),
+    );
+
+    expect(events).toContainEqual({
+      kind: "agent.wave.end",
+      successCount: 1,
+      totalCount: 2,
+    });
   });
 });
