@@ -13,17 +13,29 @@ beforeAll(async () => {
       const provider = String(config.provider ?? "openai");
       const apiKeyEnvVar = String(config.apiKeyEnvVar ?? "OPENAI_API_KEY");
       const baseUrl = typeof config.baseUrl === "string" ? config.baseUrl : undefined;
+      const model = String(config.model ?? "");
+      // Reflect the forwarded reasoning budget the way the real builder does,
+      // so tests can assert config-injector wires REASONING_BUDGET into the
+      // OpenCode model options. Additive: absent budget → no `models` key.
+      const reasoningBudget =
+        typeof config.reasoningBudget === "string" &&
+        config.reasoningBudget.trim() !== ""
+          ? config.reasoningBudget.trim().toLowerCase()
+          : undefined;
 
       return {
         $schema: "https://opencode.ai/config.json",
         instructions: [],
-        model: String(config.model ?? ""),
+        model,
         provider: {
           [provider]: {
             options: {
               apiKey: `{env:${apiKeyEnvVar}}`,
               ...(baseUrl ? { endpoint: baseUrl } : {}),
             },
+            ...(reasoningBudget
+              ? { models: { [model]: { options: { reasoningEffort: reasoningBudget } } } }
+              : {}),
           },
         },
         permission: "allow",
@@ -533,6 +545,51 @@ describe("buildInjectedEnv", () => {
     expect(result.openCodeConfig.provider.xai.options.endpoint).toBe("https://api.x.ai/v1");
     expect(result.env.OPENAI_API_KEY).toBeUndefined();
     expect(result.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    // No reasoning budget configured → no per-model reasoningEffort override.
+    expect(result.openCodeConfig.provider.xai.models).toBeUndefined();
+  });
+
+  it("wires the resolved reasoning budget into the OpenCode model options for Grok jobs", async () => {
+    const keys: ProviderKeysResponse = {
+      xaiApiKey: "xai-api-key",
+      xaiAuthMethod: "api_key",
+      implementationModel: "grok-4.3",
+      implementationReasoningBudget: "high",
+    };
+    const result = await buildInjectedEnv({
+      workerClient: buildMockClient(keys),
+      job: baseJob("grok"),
+      repository: {},
+    });
+
+    expect(result.env.REASONING_BUDGET).toBe("high");
+    expect(
+      result.openCodeConfig.provider.xai.models?.["grok-4.3"]?.options
+        .reasoningEffort,
+    ).toBe("high");
+  });
+
+  it("wires the resolved reasoning budget into the OpenCode model options for zipu (GLM) jobs", async () => {
+    const keys: ProviderKeysResponse = {
+      openaiApiKey: "zai-api-key",
+      openaiAuthMethod: "api_key",
+      implementationModel: "glm-5.2",
+      implementationReasoningBudget: "medium",
+    };
+    const result = await buildInjectedEnv({
+      workerClient: buildMockClient(keys),
+      job: baseJob("zipu", {
+        // zipu defaults to claude-shim; force the OpenCode runtime.
+        config: { codingAgent: "opencode" },
+      }),
+      repository: {},
+    });
+
+    expect(result.env.REASONING_BUDGET).toBe("medium");
+    expect(
+      result.openCodeConfig.provider["zai-coding-plan"].models?.["glm-5.2"]
+        ?.options.reasoningEffort,
+    ).toBe("medium");
   });
 
   it("exposes xAI as an OpenAI-compatible backend when Grok runs with Codex", async () => {
