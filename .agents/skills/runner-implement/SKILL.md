@@ -146,6 +146,31 @@ Proceed immediately -- do NOT wait for user approval.
 
 ## Step 7: Execute waves
 
+### Wave signal markers (mandatory, structured — additive to prose)
+
+In addition to the natural-language progress above, emit a **structured wave marker** at every wave boundary. These markers drive the live "wave" panel in the UI and satisfy the runner's completion guard. They are ADDITIVE: keep emitting the plain-text progress lines exactly as before — the markers are extra.
+
+A marker is a single `Bash` call that echoes a sentinel token followed by one compact JSON object. Emit it via the `Bash` tool (never as prose):
+
+```bash
+echo 'ALMIRANT_WAVE_EVENT {"type":"wave.start","agents":[{"agent":"frontend-developer","taskId":"A-425","title":"Drawer component"},{"agent":"backend-architect","taskId":"A-426","title":"API endpoint"}]}'
+```
+
+```bash
+echo 'ALMIRANT_WAVE_EVENT {"type":"wave.agent_done","agent":"frontend-developer","taskId":"A-425","success":true}'
+```
+
+```bash
+echo 'ALMIRANT_WAVE_EVENT {"type":"wave.end","successCount":1,"totalCount":2}'
+```
+
+Rules (non-negotiable):
+- **`taskId` MUST be the workspace task ID string** (e.g. `A-425`) — the exact same `<TASK-ID>` you pass to `complete_ai_task`. The completion guard matches `wave.start` taskIds against `wave.agent_done` taskIds by string equality.
+- Emit **exactly one `wave.start` per wave** listing **every** task in that wave (all sub-batches), each with its selected agent, taskId, and title.
+- Emit **exactly one `wave.agent_done` per task** — for BOTH successes and failures. On failure add `"success":false` and a short `"reason"`. Every task named in `wave.start` MUST get a matching `wave.agent_done`.
+- Emit **exactly one `wave.end` per wave** after all its tasks are done, with the wave's `successCount` and `totalCount`.
+- Keep the JSON on a single line and valid. Do not translate the sentinel or the `type` values.
+
 ### Agent selection rules
 
 Analyze each task's description, title, and expected file patterns to select the best specialist agent.
@@ -202,6 +227,7 @@ Cache `CODING_AGENT` and `CURRENT_USER_ID` once here -- reuse them for every `co
 For each board represented in the wave:
 1. `batch_move_work_items(workItemIds, inProgressColumnId, setAiProcessing: true, aiProvider: ACTIVE_PROVIDER)`
 2. Record `waveStartedAt` (ISO 8601 UTC) for duration tracking.
+3. **Emit the `wave.start` marker** (see "Wave signal markers"): one `echo` listing every task in this wave with its selected `agent` (from the agent-selection tables), `taskId` (`<TASK-ID>`), and `title`. Emit this once for the whole wave, before launching subagents.
 
 #### 7b. Explore codebase for all wave tasks (orchestrator does this)
 
@@ -407,12 +433,16 @@ For each agent result from 7d:
    - `move_work_item(workItemId, backlogColumnId)` -- moves back to Backlog for retry.
    - `update_work_item(id, metadata: { lastError: "<brief reason for failure>" })`
 
+3. **Emit the `wave.agent_done` marker** (see "Wave signal markers") for this task, using the SAME `<TASK-ID>` string from `wave.start`: `success: true` for SUCCESS, or `success: false` with a short `reason` for FAILED. Emit one per task in the wave (including sub-batches), for both outcomes.
+
 Report wave progress:
 ```
 Wave N complete: X/Y tasks succeeded, Z failed
   - A-XX: "Title" -- completed -> Reviewing (~Nk tokens, ~$X.XX)
   - A-YY: "Title" -- failed: [brief reason] -> Backlog
 ```
+
+After all tasks in the wave are done, **emit the `wave.end` marker** (see "Wave signal markers") with this wave's `successCount` and `totalCount`.
 
 #### 7f-bis. Save implementation memory
 

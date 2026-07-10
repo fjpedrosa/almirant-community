@@ -17,6 +17,7 @@ import { SessionSidebar } from "../components/session-sidebar";
 import { ModelFloatingSelector } from "../components/model-floating-selector";
 import { SessionSearchDialog } from "../components/session-search-dialog";
 import { ChatFullPanel } from "../components/chat-full-panel";
+import { WavePanel } from "../components/wave-panel";
 import { EmptySessionState } from "../components/empty-session-state";
 import { WelcomeScreen } from "../components/welcome-screen";
 import { ChatInputToolbar } from "../components/chat-input-toolbar";
@@ -313,6 +314,8 @@ export const PlanChatPageContainer: React.FC = () => {
               onChipClick={page.seeds.enrichment.openDetail}
             />
           )}
+          {/* Live specialist-agent wave (agent.wave.* signals) */}
+          <WavePanel waveInfo={page.messages.waveInfo} />
           <ChatFullPanel
             providerLabel={page.messages.providerLabel}
             model={page.messages.selectedModel}

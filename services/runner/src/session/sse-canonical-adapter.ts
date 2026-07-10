@@ -12,6 +12,7 @@
 // ---------------------------------------------------------------------------
 
 import type { CanonicalEvent } from "@almirant/stream-consumer";
+import { parseWaveMarker } from "@almirant/canonical-events";
 import type { EventAdapter, SseEvent } from "./adapter-types";
 
 /** Known canonical event kind prefixes — used to detect passthrough events. */
@@ -284,12 +285,20 @@ export const createSseCanonicalAdapter = (): EventAdapter => {
     } else if (BASH_TOOLS.has(toolName)) {
       const command = extractParamAny(parsed, raw, ["command"]);
       if (command) {
-        events.push({
-          kind: "agent.bash.execute",
-          toolCallId,
-          command,
-          description: extractParamAny(parsed, raw, ["description", "title"]) ?? undefined,
-        });
+        // Wave-orchestration markers ride on a sentinel `echo`; emit the
+        // structured `agent.wave.*` events instead of a shell command. Additive:
+        // non-marker commands (parseWaveMarker returns []) fall through unchanged.
+        const waveEvents = parseWaveMarker(command);
+        if (waveEvents.length > 0) {
+          events.push(...waveEvents);
+        } else {
+          events.push({
+            kind: "agent.bash.execute",
+            toolCallId,
+            command,
+            description: extractParamAny(parsed, raw, ["description", "title"]) ?? undefined,
+          });
+        }
       }
     } else if (SUBAGENT_TOOLS.has(toolName)) {
       const isBackground = detectBackgroundFromToolInput(parsed, raw);

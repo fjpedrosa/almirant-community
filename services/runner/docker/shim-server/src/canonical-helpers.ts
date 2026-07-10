@@ -5,6 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import type { CanonicalEvent } from "@almirant/canonical-events";
+import { parseWaveMarker } from "@almirant/canonical-events";
 
 // ---- Tool name classification ----
 
@@ -193,12 +194,22 @@ export const emitToolSpecificEvents = (
   } else if (BASH_TOOLS.has(normalizedToolName)) {
     const command = extractParam(parsed, raw, "command");
     if (command) {
-      events.push({
-        kind: "agent.bash.execute",
-        toolCallId,
-        command,
-        description: extractParam(parsed, raw, "description") ?? undefined,
-      });
+      // Wave-orchestration markers ride on a sentinel `echo` so they can flow
+      // through every runtime without a bespoke tool. When one is detected we
+      // emit the structured `agent.wave.*` events INSTEAD of a shell command,
+      // keeping the marker invisible in the UI. Additive: non-marker commands
+      // (parseWaveMarker returns []) fall through unchanged.
+      const waveEvents = parseWaveMarker(command);
+      if (waveEvents.length > 0) {
+        events.push(...waveEvents);
+      } else {
+        events.push({
+          kind: "agent.bash.execute",
+          toolCallId,
+          command,
+          description: extractParam(parsed, raw, "description") ?? undefined,
+        });
+      }
     }
   } else if (SUBAGENT_TOOLS.has(normalizedToolName)) {
     const isBackground = detectBackground(raw);

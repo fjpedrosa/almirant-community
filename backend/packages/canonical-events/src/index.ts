@@ -549,6 +549,13 @@ export const isCanonicalFormat = (fields: string[]): boolean => {
 };
 
 export {
+  WAVE_MARKER_SENTINEL,
+  buildWaveMarkerCommand,
+  parseWaveMarker,
+  type WaveMarkerPayload,
+} from "./wave-marker.js";
+
+export {
   CANONICAL_PROTOCOL_VERSION,
   CANONICAL_PROJECTOR_VERSION,
   createInitialCanonicalSessionProjection,
