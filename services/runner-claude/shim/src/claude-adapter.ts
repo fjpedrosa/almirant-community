@@ -54,6 +54,22 @@ const normalizeClaudeEffortLevel = (value: string | undefined): string | undefin
   return undefined;
 };
 
+// Some models reject the `--effort` flag at the API level. Claude Haiku 4.5
+// does not support reasoning effort, so the flag must be dropped for it.
+// Family match so dated/snapshot ids are covered too.
+const MODELS_WITHOUT_EFFORT = /haiku/i;
+
+/** CLI effort level for a model, or undefined when it must not be sent. */
+export const resolveClaudeEffortLevel = (
+  model: string | undefined,
+  rawBudget: string | undefined,
+): string | undefined => {
+  const level = normalizeClaudeEffortLevel(rawBudget);
+  if (!level) return undefined;
+  if (model && MODELS_WITHOUT_EFFORT.test(model)) return undefined;
+  return level;
+};
+
 export class ClaudeAdapter implements RuntimeAdapter {
   private readonly sessions = new Map<string, ClaudeSessionState>();
   private readonly listeners = new Set<RuntimeEventListener>();
@@ -163,7 +179,7 @@ export class ClaudeAdapter implements RuntimeAdapter {
     });
 
     const model = session.session.model;
-    const effortLevel = normalizeClaudeEffortLevel(process.env.REASONING_BUDGET);
+    const effortLevel = resolveClaudeEffortLevel(model, process.env.REASONING_BUDGET);
     const args = [
       "-p",
       prompt,
@@ -359,7 +375,7 @@ export class ClaudeAdapter implements RuntimeAdapter {
     });
 
     const model = session.session.model;
-    const effortLevel = normalizeClaudeEffortLevel(process.env.REASONING_BUDGET);
+    const effortLevel = resolveClaudeEffortLevel(model, process.env.REASONING_BUDGET);
     const args = [
       "-p",
       "--input-format",
