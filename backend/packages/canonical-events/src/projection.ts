@@ -1,4 +1,4 @@
-import type { CanonicalEvent, CanonicalEventEnvelope } from "./index";
+import type { CanonicalEvent, CanonicalEventEnvelope } from "./index.js";
 
 export const CANONICAL_PROTOCOL_VERSION = "canonical.v2" as const;
 export const CANONICAL_PROJECTOR_VERSION = 3;

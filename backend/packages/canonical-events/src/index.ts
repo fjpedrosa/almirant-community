@@ -563,4 +563,4 @@ export {
   type CanonicalProjectionQuestion,
   type CanonicalSessionProjection,
   type CanonicalSessionStatus,
-} from "./projection";
+} from "./projection.js";
