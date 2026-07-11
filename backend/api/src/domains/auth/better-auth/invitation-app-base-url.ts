@@ -51,9 +51,13 @@ export const getInvitationAppBaseUrl = (env: EnvMap = process.env): string => {
     return publicSiteUrl;
   }
 
-  const betterAuthUrl = normalizeSiteUrl(env.BETTER_AUTH_URL);
-  if (betterAuthUrl) {
-    return betterAuthUrl;
+  // The accept-invitation page lives on the FRONTEND, so use the configured
+  // frontend origin (first CORS_ORIGIN entry). Do NOT fall back to
+  // BETTER_AUTH_URL: that is the API issuer origin (e.g. https://api.almirant.ai
+  // in split-origin/cloud deployments) which has no accept-invitation page.
+  const corsFrontend = normalizeSiteUrl(env.CORS_ORIGIN?.split(",")[0]);
+  if (corsFrontend) {
+    return corsFrontend;
   }
 
   if (env.VERCEL_URL?.trim()) {
