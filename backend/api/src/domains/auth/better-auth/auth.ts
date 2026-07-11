@@ -172,9 +172,11 @@ const allowedEmails = (env.ALLOWED_EMAILS ?? "")
  * frontend's localhost default.
  */
 const resolveInvitationAppBaseUrl = (runtimePublicUrl: string | null): string => {
-  const explicit =
-    normalizeSiteUrl(process.env.NEXT_PUBLIC_SITE_URL) ??
-    normalizeSiteUrl(process.env.BETTER_AUTH_URL);
+  // Only an explicit FRONTEND site URL wins here. Never BETTER_AUTH_URL: that is
+  // the API issuer origin (e.g. https://api.almirant.ai in split-origin/cloud),
+  // which has no accept-invitation page — the frontend origin is resolved below
+  // (runtime public URL, then CORS_ORIGIN via getInvitationAppBaseUrl).
+  const explicit = normalizeSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
   if (explicit) return explicit;
 
   const runtimeBase = runtimePublicUrl
