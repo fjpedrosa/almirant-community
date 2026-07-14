@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@almirant/shim-server": "file:../shim-server",
-    "@openai/codex-sdk": "0.125.0"
+    "@openai/codex": "0.144.4",
+    "@openai/codex-sdk": "0.144.4"
   },
   "devDependencies": {
     "@types/node": "^20.19.30",

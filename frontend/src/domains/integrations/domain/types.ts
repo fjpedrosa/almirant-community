@@ -1100,10 +1100,17 @@ export type ReasoningBudget =
 
 export type ModelCategory = "best" | "fast" | "cheap" | "reasoning";
 
+export type ModelAccessChannel = "agent-runtime" | "general-api";
+
 export interface ModelDefinition {
   id: string;
   displayName: string;
   category: ModelCategory;
+  /**
+   * Optional availability boundary. Omitted means the model is available in
+   * both interactive agent runtimes and the provider's general API catalog.
+   */
+  accessChannels?: readonly ModelAccessChannel[];
 }
 
 // ---------------------------------------------------------------------------

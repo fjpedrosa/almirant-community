@@ -268,6 +268,33 @@ export type WorkspaceFileDownloadResponse = {
   workspacePath?: string | null;
 };
 
+export const EVIDENCE_ARTIFACT_ENDPOINT_SEGMENT = "evidence-artifacts";
+export const EVIDENCE_ARTIFACT_RESPONSE_HEADERS = Object.freeze({
+  contentType: "content-type",
+  contentLength: "content-length",
+  contentEncoding: "content-encoding",
+  byteSize: "x-almirant-artifact-size",
+  sha256: "x-almirant-artifact-sha256",
+});
+
+/**
+ * Raw, runner-authenticated evidence response.
+ *
+ * Cloud endpoint contract:
+ *   GET /workers/jobs/:jobId/evidence-artifacts/:artifactId
+ *   Authorization: Bearer <runner key>
+ *   Body: raw raster bytes (never JSON/base64)
+ *   Required headers: Content-Type, Content-Length,
+ *     X-Almirant-Artifact-Size, X-Almirant-Artifact-Sha256.
+ *   Redirects are forbidden; size semantics require an unencoded body.
+ */
+export type EvidenceArtifactDownloadResponse = {
+  body: ReadableStream<Uint8Array>;
+  contentType: string;
+  byteSize: number;
+  sha256: string;
+};
+
 export type StreamJobOutputPayload = {
   content: string;
   stepIndex?: number;
@@ -686,6 +713,10 @@ export type AlmirantWorkerClient = {
   getJobStatus: (jobId: string) => Promise<JobStatusResponse>;
   getJobConfig: (jobId: string) => Promise<{ jobType: string; config: Record<string, unknown> | null; status: string }>;
   getWorkspaceFile: (jobId: string, fileId: string) => Promise<WorkspaceFileDownloadResponse>;
+  getEvidenceArtifact: (
+    jobId: string,
+    artifactId: string,
+  ) => Promise<EvidenceArtifactDownloadResponse>;
   getWorkItem: (workItemId: string) => Promise<WorkItemDetails>;
   getValidationCandidates: (params?: {
     workspaceId?: string;

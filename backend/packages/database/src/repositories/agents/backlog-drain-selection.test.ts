@@ -231,6 +231,85 @@ describe("selectBacklogDrainCandidates", () => {
     });
   });
 
+  test("uses the active connection runtime when no higher-precedence source selects a model", () => {
+    const result = selectBacklogDrainCandidates({
+      rules: [{ projectId: "p1", maxConcurrentJobs: 1 }],
+      fallbackRuntime: {
+        provider: "zipu",
+        codingAgent: "opencode",
+        aiProvider: "zai",
+      },
+      connectionRuntime: {
+        model: "glm-5.1",
+        reasoningLevel: null,
+      },
+      workItems: [item({ id: "F1", projectId: "p1", type: "feature", columnRole: null })],
+      dependencies: [],
+      activeJobs: [],
+    });
+
+    expect(result.candidates[0]).toMatchObject({
+      provider: "zipu",
+      codingAgent: "opencode",
+      aiProvider: "zai",
+      model: "glm-5.1",
+      reasoningLevel: null,
+    });
+  });
+
+  test("keeps project defaults ahead of the active connection runtime", () => {
+    const result = selectBacklogDrainCandidates({
+      rules: [{ projectId: "p1", maxConcurrentJobs: 1 }],
+      projects: [{
+        id: "p1",
+        agentDefaults: {
+          implementation: {
+            codingAgent: "opencode",
+            aiProvider: "zai",
+            model: "glm-5.2",
+            reasoningLevel: "max",
+          },
+        },
+      }],
+      fallbackRuntime: { provider: "zipu", codingAgent: "opencode", aiProvider: "zai" },
+      connectionRuntime: { model: "glm-5.1", reasoningLevel: null },
+      workItems: [item({ id: "F1", projectId: "p1", type: "feature", columnRole: null })],
+      dependencies: [],
+      activeJobs: [],
+    });
+
+    expect(result.candidates[0]).toMatchObject({
+      model: "glm-5.2",
+      reasoningLevel: "max",
+    });
+  });
+
+  test("keeps an explicit schedule override ahead of project and connection runtimes", () => {
+    const result = selectBacklogDrainCandidates({
+      rules: [{ projectId: "p1", maxConcurrentJobs: 1 }],
+      projects: [{
+        id: "p1",
+        agentDefaults: { implementation: { model: "glm-5.1", reasoningLevel: null } },
+      }],
+      fallbackRuntime: {
+        provider: "zipu",
+        codingAgent: "opencode",
+        aiProvider: "zai",
+        model: "glm-5.2",
+        reasoningLevel: "high",
+      },
+      connectionRuntime: { model: "glm-5.1", reasoningLevel: null },
+      workItems: [item({ id: "F1", projectId: "p1", type: "feature", columnRole: null })],
+      dependencies: [],
+      activeJobs: [],
+    });
+
+    expect(result.candidates[0]).toMatchObject({
+      model: "glm-5.2",
+      reasoningLevel: "high",
+    });
+  });
+
   test("repairs stale scheduled provider from the selected AI provider", () => {
     const result = selectBacklogDrainCandidates({
       mode: "dod-remediation",
@@ -323,6 +402,22 @@ describe("selectBacklogDrainCandidates", () => {
       aiProvider: "xai",
       provider: "grok",
       model: "grok-4.3",
+    });
+  });
+
+  test("uses GPT-5.6 Sol when a Codex backlog rule has no explicit model", () => {
+    const result = selectBacklogDrainCandidates({
+      rules: [{ projectId: "p1", maxConcurrentJobs: 1, codingAgent: "codex" }],
+      workItems: [item({ id: "F1", projectId: "p1", type: "feature", columnRole: null })],
+      dependencies: [],
+      activeJobs: [],
+    });
+
+    expect(result.candidates[0]).toMatchObject({
+      codingAgent: "codex",
+      aiProvider: "openai",
+      provider: "codex",
+      model: "gpt-5.6-sol",
     });
   });
 

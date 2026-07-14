@@ -1,4 +1,5 @@
 import { getModelsForProvider } from "@/lib/ai-models-catalog";
+import { getReasoningEffortOptions } from "@/lib/ai-model-reasoning";
 
 // Enums / literals
 export type ScheduleType = "manual" | "time_window" | "cron";
@@ -334,7 +335,7 @@ export interface AgentFormDrawerProps {
   trigger: AgentTrigger;
   availableProviders: AIProvider[];
   availableModels: { value: string; label: string }[];
-  availableReasoningLevels: { value: string; label: string }[];
+  availableReasoningLevels: readonly { value: string; label: string }[];
   agentKind: AgentKind;
   automationTargetKind: AutomationTargetKind;
   automationSkillSlug: string | null;
@@ -401,26 +402,11 @@ export const AI_PROVIDER_OPTIONS: { value: AIProvider; label: string }[] = [
   { value: "xai", label: "xAI" },
 ];
 
-export const REASONING_LEVEL_OPTIONS_ANTHROPIC: { value: ReasoningLevel; label: string }[] = [
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "xhigh", label: "XHigh" },
-  { value: "max", label: "Max" },
-];
-
-export const REASONING_LEVEL_OPTIONS_CODEX: { value: ReasoningLevel; label: string }[] = [
-  { value: "minimal", label: "Minimal" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "xhigh", label: "XHigh" },
-];
-
-export const REASONING_LEVEL_OPTIONS_ZAI: { value: ReasoningLevel; label: string }[] = [
-  { value: "enabled", label: "Thinking enabled" },
-  { value: "disabled", label: "Thinking disabled" },
-];
+export const getScheduledReasoningLevelOptions = (input: {
+  codingAgent?: CodingAgent;
+  aiProvider?: AIProvider;
+  model?: string;
+}) => getReasoningEffortOptions(input);
 
 // Maps coding agent → available AI providers
 export const PROVIDERS_BY_CODING_AGENT: Record<CodingAgent, AIProvider[]> = {
@@ -439,10 +425,10 @@ export const getAiProvidersForScheduledRuntime = (
 
 // Maps AI provider → available models from the central catalog.
 export const MODELS_BY_PROVIDER: Record<AIProvider, { value: string; label: string }[]> = {
-  anthropic: getModelsForProvider("anthropic").map((m) => ({ value: m.id, label: m.displayName })),
-  openai: getModelsForProvider("openai").map((m) => ({ value: m.id, label: m.displayName })),
-  zai: getModelsForProvider("zai").map((m) => ({ value: m.id, label: m.displayName })),
-  xai: getModelsForProvider("xai").map((m) => ({ value: m.id, label: m.displayName })),
+  anthropic: getModelsForProvider("anthropic", "agent-runtime").map((m) => ({ value: m.id, label: m.displayName })),
+  openai: getModelsForProvider("openai", "agent-runtime").map((m) => ({ value: m.id, label: m.displayName })),
+  zai: getModelsForProvider("zai", "agent-runtime").map((m) => ({ value: m.id, label: m.displayName })),
+  xai: getModelsForProvider("xai", "agent-runtime").map((m) => ({ value: m.id, label: m.displayName })),
 };
 
 // Timezone options with UTC offset labels

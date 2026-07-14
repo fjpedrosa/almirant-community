@@ -12,3 +12,10 @@ export { assertRunnableAgentWorkspace, getExplicitWorkspaceKind, resolveAgentWor
 export type { ResolvedAgentWorkspace, RunnableAgentWorkspace, AgentWorkspaceSource } from "./agent-workspace";
 export { provisionUploadedFilesWorkspace, resolveUploadedFileTargetPath } from "./uploaded-files-provisioner";
 export type { WorkspaceFileDownload, UploadedFilesProvisionerLimits } from "./uploaded-files-provisioner";
+export { resolveEvidenceArtifactsForJob } from "./evidence-artifact-policy";
+export {
+  EVIDENCE_DIRECTORY_PATH,
+  EVIDENCE_MANIFEST_PATH,
+  provisionEvidenceArtifacts,
+} from "./evidence-artifact-provisioner";
+export type { EvidenceArtifactProvisionerInput } from "./evidence-artifact-provisioner";

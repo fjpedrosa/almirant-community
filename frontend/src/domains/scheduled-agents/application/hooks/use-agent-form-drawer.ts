@@ -29,9 +29,7 @@ import {
   isTimeWindowConfig,
   getAiProvidersForScheduledRuntime,
   MODELS_BY_PROVIDER,
-  REASONING_LEVEL_OPTIONS_ANTHROPIC,
-  REASONING_LEVEL_OPTIONS_CODEX,
-  REASONING_LEVEL_OPTIONS_ZAI,
+  getScheduledReasoningLevelOptions,
   normalizeScheduledCodingAgent,
 } from "../../domain/types";
 import type { SkillSelectorItem } from "@/domains/skills/domain/types";
@@ -551,6 +549,9 @@ export const useAgentFormDrawer = ({
   const watchedAiProvider = useWatch({ control: form.control, name: "aiProvider" }) as
     | AIProvider
     | undefined;
+  const watchedAiModel = useWatch({ control: form.control, name: "aiModel" }) as
+    | string
+    | undefined;
   const agentKind = useWatch({ control: form.control, name: "agentKind" }) as AgentKind;
   const automationTargetKind = useWatch({ control: form.control, name: "automationTargetKind" }) as AutomationTargetKind;
   const builtinAutomationId = useWatch({ control: form.control, name: "builtinAutomationId" }) as BuiltinAutomationId;
@@ -576,11 +577,12 @@ export const useAgentFormDrawer = ({
 
   // Reasoning options vary by runtime, not just by API provider.
   const availableReasoningLevels = useMemo(() => {
-    if (watchedCodingAgent === "claude-code") return REASONING_LEVEL_OPTIONS_ANTHROPIC;
-    if (watchedCodingAgent === "codex") return REASONING_LEVEL_OPTIONS_CODEX;
-    if (watchedAiProvider === "zai" || watchedAiProvider === "xai") return REASONING_LEVEL_OPTIONS_ZAI;
-    return REASONING_LEVEL_OPTIONS_CODEX;
-  }, [watchedAiProvider, watchedCodingAgent]);
+    return getScheduledReasoningLevelOptions({
+      codingAgent: watchedCodingAgent,
+      aiProvider: watchedAiProvider,
+      model: watchedAiModel,
+    });
+  }, [watchedAiModel, watchedAiProvider, watchedCodingAgent]);
 
   // Auto-select when only 1 option available, reset when parent changes
   useEffect(() => {

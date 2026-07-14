@@ -28,6 +28,9 @@ import {
   type RunnableAgentWorkspace,
 } from "./workspace/agent-workspace";
 import { provisionUploadedFilesWorkspace } from "./workspace/uploaded-files-provisioner";
+import { resolveEvidenceArtifactsForJob } from "./workspace/evidence-artifact-policy";
+import { provisionEvidenceArtifacts } from "./workspace/evidence-artifact-provisioner";
+import type { EvidenceArtifactDescriptor } from "@almirant/shared";
 import type { ContainerDriver } from "./workspace/container-driver";
 import {
   UUID_RE,
@@ -219,6 +222,8 @@ type JobExecutionContext = {
   prFirstResult: CreateBranchAndDraftPrResult | null;
   jobCodingAgent?: string;
   effectiveJobType: string;
+  evidenceArtifacts: EvidenceArtifactDescriptor[];
+  evidenceManifestPath?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -496,6 +501,7 @@ export const createJobExecutor = (
       skillName: resolveSkillTag(job, initialJobConfig),
       prFirstResult: null,
       effectiveJobType: job.jobType ?? "implementation",
+      evidenceArtifacts: [],
     };
   };
 
@@ -623,6 +629,10 @@ export const createJobExecutor = (
       }),
     );
     ctx.repositoryOverride = toRepositoryOverride(ctx.workspace);
+    ctx.evidenceArtifacts = resolveEvidenceArtifactsForJob({
+      config: ctx.jobConfig,
+      workspaceKind: ctx.workspace.kind,
+    });
 
     if (ctx.workspace.kind === "empty_workspace") {
       eventLogger.info("config", "repo.skipped", `No repository for project ${job.projectId ?? "unknown"} — proceeding with empty workspace (${ctx.effectiveJobType} job)`);
@@ -1109,7 +1119,11 @@ export const createJobExecutor = (
     await runPreSessionGuarded(ctx, "post-serve setup", async () => {
       // Restore checkpoint if a previous attempt left one (A-860: also check previousJobId).
       const previousJobId = typeof ctx.jobConfig.previousJobId === "string" ? ctx.jobConfig.previousJobId : undefined;
-      if (ctx.containerId && await ctx.checkpointManager.hasCheckpoint(ctx.orgId, job.id, previousJobId)) {
+      if (
+        ctx.evidenceArtifacts.length === 0 &&
+        ctx.containerId &&
+        await ctx.checkpointManager.hasCheckpoint(ctx.orgId, job.id, previousJobId)
+      ) {
         eventLogger.info("workspace", "checkpoint.restore_start", "Restoring checkpoint from previous attempt...", {
           jobId: job.id,
           orgId: ctx.orgId,
@@ -1259,6 +1273,27 @@ export const createJobExecutor = (
           console.warn(`[job:${job.id}] Repo skill scan/import failed (non-fatal): ${msg}`);
         }
     }
+
+      if (ctx.containerId && ctx.evidenceArtifacts.length > 0) {
+        const provisioned = await provisionEvidenceArtifacts({
+          containerId: ctx.containerId,
+          artifacts: ctx.evidenceArtifacts,
+          containerManager,
+          downloadArtifact: (artifactId) =>
+            workerClient.getEvidenceArtifact(job.id, artifactId),
+        });
+        ctx.evidenceManifestPath = provisioned.manifestPath;
+        eventLogger.info(
+          "evidence",
+          "evidence.materialized",
+          "Server-owned evidence materialized beside git workspace",
+          {
+            manifestPath: provisioned.manifestPath,
+            filesWritten: provisioned.filesWritten,
+            totalBytes: provisioned.totalBytes,
+          },
+        );
+      }
     });
   }
 
@@ -1270,7 +1305,7 @@ export const createJobExecutor = (
     const { job, eventLogger } = ctx;
 
     // Start checkpoint interval — persists workspace to S3 periodically.
-    {
+    if (ctx.evidenceArtifacts.length === 0) {
       const checkpointContainerId = ctx.containerId;
       const checkpointJobId = job.id;
       const checkpointOrgId = ctx.orgId;
@@ -1492,6 +1527,7 @@ export const createJobExecutor = (
       webWorkspaceId: ctx.webWorkspaceId,
       runtimeConfig: ctx.runtimeConfig!,
       runtimeExecutor: ctx.runtimeExecutor!,
+      evidenceManifestPath: ctx.evidenceManifestPath,
     });
   }
 
@@ -2045,7 +2081,11 @@ export const createJobExecutor = (
       }
 
       // Final checkpoint before teardown if job did not complete successfully (A-862)
-      if (containerState.running && ctx.checkpointManager.active) {
+      if (
+        ctx.evidenceArtifacts.length === 0 &&
+        containerState.running &&
+        ctx.checkpointManager.active
+      ) {
         await Promise.race([
           ctx.checkpointManager.createCheckpoint(ctx.containerId, ctx.orgId, job.id),
           new Promise<void>((_, reject) => setTimeout(() => reject(new Error("checkpoint timeout")), 10_000)),
@@ -2111,6 +2151,7 @@ export const createJobExecutor = (
     webWorkspaceId?: string;
     runtimeConfig: RuntimeConfig;
     runtimeExecutor: RuntimeExecutor;
+    evidenceManifestPath?: string;
   }): Promise<SessionExecutionResult> => {
     return runServeSessionFn(
       {

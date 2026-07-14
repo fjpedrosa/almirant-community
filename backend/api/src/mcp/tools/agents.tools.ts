@@ -10,6 +10,9 @@ import {
 import { assertOrgScope, getProjectIdFromExtra, getUserIdFromExtra } from "../setup";
 import { executeScheduledAgentConfig } from "../../domains/agents/services/execute-scheduled-agent-config";
 import { assertValidScheduledAgentRuntime } from "../../domains/agents/services/scheduled-agent-runtime-validation";
+import {
+  resolveScheduledAgentEffectiveRuntimes,
+} from "../../domains/agents/services/scheduled-agent-effective-model-resolver";
 
 const TRIGGER_VALUES = ["scheduled", "webhook"] as const;
 const SCHEDULE_TYPE_VALUES = ["manual", "time_window", "cron"] as const;
@@ -215,10 +218,24 @@ export const registerAgentsTools = (server: McpServer) => {
         const workspaceId = orgResult;
 
         const triggerInput = buildAgentInput(params);
-        assertValidScheduledAgentRuntime({
+        const effectiveRuntimes = await resolveScheduledAgentEffectiveRuntimes({
+          workspaceId,
           provider: params.provider,
+          codingAgent: params.codingAgent,
           aiProvider: params.aiProvider,
           aiModel: params.aiModel,
+          reasoningLevel: params.reasoningLevel,
+          jobType: params.jobType,
+          projectId: params.projectId,
+          targetConfig: params.targetConfig,
+        });
+        assertValidScheduledAgentRuntime({
+          provider: params.provider,
+          codingAgent: params.codingAgent,
+          aiProvider: params.aiProvider,
+          aiModel: params.aiModel,
+          reasoningLevel: params.reasoningLevel,
+          effectiveRuntimes,
           targetConfig: params.targetConfig,
         });
 
@@ -317,15 +334,36 @@ export const registerAgentsTools = (server: McpServer) => {
           : undefined;
         const touchesRuntime =
           rest.provider !== undefined ||
+          rest.codingAgent !== undefined ||
           rest.aiProvider !== undefined ||
           rest.aiModel !== undefined ||
+          rest.reasoningLevel !== undefined ||
+          rest.jobType !== undefined ||
           rest.targetConfig !== undefined;
 
         if (touchesRuntime) {
+          const nextProvider = rest.provider ?? existing.provider;
+          const nextAiProvider = rest.aiProvider ?? existing.aiProvider;
+          const nextAiModel = rest.aiModel ?? existing.aiModel;
+          const nextJobType = rest.jobType ?? existing.jobType;
+          const effectiveRuntimes = await resolveScheduledAgentEffectiveRuntimes({
+            workspaceId,
+            provider: nextProvider,
+            codingAgent: rest.codingAgent ?? existing.codingAgent,
+            aiProvider: nextAiProvider,
+            aiModel: nextAiModel,
+            reasoningLevel: rest.reasoningLevel ?? existing.reasoningLevel,
+            jobType: nextJobType,
+            projectId: rest.projectId ?? existing.projectId,
+            targetConfig: rest.targetConfig ?? existing.targetConfig,
+          });
           assertValidScheduledAgentRuntime({
-            provider: rest.provider ?? existing.provider,
-            aiProvider: rest.aiProvider ?? existing.aiProvider,
-            aiModel: rest.aiModel ?? existing.aiModel,
+            provider: nextProvider,
+            codingAgent: rest.codingAgent ?? existing.codingAgent,
+            aiProvider: nextAiProvider,
+            aiModel: nextAiModel,
+            reasoningLevel: rest.reasoningLevel ?? existing.reasoningLevel,
+            effectiveRuntimes,
             targetConfig: rest.targetConfig ?? existing.targetConfig,
           });
         }

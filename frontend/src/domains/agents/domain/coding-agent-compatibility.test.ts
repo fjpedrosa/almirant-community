@@ -6,6 +6,7 @@ import {
   getProvidersForAgent,
   isSingleProviderAgent,
 } from "./coding-agent-compatibility";
+import { getModelsForProvider } from "@/lib/ai-models-catalog";
 
 describe("coding agent compatibility", () => {
   test("Claude Code accepts Anthropic and z.ai", () => {
@@ -48,5 +49,35 @@ describe("coding agent compatibility", () => {
     const fable = models.find((m) => m.id === "claude-fable-5");
     expect(fable?.category).toBe("best");
     expect(models.findIndex((m) => m.id === "claude-fable-5")).toBeGreaterThan(0);
+  });
+
+  test("Codex exposes the GPT-5.6 family and defaults to Sol", () => {
+    const models = getModelsForAgentProvider("codex");
+    expect(models.slice(0, 3).map((model) => model.id)).toEqual([
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+    ]);
+  });
+
+  test("z.ai agent runtimes expose the Coding Plan entitlement, not API-only VLMs", () => {
+    const codingPlanModelIds = getModelsForAgentProvider("zipu").map((model) => model.id);
+
+    expect(codingPlanModelIds).toEqual([
+      "glm-5.2",
+      "glm-5.1",
+      "glm-5",
+      "glm-5-turbo",
+      "glm-4.7",
+      "glm-4.6",
+      "glm-4.5",
+      "glm-4.5-air",
+    ]);
+    expect(codingPlanModelIds).not.toContain("glm-5v-turbo");
+
+    const generalApiVlm = getModelsForProvider("zai").find(
+      (model) => model.id === "glm-5v-turbo",
+    );
+    expect(generalApiVlm?.accessChannels).toEqual(["general-api"]);
   });
 });

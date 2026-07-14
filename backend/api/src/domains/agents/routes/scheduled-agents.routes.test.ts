@@ -8,12 +8,24 @@ import {
 } from "../../../test/mocks";
 import { testProject, testUser } from "../../../test/fixtures";
 
+const __realInstanceConfigService = {
+  ...(await import("../../instance/services/instance-config-service")),
+};
+
 const state = {
   createdConfigInput: null as Record<string, unknown> | null,
   updatedConfigInput: null as Record<string, unknown> | null,
   createdJobInput: null as Record<string, unknown> | null,
   broadcasts: [] as Array<{ orgId: string; message: Record<string, unknown> }>,
   scheduledConfigOverride: null as Record<string, unknown> | null,
+  activeConnectionsOverride: null as Array<{ config: Record<string, unknown> }> | null,
+  projectAiConfigOverride: null as { defaultProvider: string | null; agentDefaults: unknown } | null,
+  projectAiConfigCalls: [] as string[],
+  orgPrimaryRepositoryOverride: null as {
+    id: string;
+    url: string;
+    projectId: string;
+  } | null,
 };
 
 const scheduledConfig = {
@@ -23,11 +35,11 @@ const scheduledConfig = {
   name: "Autofix feedback bugs",
   prompt: "Resuelve un ticket de feedback bug",
   jobType: "scheduled" as const,
-  provider: "claude-code" as const,
+  provider: "codex" as const,
   description: null,
   codingAgent: "codex" as const,
   aiProvider: "openai" as const,
-  aiModel: "gpt-5",
+  aiModel: "gpt-5.6-sol",
   reasoningLevel: "high",
   scheduleType: "cron" as const,
   scheduleConfig: { expression: "*/15 * * * *" },
@@ -87,8 +99,17 @@ const dbMocks = createDatabaseMocks({
     return { ...scheduledConfig, ...input };
   },
   getRepositories: async () => [],
-  getOrgPrimaryRepository: async () => null,
+  getOrgPrimaryRepository: async () => state.orgPrimaryRepositoryOverride,
   updateScheduledAgentConfigLastRunAt: async () => {},
+  findActiveConnections: async () =>
+    state.activeConnectionsOverride ?? [{ config: {} }],
+  getProjectAiConfig: async (projectId: string) => {
+    state.projectAiConfigCalls.push(projectId);
+    return state.projectAiConfigOverride ?? {
+      defaultProvider: null,
+      agentDefaults: {},
+    };
+  },
   createJob: async (input: Record<string, unknown>) => {
     state.createdJobInput = input;
     return {
@@ -117,6 +138,7 @@ mock.module("../../../shared/ws/ws-connection-manager", () => ({
   },
 }));
 mock.module("../../instance/services/instance-config-service", () => ({
+  ...__realInstanceConfigService,
   getInstanceConfig: async () => ({
     publicUrl: "https://test.almirant.example.com",
   }),
@@ -132,6 +154,10 @@ const makeRequest = (body: unknown) =>
 describe("scheduledAgentsRoutes POST /scheduled-agents", () => {
   beforeEach(() => {
     state.createdConfigInput = null;
+    state.activeConnectionsOverride = null;
+    state.projectAiConfigOverride = null;
+    state.projectAiConfigCalls = [];
+    state.orgPrimaryRepositoryOverride = null;
   });
 
   it("rechaza un agente cuyo prompt invoca una skill interna", async () => {
@@ -270,6 +296,180 @@ describe("scheduledAgentsRoutes POST /scheduled-agents", () => {
     expect(state.createdConfigInput).toBeNull();
   });
 
+  it("rechaza combinaciones provider/codingAgent incompatibles al crear", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+
+    const response = await app.handle(makeRequest({
+      name: "Codex sobre Coding Plan",
+      jobType: "implementation",
+      provider: "zipu",
+      codingAgent: "codex",
+      aiProvider: "zai",
+      aiModel: "glm-5.2",
+      scheduleType: "manual",
+    }));
+
+    expect(response.status).toBe(400);
+    expect(state.createdConfigInput).toBeNull();
+  });
+
+  it("rechaza reasoning incompatible al crear", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+
+    const response = await app.handle(makeRequest({
+      name: "GPT sin reasoning",
+      jobType: "implementation",
+      provider: "codex",
+      codingAgent: "codex",
+      aiProvider: "openai",
+      aiModel: "gpt-4.1",
+      reasoningLevel: "high",
+      scheduleType: "manual",
+    }));
+
+    expect(response.status).toBe(400);
+    expect(state.createdConfigInput).toBeNull();
+  });
+
+  it("rechaza un VLM heredado de cualquier conexión Z.AI Coding Plan", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+    state.activeConnectionsOverride = [
+      { config: { implementationModel: "glm-5.2" } },
+      { config: { implementationModel: "glm-5v-turbo" } },
+    ];
+
+    const response = await app.handle(makeRequest({
+      name: "Modelo heredado inseguro",
+      jobType: "implementation",
+      provider: "zipu",
+      codingAgent: "opencode",
+      aiProvider: "zai",
+      scheduleType: "manual",
+    }));
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error?: string };
+    expect(body.error).toMatch(/glm-5v-turbo.*not available through the Z\.AI Coding Plan/i);
+    expect(state.createdConfigInput).toBeNull();
+  });
+
+  it("rechaza por REST un slug explícito que no existe en el entitlement", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+
+    const response = await app.handle(makeRequest({
+      name: "Modelo inventado",
+      jobType: "implementation",
+      provider: "zipu",
+      codingAgent: "opencode",
+      aiProvider: "zai",
+      aiModel: "totally-not-a-model",
+      scheduleType: "manual",
+    }));
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error?: string };
+    expect(body.error).toMatch(/unknown|unsupported|not available/i);
+    expect(state.createdConfigInput).toBeNull();
+  });
+
+  it("falla cerrado cuando no puede resolver un modelo explícito ni heredado", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+    state.activeConnectionsOverride = [];
+
+    const response = await app.handle(makeRequest({
+      name: "Sin conexión efectiva",
+      jobType: "implementation",
+      provider: "zipu",
+      codingAgent: "opencode",
+      aiProvider: "zai",
+      scheduleType: "manual",
+    }));
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error?: string };
+    expect(body.error).toMatch(/could not resolve an effective model/i);
+    expect(state.createdConfigInput).toBeNull();
+  });
+
+  it("valida project.agentDefaults con la misma precedencia que el backlog real", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+    state.projectAiConfigOverride = {
+      defaultProvider: "zipu",
+      agentDefaults: {
+        implementation: {
+          codingAgent: "opencode",
+          aiProvider: "zai",
+          model: "glm-5v-turbo",
+          reasoningLevel: "max",
+        },
+      },
+    };
+
+    const response = await app.handle(makeRequest({
+      name: "Default de proyecto inseguro",
+      jobType: "implementation",
+      provider: "zipu",
+      codingAgent: "opencode",
+      aiProvider: "zai",
+      scheduleType: "manual",
+      targetConfig: {
+        backlogDrain: {
+          enabled: true,
+          projects: [{ projectId: testProject.id, enabled: true }],
+        },
+      },
+    }));
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error?: string };
+    expect(body.error).toMatch(/glm-5v-turbo.*not available through the Z\.AI Coding Plan/i);
+    expect(state.createdConfigInput).toBeNull();
+  });
+
+  it("valida CREATE sin projectId contra el mismo proyecto primario que usará execute", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+    state.orgPrimaryRepositoryOverride = {
+      id: "repo-primary",
+      url: "https://github.com/acme/primary.git",
+      projectId: "project-primary",
+    };
+    state.activeConnectionsOverride = [{
+      config: { implementationModel: "glm-5.2" },
+    }];
+    state.projectAiConfigOverride = {
+      defaultProvider: "zipu",
+      agentDefaults: {
+        implementation: {
+          codingAgent: "opencode",
+          aiProvider: "zai",
+          model: "glm-5.1",
+          reasoningLevel: null,
+        },
+      },
+    };
+
+    const response = await app.handle(makeRequest({
+      name: "Sin proyecto explícito",
+      jobType: "implementation",
+      provider: "zipu",
+      codingAgent: "opencode",
+      aiProvider: "zai",
+      scheduleType: "manual",
+      projectId: null,
+    }));
+
+    expect(response.status).toBe(201);
+    expect(state.projectAiConfigCalls).toEqual(["project-primary"]);
+    expect(state.createdConfigInput).toMatchObject({ projectId: null });
+  });
+
   it("permite crear un agente webhook con id y token propuestos antes de guardar", async () => {
     const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
     const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
@@ -400,6 +600,10 @@ describe("scheduledAgentsRoutes POST /scheduled-agents/webhook-proposal", () => 
 describe("scheduledAgentsRoutes PATCH /scheduled-agents/:id", () => {
   beforeEach(() => {
     state.updatedConfigInput = null;
+    state.activeConnectionsOverride = null;
+    state.projectAiConfigOverride = null;
+    state.projectAiConfigCalls = [];
+    state.orgPrimaryRepositoryOverride = null;
   });
 
   it("keeps lastRunAt untouched when an already-enabled scheduled agent is updated", async () => {
@@ -455,12 +659,98 @@ describe("scheduledAgentsRoutes PATCH /scheduled-agents/:id", () => {
       state.scheduledConfigOverride = null;
     }
   });
+
+  it("valida un cambio aislado de codingAgent", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+
+    const response = await app.handle(new Request(
+      `http://localhost/scheduled-agents/${scheduledConfig.id}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ codingAgent: "claude-code" }),
+      },
+    ));
+
+    expect(response.status).toBe(400);
+    expect(state.updatedConfigInput).toBeNull();
+  });
+
+  it("valida un cambio aislado de reasoningLevel", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+
+    const response = await app.handle(new Request(
+      `http://localhost/scheduled-agents/${scheduledConfig.id}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reasoningLevel: "max" }),
+      },
+    ));
+
+    expect(response.status).toBe(400);
+    expect(state.updatedConfigInput).toBeNull();
+  });
+
+  it("revalida PATCH projectId=null usando el proyecto primario efectivo", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+    state.orgPrimaryRepositoryOverride = {
+      id: "repo-primary",
+      url: "https://github.com/acme/primary.git",
+      projectId: "project-primary",
+    };
+    state.projectAiConfigOverride = {
+      defaultProvider: "zipu",
+      agentDefaults: {
+        implementation: {
+          codingAgent: "opencode",
+          aiProvider: "zai",
+          model: "glm-5v-turbo",
+          reasoningLevel: "max",
+        },
+      },
+    };
+    state.scheduledConfigOverride = {
+      ...scheduledConfig,
+      jobType: "implementation",
+      provider: "zipu",
+      codingAgent: "opencode",
+      aiProvider: "zai",
+      aiModel: null,
+      reasoningLevel: null,
+    };
+
+    try {
+      const response = await app.handle(new Request(
+        `http://localhost/scheduled-agents/${scheduledConfig.id}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ projectId: null }),
+        },
+      ));
+
+      expect(response.status).toBe(400);
+      expect(state.projectAiConfigCalls).toEqual(["project-primary"]);
+      expect(state.updatedConfigInput).toBeNull();
+    } finally {
+      state.scheduledConfigOverride = null;
+    }
+  });
 });
 
 describe("scheduledAgentsRoutes POST /scheduled-agents/:id/trigger", () => {
   beforeEach(() => {
     state.createdJobInput = null;
     state.broadcasts = [];
+    state.scheduledConfigOverride = null;
+    state.activeConnectionsOverride = null;
+    state.projectAiConfigOverride = null;
+    state.projectAiConfigCalls = [];
+    state.orgPrimaryRepositoryOverride = null;
   });
 
   it("broadcasts queued status so the sessions UI updates immediately", async () => {
@@ -553,9 +843,212 @@ describe("scheduledAgentsRoutes POST /scheduled-agents/:id/trigger", () => {
       state.scheduledConfigOverride = null;
     }
   });
+
+  it("ejecuta el modelo y reasoning heredados de la conexión sin sustituirlos por el default", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+    state.activeConnectionsOverride = [{
+      config: {
+        implementationModel: "glm-5.1",
+        implementationReasoningBudget: null,
+      },
+    }];
+    state.scheduledConfigOverride = {
+      ...scheduledConfig,
+      jobType: "implementation",
+      provider: "zipu",
+      codingAgent: "opencode",
+      aiProvider: "zai",
+      aiModel: null,
+      reasoningLevel: null,
+    };
+
+    try {
+      const response = await app.handle(
+        new Request(`http://localhost/scheduled-agents/${scheduledConfig.id}/trigger`, {
+          method: "POST",
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(state.createdJobInput).toMatchObject({
+        provider: "zipu",
+        codingAgent: "opencode",
+        aiProvider: "zai",
+        model: "glm-5.1",
+      });
+      expect((state.createdJobInput?.config as Record<string, unknown>)?.reasoningLevel).toBeUndefined();
+    } finally {
+      state.scheduledConfigOverride = null;
+      state.activeConnectionsOverride = null;
+    }
+  });
+
+  it("mantiene en execute el runtime validado en CREATE cuando no hay projectId explícito", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+    state.orgPrimaryRepositoryOverride = {
+      id: "repo-primary",
+      url: "https://github.com/acme/primary.git",
+      projectId: "project-primary",
+    };
+    state.activeConnectionsOverride = [{
+      config: { implementationModel: "glm-5.2" },
+    }];
+    state.projectAiConfigOverride = {
+      defaultProvider: "zipu",
+      agentDefaults: {
+        implementation: {
+          codingAgent: "opencode",
+          aiProvider: "zai",
+          model: "glm-5.1",
+          reasoningLevel: null,
+        },
+      },
+    };
+    state.scheduledConfigOverride = {
+      ...scheduledConfig,
+      projectId: null,
+      jobType: "implementation",
+      provider: "zipu",
+      codingAgent: "opencode",
+      aiProvider: "zai",
+      aiModel: null,
+      reasoningLevel: null,
+    };
+
+    const response = await app.handle(
+      new Request(`http://localhost/scheduled-agents/${scheduledConfig.id}/trigger`, {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.projectAiConfigCalls).toEqual(["project-primary"]);
+    expect(state.createdJobInput).toMatchObject({
+      projectId: "project-primary",
+      provider: "zipu",
+      codingAgent: "opencode",
+      aiProvider: "zai",
+      model: "glm-5.1",
+      config: expect.objectContaining({ projectId: "project-primary" }),
+    });
+  });
+
+  it("mantiene la misma precedencia schedule > project > connection al ejecutar", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+    state.activeConnectionsOverride = [{
+      config: {
+        implementationModel: "claude-opus-4-8",
+        implementationReasoningBudget: "max",
+      },
+    }];
+    state.projectAiConfigOverride = {
+      defaultProvider: null,
+      agentDefaults: {
+        implementation: {
+          codingAgent: "claude-code",
+          aiProvider: "anthropic",
+          model: "claude-sonnet-5",
+          reasoningLevel: "high",
+        },
+      },
+    };
+    state.scheduledConfigOverride = {
+      ...scheduledConfig,
+      jobType: "implementation",
+      provider: "claude-code",
+      codingAgent: "claude-code",
+      aiProvider: "anthropic",
+      aiModel: null,
+      reasoningLevel: null,
+    };
+
+    let response = await app.handle(
+      new Request(`http://localhost/scheduled-agents/${scheduledConfig.id}/trigger`, {
+        method: "POST",
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(state.projectAiConfigCalls.length).toBeGreaterThan(0);
+    expect(await response.clone().json()).toMatchObject({ success: true });
+    expect(state.createdJobInput).toMatchObject({
+      model: "claude-sonnet-5",
+      config: expect.objectContaining({ reasoningLevel: "high" }),
+    });
+
+    state.createdJobInput = null;
+    state.scheduledConfigOverride = {
+      ...state.scheduledConfigOverride,
+      aiModel: "claude-opus-4-8",
+      reasoningLevel: "xhigh",
+    };
+    response = await app.handle(
+      new Request(`http://localhost/scheduled-agents/${scheduledConfig.id}/trigger`, {
+        method: "POST",
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.clone().json()).toMatchObject({ success: true });
+    expect(state.createdJobInput).toMatchObject({
+      model: "claude-opus-4-8",
+      config: expect.objectContaining({ reasoningLevel: "xhigh" }),
+    });
+  });
+
+  it("revalida cambios posteriores VLM, unknown y effort antes de encolar", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+    state.scheduledConfigOverride = {
+      ...scheduledConfig,
+      jobType: "implementation",
+      provider: "zipu",
+      codingAgent: "opencode",
+      aiProvider: "zai",
+      aiModel: null,
+      reasoningLevel: null,
+    };
+
+    const cases = [
+      {
+        config: { implementationModel: "glm-5v-turbo" },
+        error: /not available through the Z\.AI Coding Plan/i,
+      },
+      {
+        config: { implementationModel: "totally-not-a-model" },
+        error: /unknown|unsupported/i,
+      },
+      {
+        config: {
+          implementationModel: "glm-5.1",
+          implementationReasoningBudget: "max",
+        },
+        error: /reasoningLevel 'max' is not supported/i,
+      },
+    ];
+
+    for (const testCase of cases) {
+      state.createdJobInput = null;
+      state.activeConnectionsOverride = [{ config: testCase.config }];
+      const response = await app.handle(
+        new Request(`http://localhost/scheduled-agents/${scheduledConfig.id}/trigger`, {
+          method: "POST",
+        }),
+      );
+      const body = (await response.json()) as { success?: boolean; error?: string };
+      expect(body.success).toBe(false);
+      expect(body.error).toMatch(testCase.error);
+      expect(state.createdJobInput).toBeNull();
+    }
+  });
 });
 
 afterAll(() => {
   mock.restore();
   restoreRealModules();
+  mock.module(
+    "../../instance/services/instance-config-service",
+    () => __realInstanceConfigService,
+  );
 });

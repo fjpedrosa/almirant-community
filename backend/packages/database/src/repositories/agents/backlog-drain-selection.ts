@@ -1,3 +1,8 @@
+import {
+  resolveScheduledRuntimePrecedence,
+  type ScheduledRuntimeSource,
+} from "@almirant/shared";
+
 export type BacklogDrainCodingAgent = "claude-code" | "codex" | "opencode";
 export type BacklogDrainAiProvider = "anthropic" | "openai" | "google" | "zai" | "xai";
 export type BacklogDrainProvider = "claude-code" | "codex" | "zipu" | "grok";
@@ -87,6 +92,8 @@ export interface BacklogDrainSelectionInput {
     model?: string | null;
     reasoningLevel?: string | null;
   };
+  /** Highest-priority active connection resolved from the same source as API validation. */
+  connectionRuntime?: ScheduledRuntimeSource | null;
 }
 
 export interface BacklogDrainCandidate {
@@ -124,48 +131,7 @@ export interface BacklogDrainSelectionResult {
 
 const DEFAULT_MAX_CONCURRENT_PER_PROJECT = 1;
 const DEFAULT_STABILIZATION_WINDOW_MS = 15 * 60 * 1000;
-const DEFAULT_CODING_AGENT: BacklogDrainCodingAgent = "claude-code";
-const DEFAULT_AI_PROVIDER: BacklogDrainAiProvider = "anthropic";
-const DEFAULT_MODEL = "claude-opus-4-8";
 const MAX_AUTOMATED_DOD_INCOMPLETE_COUNT = 3;
-
-const codingAgentToProvider = (codingAgent: BacklogDrainCodingAgent): BacklogDrainProvider => {
-  if (codingAgent === "codex") return "codex";
-  if (codingAgent === "opencode") return "zipu";
-  return "claude-code";
-};
-
-const runtimeToProvider = (
-  codingAgent: BacklogDrainCodingAgent,
-  aiProvider: BacklogDrainAiProvider,
-): BacklogDrainProvider => {
-  if (aiProvider === "xai") return "grok";
-  if (aiProvider === "zai") return "zipu";
-  if (aiProvider === "openai") return "codex";
-  if (aiProvider === "anthropic") return "claude-code";
-  return codingAgentToProvider(codingAgent);
-};
-
-const codingAgentToAiProvider = (codingAgent: BacklogDrainCodingAgent): BacklogDrainAiProvider => {
-  if (codingAgent === "codex") return "openai";
-  if (codingAgent === "opencode") return "zai";
-  return "anthropic";
-};
-
-const defaultModelForCodingAgent = (codingAgent: BacklogDrainCodingAgent): string => {
-  if (codingAgent === "codex") return "gpt-5.5";
-  if (codingAgent === "opencode") return "glm-5.2";
-  return DEFAULT_MODEL;
-};
-
-const defaultModelForRuntime = (
-  codingAgent: BacklogDrainCodingAgent,
-  aiProvider: BacklogDrainAiProvider,
-): string => {
-  if (aiProvider === "xai") return "grok-4.3";
-  if (aiProvider === "zai") return "glm-5.2";
-  return defaultModelForCodingAgent(codingAgent);
-};
 
 const isTruthyEnabled = (enabled: boolean | undefined): boolean => enabled !== false;
 
@@ -589,21 +555,20 @@ export const selectBacklogDrainCandidates = (
         continue;
       }
 
-      const codingAgent = rule.codingAgent
-        ?? input.fallbackRuntime?.codingAgent
-        ?? item.codingAgent
-        ?? projectDefaults?.codingAgent
-        ?? DEFAULT_CODING_AGENT;
-      const aiProvider = rule.aiProvider
-        ?? input.fallbackRuntime?.aiProvider
-        ?? projectDefaults?.aiProvider
-        ?? codingAgentToAiProvider(codingAgent);
-      const model = rule.model
-        ?? input.fallbackRuntime?.model
-        ?? item.aiModel
-        ?? projectDefaults?.model
-        ?? defaultModelForRuntime(codingAgent, aiProvider);
-      const provider = runtimeToProvider(codingAgent, aiProvider);
+      const runtime = resolveScheduledRuntimePrecedence({
+        rule,
+        schedule: input.fallbackRuntime,
+        workItem: {
+          codingAgent: item.codingAgent,
+          model: item.aiModel,
+        },
+        project: projectDefaults,
+        connection: input.connectionRuntime,
+      });
+      const codingAgent = runtime.codingAgent as BacklogDrainCodingAgent;
+      const aiProvider = runtime.aiProvider as BacklogDrainAiProvider;
+      const model = runtime.model;
+      const provider = runtime.provider as BacklogDrainProvider;
 
       selected.push({
         id: item.id,
@@ -617,10 +582,7 @@ export const selectBacklogDrainCandidates = (
         aiProvider,
         provider,
         model,
-        reasoningLevel: rule.reasoningLevel
-          ?? input.fallbackRuntime?.reasoningLevel
-          ?? projectDefaults?.reasoningLevel
-          ?? null,
+        reasoningLevel: runtime.reasoningLevel,
         skillName: mode === "dod-remediation" ? "runner-fix-dod" : "runner-implement",
         ...(mode === "dod-remediation"
           ? {
