@@ -1,5 +1,6 @@
 import {
   agentJobs,
+  agentJobLogs,
   db,
   and,
   eq,
@@ -416,22 +417,12 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
   // job has no session after serve readiness.
   try {
     const cutoff = new Date(Date.now() - PRE_SESSION_STARTUP_TIMEOUT_MS);
-    const candidates = await db
-      .select({
-        job: agentJobs,
-        lastServeReadyAt: sql<Date | null>`(
-          select max(srl.timestamp)
-          from agent_job_logs srl
-          where srl.job_id = ${agentJobs.id}
-            and srl.event_type = 'serve.ready'
-        )`.as("last_serve_ready_at"),
-        hasSessionCreatedLog: sql<boolean>`exists (
-          select 1
-          from agent_job_logs scl
-          where scl.job_id = ${agentJobs.id}
-            and scl.event_type = 'session.created'
-        )`.as("has_session_created_log"),
-      })
+    // Values interpolated inside a raw SQL fragment do not get the timestamp
+    // encoder that Drizzle's `lt()` applies. postgres-js cannot bind a Date as
+    // an untyped raw parameter, so pass the ISO representation explicitly.
+    const cutoffIso = cutoff.toISOString();
+    const candidateJobs = await db
+      .select()
       .from(agentJobs)
       .where(
         and(
@@ -441,13 +432,52 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
           lt(agentJobs.startedAt, cutoff),
           sql`exists (
             select 1
-            from agent_job_logs srl
-            where srl.job_id = ${agentJobs.id}
-              and srl.event_type = 'serve.ready'
-              and srl.timestamp < ${cutoff}
+              from agent_job_logs srl
+              where srl.job_id = ${agentJobs.id}
+                and srl.event_type = 'serve.ready'
+                and srl.timestamp < ${cutoffIso}
           )`,
         ),
       );
+
+    const candidateLogStates = candidateJobs.length === 0
+      ? []
+      : await db
+          .select({
+            jobId: agentJobLogs.jobId,
+            lastServeReadyAt: sql<Date | string | null>`max(${agentJobLogs.timestamp}) filter (
+              where ${agentJobLogs.eventType} = 'serve.ready'
+            )`,
+            hasSessionCreatedLog: sql<boolean>`coalesce(
+              bool_or(${agentJobLogs.eventType} = 'session.created'),
+              false
+            )`,
+          })
+          .from(agentJobLogs)
+          .where(
+            and(
+              inArray(agentJobLogs.jobId, candidateJobs.map((job) => job.id)),
+              inArray(agentJobLogs.eventType, ["serve.ready", "session.created"]),
+            ),
+          )
+          .groupBy(agentJobLogs.jobId);
+
+    const logStateByJobId = new Map(
+      candidateLogStates.map((state) => [state.jobId, state]),
+    );
+    const candidates = candidateJobs.map((job) => {
+      const state = logStateByJobId.get(job.id);
+      const rawLastServeReadyAt = state?.lastServeReadyAt ?? null;
+      return {
+        job,
+        lastServeReadyAt: rawLastServeReadyAt instanceof Date
+          ? rawLastServeReadyAt
+          : rawLastServeReadyAt
+            ? new Date(rawLastServeReadyAt)
+            : null,
+        hasSessionCreatedLog: state?.hasSessionCreatedLog === true,
+      };
+    });
 
     const now = new Date();
 
