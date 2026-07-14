@@ -31,6 +31,18 @@ const normalize = (value: string | null | undefined): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
+/**
+ * Canonicalize an aiModel value for persistence. Catalog model ids are
+ * lowercase, so a value saved with display-name casing (e.g. "GLM-5.2", coming
+ * from an MCP call or a client that sent the label) is normalized to its id
+ * ("glm-5.2"). This keeps the stored value in sync with the Select options and
+ * prevents the "Select model" placeholder bug on edit. Returns null for
+ * empty/nullish values.
+ */
+export const canonicalizeAiModelForStorage = (
+  value: string | null | undefined,
+): string | null => normalize(value);
+
 const asRecord = (value: unknown): Record<string, unknown> | null => {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)

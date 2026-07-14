@@ -271,6 +271,70 @@ export const findModelById = (modelId: string): ModelDefinition | null => {
 };
 
 /**
+ * Resolve a raw model string to its canonical catalog id.
+ *
+ * Handles the two ways a value drifts out of sync with the `<Select>` options:
+ * 1. It was stored with the display-name casing (e.g. "GLM-5.2" instead of the
+ *    id "glm-5.2") — the original cause of the "Select model" placeholder bug.
+ * 2. It is a dated snapshot id (e.g. "glm-5.2-250828") that maps onto a base id.
+ *
+ * Returns null when nothing in the catalog matches.
+ */
+export const resolveCanonicalModelId = (
+  raw: string | null | undefined,
+): string | null => {
+  if (!raw) return null;
+  const needle = raw.trim().toLowerCase();
+  if (!needle) return null;
+
+  const all: ModelDefinition[] = [];
+  const seen = new Set<string>();
+  for (const models of Object.values(AI_MODELS_CATALOG)) {
+    for (const model of models) {
+      if (!seen.has(model.id)) {
+        seen.add(model.id);
+        all.push(model);
+      }
+    }
+  }
+
+  const byId = all.find((m) => m.id.toLowerCase() === needle);
+  if (byId) return byId.id;
+
+  const byDisplayName = all.find((m) => m.displayName.toLowerCase() === needle);
+  if (byDisplayName) return byDisplayName.id;
+
+  // Dated snapshots resolve to their base id — prefer the longest (most
+  // specific) prefix so "glm-5-turbo-*" wins over "glm-5-*".
+  const prefixMatch = all
+    .filter((m) => needle.startsWith(`${m.id.toLowerCase()}-`))
+    .sort((a, b) => b.id.length - a.id.length)[0];
+  if (prefixMatch) return prefixMatch.id;
+
+  return null;
+};
+
+/**
+ * Reconcile a form's current model value against the models available for the
+ * currently-selected provider.
+ *
+ * Canonicalizes case/snapshot mismatches (so a persisted "GLM-5.2" survives as
+ * "glm-5.2") instead of silently discarding a valid value; clears the value
+ * only when it genuinely does not belong to the available set (e.g. the
+ * provider changed and the old model no longer applies).
+ */
+export const reconcileModelWithAvailable = (
+  current: string | null | undefined,
+  availableIds: string[],
+): string => {
+  if (!current) return "";
+  if (availableIds.includes(current)) return current;
+  const canonical = resolveCanonicalModelId(current);
+  if (canonical && availableIds.includes(canonical)) return canonical;
+  return "";
+};
+
+/**
  * Get models grouped by category for a provider
  */
 export const getModelsGroupedByCategory = (provider: ProviderType | string) => {
