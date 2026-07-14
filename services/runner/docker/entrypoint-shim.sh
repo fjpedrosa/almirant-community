@@ -193,7 +193,8 @@ if [[ "${ALMIRANT_CLAUDE_TOOL_POLICY:-}" == "read-only" ]]; then
   READ_ONLY_CLAUDE_MCP_CONFIG="/tmp/almirant-visual-judge-mcp.json"
   READ_ONLY_CLAUDE_CONFIG_DIR="/tmp/almirant-visual-judge-claude"
   rm -rf "$READ_ONLY_CLAUDE_CONFIG_DIR"
-  mkdir -p -m 0700 "$READ_ONLY_CLAUDE_CONFIG_DIR"
+  mkdir -p "$READ_ONLY_CLAUDE_CONFIG_DIR"
+  chmod 0700 "$READ_ONLY_CLAUDE_CONFIG_DIR"
   printf '%s' '{"mcpServers":{}}' > "$READ_ONLY_CLAUDE_MCP_CONFIG"
   chmod 0400 "$READ_ONLY_CLAUDE_MCP_CONFIG"
   export CLAUDE_CODE_SAFE_MODE=1
