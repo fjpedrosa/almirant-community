@@ -4,13 +4,11 @@ import {
   getOrgPrimaryRepository,
   updateScheduledAgentConfigLastRunAt,
 } from "@almirant/database";
-import type {
-  ScheduledAgentConfigDb,
-  CodingAgent,
-  AiProvider,
-} from "@almirant/database";
-import { resolveRuntime } from "@almirant/shared";
+import type { ScheduledAgentConfigDb } from "@almirant/database";
 import { wsConnectionManager } from "../../../shared/ws/ws-connection-manager";
+import { resolveScheduledAgentEffectiveRuntimes } from "./scheduled-agent-effective-model-resolver";
+import { assertValidScheduledAgentRuntime } from "./scheduled-agent-runtime-validation";
+import { resolveScheduledAgentProjectContext } from "./scheduled-agent-project-context";
 
 export interface ExecuteScheduledAgentConfigOptions {
   /** User ID who initiated execution. `null` for unattended (webhook, cron) flows. */
@@ -54,12 +52,16 @@ export const executeScheduledAgentConfig = async (
 ) => {
   const orgId = config.workspaceId;
 
-  let repoUrl: string | undefined;
-  let repositoryId: string | undefined;
+  const projectContext = await resolveScheduledAgentProjectContext(
+    orgId,
+    config.projectId,
+  );
+  let repoUrl = projectContext.repoUrl ?? undefined;
+  let repositoryId = projectContext.repositoryId ?? undefined;
   const baseBranch = "main";
-  let resolvedProjectId = config.projectId ?? undefined;
+  let resolvedProjectId = projectContext.projectId ?? undefined;
 
-  if (resolvedProjectId) {
+  if (config.projectId && resolvedProjectId) {
     try {
       const repos = await getRepositories(orgId, resolvedProjectId);
       const primary = repos[0];
@@ -85,20 +87,42 @@ export const executeScheduledAgentConfig = async (
     }
   }
 
-  const resolvedRuntime = resolveRuntime({
+  const effectiveRuntimes = await resolveScheduledAgentEffectiveRuntimes({
+    workspaceId: config.workspaceId,
     provider: config.provider,
-    codingAgent: config.codingAgent ?? undefined,
-    model: config.aiModel ?? undefined,
+    codingAgent: config.codingAgent,
+    aiProvider: config.aiProvider,
+    aiModel: config.aiModel,
+    reasoningLevel: config.reasoningLevel,
+    jobType: config.jobType,
+    projectId: resolvedProjectId,
+    targetConfig: config.targetConfig,
   });
+  const [resolvedRuntime] = effectiveRuntimes;
+  if (!resolvedRuntime) {
+    throw new Error("Invalid scheduled agent runtime: could not resolve an effective execution runtime");
+  }
 
   const finalPrompt = composePrompt(config.prompt, options.extraUserPrompt);
+
+  // Revalidate the complete, current source set immediately before enqueueing.
+  // A connection or project default may have changed since CREATE/PATCH.
+  assertValidScheduledAgentRuntime({
+    provider: config.provider,
+    codingAgent: config.codingAgent,
+    aiProvider: config.aiProvider,
+    aiModel: config.aiModel,
+    reasoningLevel: config.reasoningLevel,
+    effectiveRuntimes,
+    targetConfig: config.targetConfig,
+  });
 
   const job = await createJob({
     projectId: resolvedProjectId ?? null,
     workspaceId: config.workspaceId,
     createdByUserId: options.createdByUserId,
     jobType: config.jobType,
-    provider: config.provider,
+    provider: resolvedRuntime.provider as typeof config.provider,
     priority: "medium",
     config: {
       repoPath: ".",
@@ -108,16 +132,14 @@ export const executeScheduledAgentConfig = async (
       scheduledConfigId: config.id,
       scheduledConfigName: config.name,
       source: config.trigger === "webhook" ? "webhook" : "scheduled",
-      reasoningLevel: config.reasoningLevel ?? undefined,
+      reasoningLevel: resolvedRuntime.reasoningLevel ?? undefined,
       ...(config.mcpServers ? { mcpServers: config.mcpServers } : {}),
       ...(repoUrl ? { repoUrl } : {}),
       ...(repositoryId ? { repositoryId } : {}),
     },
-    codingAgent:
-      (config.codingAgent as CodingAgent | undefined) ?? resolvedRuntime.codingAgent,
-    aiProvider:
-      (config.aiProvider as AiProvider | undefined) ?? resolvedRuntime.aiProvider,
-    model: config.aiModel ?? resolvedRuntime.model,
+    codingAgent: resolvedRuntime.codingAgent as never,
+    aiProvider: resolvedRuntime.aiProvider as never,
+    model: resolvedRuntime.model,
     prompt: finalPrompt,
     promptTemplate: null,
     triggerType: "event",

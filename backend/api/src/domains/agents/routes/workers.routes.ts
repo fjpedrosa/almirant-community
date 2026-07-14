@@ -5,6 +5,11 @@ import {
   updateScheduledAgentConfigLastRunAt,
   getBacklogDrainCandidatesForConfigId,
   getDodRemediationCandidatesForConfigId,
+  getBacklogDrainCandidatesForScheduledConfig,
+  getDodRemediationCandidatesForScheduledConfig,
+  getScheduledAgentConfigById,
+  isBacklogDrainTargetConfig,
+  isDodRemediationTargetConfig,
   getWorkers,
   upsertWorker,
   updateHeartbeat,
@@ -79,7 +84,15 @@ import {
   planningSessions,
 } from "@almirant/database";
 import { getInstallationAccessToken } from "../../integrations/github/services/github-service";
-import type { ProviderQuotaDb, ApiKey, CodingAgent, AiProvider, AgentJobConfig, NewAgentNativeEvent } from "@almirant/database";
+import type {
+  ProviderQuotaDb,
+  ApiKey,
+  CodingAgent,
+  AiProvider,
+  AgentJobConfig,
+  NewAgentNativeEvent,
+  ScheduledAgentConfigDb,
+} from "@almirant/database";
 import { env, logger } from "@almirant/config";
 import { refreshCanonicalSessionProjection } from "../../ideation/planning-sessions/services/canonical-session-projection";
 import { getGithubAppCredentials } from "../../instance/services/github-app-credentials-service";
@@ -103,6 +116,226 @@ import {
   toJobResourceEstimate,
 } from "../services/resource-forecast";
 import { resolveExpectedWorkItemIdsForCompletion } from "../services/completion-snapshot";
+import { assertValidScheduledAgentRuntime } from "../services/scheduled-agent-runtime-validation";
+import { resolveScheduledAgentEffectiveRuntimes } from "../services/scheduled-agent-effective-model-resolver";
+
+type RevalidatedScheduledWorkItemJob = {
+  provider: "claude-code" | "codex" | "zipu" | "grok";
+  codingAgent: CodingAgent;
+  aiProvider: AiProvider;
+  model: string;
+  reasoningLevel: string | null;
+  jobType: ScheduledAgentConfigDb["jobType"];
+  projectId: string;
+  scheduledConfigId: string;
+  scheduledConfigName: string;
+  skillName: string;
+  source: "backlog-drain" | "dod-remediation" | "scheduled-config";
+  mcpServers: ScheduledAgentConfigDb["mcpServers"];
+  dodReport: string | null;
+  dodReviewedAt: string | null;
+};
+
+type ScheduledWorkItemJobRequest = {
+  provider: string;
+  codingAgent?: string;
+  aiProvider?: string;
+  model?: string;
+  reasoningLevel?: string;
+  jobType?: string;
+  config?: {
+    projectId?: string;
+    scheduledConfigId?: string;
+    scheduledConfigName?: string;
+    skillName?: string;
+    source?: string;
+    reasoningLevel?: string;
+    dodReport?: string;
+    dodReviewedAt?: string;
+  };
+};
+
+const normalizeScheduledRuntimeValue = (value: string | null | undefined): string | null => {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+};
+
+const assertScheduledPayloadMatches = (
+  field: string,
+  requested: string | null | undefined,
+  effective: string | null | undefined,
+  required = false,
+): void => {
+  const requestedValue = normalizeScheduledRuntimeValue(requested);
+  if (!requestedValue && !required) return;
+  const effectiveValue = normalizeScheduledRuntimeValue(effective);
+  if (requestedValue !== effectiveValue) {
+    throw new Error(
+      `Scheduled agent payload field '${field}' does not match the current server-side runtime`,
+    );
+  }
+};
+
+const SCHEDULED_WORK_ITEM_SOURCES = new Set(["backlog-drain", "dod-remediation"]);
+const SCHEDULED_WORK_ITEM_SKILLS = new Set(["runner-implement", "runner-fix-dod"]);
+
+/**
+ * Detect every worker payload marker reserved for scheduled backlog/DoD work.
+ * No single caller-controlled field is authoritative: removing the source must
+ * not bypass the boundary while an internal skill or DoD evidence remains.
+ */
+const claimsBacklogOrDodSemantics = (request: ScheduledWorkItemJobRequest): boolean => {
+  const source = normalizeScheduledRuntimeValue(request.config?.source);
+  const skillName = normalizeScheduledRuntimeValue(request.config?.skillName);
+  return (
+    (source !== null && SCHEDULED_WORK_ITEM_SOURCES.has(source))
+    || (skillName !== null && SCHEDULED_WORK_ITEM_SKILLS.has(skillName))
+    || normalizeScheduledRuntimeValue(request.config?.dodReport) !== null
+    || normalizeScheduledRuntimeValue(request.config?.dodReviewedAt) !== null
+  );
+};
+
+const claimsScheduledWorkItemSemantics = (request: ScheduledWorkItemJobRequest): boolean =>
+  claimsBacklogOrDodSemantics(request)
+  || normalizeScheduledRuntimeValue(request.config?.scheduledConfigName) !== null;
+
+/**
+ * Re-resolve backlog/DoD candidates at the enqueue boundary. The runner's
+ * payload is only a request: the scheduled config, project rule, project
+ * defaults and active connection are server-authoritative.
+ */
+const revalidateScheduledWorkItemJob = async (
+  workspaceId: string,
+  workItemId: string,
+  workItemProjectId: string | null | undefined,
+  request: ScheduledWorkItemJobRequest,
+): Promise<RevalidatedScheduledWorkItemJob | null> => {
+  const scheduledConfigId = request.config?.scheduledConfigId?.trim();
+  if (!scheduledConfigId) {
+    if (claimsScheduledWorkItemSemantics(request)) {
+      throw new Error(
+        "config.scheduledConfigId is required for backlog-drain and DoD remediation jobs",
+      );
+    }
+    return null;
+  }
+
+  const scheduledConfig = await getScheduledAgentConfigById(scheduledConfigId, workspaceId);
+  if (!scheduledConfig) {
+    throw new Error("Scheduled agent config not found in this workspace");
+  }
+  if (scheduledConfig.enabled === false) {
+    throw new Error("Scheduled agent config is no longer enabled");
+  }
+
+  const isDodRemediation = isDodRemediationTargetConfig(scheduledConfig.targetConfig);
+  const isBacklogDrain = isBacklogDrainTargetConfig(scheduledConfig.targetConfig);
+  let runtime: {
+    provider: string;
+    codingAgent: string;
+    aiProvider: string;
+    model: string;
+    reasoningLevel?: string | null;
+  };
+  let projectId: string;
+  let source: RevalidatedScheduledWorkItemJob["source"];
+  let skillName: string;
+  let dodReport: string | null = null;
+  let dodReviewedAt: string | null = null;
+  let effectiveRuntimesToValidate: ReadonlyArray<typeof runtime>;
+
+  if (isDodRemediation || isBacklogDrain) {
+    const result = isDodRemediation
+      ? await getDodRemediationCandidatesForScheduledConfig(scheduledConfig)
+      : await getBacklogDrainCandidatesForScheduledConfig(scheduledConfig);
+    const candidate = result.candidates.find((item) => item.id === workItemId);
+    if (!candidate) {
+      throw new Error(
+        "Scheduled agent candidate is no longer eligible under the current server-side configuration",
+      );
+    }
+    runtime = candidate;
+    projectId = candidate.projectId;
+    source = isDodRemediation ? "dod-remediation" : "backlog-drain";
+    skillName = candidate.skillName;
+    dodReport = candidate.dodReport ?? null;
+    dodReviewedAt = candidate.dodReviewedAt ?? null;
+    effectiveRuntimesToValidate = [runtime];
+  } else {
+    const effectiveRuntimes = await resolveScheduledAgentEffectiveRuntimes({
+      workspaceId,
+      provider: scheduledConfig.provider,
+      codingAgent: scheduledConfig.codingAgent,
+      aiProvider: scheduledConfig.aiProvider,
+      aiModel: scheduledConfig.aiModel,
+      reasoningLevel: scheduledConfig.reasoningLevel,
+      jobType: scheduledConfig.jobType,
+      projectId: workItemProjectId,
+      targetConfig: scheduledConfig.targetConfig,
+    });
+    const [effectiveRuntime] = effectiveRuntimes;
+    if (!effectiveRuntime || !workItemProjectId) {
+      throw new Error(
+        "Scheduled agent runtime could not be resolved from the current server-side configuration",
+      );
+    }
+    runtime = effectiveRuntime;
+    effectiveRuntimesToValidate = effectiveRuntimes;
+    projectId = workItemProjectId;
+    source = "scheduled-config";
+    skillName = request.config?.skillName ?? "validate";
+  }
+
+  assertValidScheduledAgentRuntime({
+    provider: scheduledConfig.provider,
+    codingAgent: scheduledConfig.codingAgent,
+    aiProvider: scheduledConfig.aiProvider,
+    aiModel: scheduledConfig.aiModel,
+    reasoningLevel: scheduledConfig.reasoningLevel,
+    effectiveRuntimes: effectiveRuntimesToValidate,
+    targetConfig: scheduledConfig.targetConfig,
+  });
+
+  assertScheduledPayloadMatches("provider", request.provider, runtime.provider, true);
+  assertScheduledPayloadMatches("codingAgent", request.codingAgent, runtime.codingAgent);
+  assertScheduledPayloadMatches("aiProvider", request.aiProvider, runtime.aiProvider);
+  assertScheduledPayloadMatches("model", request.model, runtime.model);
+  assertScheduledPayloadMatches("reasoningLevel", request.reasoningLevel, runtime.reasoningLevel);
+  assertScheduledPayloadMatches(
+    "config.reasoningLevel",
+    request.config?.reasoningLevel,
+    runtime.reasoningLevel,
+  );
+  assertScheduledPayloadMatches("jobType", request.jobType, scheduledConfig.jobType);
+  assertScheduledPayloadMatches("config.projectId", request.config?.projectId, projectId);
+  assertScheduledPayloadMatches("config.source", request.config?.source, source);
+  if (isDodRemediation || isBacklogDrain) {
+    assertScheduledPayloadMatches("config.skillName", request.config?.skillName, skillName);
+  }
+  assertScheduledPayloadMatches(
+    "config.scheduledConfigName",
+    request.config?.scheduledConfigName,
+    scheduledConfig.name,
+  );
+
+  return {
+    provider: runtime.provider as RevalidatedScheduledWorkItemJob["provider"],
+    codingAgent: runtime.codingAgent as CodingAgent,
+    aiProvider: runtime.aiProvider as AiProvider,
+    model: runtime.model,
+    reasoningLevel: runtime.reasoningLevel ?? null,
+    jobType: scheduledConfig.jobType,
+    projectId,
+    scheduledConfigId: scheduledConfig.id,
+    scheduledConfigName: scheduledConfig.name,
+    skillName,
+    source,
+    mcpServers: scheduledConfig.mcpServers,
+    dodReport,
+    dodReviewedAt,
+  };
+};
 
 const buildReleaseIntegrationExecutionName = (
   repositoryFullName: string | null | undefined,
@@ -1116,6 +1349,13 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         model: body.model,
       });
 
+      if (!body.workItemId && claimsBacklogOrDodSemantics(body)) {
+        set.status = 400;
+        return errorResponse(
+          "workItemId is required for backlog-drain and DoD remediation jobs",
+        );
+      }
+
       if (body.workItemId) {
         // === EXISTING FLOW (work-item-based job) ===
         const workItem = await getWorkItemById(body.workItemId);
@@ -1136,12 +1376,13 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           return errorResponse("Unable to resolve workspace for work item");
         }
 
-        const resolvedJobType = body.jobType ?? "validation";
+        const requestedJobType = body.jobType ?? "validation";
+        const requestedSkillName = body.config?.skillName ?? "validate";
         let resourceEstimate = body.config?.resourceEstimate as
           | NonNullable<AgentJobConfig["resourceEstimate"]>
           | undefined;
 
-        if (!resourceEstimate && resolvedJobType === "implementation") {
+        if (!resourceEstimate && requestedJobType === "implementation") {
           try {
             resourceEstimate = await buildRequiredImplementationResourceEstimate(
               workspaceId,
@@ -1160,51 +1401,95 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           }
         }
         resourceEstimate ??= buildDefaultJobResourceEstimate({
-          jobType: resolvedJobType,
-          skillName: body.config?.skillName ?? "validate",
-          promptTemplate: body.config?.skillName ?? "validate",
+          jobType: requestedJobType,
+          skillName: requestedSkillName,
+          promptTemplate: requestedSkillName,
         });
 
+        // Keep this revalidation adjacent to createJob: resource forecasting
+        // may perform I/O, so doing it first avoids a wider policy TOCTOU gap.
+        let scheduledJob: RevalidatedScheduledWorkItemJob | null;
+        try {
+          scheduledJob = await revalidateScheduledWorkItemJob(
+            workspaceId,
+            body.workItemId,
+            workItem.projectId,
+            body,
+          );
+        } catch (error) {
+          const message = error instanceof Error
+            ? error.message
+            : "Scheduled agent runtime revalidation failed";
+          logger.warn(
+            { error, workItemId: body.workItemId, workspaceId },
+            "workers/jobs: rejected stale or tampered scheduled job payload",
+          );
+          set.status = 400;
+          return errorResponse(message);
+        }
+
+        const resolvedJobType = scheduledJob?.jobType ?? requestedJobType;
+        const resolvedSkillName = scheduledJob?.skillName ?? requestedSkillName;
+        const resolvedReasoningLevel = scheduledJob
+          ? scheduledJob.reasoningLevel ?? undefined
+          : body.reasoningLevel ?? body.config?.reasoningLevel;
+        const resolvedMcpServers = scheduledJob
+          ? scheduledJob.mcpServers
+          : body.config?.mcpServers;
+
         const job = await createJob({
-          projectId: workItem.projectId ?? null,
+          projectId: scheduledJob?.projectId ?? workItem.projectId ?? null,
           boardId: workItem.boardId ?? null,
           workItemId: workItem.id,
           workspaceId,
           jobType: resolvedJobType,
-          provider: body.provider,
+          provider: scheduledJob?.provider ?? body.provider,
           priority: body.priority ?? "medium",
           config: {
             repoPath: body.config?.repoPath ?? ".",
             baseBranch: body.config?.baseBranch ?? "main",
             ...(body.config?.workspace ? { workspace: body.config.workspace } : {}),
-            projectId: body.config?.projectId ?? workItem.projectId ?? undefined,
-            ...(body.config?.scheduledConfigId
-              ? { scheduledConfigId: body.config.scheduledConfigId }
+            projectId: scheduledJob?.projectId ?? body.config?.projectId ?? workItem.projectId ?? undefined,
+            ...(scheduledJob?.scheduledConfigId ?? body.config?.scheduledConfigId
+              ? { scheduledConfigId: scheduledJob?.scheduledConfigId ?? body.config?.scheduledConfigId }
               : {}),
-            ...(body.config?.scheduledConfigName
-              ? { scheduledConfigName: body.config.scheduledConfigName }
+            ...(scheduledJob?.scheduledConfigName ?? body.config?.scheduledConfigName
+              ? {
+                  scheduledConfigName:
+                    scheduledJob?.scheduledConfigName ?? body.config?.scheduledConfigName,
+                }
               : {}),
-            skillName: body.config?.skillName ?? "validate",
+            skillName: resolvedSkillName,
             ...(body.config?.skillId ? { skillId: body.config.skillId } : {}),
-            source: body.config?.source ?? "worker",
-            ...(body.reasoningLevel ?? body.config?.reasoningLevel
-              ? { reasoningLevel: body.reasoningLevel ?? body.config?.reasoningLevel }
+            source: scheduledJob?.source ?? body.config?.source ?? "worker",
+            ...(resolvedReasoningLevel
+              ? { reasoningLevel: resolvedReasoningLevel }
+              : {}),
+            ...(scheduledJob?.dodReport ?? body.config?.dodReport
+              ? { dodReport: scheduledJob?.dodReport ?? body.config?.dodReport }
+              : {}),
+            ...(scheduledJob?.dodReviewedAt ?? body.config?.dodReviewedAt
+              ? { dodReviewedAt: scheduledJob?.dodReviewedAt ?? body.config?.dodReviewedAt }
               : {}),
             ...(body.config?.repositoryId
               ? { repositoryId: body.config.repositoryId }
               : {}),
-            ...(body.config?.mcpServers
-              ? { mcpServers: body.config.mcpServers }
+            ...(resolvedMcpServers
+              ? { mcpServers: resolvedMcpServers }
               : {}),
             ...(body.config?.needsBrowser ? { needsBrowser: true } : {}),
             ...(resourceEstimate ? { resourceEstimate } : {}),
           },
-          codingAgent: (body.codingAgent as CodingAgent | undefined) ?? resolvedRuntime.codingAgent,
-          aiProvider: (body.aiProvider as AiProvider | undefined) ?? resolvedRuntime.aiProvider,
-          model: body.model ?? resolvedRuntime.model,
-          skillName: body.config?.skillName ?? "validate",
+          codingAgent: scheduledJob?.codingAgent ??
+            (body.codingAgent as CodingAgent | undefined) ??
+            resolvedRuntime.codingAgent,
+          aiProvider: scheduledJob?.aiProvider ??
+            (body.aiProvider as AiProvider | undefined) ??
+            resolvedRuntime.aiProvider,
+          model: scheduledJob?.model ?? body.model ?? resolvedRuntime.model,
+          skillName: resolvedSkillName,
           // New model fields
-          promptTemplate: body.config?.skillName ?? "validate",
+          promptTemplate: resolvedSkillName,
           triggerType: "event",
           interactive: false,
         });

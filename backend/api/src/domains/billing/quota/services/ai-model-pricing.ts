@@ -15,6 +15,10 @@ export interface AiModelPricing {
   label: string;
   inputUsdPerMTok: number;
   outputUsdPerMTok: number;
+  /** Exact provider rate when cached input is priced independently. */
+  cachedInputUsdPerMTok?: number;
+  /** Exact provider rate when an explicit cache-write token count is reported. */
+  cacheCreationUsdPerMTok?: number;
   /**
    * If set, used to match snapshot/alias model ids (e.g. "claude-sonnet-4-5-20250929").
    */
@@ -23,7 +27,8 @@ export interface AiModelPricing {
 
 // Source of truth:
 // - Anthropic/OpenAI official pricing pages
-// - Z.AI pricing page (https://docs.z.ai/guides/overview/pricing) verified on 2026-04-26
+// - Z.AI pricing page (https://docs.z.ai/guides/overview/pricing). Models absent
+//   from the official table are intentionally not estimated.
 const AI_MODEL_PRICING: AiModelPricing[] = [
   // Anthropic (Claude)
   // NOTE: order matters for fuzzy matching — the legacy "claude-opus-4" catch-all below
@@ -78,8 +83,8 @@ const AI_MODEL_PRICING: AiModelPricing[] = [
   },
   {
     provider: "anthropic",
-    // List price ($3/$15). Anthropic's introductory pricing ($2/$10 through 2026-08-31)
-    // is intentionally not modeled to keep cost estimates stable.
+    // List price. The temporary $2/$10 rate is applied by
+    // effectivePricingAt through 2026-08-31 inclusive.
     model: "claude-sonnet-5",
     label: "Claude Sonnet 5",
     inputUsdPerMTok: 3,
@@ -120,6 +125,37 @@ const AI_MODEL_PRICING: AiModelPricing[] = [
   },
 
   // OpenAI — Current models
+  {
+    provider: "openai",
+    model: "gpt-5.6-sol",
+    label: "GPT-5.6 Sol",
+    inputUsdPerMTok: 5,
+    outputUsdPerMTok: 30,
+    cachedInputUsdPerMTok: 0.5,
+    cacheCreationUsdPerMTok: 6.25,
+    matches: (m) =>
+      m === "gpt-5.6" || m === "gpt-5.6-sol" || m.startsWith("gpt-5.6-sol-20"),
+  },
+  {
+    provider: "openai",
+    model: "gpt-5.6-terra",
+    label: "GPT-5.6 Terra",
+    inputUsdPerMTok: 2.5,
+    outputUsdPerMTok: 15,
+    cachedInputUsdPerMTok: 0.25,
+    cacheCreationUsdPerMTok: 3.125,
+    matches: (m) => m === "gpt-5.6-terra" || m.startsWith("gpt-5.6-terra-20"),
+  },
+  {
+    provider: "openai",
+    model: "gpt-5.6-luna",
+    label: "GPT-5.6 Luna",
+    inputUsdPerMTok: 1,
+    outputUsdPerMTok: 6,
+    cachedInputUsdPerMTok: 0.1,
+    cacheCreationUsdPerMTok: 1.25,
+    matches: (m) => m === "gpt-5.6-luna" || m.startsWith("gpt-5.6-luna-20"),
+  },
   {
     provider: "openai",
     model: "gpt-5.5",
@@ -344,14 +380,6 @@ const AI_MODEL_PRICING: AiModelPricing[] = [
   },
 
   // Z.AI (GLM family)
-  {
-    provider: "zai",
-    model: "glm-5.2",
-    label: "GLM-5.2",
-    inputUsdPerMTok: 1.4,
-    outputUsdPerMTok: 4.4,
-    matches: (m) => m === "glm-5.2" || m.startsWith("glm-5.2-"),
-  },
   {
     provider: "zai",
     model: "glm-5.1",
@@ -658,9 +686,37 @@ const normalizeModelId = (modelId: string): string => modelId.trim().toLowerCase
 const normalizeProviderId = (providerId: string): string =>
   providerId.trim().toLowerCase().replace(/_/g, "-");
 
-export const listAiModelPricing = (): AiModelPricing[] => AI_MODEL_PRICING.slice();
+const SONNET_5_LIST_PRICE_START_MS = Date.parse("2026-09-01T00:00:00.000Z");
 
-export const getAiModelPricing = (provider: string, model: string): AiModelPricing | null => {
+const effectivePricingAt = (
+  pricing: AiModelPricing,
+  at: Date,
+): AiModelPricing => {
+  if (
+    pricing.provider === "anthropic" &&
+    pricing.model === "claude-sonnet-5" &&
+    at.getTime() < SONNET_5_LIST_PRICE_START_MS
+  ) {
+    return {
+      ...pricing,
+      inputUsdPerMTok: 2,
+      outputUsdPerMTok: 10,
+    };
+  }
+
+  return pricing;
+};
+
+/** Return rates effective at `at`; defaults to the instant of the call. */
+export const listAiModelPricing = (at: Date = new Date()): AiModelPricing[] =>
+  AI_MODEL_PRICING.map((pricing) => effectivePricingAt(pricing, at));
+
+/** Resolve a model and apply any time-bounded provider pricing effective at `at`. */
+export const getAiModelPricing = (
+  provider: string,
+  model: string,
+  at: Date = new Date(),
+): AiModelPricing | null => {
   const m = normalizeModelId(model);
   const p = normalizeProviderId(provider);
   const providerCandidates = new Set<AiProvider>();
@@ -678,14 +734,14 @@ export const getAiModelPricing = (provider: string, model: string): AiModelPrici
     const exact = AI_MODEL_PRICING.find(
       (x) => x.provider === candidateProvider && x.model === m,
     );
-    if (exact) return exact;
+    if (exact) return effectivePricingAt(exact, at);
   }
 
   for (const candidateProvider of providerCandidates) {
     const fuzzy = AI_MODEL_PRICING.find(
       (x) => x.provider === candidateProvider && x.matches?.(m),
     );
-    if (fuzzy) return fuzzy;
+    if (fuzzy) return effectivePricingAt(fuzzy, at);
   }
 
   return null;
@@ -725,8 +781,10 @@ export const calculateCostUsd = (params: {
   outputTokens: number;
   cacheReadInputTokens?: number;
   cacheCreationInputTokens?: number;
+  /** Pricing instant; injectable to make historical accounting deterministic. */
+  at?: Date;
 }): number | null => {
-  const pricing = getAiModelPricing(params.provider, params.model);
+  const pricing = getAiModelPricing(params.provider, params.model, params.at);
   if (!pricing) return null;
 
   const cacheRead = params.cacheReadInputTokens ?? 0;
@@ -736,8 +794,12 @@ export const calculateCostUsd = (params: {
 
   const inputCost = (params.inputTokens * pricing.inputUsdPerMTok) / 1_000_000;
   const outputCost = (params.outputTokens * pricing.outputUsdPerMTok) / 1_000_000;
-  const cacheReadCost = (cacheRead * pricing.inputUsdPerMTok * readMultiplier) / 1_000_000;
-  const cacheCreationCost = (cacheCreation * pricing.inputUsdPerMTok * writeMultiplier) / 1_000_000;
+  const cachedInputRate =
+    pricing.cachedInputUsdPerMTok ?? pricing.inputUsdPerMTok * readMultiplier;
+  const cacheCreationRate =
+    pricing.cacheCreationUsdPerMTok ?? pricing.inputUsdPerMTok * writeMultiplier;
+  const cacheReadCost = (cacheRead * cachedInputRate) / 1_000_000;
+  const cacheCreationCost = (cacheCreation * cacheCreationRate) / 1_000_000;
 
   return round6(inputCost + outputCost + cacheReadCost + cacheCreationCost);
 };

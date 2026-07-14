@@ -23,6 +23,10 @@ import {
   assertValidScheduledAgentRuntime,
   SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR,
 } from "../services/scheduled-agent-runtime-validation";
+import {
+  resolveScheduledAgentEffectiveRuntimes,
+} from "../services/scheduled-agent-effective-model-resolver";
+import { resolveScheduledAgentProjectContext } from "../services/scheduled-agent-project-context";
 
 // ---------------------------------------------------------------------------
 // Validation constants
@@ -421,10 +425,25 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
           body.scheduleConfig,
         );
         const normalizedMcpServers = normalizeMcpServersInput(body.mcpServers);
-        assertValidScheduledAgentRuntime({
+        const effectiveProject = await resolveScheduledAgentProjectContext(orgId, body.projectId);
+        const effectiveRuntimes = await resolveScheduledAgentEffectiveRuntimes({
+          workspaceId: orgId,
           provider: body.provider,
+          codingAgent: body.codingAgent,
           aiProvider: body.aiProvider,
           aiModel: body.aiModel,
+          reasoningLevel: body.reasoningLevel,
+          jobType: body.jobType,
+          projectId: effectiveProject.projectId,
+          targetConfig: body.targetConfig,
+        });
+        assertValidScheduledAgentRuntime({
+          provider: body.provider,
+          codingAgent: body.codingAgent,
+          aiProvider: body.aiProvider,
+          aiModel: body.aiModel,
+          reasoningLevel: body.reasoningLevel,
+          effectiveRuntimes,
           targetConfig: body.targetConfig,
         });
 
@@ -504,15 +523,41 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
           bodyMcpServers !== undefined ? normalizeMcpServersInput(bodyMcpServers) : undefined;
         const touchesRuntime =
           body.provider !== undefined ||
+          body.codingAgent !== undefined ||
           body.aiProvider !== undefined ||
           body.aiModel !== undefined ||
-          body.targetConfig !== undefined;
+          body.reasoningLevel !== undefined ||
+          body.jobType !== undefined ||
+          body.targetConfig !== undefined ||
+          body.projectId !== undefined;
 
         if (touchesRuntime) {
+          const nextProvider = body.provider ?? existing.provider;
+          const nextAiProvider = body.aiProvider ?? existing.aiProvider;
+          const nextAiModel = body.aiModel ?? existing.aiModel;
+          const nextJobType = body.jobType ?? existing.jobType;
+          const nextProjectId = body.projectId !== undefined
+            ? body.projectId
+            : existing.projectId;
+          const effectiveProject = await resolveScheduledAgentProjectContext(orgId, nextProjectId);
+          const effectiveRuntimes = await resolveScheduledAgentEffectiveRuntimes({
+            workspaceId: orgId,
+            provider: nextProvider,
+            codingAgent: body.codingAgent ?? existing.codingAgent,
+            aiProvider: nextAiProvider,
+            aiModel: nextAiModel,
+            reasoningLevel: body.reasoningLevel ?? existing.reasoningLevel,
+            jobType: nextJobType,
+            projectId: effectiveProject.projectId,
+            targetConfig: body.targetConfig ?? existing.targetConfig,
+          });
           assertValidScheduledAgentRuntime({
-            provider: body.provider ?? existing.provider,
-            aiProvider: body.aiProvider ?? existing.aiProvider,
-            aiModel: body.aiModel ?? existing.aiModel,
+            provider: nextProvider,
+            codingAgent: body.codingAgent ?? existing.codingAgent,
+            aiProvider: nextAiProvider,
+            aiModel: nextAiModel,
+            reasoningLevel: body.reasoningLevel ?? existing.reasoningLevel,
+            effectiveRuntimes,
             targetConfig: body.targetConfig ?? existing.targetConfig,
           });
         }

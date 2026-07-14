@@ -7,7 +7,12 @@ import { z } from "zod";
 import { useTranslations } from "next-intl";
 import { showToast } from "@/domains/shared/presentation/utils/show-toast";
 import { useConfirmDialog } from "@/domains/shared/application/hooks/use-confirm-dialog";
-import { getModelsForProvider, getModelsGroupedByCategory } from "@/lib/ai-models-catalog";
+import { getModelsGroupedByCategory } from "@/lib/ai-models-catalog";
+import { normalizeReasoningEffort } from "@/lib/ai-model-reasoning";
+import {
+  getModelsForAiConnection,
+  normalizeAiConnectionModel,
+} from "../../domain/connection-model-access";
 import {
   useConnections,
   useCreateConnection,
@@ -33,7 +38,7 @@ export interface ProviderPanelHookReturn {
   defaultConnection: ProviderConnection | null;
   connectionCount: number;
 
-  availableModels: ReturnType<typeof getModelsForProvider>;
+  availableModels: ReturnType<typeof getModelsForAiConnection>;
   modelsByCategory: ReturnType<typeof getModelsGroupedByCategory>;
 
   modelSettings: {
@@ -131,6 +136,20 @@ const normalizeOptional = (value?: string): string | undefined => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
+const normalizeConnectionReasoning = (
+  provider: string,
+  model: string | undefined,
+  effort: string | undefined,
+): string | undefined => normalizeReasoningEffort({
+  aiProvider: provider === "zipu" ? "zai" : provider,
+  codingAgent: provider === "openai"
+    ? "codex"
+    : provider === "anthropic"
+      ? "claude-code"
+      : "opencode",
+  model,
+}, effort);
+
 const readConnectionModels = (connection: ProviderConnection | null) => {
   const config = (connection?.config ?? {}) as Record<string, unknown>;
   return {
@@ -215,14 +234,17 @@ export const useProviderPanel = (panelState: ProviderPanelState | null): Provide
   const connectionCount = connections.length;
 
   const availableModels = useMemo(
-    () => (panelState ? getModelsForProvider(panelState.provider) : []),
+    () => (panelState ? getModelsForAiConnection(panelState.provider) : []),
     [panelState],
   );
 
   const modelsByCategory = useMemo(
     () =>
       panelState
-        ? getModelsGroupedByCategory(panelState.provider)
+        ? getModelsGroupedByCategory(
+            panelState.provider,
+            panelState.provider === "zai" ? "agent-runtime" : undefined,
+          )
         : {
             best: [],
             fast: [],
@@ -288,12 +310,33 @@ export const useProviderPanel = (panelState: ProviderPanelState | null): Provide
         authMethod = data.apiKey.startsWith(ANTHROPIC_SETUP_TOKEN_PREFIX) ? "setup_token" : "api_key";
       }
 
-      const planningModel = normalizeOptional(data.planningModel);
-      const implementationModel = normalizeOptional(data.implementationModel);
-      const validationModel = normalizeOptional(data.validationModel);
-      const planningReasoningBudget = normalizeOptional(data.planningReasoningBudget);
-      const implementationReasoningBudget = normalizeOptional(data.implementationReasoningBudget);
-      const validationReasoningBudget = normalizeOptional(data.validationReasoningBudget);
+      const planningModel = normalizeAiConnectionModel(
+        panelState.provider,
+        data.planningModel,
+      );
+      const implementationModel = normalizeAiConnectionModel(
+        panelState.provider,
+        data.implementationModel,
+      );
+      const validationModel = normalizeAiConnectionModel(
+        panelState.provider,
+        data.validationModel,
+      );
+      const planningReasoningBudget = normalizeConnectionReasoning(
+        panelState.provider,
+        planningModel,
+        data.planningReasoningBudget,
+      );
+      const implementationReasoningBudget = normalizeConnectionReasoning(
+        panelState.provider,
+        implementationModel,
+        data.implementationReasoningBudget,
+      );
+      const validationReasoningBudget = normalizeConnectionReasoning(
+        panelState.provider,
+        validationModel,
+        data.validationReasoningBudget,
+      );
       const baseUrl = panelState.provider === "zai"
         ? ZAI_BASE_URLS.coding
         : normalizeOptional(data.baseUrl);
@@ -381,12 +424,26 @@ export const useProviderPanel = (panelState: ProviderPanelState | null): Provide
 
   const handleModelSettingChange = useCallback(
     (field: "planningModel" | "implementationModel" | "validationModel" | "planningReasoningBudget" | "implementationReasoningBudget" | "validationReasoningBudget", value: string) => {
-      setModelSettings((previous) => ({
-        ...previous,
-        [field]: value,
-      }));
+      setModelSettings((previous) => {
+        const next = { ...previous, [field]: value };
+        const reasoningField = field === "planningModel"
+          ? "planningReasoningBudget"
+          : field === "implementationModel"
+            ? "implementationReasoningBudget"
+            : field === "validationModel"
+              ? "validationReasoningBudget"
+              : null;
+        if (reasoningField && panelState) {
+          next[reasoningField] = normalizeConnectionReasoning(
+            panelState.provider,
+            value,
+            previous[reasoningField],
+          ) ?? "";
+        }
+        return next;
+      });
     },
-    [],
+    [panelState],
   );
 
   const handleSaveModelSettings = useCallback(async () => {
@@ -396,12 +453,33 @@ export const useProviderPanel = (panelState: ProviderPanelState | null): Provide
       for (const connection of connections) {
         const existingConfig = { ...((connection.config ?? {}) as Record<string, unknown>) };
 
-        const planningModel = normalizeOptional(modelSettings.planningModel);
-        const implementationModel = normalizeOptional(modelSettings.implementationModel);
-        const validationModel = normalizeOptional(modelSettings.validationModel);
-        const planningReasoningBudget = normalizeOptional(modelSettings.planningReasoningBudget);
-        const implementationReasoningBudget = normalizeOptional(modelSettings.implementationReasoningBudget);
-        const validationReasoningBudget = normalizeOptional(modelSettings.validationReasoningBudget);
+        const planningModel = normalizeAiConnectionModel(
+          panelState.provider,
+          modelSettings.planningModel,
+        );
+        const implementationModel = normalizeAiConnectionModel(
+          panelState.provider,
+          modelSettings.implementationModel,
+        );
+        const validationModel = normalizeAiConnectionModel(
+          panelState.provider,
+          modelSettings.validationModel,
+        );
+        const planningReasoningBudget = normalizeConnectionReasoning(
+          panelState.provider,
+          planningModel,
+          modelSettings.planningReasoningBudget,
+        );
+        const implementationReasoningBudget = normalizeConnectionReasoning(
+          panelState.provider,
+          implementationModel,
+          modelSettings.implementationReasoningBudget,
+        );
+        const validationReasoningBudget = normalizeConnectionReasoning(
+          panelState.provider,
+          validationModel,
+          modelSettings.validationReasoningBudget,
+        );
 
         if (planningModel) {
           existingConfig.planningModel = planningModel;

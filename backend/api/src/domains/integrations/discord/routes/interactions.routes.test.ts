@@ -139,12 +139,12 @@ describe("discordInteractionsRoutes slash command runtime resolution", () => {
 
     await waitForJobCreation();
 
-    // resolveRuntime({ provider: "codex" }) => codex / openai / gpt-5.5
+    // resolveRuntime({ provider: "codex" }) => codex / openai / gpt-5.6-sol
     expect(state.createdJobInput).toMatchObject({
       provider: "codex",
       codingAgent: "codex",
       aiProvider: "openai",
-      model: "gpt-5.5",
+      model: "gpt-5.6-sol",
     });
   });
 

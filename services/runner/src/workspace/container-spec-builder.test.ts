@@ -131,6 +131,40 @@ describe("buildContainerSpec", () => {
     expect(spec.env.OPENCODE_CONFIG_JSON).toBe("");
   });
 
+  it("injects no MCP servers into a read-only visual judge container", () => {
+    const spec = buildContainerSpec({
+      job: createJob({
+        provider: "claude-code",
+        codingAgent: "claude-code",
+        config: {
+          siteBuildStage: "visual_judge",
+          workspaceIntent: "read-only",
+          postSessionPushPolicy: "never",
+          needsBrowser: false,
+        },
+      }),
+      workItem: null,
+      runtimeConfig: {
+        type: "claude-shim",
+        image: "almirant-claude-shim:test",
+        envVars: {},
+      },
+      injectedEnv: {
+        ALMIRANT_CLAUDE_TOOL_POLICY: "read-only",
+        CLAUDE_CODE_SAFE_MODE: "1",
+      },
+      openCodeConfig: {
+        mcp: {},
+      } as never,
+      workspaceMountMode: "bind",
+      reposHostPath: "/repos",
+    });
+
+    expect(spec.env.MCP_CONFIG_JSON).toBe("");
+    expect(spec.env.CLAUDE_MCP_JSON).toBe("");
+    expect(spec.env.CODEX_MCP_JSON).toBe("");
+  });
+
   it("enables browser runtime and reserves heavy memory for browser jobs", () => {
     const spec = buildContainerSpec({
       job: createJob({

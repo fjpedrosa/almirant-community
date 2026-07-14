@@ -29,35 +29,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { AlertCircle, Loader2 } from "lucide-react";
+import { getReasoningEffortOptions } from "@/lib/ai-model-reasoning";
 import type { ApiKeyConnectDialogProps } from "../../domain/types";
 
 // ---------------------------------------------------------------------------
 // Provider display names
 // ---------------------------------------------------------------------------
-
-const REASONING_BUDGET_OPTIONS_ANTHROPIC = [
-  { value: "", label: "Default" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "xhigh", label: "XHigh" },
-  { value: "max", label: "Max" },
-] as const;
-
-const REASONING_BUDGET_OPTIONS_CODEX = [
-  { value: "", label: "Default" },
-  { value: "minimal", label: "Minimal" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "xhigh", label: "XHigh" },
-] as const;
-
-const REASONING_BUDGET_OPTIONS_ZAI = [
-  { value: "", label: "Default" },
-  { value: "enabled", label: "Thinking enabled" },
-  { value: "disabled", label: "Thinking disabled" },
-] as const;
 
 const PROVIDER_NAMES: Record<string, string> = {
   anthropic: "Anthropic",
@@ -68,8 +45,8 @@ const PROVIDER_NAMES: Record<string, string> = {
 };
 
 const MODEL_PLACEHOLDERS: Record<string, string> = {
-  anthropic: "claude-sonnet-5",
-  openai: "gpt-5.5",
+  anthropic: "claude-opus-4-8",
+  openai: "gpt-5.6-sol",
   google: "gemini-3.5-flash",
   zai: "glm-5.2",
   xai: "grok-4.3",
@@ -109,7 +86,37 @@ export const ApiKeyConnectDialog: React.FC<ApiKeyConnectDialogProps> = ({
   const isSetupToken = authMethod === "setup_token";
   const isSubscription = authMethod === "subscription";
   const supportsSubscription = (isAnthropic || isOpenAi) && showSubscriptionOption;
-  const modelPlaceholder = MODEL_PLACEHOLDERS[selectedProvider] ?? "gpt-5.5";
+  const modelPlaceholder = MODEL_PLACEHOLDERS[selectedProvider] ?? "gpt-5.6-sol";
+  const reasoningContext = {
+    codingAgent:
+      selectedProvider === "anthropic"
+        ? "claude-code"
+        : selectedProvider === "openai"
+          ? "codex"
+          : "opencode",
+    aiProvider: selectedProvider,
+  } as const;
+  const reasoningFields = [
+    {
+      name: "planningReasoningBudget" as const,
+      label: "Planning Reasoning Effort",
+      model: form.watch("planningModel"),
+    },
+    {
+      name: "implementationReasoningBudget" as const,
+      label: "Implementation Reasoning Effort",
+      model: form.watch("implementationModel"),
+    },
+    {
+      name: "validationReasoningBudget" as const,
+      label: "Validation Reasoning Effort",
+      model: form.watch("validationModel"),
+    },
+  ].map((field) => ({
+    ...field,
+    options: getReasoningEffortOptions({ ...reasoningContext, model: field.model }),
+  }));
+  const supportsReasoningEffort = reasoningFields.some((field) => field.options.length > 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -374,64 +381,49 @@ export const ApiKeyConnectDialog: React.FC<ApiKeyConnectDialogProps> = ({
                 />
 
                 {/* Reasoning Effort */}
-                {(() => {
-                  const reasoningOptions = isAnthropic
-                    ? REASONING_BUDGET_OPTIONS_ANTHROPIC
-                    : selectedProvider === "zai"
-                      ? REASONING_BUDGET_OPTIONS_ZAI
-                      : REASONING_BUDGET_OPTIONS_CODEX;
-                  const fields = [
-                    { name: "planningReasoningBudget" as const, label: "Planning Reasoning Effort" },
-                    { name: "implementationReasoningBudget" as const, label: "Implementation Reasoning Effort" },
-                    { name: "validationReasoningBudget" as const, label: "Validation Reasoning Effort" },
-                  ];
-                  return (
-                    <div className="space-y-2 pt-1">
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                        Reasoning Effort (optional)
-                      </p>
-                      {fields.map(({ name, label }) => (
-                        <FormField
-                          key={name}
-                          control={form.control}
-                          name={name}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-sm font-normal">{label}</FormLabel>
-                              <Select
-                                onValueChange={(value) =>
-                                  field.onChange(value === "__default__" ? "" : value)
-                                }
-                                value={field.value || "__default__"}
-                              >
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Default" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {reasoningOptions.map((opt) => (
-                                    <SelectItem
-                                      key={opt.value || "__default__"}
-                                      value={opt.value || "__default__"}
-                                    >
-                                      {opt.label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      ))}
-                      <p className="text-xs text-muted-foreground">
-                        Controls how much reasoning is applied per task type.
-                        {!isAnthropic && " XHigh is only available on Codex models."}
-                      </p>
-                    </div>
-                  );
-                })()}
+                {supportsReasoningEffort && (
+                  <div className="space-y-2 pt-1">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      Reasoning Effort (optional)
+                    </p>
+                    {reasoningFields.map(({ name, label, options: reasoningOptions }) => (
+                      <FormField
+                        key={name}
+                        control={form.control}
+                        name={name}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-sm font-normal">{label}</FormLabel>
+                            <Select
+                              onValueChange={(value) =>
+                                field.onChange(value === "__default__" ? "" : value)
+                              }
+                              value={field.value || "__default__"}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Default" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="__default__">Default</SelectItem>
+                                {reasoningOptions.map((opt) => (
+                                  <SelectItem key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    ))}
+                    <p className="text-xs text-muted-foreground">
+                      Controls how much reasoning is applied per task type.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 

@@ -1,4 +1,8 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import {
+  collectScheduledAgentConnectionRuntimes,
+  resolveScheduledAgentAiProvider,
+} from "@almirant/shared";
 import { db } from "../../client";
 import {
   agentJobs,
@@ -18,6 +22,10 @@ import {
   type BacklogDrainSelectionMode,
   type ProjectAgentDefaults,
 } from "./backlog-drain-selection";
+import {
+  findActiveConnections,
+  mapAiProviderToConnectionProvider,
+} from "../connections/connection-repository";
 
 export interface BacklogDrainCandidateResult {
   candidates: BacklogDrainCandidate[];
@@ -234,6 +242,7 @@ const markRepeatedDodRemediationAttemptsForHumanIntervention = async (
 
 const selectBacklogDrainForWorkspace = async (params: {
   workspaceId: string;
+  jobType?: string;
   mode?: BacklogDrainSelectionMode;
   rules: BacklogDrainProjectRule[];
   allProjects?: boolean;
@@ -278,7 +287,23 @@ const selectBacklogDrainForWorkspace = async (params: {
       ? Math.max(0, params.minAgeMinutes) * 60_000
       : undefined;
 
-  const [itemRows, dependencyRows, activeJobRows, dodRemediationAttemptRows] = await Promise.all([
+  const connectionAiProvider = resolveScheduledAgentAiProvider({
+    provider: params.fallbackRuntime?.provider,
+    aiProvider: params.fallbackRuntime?.aiProvider,
+  });
+  const shouldLoadConnection = Boolean(
+    connectionAiProvider && !normalizeString(params.fallbackRuntime?.model),
+  );
+
+  // One prioritized connection query per selection run, executed alongside
+  // the other bulk reads. Never resolve a connection inside the item loop.
+  const [
+    itemRows,
+    dependencyRows,
+    activeJobRows,
+    dodRemediationAttemptRows,
+    activeConnections,
+  ] = await Promise.all([
     db
       .select({
         id: workItems.id,
@@ -355,7 +380,22 @@ const selectBacklogDrainForWorkspace = async (params: {
           )
           .groupBy(agentJobs.workItemId)
       : Promise.resolve([]),
+    shouldLoadConnection && connectionAiProvider
+      ? findActiveConnections(
+          mapAiProviderToConnectionProvider(connectionAiProvider),
+          "organization",
+          params.workspaceId,
+        )
+      : Promise.resolve([]),
   ]);
+
+  const [connectionRuntime] = connectionAiProvider
+    ? collectScheduledAgentConnectionRuntimes({
+        aiProvider: connectionAiProvider,
+        jobType: params.jobType ?? "implementation",
+        connections: activeConnections,
+      })
+    : [];
 
   const dodRemediationAttemptCountByWorkItemId = new Map(
     dodRemediationAttemptRows
@@ -424,6 +464,9 @@ const selectBacklogDrainForWorkspace = async (params: {
       model: params.fallbackRuntime?.model ?? null,
       reasoningLevel: params.fallbackRuntime?.reasoningLevel ?? null,
     },
+    connectionRuntime: connectionRuntime
+      ? { ...connectionRuntime, aiProvider: connectionAiProvider }
+      : null,
   });
 };
 
@@ -433,6 +476,7 @@ export const getBacklogDrainCandidatesForScheduledConfig = async (
   const { rules, allProjects, defaultMaxConcurrentJobs, minAgeMinutes } = resolveBacklogDrainRules(config);
   return selectBacklogDrainForWorkspace({
     workspaceId: config.workspaceId,
+    jobType: config.jobType,
     mode: "implementation",
     rules,
     allProjects,
@@ -454,6 +498,7 @@ export const getDodRemediationCandidatesForScheduledConfig = async (
   const { rules, allProjects, defaultMaxConcurrentJobs, minAgeMinutes } = resolveDodRemediationRules(config);
   return selectBacklogDrainForWorkspace({
     workspaceId: config.workspaceId,
+    jobType: config.jobType,
     mode: "dod-remediation",
     rules,
     allProjects,
@@ -513,6 +558,7 @@ export const previewBacklogDrainCandidates = async (params: {
   });
   return selectBacklogDrainForWorkspace({
     workspaceId: params.workspaceId,
+    jobType: "implementation",
     mode: isDodRemediation ? "dod-remediation" : "implementation",
     rules,
     allProjects,
