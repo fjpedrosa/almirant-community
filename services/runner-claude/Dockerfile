@@ -19,11 +19,11 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
   && rm -rf /var/lib/apt/lists/*
 
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-RUN npm install -g bun@1.3.13 @anthropic-ai/claude-code@2.1.198 undici@8.0.2 \
+RUN npm install -g bun@1.3.13 @anthropic-ai/claude-code@2.1.209 undici@8.0.2 \
     @modelcontextprotocol/server-sequential-thinking@2025.12.18 \
     @modelcontextprotocol/server-memory@2026.1.26 \
     @modelcontextprotocol/server-filesystem@2026.1.14 \
-    @playwright/mcp@0.0.77 \
+    @playwright/mcp@0.0.78 \
     mcp-remote@0.1.38
 
 RUN npx playwright install chromium

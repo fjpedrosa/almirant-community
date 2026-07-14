@@ -302,16 +302,15 @@ const providerFromAiProvider = (aiProvider: string | undefined): string | undefi
 };
 
 // NOTE: these are runner-side last-resort defaults, applied only when the job
-// carries no explicit model and the org connection has none configured. They
-// are intentionally decoupled from the API-side provider defaults in
-// backend/packages/shared/src/agents/runtime-selection.ts (PROVIDER_MAP):
-// the anthropic default stays on claude-sonnet-5 here for cost reasons.
+// carries no explicit model and the org connection has none configured. Keep
+// these aligned with the API-side provider defaults in runtime-selection.ts so
+// a job does not change model depending on which creation path reached it.
 const defaultModelForProvider = (provider: string): string => {
   switch (provider) {
     case "anthropic":
-      return "claude-sonnet-5";
+      return "claude-opus-4-8";
     case "openai":
-      return "gpt-5.5";
+      return "gpt-5.6-sol";
     case "zai-coding-plan":
     case "zai":
       return "glm-5.2";
@@ -320,7 +319,7 @@ const defaultModelForProvider = (provider: string): string => {
     case "openai-compatible":
       return "glm-4.7";
     default:
-      return "gpt-5.5";
+      return "gpt-5.6-sol";
   }
 };
 
@@ -383,6 +382,18 @@ export const buildInjectedEnv = async (
   });
   const runtimeType = providerRuntimeExecutor.runtimeType;
   const actualRuntimeType = actualRuntimeExecutor.runtimeType;
+  const isReadOnlyWorkspace = jobConfig.workspaceIntent === "read-only";
+  const isReadOnlyVisualJudge =
+    jobConfig.siteBuildStage === "visual_judge" && isReadOnlyWorkspace;
+
+  if (jobConfig.siteBuildStage === "visual_judge" && !isReadOnlyWorkspace) {
+    throw new Error("visual_judge requires workspaceIntent=read-only");
+  }
+  if (isReadOnlyVisualJudge && actualRuntimeType !== "claude-shim") {
+    throw new Error(
+      "visual_judge requires an enforced Claude read-only runtime",
+    );
+  }
 
   const isZipuClaudeRuntime = isClaudeAnthropicCompatibleRuntime({
     runtimeType: actualRuntimeType,
@@ -509,9 +520,12 @@ export const buildInjectedEnv = async (
   // debugging) need the privileged `/mcp/internal` mount, which exposes
   // clustering, topic taxonomy, bug-fix-attempt and agent-job tools. Every
   // other skill is routed to the public `/mcp`.
-  const needsInternalMcp = requiresInternalMcp(skillName);
+  const needsInternalMcp = !isReadOnlyWorkspace && requiresInternalMcp(skillName);
 
-  if (input.apiBaseUrl && jobProjectId) {
+  // visual_judge consumes server-provisioned evidence files directly. It has
+  // no reason to receive an MCP token or server, even read-only: keeping the
+  // set empty makes --strict-mcp-config a meaningful, auditable boundary.
+  if (!isReadOnlyVisualJudge && input.apiBaseUrl && jobProjectId) {
     // Replace localhost with host.docker.internal for container access.
     // Inside Docker containers, localhost refers to the container itself,
     // not the host machine where the API server is running.
@@ -523,9 +537,11 @@ export const buildInjectedEnv = async (
     // Include jobId so that tools like complete_ai_task can persist
     // agent_job_id on ai_sessions without trusting tool-level params.
     const mcpUrl = `${containerApiBase.replace(/\/+$/, "")}${mcpPath}?projectId=${jobProjectId}&jobId=${encodeURIComponent(input.job.id)}`;
-    const requestedPermissions = needsInternalMcp
-      ? ["mcp:read", "mcp:write", "mcp:internal"]
-      : ["mcp:read", "mcp:write"];
+    const requestedPermissions = isReadOnlyWorkspace
+      ? ["mcp:read"]
+      : needsInternalMcp
+        ? ["mcp:read", "mcp:write", "mcp:internal"]
+        : ["mcp:read", "mcp:write"];
 
     // All jobs now exchange the runner API key for a short-lived session token.
     // The backend resolves the actor userId from the jobId (see
@@ -557,16 +573,23 @@ export const buildInjectedEnv = async (
     }
   }
 
-  // Context7 is always available (public, no auth)
-  mcpServers.context7 = {
-    type: "remote",
-    url: "https://mcp.context7.com/mcp",
-    enabled: true,
-  };
+  if (!isReadOnlyVisualJudge) {
+    // Context7 is available to normal jobs. Read-only visual judges receive only
+    // the scoped Almirant MCP mount so no third-party or stateful tool can widen
+    // their capability set.
+    mcpServers.context7 = {
+      type: "remote",
+      url: "https://mcp.context7.com/mcp",
+      enabled: true,
+    };
+  }
 
   // Playwright MCP server for browser-capable jobs. A job-level flag enables
   // it even when the runner process is not globally configured for browsers.
-  if (process.env.ENABLE_BROWSER === "true" || jobNeedsBrowser) {
+  if (
+    !isReadOnlyVisualJudge &&
+    (process.env.ENABLE_BROWSER === "true" || jobNeedsBrowser)
+  ) {
     mcpServers.playwright = {
       type: "local",
       command: "bun",
@@ -577,42 +600,46 @@ export const buildInjectedEnv = async (
 
   // Sequential Thinking for structured reasoning
   // Use bun instead of node for lower memory footprint (~35 MB vs ~69 MB per server)
-  mcpServers["sequential-thinking"] = {
-    type: "local",
-    command: "bun",
-    args: ["/usr/local/lib/node_modules/@modelcontextprotocol/server-sequential-thinking/dist/index.js"],
-    enabled: true,
-  };
+  if (!isReadOnlyVisualJudge) {
+    mcpServers["sequential-thinking"] = {
+      type: "local",
+      command: "bun",
+      args: ["/usr/local/lib/node_modules/@modelcontextprotocol/server-sequential-thinking/dist/index.js"],
+      enabled: true,
+    };
 
-  // Memory MCP for persistent knowledge across sessions
-  mcpServers.memory = {
-    type: "local",
-    command: "bun",
-    args: ["/usr/local/lib/node_modules/@modelcontextprotocol/server-memory/dist/index.js"],
-    enabled: true,
-  };
+    // Memory MCP for persistent knowledge across sessions
+    mcpServers.memory = {
+      type: "local",
+      command: "bun",
+      args: ["/usr/local/lib/node_modules/@modelcontextprotocol/server-memory/dist/index.js"],
+      enabled: true,
+    };
 
-  // File System MCP for workspace file access
-  mcpServers.filesystem = {
-    type: "local",
-    command: "bun",
-    args: ["/usr/local/lib/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js", "/workspace/repo"],
-    enabled: true,
-  };
+    // File System MCP for workspace file access
+    mcpServers.filesystem = {
+      type: "local",
+      command: "bun",
+      args: ["/usr/local/lib/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js", "/workspace/repo"],
+      enabled: true,
+    };
+  }
 
-  const customMcpServersResult = normalizeRunnerCustomMcpServersConfig(jobConfig.mcpServers);
-  if (customMcpServersResult.errors.length > 0) {
-    console.warn(
-      `[config-injector] Ignoring invalid custom MCP servers for job ${input.job.id}: ${customMcpServersResult.errors.join("; ")}`,
-    );
-  } else if (customMcpServersResult.servers) {
-    for (const [name, server] of Object.entries(customMcpServersResult.servers)) {
-      mcpServers[name] = server;
+  if (!isReadOnlyVisualJudge) {
+    const customMcpServersResult = normalizeRunnerCustomMcpServersConfig(jobConfig.mcpServers);
+    if (customMcpServersResult.errors.length > 0) {
+      console.warn(
+        `[config-injector] Ignoring invalid custom MCP servers for job ${input.job.id}: ${customMcpServersResult.errors.join("; ")}`,
+      );
+    } else if (customMcpServersResult.servers) {
+      for (const [name, server] of Object.entries(customMcpServersResult.servers)) {
+        mcpServers[name] = server;
+      }
     }
   }
 
   const authenticatedMcpServers = Object.entries(mcpServers).filter(([_, s]) => 'headers' in s && (s as any).headers?.Authorization);
-  if (authenticatedMcpServers.length === 0 && jobProjectId) {
+  if (!isReadOnlyVisualJudge && authenticatedMcpServers.length === 0 && jobProjectId) {
     console.warn(`[config-injector] No authenticated MCP servers configured despite projectId=${jobProjectId} being available — agent will not have access to Almirant MCP tools`);
   }
 
@@ -663,6 +690,12 @@ export const buildInjectedEnv = async (
     ALMIRANT_PROVIDER: normalizedAiProvider,
     ALMIRANT_CODING_AGENT: jobCodingAgent ?? actualRuntimeExecutor.codingAgent,
   };
+
+  if (isReadOnlyVisualJudge) {
+    env.ALMIRANT_CLAUDE_TOOL_POLICY = "read-only";
+    env.CLAUDE_CODE_SAFE_MODE = "1";
+    env.CLAUDE_CONFIG_DIR = "/tmp/almirant-visual-judge-claude";
+  }
 
   if (jobNeedsBrowser) {
     env.ENABLE_BROWSER = "true";

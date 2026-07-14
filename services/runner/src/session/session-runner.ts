@@ -42,6 +42,7 @@ import {
 import { resolveJobIntent, isPromptOnlyIntent } from "../orchestration/job-intent";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { appendEvidenceManifestInstruction } from "./evidence-prompt";
 
 // ---------------------------------------------------------------------------
 // Dependency injection type
@@ -81,6 +82,7 @@ export async function runServeSession(
     webWorkspaceId?: string;
     runtimeConfig: RuntimeConfig;
     runtimeExecutor: RuntimeExecutor;
+    evidenceManifestPath?: string;
   },
 ): Promise<{
   success: boolean;
@@ -96,7 +98,7 @@ export async function runServeSession(
   tokensUsed?: number;
   pausedForQuota?: QuotaPauseRequest;
 }> {
-  const { baseUrl, containerId, job, workItem, eventLogger, streamPublisher, threadId, resolvedModel, completedTaskIds, webSessionId, webWorkspaceId, runtimeConfig, runtimeExecutor } = params;
+  const { baseUrl, containerId, job, workItem, eventLogger, streamPublisher, threadId, resolvedModel, completedTaskIds, webSessionId, webWorkspaceId, runtimeConfig, runtimeExecutor, evidenceManifestPath } = params;
 
   const sessionManager = createOpenCodeSessionManager({
     baseUrl,
@@ -339,6 +341,16 @@ export async function runServeSession(
     eventLogger.info("session", "prompt.recovery_injected", "Recovery context injected from previous job", {
       previousJobId: config.previousJobId,
     });
+  }
+
+  prompt = appendEvidenceManifestInstruction(prompt, evidenceManifestPath);
+  if (evidenceManifestPath) {
+    eventLogger.info(
+      "evidence",
+      "evidence.manifest_injected",
+      "Runner-owned evidence manifest instructions injected into prompt",
+      { manifestPath: evidenceManifestPath },
+    );
   }
 
   // Setup BidirectionalRelay for Q&A via backend interactions API

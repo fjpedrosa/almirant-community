@@ -132,6 +132,7 @@ describe("RunnerOrchestrator scheduled backlog drain", () => {
     expect(createdJobs[0]).toMatchObject({
       jobType: "implementation",
       config: {
+        scheduledConfigId: "cfg-1",
         source: "backlog-drain",
         skillName: "runner-implement",
       },
@@ -197,6 +198,7 @@ describe("RunnerOrchestrator scheduled backlog drain", () => {
     expect(createdJobs[0]).toMatchObject({
       jobType: "implementation",
       config: {
+        scheduledConfigId: "cfg-1",
         source: "dod-remediation",
         skillName: "runner-fix-dod",
         dodReport: "Legacy routes still render UI.",

@@ -199,9 +199,9 @@ describe("connectionUsageService", () => {
       source: "admin_api",
       period: { startDate: "2025-03-09", endDate: "2025-03-10" },
       totals: {
-        inputTokens: 3_100_000,
+        inputTokens: 3_000_000,
         outputTokens: 750_000,
-        totalTokens: 3_850_000,
+        totalTokens: 3_750_000,
         costUsd: 14.32,
         requests: 520,
       },
@@ -211,18 +211,18 @@ describe("connectionUsageService", () => {
             startDate: "2025-03-09",
             endDate: "2025-03-10",
           },
-          estimatedCostUsd: 12.2,
+          estimatedCostUsd: 12.075,
           billedCostUsd: 14.32,
           currency: "USD",
           models: [
             {
               model: "gpt-4o",
-              inputTokens: 2_100_000,
+              inputTokens: 2_000_000,
               cachedInputTokens: 100_000,
               outputTokens: 500_000,
-              totalTokens: 2_600_000,
+              totalTokens: 2_500_000,
               requests: 400,
-              estimatedCostUsd: 10,
+              estimatedCostUsd: 9.875,
             },
             {
               model: "o3-mini",
@@ -237,6 +237,94 @@ describe("connectionUsageService", () => {
         },
       },
     });
+  });
+
+  it("prices GPT-5.6 cached tokens as an inclusive subset and clamps malformed provider totals", async () => {
+    getConnectionByIdSpy.mockResolvedValue({
+      id: "conn-openai-inclusive-cache",
+      provider: "openai",
+      category: "ai",
+      scope: "organization",
+      scopeId: "org-1",
+      tokenExpiresAt: null,
+      config: { authMethod: "api_key" },
+      credentials: { apiKey: "sk-openai-admin", authMethod: "api_key" },
+    } as never);
+    getOpenAiCompletionsUsageSpy.mockResolvedValue({
+      object: "list",
+      has_more: false,
+      next_page: null,
+      data: [{
+        start_time: 1,
+        end_time: 2,
+        results: [
+          {
+            object: "workspace.usage.completions.result",
+            model: "gpt-5.6-sol",
+            input_tokens: 1_000_000,
+            input_cached_tokens: 200_000,
+            output_tokens: 100_000,
+            num_model_requests: 1,
+          },
+          {
+            object: "workspace.usage.completions.result",
+            model: "gpt-5.6-terra",
+            input_tokens: 500_000,
+            input_cached_tokens: 100_000,
+            output_tokens: 50_000,
+            num_model_requests: 1,
+          },
+          {
+            object: "workspace.usage.completions.result",
+            model: "gpt-5.6-luna",
+            input_tokens: 100_000,
+            input_cached_tokens: 200_000,
+            output_tokens: 0,
+            num_model_requests: 1,
+          },
+        ],
+      }],
+    } as never);
+    getOpenAiCostsSpy.mockResolvedValue({ error: "insufficient_permissions" } as never);
+
+    const { connectionUsageService } = await import("./connection-usage-service");
+    const result = await connectionUsageService.getConnectionUsage(
+      "conn-openai-inclusive-cache",
+      "encryption-key",
+      { startDate: "2026-07-01", endDate: "2026-07-02" },
+      { forceRefresh: true },
+    );
+
+    expect(result.totals).toMatchObject({
+      inputTokens: 1_600_000,
+      outputTokens: 150_000,
+      totalTokens: 1_750_000,
+      costUsd: 8.885,
+    });
+    expect(result.providerUsage?.openai?.estimatedCostUsd).toBe(8.885);
+    expect(result.providerUsage?.openai?.models).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        model: "gpt-5.6-sol",
+        inputTokens: 1_000_000,
+        cachedInputTokens: 200_000,
+        totalTokens: 1_100_000,
+        estimatedCostUsd: 7.1,
+      }),
+      expect.objectContaining({
+        model: "gpt-5.6-terra",
+        inputTokens: 500_000,
+        cachedInputTokens: 100_000,
+        totalTokens: 550_000,
+        estimatedCostUsd: 1.775,
+      }),
+      expect.objectContaining({
+        model: "gpt-5.6-luna",
+        inputTokens: 100_000,
+        cachedInputTokens: 100_000,
+        totalTokens: 100_000,
+        estimatedCostUsd: 0.01,
+      }),
+    ]));
   });
 
   it("returns admin_key_required when OpenAI usage lacks workspace permissions", async () => {
