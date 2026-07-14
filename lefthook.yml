@@ -2,6 +2,6 @@ pre-push:
   parallel: true
   commands:
     backend-tests:
-      run: cd backend/api && DATABASE_URL=${DATABASE_URL:-postgres://ci:ci@localhost:5432/ci} bun test
+      run: bun run scripts/run-backend-pre-push-tests.ts
     frontend-tests:
       run: cd frontend && bun install --frozen-lockfile && bun test

@@ -24,10 +24,12 @@ import postgres from "postgres";
 // file uses its OWN `postgres` connection and never imports the shared,
 // mockable `db` singleton).
 //
-// Gated behind DATABASE_URL like the other DB-adjacent suites.
+// The pre-push runner enables this only when TEST_DATABASE_URL points to a
+// prepared PostgreSQL test database. For a direct run, set both DATABASE_URL
+// and ALMIRANT_RUN_DB_TESTS=true.
 // ---------------------------------------------------------------------------
 
-const HAS_DB_URL = Boolean(process.env.DATABASE_URL);
+const HAS_DB_URL = process.env.ALMIRANT_RUN_DB_TESTS === "true";
 const MAX_ATTEMPTS = 3;
 const RECLAIM_SECONDS = 15 * 60; // mirrors DEFAULT_PROCESSING_RECLAIM_MS
 
@@ -37,6 +39,7 @@ describe.skipIf(!HAS_DB_URL)(
     let sql: ReturnType<typeof postgres>;
     const workspaceId = `test-ws-${crypto.randomUUID()}`;
     let boardId = "";
+    let boardColumnId = "";
     let requestIds: string[] = [];
 
     // Selection half of the claimBatch CTE — which rows would be claimed.
@@ -61,11 +64,9 @@ describe.skipIf(!HAS_DB_URL)(
     };
 
     const createWorkItem = async (): Promise<string> => {
-      // type 'story' keeps board_column_id NULL, satisfying the
-      // work_items_type_board_column_check constraint without needing a column.
       const rows = await sql`
-        INSERT INTO work_items (board_id, title, type)
-        VALUES (${boardId}, 'reclaim-test', 'story')
+        INSERT INTO work_items (board_id, board_column_id, title, type)
+        VALUES (${boardId}, ${boardColumnId}, 'reclaim-test', 'task')
         RETURNING id
       `;
       return rows[0]!.id as string;
@@ -105,6 +106,12 @@ describe.skipIf(!HAS_DB_URL)(
         RETURNING id
       `;
       boardId = boards[0]!.id as string;
+      const columns = await sql`
+        INSERT INTO board_columns (board_id, name, role)
+        VALUES (${boardId}, 'Backlog', 'backlog')
+        RETURNING id
+      `;
+      boardColumnId = columns[0]!.id as string;
     });
 
     afterEach(async () => {
