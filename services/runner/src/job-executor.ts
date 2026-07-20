@@ -1705,7 +1705,7 @@ export const createJobExecutor = (
     // Free the primary LLM session (KV cache / message history) on the serve
     // process BEFORE the push phase potentially creates a second session on
     // the same container. Two coexisting sessions can push the container past
-    // its 2028 MB memory cap and trigger the cgroup OOM-killer.
+    // its configured memory cap and trigger the cgroup OOM-killer.
     await releasePrimarySession({
       jobId: job.id,
       sessionId: result.sessionId,

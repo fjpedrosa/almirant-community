@@ -88,7 +88,7 @@ export type ReleasePrimarySessionParams = {
  * WHY: After `session.idle` fires, the push pipeline may create a second LLM
  * session on the same container to drive a serve-based git push. Two coexisting
  * sessions hold KV caches and message history in memory at the same time,
- * which has been observed to push the 2028 MB container limit into the cgroup
+ * which has been observed to push the configured container limit into the cgroup
  * OOM-killer (28/33 post-completion OOMs in a 14-day window).
  *
  * Session events for completion evaluation are consumed from the persisted

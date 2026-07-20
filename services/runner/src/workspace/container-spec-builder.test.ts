@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ClaimedJob, OpenCodeConfig } from "@almirant/remote-agent";
+import { DEFAULT_MEMORY_MB } from "@almirant/shared";
 import { buildContainerSpec } from "./container-spec-builder";
 
 const createJob = (overrides: Partial<ClaimedJob> = {}): ClaimedJob => ({
@@ -46,6 +47,40 @@ describe("buildContainerSpec", () => {
     });
 
     expect(spec.memoryLimitMb).toBe(4096);
+  });
+
+  it("applies provider bumps to the persisted shared memory default", () => {
+    expect(DEFAULT_MEMORY_MB).toBe(2048);
+
+    for (const [runtimeType, expectedMemoryMb] of [
+      ["claude-shim", 2560],
+      ["codex-shim", 3584],
+    ] as const) {
+      const spec = buildContainerSpec({
+        job: createJob({
+          config: {
+            skillName: "unknown-skill",
+            resourceEstimate: {
+              estimatedMemoryMb: DEFAULT_MEMORY_MB,
+              source: "skill-default",
+              confidence: "low",
+            },
+          },
+        }),
+        workItem: null,
+        runtimeConfig: {
+          type: runtimeType,
+          image: "almirant-runner:test",
+          envVars: {},
+        },
+        injectedEnv: {},
+        openCodeConfig: {} as never,
+        workspaceMountMode: "bind",
+        reposHostPath: "/repos",
+      });
+
+      expect(spec.memoryLimitMb).toBe(expectedMemoryMb);
+    }
   });
 
   it("injects the generated OpenCode config JSON into OpenCode containers", () => {
