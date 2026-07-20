@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
 import type {
   ClaimedJob,
   CreateWorkerJobPayload,
@@ -7,6 +7,10 @@ import type {
   ScheduledAgentConfig,
 } from "@almirant/remote-agent";
 import { RunnerOrchestrator } from "./orchestrator";
+
+afterEach(() => {
+  setSystemTime();
+});
 
 const createClaimedJob = (
   id: string,
@@ -1012,6 +1016,10 @@ describe("RunnerOrchestrator RAM budget claiming", () => {
   });
 
   it("pauses a claimed job before starting a container when provider quota is exhausted", async () => {
+    const testNow = new Date("2026-05-03T23:00:00.000Z");
+    const quotaResetAt = new Date(testNow.getTime() + 60 * 60 * 1000).toISOString();
+    setSystemTime(testNow);
+
     const statusUpdates: Array<{ jobId: string; payload: Record<string, unknown> }> = [];
     let executeCalls = 0;
     const quotaBlockedJob: ClaimedJob = {
@@ -1040,7 +1048,7 @@ describe("RunnerOrchestrator RAM budget claiming", () => {
             return {
               allowed: false,
               reason: "weekly token limit exceeded",
-              resetAt: "2026-05-04T00:00:00.000Z",
+              resetAt: quotaResetAt,
               blockingQuotaType: "weekly",
             };
           },
@@ -1067,12 +1075,12 @@ describe("RunnerOrchestrator RAM budget claiming", () => {
         status: "paused",
         errorMessage: "weekly token limit exceeded",
         errorType: "weekly_quota_exceeded",
-        availableAt: "2026-05-04T00:00:00.000Z",
+        availableAt: quotaResetAt,
         result: {
           pausedForQuota: true,
           source: "pre_session_quota_check",
           aiProvider: "openai",
-          resetAt: "2026-05-04T00:00:00.000Z",
+          resetAt: quotaResetAt,
         },
       },
     });
