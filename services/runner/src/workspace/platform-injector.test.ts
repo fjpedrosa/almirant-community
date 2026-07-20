@@ -1,11 +1,19 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ContainerManager } from "./container-manager";
 import { createPlatformInjector } from "./platform-injector";
 
 const PLATFORM_CONFIG_PATH = join(import.meta.dir, "..", "..", "platform-config");
+const TEST_PLATFORM_ASSET_PATH = ".claude/skills/platform-test/SKILL.md";
+const TEST_PLATFORM_ASSET_CONTENT = "# Platform test skill\n";
+const TEST_PLATFORM_CLAUDE = "# Test Claude instructions\n";
+const TEST_PLATFORM_AGENTS = "# Test agent instructions\n";
+const RUNTIME_OWNED_CLAUDE_SETTINGS = new Set([
+  ".claude/settings.json",
+  ".claude/settings.local.json",
+]);
 
 const tempDirs: string[] = [];
 
@@ -15,6 +23,38 @@ const createTempWorkspace = async () => {
   const workspacePath = join(root, "workspace");
   await mkdir(join(workspacePath, ".git", "info"), { recursive: true });
   return { root, workspacePath };
+};
+
+const writeTestPlatformAsset = async (platformConfigPath: string): Promise<void> => {
+  const assetPath = join(platformConfigPath, TEST_PLATFORM_ASSET_PATH);
+  await mkdir(dirname(assetPath), { recursive: true });
+  await writeFile(assetPath, TEST_PLATFORM_ASSET_CONTENT);
+};
+
+const createPlatformConfigFixture = async (root: string): Promise<string> => {
+  const platformConfigPath = join(root, "platform-config-fixture");
+  await writeTestPlatformAsset(platformConfigPath);
+  await writeFile(join(platformConfigPath, "CLAUDE.md.platform"), TEST_PLATFORM_CLAUDE);
+  await writeFile(join(platformConfigPath, "AGENTS.md.platform"), TEST_PLATFORM_AGENTS);
+  return platformConfigPath;
+};
+
+const listRelativeFiles = async (
+  root: string,
+  relativeDirectory = "",
+): Promise<string[]> => {
+  const entries = await readdir(join(root, relativeDirectory), { withFileTypes: true });
+  const files = await Promise.all(
+    entries.map(async (entry) => {
+      const relativePath = relativeDirectory
+        ? `${relativeDirectory}/${entry.name}`
+        : entry.name;
+      return entry.isDirectory()
+        ? listRelativeFiles(root, relativePath)
+        : [relativePath];
+    }),
+  );
+  return files.flat().sort();
 };
 
 type FakeContainerManagerOptions = {
@@ -76,10 +116,20 @@ afterEach(async () => {
 });
 
 describe("createPlatformInjector", () => {
+  it("keeps runtime-owned Claude settings out of the shipping platform config", async () => {
+    const shippingFiles = await listRelativeFiles(PLATFORM_CONFIG_PATH);
+    const forbiddenFiles = shippingFiles.filter((path) =>
+      RUNTIME_OWNED_CLAUDE_SETTINGS.has(path.toLowerCase())
+    );
+
+    expect(forbiddenFiles).toEqual([]);
+  });
+
   it("crea CLAUDE.md y copia .claude para claude-code", async () => {
-    const { workspacePath } = await createTempWorkspace();
+    const { root, workspacePath } = await createTempWorkspace();
+    const platformConfigPath = await createPlatformConfigFixture(root);
     const injector = createPlatformInjector({
-      platformConfigPath: PLATFORM_CONFIG_PATH,
+      platformConfigPath,
     });
 
     const result = await injector.inject({
@@ -90,22 +140,17 @@ describe("createPlatformInjector", () => {
     });
 
     const injectedClaude = await readFile(join(workspacePath, "CLAUDE.md"), "utf8");
-    const platformClaude = await readFile(join(PLATFORM_CONFIG_PATH, "CLAUDE.md.platform"), "utf8");
-    const injectedSettings = await readFile(
-      join(workspacePath, ".claude", "settings.json"),
-      "utf8",
-    );
-    const platformSettings = await readFile(
-      join(PLATFORM_CONFIG_PATH, ".claude", "settings.json"),
+    const injectedAsset = await readFile(
+      join(workspacePath, TEST_PLATFORM_ASSET_PATH),
       "utf8",
     );
 
-    expect(injectedClaude).toBe(platformClaude);
-    expect(injectedSettings).toBe(platformSettings);
+    expect(injectedClaude).toBe(TEST_PLATFORM_CLAUDE);
+    expect(injectedAsset).toBe(TEST_PLATFORM_ASSET_CONTENT);
     expect(result.claudeMdAction).toBe("created");
     expect(result.agentsMdAction).toBe("skipped");
-    expect(result.injectedPaths).toEqual([".claude/settings.json", "CLAUDE.md"]);
-    expect(result.excludedPaths).toEqual([".claude/settings.json", "CLAUDE.md"]);
+    expect(result.injectedPaths).toEqual([TEST_PLATFORM_ASSET_PATH, "CLAUDE.md"]);
+    expect(result.excludedPaths).toEqual([TEST_PLATFORM_ASSET_PATH, "CLAUDE.md"]);
   });
 
   it("crea AGENTS.md para opencode aunque no haya directorio .agents en platform-config", async () => {
@@ -177,12 +222,13 @@ describe("createPlatformInjector", () => {
   });
 
   it("appenda CLAUDE.md y AGENTS.md existentes para codex", async () => {
-    const { workspacePath } = await createTempWorkspace();
+    const { root, workspacePath } = await createTempWorkspace();
+    const platformConfigPath = await createPlatformConfigFixture(root);
     await writeFile(join(workspacePath, "CLAUDE.md"), "# Instrucciones previas\n");
     await writeFile(join(workspacePath, "AGENTS.md"), "# Agentes previos\n");
 
     const injector = createPlatformInjector({
-      platformConfigPath: PLATFORM_CONFIG_PATH,
+      platformConfigPath,
     });
 
     const result = await injector.inject({
@@ -192,31 +238,30 @@ describe("createPlatformInjector", () => {
       containerManager: createFakeContainerManager(),
     });
 
-    const platformClaude = await readFile(join(PLATFORM_CONFIG_PATH, "CLAUDE.md.platform"), "utf8");
-    const platformAgents = await readFile(join(PLATFORM_CONFIG_PATH, "AGENTS.md.platform"), "utf8");
     const injectedClaude = await readFile(join(workspacePath, "CLAUDE.md"), "utf8");
     const injectedAgents = await readFile(join(workspacePath, "AGENTS.md"), "utf8");
 
-    expect(injectedClaude).toBe(`# Instrucciones previas\n\n${platformClaude}`);
-    expect(injectedAgents).toBe(`# Agentes previos\n\n${platformAgents}`);
+    expect(injectedClaude).toBe(`# Instrucciones previas\n\n${TEST_PLATFORM_CLAUDE}`);
+    expect(injectedAgents).toBe(`# Agentes previos\n\n${TEST_PLATFORM_AGENTS}`);
     expect(result.claudeMdAction).toBe("appended");
     expect(result.agentsMdAction).toBe("appended");
     expect(result.injectedPaths).toEqual([
-      ".claude/settings.json",
+      TEST_PLATFORM_ASSET_PATH,
       "CLAUDE.md",
       "AGENTS.md",
     ]);
     expect(result.excludedPaths).toEqual([
-      ".claude/settings.json",
+      TEST_PLATFORM_ASSET_PATH,
       "CLAUDE.md",
       "AGENTS.md",
     ]);
   });
 
   it("marca paths trackeados como assume-unchanged y solo excluye los no trackeados", async () => {
-    const { workspacePath } = await createTempWorkspace();
+    const { root, workspacePath } = await createTempWorkspace();
+    const platformConfigPath = await createPlatformConfigFixture(root);
     const injector = createPlatformInjector({
-      platformConfigPath: PLATFORM_CONFIG_PATH,
+      platformConfigPath,
     });
 
     const result = await injector.inject({
@@ -224,21 +269,22 @@ describe("createPlatformInjector", () => {
       workspacePath,
       runtime: "codex",
       containerManager: createFakeContainerManager({
-        trackedPaths: [".claude/settings.json", "CLAUDE.md"],
+        trackedPaths: [TEST_PLATFORM_ASSET_PATH, "CLAUDE.md"],
       }),
     });
 
     expect(result.trackedPathsAssumedUnchanged).toEqual([
-      ".claude/settings.json",
+      TEST_PLATFORM_ASSET_PATH,
       "CLAUDE.md",
     ]);
     expect(result.excludedPaths).toEqual(["AGENTS.md"]);
   });
 
   it("cae back a .git/info/exclude cuando git update-index falla", async () => {
-    const { workspacePath } = await createTempWorkspace();
+    const { root, workspacePath } = await createTempWorkspace();
+    const platformConfigPath = await createPlatformConfigFixture(root);
     const injector = createPlatformInjector({
-      platformConfigPath: PLATFORM_CONFIG_PATH,
+      platformConfigPath,
     });
 
     const result = await injector.inject({
@@ -246,20 +292,19 @@ describe("createPlatformInjector", () => {
       workspacePath,
       runtime: "claude-code",
       containerManager: createFakeContainerManager({
-        trackedPaths: [".claude/settings.json", "CLAUDE.md"],
+        trackedPaths: [TEST_PLATFORM_ASSET_PATH, "CLAUDE.md"],
         failUpdateIndex: true,
       }),
     });
 
     expect(result.trackedPathsAssumedUnchanged).toEqual([]);
-    expect(result.excludedPaths).toEqual([".claude/settings.json", "CLAUDE.md"]);
+    expect(result.excludedPaths).toEqual([TEST_PLATFORM_ASSET_PATH, "CLAUDE.md"]);
   });
 
   it("omite los markdown platform vacíos y deja diagnóstico observable", async () => {
     const { root, workspacePath } = await createTempWorkspace();
     const platformConfigPath = join(root, "platform-config-empty");
-    await mkdir(join(platformConfigPath, ".claude"), { recursive: true });
-    await writeFile(join(platformConfigPath, ".claude", "settings.json"), '{"permissions":{}}');
+    await writeTestPlatformAsset(platformConfigPath);
     await writeFile(join(platformConfigPath, "CLAUDE.md.platform"), "   \n");
 
     const injector = createPlatformInjector({
@@ -274,15 +319,14 @@ describe("createPlatformInjector", () => {
     });
 
     expect(result.claudeMdAction).toBe("skipped");
-    expect(result.injectedPaths).toEqual([".claude/settings.json"]);
-    expect(result.excludedPaths).toEqual([".claude/settings.json"]);
+    expect(result.injectedPaths).toEqual([TEST_PLATFORM_ASSET_PATH]);
+    expect(result.excludedPaths).toEqual([TEST_PLATFORM_ASSET_PATH]);
   });
 
   it("elimina el model pin de los agentes Claude inyectados para que hereden el modelo de la sesión", async () => {
     const { root, workspacePath } = await createTempWorkspace();
     const platformConfigPath = join(root, "platform-config-agents");
     await mkdir(join(platformConfigPath, ".claude", "agents"), { recursive: true });
-    await writeFile(join(platformConfigPath, ".claude", "settings.json"), '{"permissions":{}}');
     await writeFile(join(platformConfigPath, "CLAUDE.md.platform"), "# Runner instructions\n");
     await writeFile(
       join(platformConfigPath, ".claude", "agents", "backend-architect.md"),
@@ -323,7 +367,6 @@ describe("createPlatformInjector", () => {
     const { root, workspacePath } = await createTempWorkspace();
     const platformConfigPath = join(root, "platform-config-opencode-agents");
     await mkdir(join(platformConfigPath, ".claude", "agents"), { recursive: true });
-    await writeFile(join(platformConfigPath, ".claude", "settings.json"), '{"permissions":{}}');
     await writeFile(join(platformConfigPath, "CLAUDE.md.platform"), "# Runner instructions\n");
     await writeFile(
       join(platformConfigPath, ".claude", "agents", "backend-architect.md"),
