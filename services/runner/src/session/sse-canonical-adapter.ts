@@ -76,7 +76,19 @@ type PartTracker = {
  * orchestration/job-completion-guards.ts so the SSE adapter can surface the
  * same block to the transcript without relying on text parsing downstream.
  */
-const SUMMARY_HEADING_REGEX = /^## (Summary|Resumen)\b\s*\n?/m;
+/**
+ * The heading must be the WHOLE line — `## Summary`, optionally followed by a
+ * colon and trailing spaces. `\b` alone also matched titles that merely begin
+ * with the word, so `## Resumen del trabajo` was read as the marker `Resumen`
+ * plus a body starting at "del trabajo": the title lost its first word and the
+ * entire response was repeated below itself as a summary card.
+ *
+ * Deliberately stricter than `extractStructuredSummary` in
+ * orchestration/job-completion-guards.ts: that one gates job completion, where
+ * being lenient is the safe failure mode. This one drives rendering, where
+ * being lenient corrupts the transcript.
+ */
+const SUMMARY_HEADING_REGEX = /^## (Summary|Resumen)[ \t]*:?[ \t]*(?:\n|$)/m;
 const extractSummarySection = (
   text: string,
 ): { text: string; section: "Summary" | "Resumen" } | null => {

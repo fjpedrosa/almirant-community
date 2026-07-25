@@ -461,6 +461,60 @@ describe("createSseCanonicalAdapter", () => {
     }
   });
 
+  it("no trata un encabezado que solo EMPIEZA por Resumen como marcador de resumen", () => {
+    const adapter = createSseCanonicalAdapter();
+    // El agente titula su respuesta, no abre un bloque estructurado. Tratarlo
+    // como marcador partía el título ("Resumen" se perdía) y duplicaba todo el
+    // cuerpo en una tarjeta de resumen debajo del propio texto.
+    adapter.processEvent(
+      createSseEvent("message.part.updated", {
+        part: {
+          text: "## Resumen del trabajo (scrape-bundle)\n\n- Plataforma detectada: Shopify\n- Hostname: spellbinders.com\n",
+        },
+        contentType: "text",
+      }),
+    );
+    const idleEvents = adapter.processEvent(createSseEvent("session.idle", {}));
+
+    expect(
+      idleEvents.find((event) => event.kind === "agent.summary"),
+    ).toBeUndefined();
+  });
+
+  it("no trata un encabezado que solo EMPIEZA por Summary como marcador de resumen", () => {
+    const adapter = createSseCanonicalAdapter();
+    adapter.processEvent(
+      createSseEvent("message.part.updated", {
+        part: { text: "## Summary of the run\n\n- Did the thing\n" },
+        contentType: "text",
+      }),
+    );
+    const idleEvents = adapter.processEvent(createSseEvent("session.idle", {}));
+
+    expect(
+      idleEvents.find((event) => event.kind === "agent.summary"),
+    ).toBeUndefined();
+  });
+
+  it("acepta el marcador con espacios o dos puntos finales en la misma línea", () => {
+    const adapter = createSseCanonicalAdapter();
+    adapter.processEvent(
+      createSseEvent("message.part.updated", {
+        part: { text: "Listo.\n\n## Summary:  \nTodo OK." },
+        contentType: "text",
+      }),
+    );
+    const idleEvents = adapter.processEvent(createSseEvent("session.idle", {}));
+    const summaryEvent = idleEvents.find(
+      (event) => event.kind === "agent.summary",
+    );
+
+    expect(summaryEvent).toBeDefined();
+    if (summaryEvent && summaryEvent.kind === "agent.summary") {
+      expect(summaryEvent.text).toBe("Todo OK.");
+    }
+  });
+
   it("no emite agent.summary cuando el texto final no contiene bloque de resumen", () => {
     const adapter = createSseCanonicalAdapter();
     adapter.processEvent(
