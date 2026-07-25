@@ -144,6 +144,46 @@ const getEarliestTimestamp = (chunks: AgentLogChunk[]): string | null => {
   );
 };
 
+const getLatestTimestamp = (chunks: AgentLogChunk[]): string | null => {
+  if (chunks.length === 0) return null;
+
+  return chunks.reduce(
+    (latest, chunk) => (chunk.timestamp > latest ? chunk.timestamp : latest),
+    chunks[0].timestamp,
+  );
+};
+
+/** Chronological order by when each phase began. Phases without a timestamp
+ *  sink to the bottom so they never displace real, dated activity. */
+const byStartedAtAscending = (
+  left: TimelinePhase,
+  right: TimelinePhase,
+): number => {
+  if (!left.startedAt) return right.startedAt ? 1 : 0;
+  if (!right.startedAt) return -1;
+  return left.startedAt.localeCompare(right.startedAt);
+};
+
+/** The live phase is the one that emitted the most recent event — not the last
+ *  entry of the array, which is merely the one that started latest. */
+const findMostRecentlyActivePhaseId = (
+  phases: TimelinePhase[],
+): string | null => {
+  let activeId: string | null = null;
+  let latestSeen: string | null = null;
+
+  for (const phase of phases) {
+    const timestamp = phase.lastEventAt ?? phase.startedAt;
+    if (!timestamp) continue;
+    if (!latestSeen || timestamp >= latestSeen) {
+      latestSeen = timestamp;
+      activeId = phase.id;
+    }
+  }
+
+  return activeId;
+};
+
 const parseJsonRecord = (value: string): Record<string, unknown> | null => {
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -343,6 +383,7 @@ export const buildSessionTimelinePhases = (
         label: group.label,
         status: "done",
         startedAt: getEarliestTimestamp(matchingChunks),
+        lastEventAt: getLatestTimestamp(matchingChunks),
         eventCount: matchingChunks.length,
         details: group.sourcePhases
           .filter((phase) => (chunksByPhase.get(phase)?.length ?? 0) > 0)
@@ -358,13 +399,10 @@ export const buildSessionTimelinePhases = (
       label: formatPhaseLabel(phase),
       status: "done",
       startedAt: getEarliestTimestamp(phaseChunks),
+      lastEventAt: getLatestTimestamp(phaseChunks),
       eventCount: phaseChunks.length,
     }))
-    .sort((left, right) => {
-      const leftStartedAt = left.startedAt ?? "";
-      const rightStartedAt = right.startedAt ?? "";
-      return leftStartedAt.localeCompare(rightStartedAt);
-    });
+    .sort(byStartedAtAscending);
 
   const hasWavePhases = wavePhases.length > 0;
   const hasPostExecutionGitChunks =
@@ -386,7 +424,9 @@ export const buildSessionTimelinePhases = (
         ),
         ...fallbackPhases.filter((phase) => phase.id !== "transcript"),
       ]
-    : [...groupedPhases, ...fallbackPhases];
+    : // Grouped and fallback phases share one chronological axis: an unmapped
+      // runtime phase must land where it actually happened, not at the tail.
+      [...groupedPhases, ...fallbackPhases].sort(byStartedAtAscending);
 
   if (phases.length === 0) {
     return [];
@@ -404,10 +444,10 @@ export const buildSessionTimelinePhases = (
     return phases;
   }
 
-  const lastPhaseIndex = phases.length - 1;
-  return phases.map((phase, index) => ({
+  const activePhaseId = isLive ? findMostRecentlyActivePhaseId(phases) : null;
+  return phases.map((phase) => ({
     ...phase,
-    status: isLive && index === lastPhaseIndex ? "active" : "done",
+    status: phase.id === activePhaseId ? "active" : "done",
   }));
 };
 

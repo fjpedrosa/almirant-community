@@ -6,6 +6,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { deriveReasoningHeadline } from "@/domains/shared/application/utils/reasoning-run-utils";
 
 interface ThinkingBlockProps {
   content: string;
@@ -29,35 +30,43 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
   thinkingLabel = "Thinking...",
   reasoningLabel,
 }) => {
+  // A collapsed row that only ever says "Reasoning" carries no information.
+  // Lead with what the agent was actually working out.
+  const headline = isStreaming ? null : deriveReasoningHeadline(content);
+  const label = isStreaming
+    ? thinkingLabel
+    : (headline ?? reasoningLabel ?? thinkingLabel);
+
   return (
     <Collapsible open={!isCollapsed} onOpenChange={onToggleCollapse} className="min-w-0 max-w-full overflow-hidden">
       {/* Header (clickable trigger) — flat, no box */}
       <CollapsibleTrigger asChild>
         <button
           type="button"
-          className="flex items-center gap-2 text-left py-0.5 cursor-pointer min-h-[28px]"
+          className="flex min-h-[28px] w-full max-w-full min-w-0 cursor-pointer items-center gap-2 py-0.5 text-left"
         >
           <Brain
             className={cn(
-              "size-4 text-muted-foreground/70",
+              "size-4 shrink-0 text-muted-foreground/70",
               isStreaming &&
                 "animate-pulse motion-reduce:animate-none text-primary/70",
             )}
           />
           <span
             className={cn(
-              "text-sm font-medium italic",
+              "min-w-0 truncate text-sm",
+              headline ? "font-normal" : "font-medium italic",
               isStreaming
                 ? "shimmer-text"
                 : "text-muted-foreground/70",
             )}
           >
-            {isStreaming ? thinkingLabel : (reasoningLabel ?? thinkingLabel)}
+            {label}
           </span>
           {isCollapsed ? (
-            <ChevronRight className="size-4 text-muted-foreground/50" />
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
           ) : (
-            <ChevronDown className="size-4 text-muted-foreground/50" />
+            <ChevronDown className="size-4 shrink-0 text-muted-foreground/50" />
           )}
         </button>
       </CollapsibleTrigger>

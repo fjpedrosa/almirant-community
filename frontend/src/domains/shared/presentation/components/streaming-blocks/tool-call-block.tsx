@@ -112,7 +112,6 @@ export const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
         <span className="text-foreground/50 text-sm font-sans whitespace-nowrap">
           {mcpParts.actionLabel}
         </span>
-        <StatusIcon status={status} />
         {mcpGroupLabel && (
           <span className="text-foreground/70 text-sm font-sans whitespace-nowrap">
             {mcpGroupLabel}
@@ -123,6 +122,7 @@ export const ToolCallBlock: React.FC<ToolCallBlockProps> = ({
             {detail}
           </span>
         )}
+        <StatusIcon status={status} />
       </div>
     );
   }

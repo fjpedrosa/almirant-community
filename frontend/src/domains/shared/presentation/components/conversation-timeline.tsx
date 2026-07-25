@@ -15,6 +15,7 @@ import type {
 } from "../../domain/conversation-types";
 import type { StreamingBlock } from "@/domains/shared/domain/streaming-block-types";
 import { groupStreamingBlocks } from "@/domains/shared/application/utils/streaming-block-utils";
+import { collapseReasoningRuns } from "@/domains/shared/application/utils/reasoning-run-utils";
 import { ConversationMessage } from "./conversation-message";
 
 const parseQuestionMessage = (
@@ -170,7 +171,17 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
   className,
   onFeedback,
 }) => {
-  const groupedBlocks = streamingBlocks ? groupStreamingBlocks(streamingBlocks) : [];
+  // One reasoning disclosure per run, not one per micro-step. The trailing
+  // block stays separate while streaming so the live "Thinking…" indicator does
+  // not jump back up the transcript.
+  const collapsedStreamingBlocks = streamingBlocks
+    ? collapseReasoningRuns(streamingBlocks, {
+        preserveTrailingReasoning: isStreaming,
+      })
+    : undefined;
+  const groupedBlocks = collapsedStreamingBlocks
+    ? groupStreamingBlocks(collapsedStreamingBlocks)
+    : [];
   const activeStreamingBlockKeys = new Set(
     (streamingBlocks ?? [])
       .map((block) => getPersistentBlockKey(block))
@@ -194,6 +205,10 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
   };
 
   const mergedMessages: MergedMessage[] = [];
+  /** First reasoning message of the current run, or null when the agent has
+   *  spoken since. Tool calls do not break a run — they are what the reasoning
+   *  produced — so interleaved reasoning folds into this one entry. */
+  let reasoningAnchorIndex: number | null = null;
 
   for (let index = 0; index < messages.length; index++) {
     let message = messages[index];
@@ -379,11 +394,29 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
       !previous._toolBlock &&
       previous.role === "assistant" &&
       previous.messageType !== "thinking";
-    const previousIsThinking =
-      previous &&
-      !previous._toolBlock &&
-      previous.role === "assistant" &&
-      previous.messageType === "thinking";
+
+    if (isThinking) {
+      if (reasoningAnchorIndex !== null) {
+        const anchor = mergedMessages[reasoningAnchorIndex];
+        // Consecutive deltas of one thought join tightly; thoughts separated by
+        // tool activity are distinct paragraphs.
+        const isAdjacent = reasoningAnchorIndex === mergedMessages.length - 1;
+        anchor.content =
+          anchor.content.trimEnd() +
+          (isAdjacent ? "\n" : "\n\n") +
+          message.content.trimStart();
+        if (!anchor._mergedIds) anchor._mergedIds = [anchor.id];
+        anchor._mergedIds.push(message.id);
+        continue;
+      }
+
+      mergedMessages.push({ ...message, _sourceIndex: index });
+      reasoningAnchorIndex = mergedMessages.length - 1;
+      continue;
+    }
+
+    // The agent speaking (or the user replying) closes the current run.
+    reasoningAnchorIndex = null;
 
     if (isAssistantText && previousIsAssistantText) {
       const previousTrimmed = previous.content.trimEnd();
@@ -398,10 +431,6 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
         previousEndsWithTable && currentStartsWithTable ? "\n" : "\n\n";
       previous.content = previousTrimmed + separator + currentTrimmed;
       previous.timestamp = message.timestamp;
-      if (!previous._mergedIds) previous._mergedIds = [previous.id];
-      previous._mergedIds.push(message.id);
-    } else if (isThinking && previousIsThinking) {
-      previous.content = previous.content.trimEnd() + "\n" + message.content.trimStart();
       if (!previous._mergedIds) previous._mergedIds = [previous.id];
       previous._mergedIds.push(message.id);
     } else {
@@ -710,7 +739,10 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
 
           if (visibleTurnBlocks.length === 0) return null;
 
-          const groupedTurnBlocks = groupStreamingBlocks(visibleTurnBlocks);
+          // The turn is over, so every reasoning block in it can collapse.
+          const groupedTurnBlocks = groupStreamingBlocks(
+            collapseReasoningRuns(visibleTurnBlocks),
+          );
           return groupedTurnBlocks.map((group, groupIndex) => {
             if (group.kind === "subagent-group") {
               return (
@@ -892,7 +924,8 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
             const block = group.block;
             const blockIndex = group.index;
             const isLastBlock =
-              isStreaming && blockIndex === (streamingBlocks?.length ?? 0) - 1;
+              isStreaming &&
+              blockIndex === (collapsedStreamingBlocks?.length ?? 0) - 1;
 
             switch (block.type) {
               case "thinking": {
