@@ -8,6 +8,7 @@ import {
   type Coalescer,
   createCanonicalRouter,
   type CanonicalEventEnvelope,
+  normalizeCanonicalEnvelope,
   readStreamEvent,
 } from "@almirant/stream-consumer";
 import Redis from "ioredis";
@@ -22,7 +23,10 @@ import {
   type EventPersistenceStrategy,
 } from "./api-client";
 import { createWebRenderer } from "./web-renderer";
-import { createSequenceGuard } from "./sequence-guard";
+import {
+  assertValidDurableSequence,
+  createSequenceGuard,
+} from "./sequence-guard";
 
 /** Bridge-specific context fields spread into every coalesced batch. */
 type WebBridgeBatchContext = {
@@ -44,6 +48,49 @@ export type WebBridgeConsumer = {
   start: () => void;
   stop: () => Promise<void>;
   getStats: () => ProcessingStats;
+};
+
+/**
+ * Build the envelope that leaves the bridge.
+ *
+ * Durable-v2 producers own both their sequence namespace and event identity.
+ * Legacy producers do not: their process-local sequence may restart when the
+ * same job resumes, so the bridge assigns a monotonic sequence and MUST derive
+ * a matching identity from it. Keeping the producer eventId would make a later
+ * attempt look like a duplicate during projection rebuilds.
+ */
+export const buildOutboundCanonicalEnvelope = (
+  input: CanonicalEventEnvelope,
+  sequenceNumber: number,
+  sequenceProtocolVersion: CanonicalEventEnvelope["sequenceProtocolVersion"],
+): CanonicalEventEnvelope => {
+  const reassigned: CanonicalEventEnvelope = {
+    ...input,
+    threadId: input.jobId,
+    sequenceNumber,
+  };
+
+  if (sequenceProtocolVersion === "durable.v2") {
+    return reassigned;
+  }
+
+  const { eventId: _staleEventId, ...withoutStaleIdentity } = reassigned;
+  const metadata =
+    reassigned.event.metadata &&
+    typeof reassigned.event.metadata === "object" &&
+    !Array.isArray(reassigned.event.metadata)
+      ? reassigned.event.metadata
+      : {};
+  const { eventId: _staleMetadataEventId, ...metadataWithoutStaleIdentity } =
+    metadata;
+
+  return normalizeCanonicalEnvelope({
+    ...withoutStaleIdentity,
+    event: {
+      ...reassigned.event,
+      metadata: metadataWithoutStaleIdentity,
+    },
+  });
 };
 
 export const createWebBridgeConsumer = (
@@ -181,10 +228,28 @@ export const createWebBridgeConsumer = (
           const streamEvent = readStreamEvent(event);
 
           if (streamEvent.format === "native") {
+            if (
+              streamEvent.envelope.sequenceProtocolVersion === "durable.v2"
+            ) {
+              assertValidDurableSequence(
+                streamEvent.envelope.sequenceNumber,
+              );
+            }
+            if (
+              streamEvent.envelope.sequenceProtocolVersion === "durable.v2" &&
+              !eventPersistenceRef
+            ) {
+              throw new Error(
+                "durable.v2 native persistence requires BACKEND_API_URL and BRIDGE_API_KEY",
+              );
+            }
             if (eventPersistenceRef) {
               await eventPersistenceRef.persistNativeEvent(
                 {
                   sequenceNum: streamEvent.envelope.sequenceNumber,
+                  sequenceProtocolVersion:
+                    streamEvent.envelope.sequenceProtocolVersion,
+                  claimAttemptId: streamEvent.envelope.claimAttemptId,
                   nativeEventType: streamEvent.envelope.nativeEventType,
                   sourceFormat: streamEvent.envelope.sourceFormat,
                   payload: streamEvent.envelope.payload,
@@ -204,6 +269,8 @@ export const createWebBridgeConsumer = (
             const canonicalEvent = streamEvent.envelope.event;
             const sessionId = streamEvent.envelope.sessionId;
             const workspaceId = streamEvent.envelope.workspaceId;
+            const hasDurableProducerSequence =
+              streamEvent.envelope.sequenceProtocolVersion === "durable.v2";
 
             // DEBUG: log all canonical event kinds to verify tool calls flow
             if (!["agent.text", "agent.thinking", "heartbeat"].includes(canonicalEvent.kind)) {
@@ -220,13 +287,13 @@ export const createWebBridgeConsumer = (
             // high-water mark was never cleaned up. Reset it here (before the
             // regression check) so the resumed attempt's events are not
             // mistaken for stale/duplicate redeliveries and dropped forever.
-            if (canonicalEvent.kind === "job.started") {
+            if (canonicalEvent.kind === "job.started" && !hasDurableProducerSequence) {
               seqGuard.resetHighWater(event.jobId);
             }
 
             // Dedup: reject out-of-order or duplicate envelopes based on
-            // the PRODUCER-assigned sequence number, BEFORE reassigning the
-            // bridge-local one (checking the reassigned number would never
+            // the PRODUCER-assigned sequence number, BEFORE selecting the
+            // outbound one (checking a bridge-local fallback would never
             // detect a regression — it is monotonic by construction).
             //
             // Envelopes WITHOUT a producer sequence number (e.g. an older
@@ -236,7 +303,11 @@ export const createWebBridgeConsumer = (
             const producerSequenceNumber = streamEvent.envelope.sequenceNumber;
             if (
               Number.isFinite(producerSequenceNumber) &&
-              seqGuard.isRegression(event.jobId, producerSequenceNumber)
+              seqGuard.isRegression(
+                event.jobId,
+                producerSequenceNumber,
+                streamEvent.envelope.sequenceProtocolVersion,
+              )
             ) {
               log("warn", `Dropping out-of-order/duplicate envelope`, {
                 jobId: event.jobId,
@@ -249,28 +320,51 @@ export const createWebBridgeConsumer = (
               return;
             }
 
-            // Route canonical event through WebRenderer → Redis Pub/Sub
-            // with a reassigned bridge-local monotonic sequence number.
-            const envelope: CanonicalEventEnvelope = {
-              ...streamEvent.envelope,
-              threadId: event.jobId,
-              sequenceNumber: seqGuard.nextSequence(event.jobId),
-            };
+            // Route canonical event through WebRenderer → Redis Pub/Sub with
+            // the exact producer sequence. Only legacy envelopes without a
+            // finite sequence receive a bridge-local fallback.
+            const envelope = buildOutboundCanonicalEnvelope(
+              streamEvent.envelope,
+              seqGuard.resolveOutboundSequence(
+                event.jobId,
+                producerSequenceNumber,
+                streamEvent.envelope.sequenceProtocolVersion,
+              ),
+              streamEvent.envelope.sequenceProtocolVersion,
+            );
 
-            await routeCanonical(envelope);
+            if (hasDurableProducerSequence && !eventPersistenceRef) {
+              throw new Error(
+                "durable.v2 canonical persistence requires BACKEND_API_URL and BRIDGE_API_KEY",
+              );
+            }
 
-            // Persist to session_events table for replay on refresh
+            // The durable database insert is intentionally before rendering
+            // and before StreamReader-owned XACK. A crash after this call is a
+            // safe idempotent redelivery; the persisted projection is the
+            // source of truth for reconnect/replay.
+            let shouldRender = true;
             if (eventPersistenceRef) {
-              await eventPersistenceRef.persistCanonicalEvent(
-                canonicalEvent,
+              shouldRender = await eventPersistenceRef.persistCanonicalEvent(
+                envelope.event,
                 {
                   jobId: event.jobId,
                   sequenceNumber: envelope.sequenceNumber,
                   provider: (event as Record<string, unknown>).provider as
                     | string
                     | undefined,
+                  sequenceProtocolVersion:
+                    envelope.sequenceProtocolVersion,
+                  claimAttemptId: envelope.claimAttemptId,
                 },
               );
+            }
+
+            // A durable redelivery that inserted zero rows has already crossed
+            // the DB boundary. ACK it without publishing a duplicate live row.
+            // Legacy events always return true and preserve historical routing.
+            if (shouldRender) {
+              await routeCanonical(envelope);
             }
 
             // Clean up tracking maps when a job reaches a terminal state
@@ -322,9 +416,26 @@ export const createWebBridgeConsumer = (
     stop: async () => {
       log("info", "Stopping web-bridge consumer...");
 
+      const failures: unknown[] = [];
+
+      // Stop intake and wait every in-flight handler before flushing batchers;
+      // otherwise a handler can enqueue after flushAll has already returned.
+      if (reader) {
+        try {
+          await reader.stop();
+        } catch (error) {
+          failures.push(error);
+        }
+        reader = null;
+      }
+
       if (eventPersistence) {
-        await eventPersistence.flushAll();
-        eventPersistence.destroy();
+        try {
+          await eventPersistence.flushAll();
+          eventPersistence.destroy();
+        } catch (error) {
+          failures.push(error);
+        }
         eventPersistence = null;
       }
 
@@ -334,17 +445,22 @@ export const createWebBridgeConsumer = (
         coalescer = null;
       }
 
-      if (reader) {
-        await reader.stop();
-        reader = null;
-      }
-
       if (pubsubRedis) {
         pubsubRedis.disconnect();
         pubsubRedis = null;
       }
 
       apiClient = null;
+
+      if (failures.length === 1) {
+        throw failures[0];
+      }
+      if (failures.length > 1) {
+        throw new AggregateError(
+          failures,
+          "web-bridge shutdown left persistence errors pending",
+        );
+      }
 
       log("info", "Web-bridge consumer stopped.");
     },

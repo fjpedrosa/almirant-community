@@ -4,16 +4,17 @@
  *   CanonicalEventEnvelope
  *     → Redis Stream (XADD via the real createStreamPublisher)
  *     → REAL web-bridge consumer (createWebBridgeConsumer: StreamReader with
- *       consumer group + idempotency guard, sequence-guard dedup/reassignment,
+ *       consumer group + idempotency guard, sequence-guard dedup,
  *       canonical router, WebRenderer)
  *     → Redis Pub/Sub (planning:* WS messages)
  *
  * The test publishes a realistic planning-session event sequence, INJECTING
  * exact duplicates and an out-of-order (stale) envelope, and asserts that:
  *   1. The expected planning:* messages arrive in order.
- *   2. Duplicates and out-of-order envelopes are dropped by the sequence
- *      guard (never reach Pub/Sub).
- *   3. Outbound sequenceNum is reassigned monotonically (contiguous from 0).
+ *   2. Durable duplicates and out-of-order envelopes are never dropped by
+ *      process-local state; PostgreSQL owns idempotency.
+ *   3. WebSocket delivery and durable persistence preserve the exact finite
+ *      producer sequence number.
  *
  * Isolation: STREAM_NAME, CONSUMER_GROUP, CONSUMER_ID and PUBSUB_CHANNEL are
  * unique per run, so the test never interferes with a locally running
@@ -93,6 +94,22 @@ type ReceivedMessage = {
   message: { type: string; payload: Record<string, unknown> };
 };
 
+type PersistedSessionEvent = {
+  sequenceNum: number;
+  sequenceProtocolVersion?: "durable.v2";
+  kind: string;
+  payload: Record<string, unknown>;
+};
+
+type PersistedSessionEventRequest = {
+  jobId: string;
+  events: PersistedSessionEvent[];
+};
+
+type PersistenceAttempt = PersistedSessionEventRequest & {
+  inserted: number;
+};
+
 const envelope = (
   producerSeq: number,
   event: CanonicalEvent,
@@ -103,6 +120,8 @@ const envelope = (
   threadId: JOB_ID,
   timestamp: 1_700_000_000_000 + producerSeq * 100,
   sequenceNumber: producerSeq,
+  sequenceProtocolVersion: "durable.v2",
+  claimAttemptId: "attempt-e2e",
   event,
 });
 
@@ -120,6 +139,18 @@ const waitFor = async (
   return predicate();
 };
 
+const waitForAsync = async (
+  predicate: () => Promise<boolean>,
+  timeoutMs: number,
+): Promise<boolean> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await predicate()) return true;
+    await sleep(50);
+  }
+  return predicate();
+};
+
 // ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
@@ -127,22 +158,68 @@ const waitFor = async (
 describe.skipIf(!redisAvailable)("Pipeline e2e: stream → real consumer → pub/sub", () => {
   const received: ReceivedMessage[] = [];
   const droppedLogs: Array<Record<string, unknown>> = [];
+  const persistedSessionEvents: PersistedSessionEventRequest[] = [];
+  const persistenceAttempts: PersistenceAttempt[] = [];
+  const durableRows = new Set<string>();
 
   let subscriber: Redis;
+  let inspector: Redis;
   let publisher: StreamPublisher;
   let consumer: WebBridgeConsumer;
+  let apiServer: ReturnType<typeof Bun.serve>;
 
   beforeAll(async () => {
+    apiServer = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url);
+        const match = url.pathname.match(
+          /^\/workers\/agent-jobs\/([^/]+)\/session-events$/,
+        );
+
+        if (request.method === "POST" && match?.[1]) {
+          const jobId = decodeURIComponent(match[1]);
+          const body = (await request.json()) as {
+            events: PersistedSessionEvent[];
+          };
+          const insertedEvents = body.events.filter((event) => {
+            if (event.sequenceProtocolVersion !== "durable.v2") return true;
+
+            const durableIdentity = `${jobId}:${event.sequenceNum}`;
+            if (durableRows.has(durableIdentity)) return false;
+            durableRows.add(durableIdentity);
+            return true;
+          });
+          persistenceAttempts.push({
+            jobId,
+            events: body.events,
+            inserted: insertedEvents.length,
+          });
+          persistedSessionEvents.push({
+            jobId,
+            events: insertedEvents,
+          });
+          return Response.json({
+            success: true,
+            data: { inserted: insertedEvents.length },
+          });
+        }
+
+        return new Response("Not found", { status: 404 });
+      },
+    });
+
     // 1. Subscribe FIRST so no published message can be missed.
     subscriber = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
     subscriber.on("message", (_channel: string, raw: string) => {
       received.push(JSON.parse(raw) as ReceivedMessage);
     });
     await subscriber.subscribe(PUBSUB_CHANNEL);
+    inspector = new Redis(REDIS_URL, { maxRetriesPerRequest: 1 });
 
     // 2. Start the REAL web-bridge consumer against the real Redis.
-    //    No BACKEND_API_URL/BRIDGE_API_KEY → persistence path disabled,
-    //    which matches a minimal self-hosted deployment.
+    //    A local HTTP capture server exercises the same persistence strategy
+    //    used in production without exposing any credentials or transcript.
     const env = loadBridgeEnv({
       NODE_ENV: "test",
       REDIS_URL,
@@ -150,6 +227,8 @@ describe.skipIf(!redisAvailable)("Pipeline e2e: stream → real consumer → pub
       CONSUMER_GROUP,
       CONSUMER_ID,
       PUBSUB_CHANNEL,
+      BACKEND_API_URL: `http://127.0.0.1:${apiServer.port}`,
+      BRIDGE_API_KEY: "e2e-test-key",
     });
 
     consumer = createWebBridgeConsumer({
@@ -183,6 +262,8 @@ describe.skipIf(!redisAvailable)("Pipeline e2e: stream → real consumer → pub
     await consumer.stop();
     await publisher.close();
     subscriber.disconnect();
+    inspector.disconnect();
+    apiServer.stop(true);
 
     // Remove per-run keys (stream + idempotency markers).
     const cleanup = new Redis(REDIS_URL, { maxRetriesPerRequest: 1 });
@@ -198,7 +279,7 @@ describe.skipIf(!redisAvailable)("Pipeline e2e: stream → real consumer → pub
   });
 
   it(
-    "delivers planning:* messages in order, drops duplicates/out-of-order, reassigns monotonic sequenceNum",
+    "delivers durable events without in-memory sequence drops and preserves producer sequence for WS plus persistence",
     async () => {
       // -- Realistic scenario with injected anomalies ---------------------
       const toolCallStart = envelope(3, {
@@ -216,14 +297,14 @@ describe.skipIf(!redisAvailable)("Pipeline e2e: stream → real consumer → pub
       });
       const staleThinking = envelope(2, {
         kind: "agent.thinking",
-        content: "stale redelivery — must be dropped",
+        content: "out-of-order redelivery — DB idempotency owns the decision",
       });
 
       const publications: CanonicalEventEnvelope[] = [
         envelope(1, { kind: "agent.text", content: "Hello from the pipeline" }),
         envelope(2, { kind: "agent.thinking", content: "Reasoning about the prompt" }),
         toolCallStart,
-        toolCallStart, // exact duplicate → must be dropped
+        toolCallStart, // exact duplicate → DB reports inserted=0, so no second WS row
         envelope(4, {
           kind: "agent.tool_call.result",
           toolCallId: "tc-1",
@@ -231,8 +312,8 @@ describe.skipIf(!redisAvailable)("Pipeline e2e: stream → real consumer → pub
           success: true,
         }),
         subagentSpawn,
-        subagentSpawn, // exact duplicate → must be dropped
-        staleThinking, // out-of-order (seq 2 after seq 5) → must be dropped
+        subagentSpawn, // exact duplicate → DB reports inserted=0
+        staleThinking, // stale identity seq=2 → DB reports inserted=0
         envelope(6, {
           kind: "agent.subagent.complete",
           subagentId: "sa-1",
@@ -251,9 +332,12 @@ describe.skipIf(!redisAvailable)("Pipeline e2e: stream → real consumer → pub
         }),
       ];
 
+      const streamEntryIds: string[] = [];
       for (const env of publications) {
-        await publisher.publishCanonicalEnvelope(env);
+        streamEntryIds.push(await publisher.publishCanonicalEnvelope(env));
       }
+      expect(streamEntryIds).toHaveLength(publications.length);
+      expect(new Set(streamEntryIds).size).toBe(publications.length);
 
       // -- Wait until the terminal WS message arrives ----------------------
       const done = await waitFor(
@@ -265,11 +349,48 @@ describe.skipIf(!redisAvailable)("Pipeline e2e: stream → real consumer → pub
       );
       expect(done).toBe(true);
 
-      // Small grace period: any late (would-be duplicate) message published
-      // after response-complete would land here and fail the assertions.
-      await sleep(300);
+      // Completion is a Redis fact, not a timing guess: every XADD has passed
+      // the group cursor and every delivered entry has left the PEL.
+      let groupState = { pending: Number.NaN, lag: Number.NaN };
+      expect(
+        await waitForAsync(
+          async () => {
+            const pendingSummary = (await inspector.xpending(
+              STREAM_NAME,
+              CONSUMER_GROUP,
+            )) as unknown[];
+            const groups = (await inspector.xinfo(
+              "GROUPS",
+              STREAM_NAME,
+            )) as unknown[][];
+            const group = groups.find((fields) => {
+              for (let index = 0; index < fields.length; index += 2) {
+                if (
+                  fields[index] === "name" &&
+                  fields[index + 1] === CONSUMER_GROUP
+                ) {
+                  return true;
+                }
+              }
+              return false;
+            });
+            const groupFields = new Map<unknown, unknown>();
+            for (let index = 0; group && index < group.length; index += 2) {
+              groupFields.set(group[index], group[index + 1]);
+            }
+            groupState = {
+              pending: Number(pendingSummary[0]),
+              lag: Number(groupFields.get("lag")),
+            };
+            return groupState.pending === 0 && groupState.lag === 0;
+          },
+          5_000,
+        ),
+      ).toBe(true);
+      expect(groupState).toEqual({ pending: 0, lag: 0 });
+      expect(await inspector.xlen(STREAM_NAME)).toBe(publications.length);
 
-      // -- 1. Expected planning:* messages, in order, no duplicates --------
+      // -- 1. Only rows newly accepted by durable storage reach Pub/Sub -----
       const types = received.map((m) => m.message.type);
       expect(types).toEqual([
         "planning:text",
@@ -282,23 +403,58 @@ describe.skipIf(!redisAvailable)("Pipeline e2e: stream → real consumer → pub
         "planning:response-complete",
       ]);
 
-      // -- 2. Duplicates and out-of-order envelopes were dropped -----------
+      // -- 2. Process memory never decides durable identity -----------------
       expect(types.filter((t) => t === "planning:tool-call-start").length).toBe(1);
       expect(types.filter((t) => t === "planning:subagent-spawn").length).toBe(1);
       expect(types.filter((t) => t === "planning:thinking").length).toBe(1);
-      // The consumer logged exactly 3 dropped envelopes for this job.
       expect(
         droppedLogs.filter((entry) => entry.jobId === JOB_ID).length,
-      ).toBe(3);
+      ).toBe(0);
 
-      // -- 3. Outbound sequenceNum is monotonic and contiguous from 0 ------
+      // -- 3. Outbound sequenceNum preserves the accepted producer value ---
       const sequenceNums = received
         .map((m) => m.message.payload.sequenceNum)
         .filter((seq): seq is number => typeof seq === "number");
-      expect(sequenceNums).toEqual([0, 1, 2, 3, 4, 5]);
-      // planning:question derives its questionId from the reassigned sequence.
+      expect(sequenceNums).toEqual([1, 2, 3, 4, 5, 6]);
+      // planning:question derives its questionId from the producer sequence.
       const question = received.find((m) => m.message.type === "planning:question");
-      expect(question?.message.payload.questionId).toBe("question-6");
+      expect(question?.message.payload.questionId).toBe("question-7");
+
+      // Every Redis delivery still reaches durable storage before ACK. Only
+      // the eight identities newly inserted by the DB become visible rows.
+      const attempted = () =>
+        persistenceAttempts
+          .filter((request) => request.jobId === JOB_ID)
+          .flatMap((request) => request.events);
+      const attemptOutcomes = persistenceAttempts
+        .filter((request) => request.jobId === JOB_ID)
+        .map((request) => ({
+          sequenceNum: request.events[0]?.sequenceNum,
+          inserted: request.inserted,
+        }));
+      const persisted = () =>
+        persistedSessionEvents
+          .filter((request) => request.jobId === JOB_ID)
+          .flatMap((request) => request.events);
+      expect(attempted().map((event) => event.sequenceNum)).toEqual([
+        1, 2, 3, 3, 4, 5, 5, 2, 6, 7, 8,
+      ]);
+      expect(attemptOutcomes).toEqual([
+        { sequenceNum: 1, inserted: 1 },
+        { sequenceNum: 2, inserted: 1 },
+        { sequenceNum: 3, inserted: 1 },
+        { sequenceNum: 3, inserted: 0 },
+        { sequenceNum: 4, inserted: 1 },
+        { sequenceNum: 5, inserted: 1 },
+        { sequenceNum: 5, inserted: 0 },
+        { sequenceNum: 2, inserted: 0 },
+        { sequenceNum: 6, inserted: 1 },
+        { sequenceNum: 7, inserted: 1 },
+        { sequenceNum: 8, inserted: 1 },
+      ]);
+      expect(persisted().map((event) => event.sequenceNum)).toEqual([
+        1, 2, 3, 4, 5, 6, 7, 8,
+      ]);
 
       // -- 4. Envelope routing metadata survives the pipeline ---------------
       for (const m of received) {
@@ -367,6 +523,25 @@ describe.skipIf(!redisAvailable)("Pipeline e2e: stream → real consumer → pub
       // The resumed attempt's event MUST be delivered, not silently dropped.
       const delivered = await waitFor(() => bySession("attempt-B-resumed"), 15_000);
       expect(delivered).toBe(true);
+
+      const legacyMessages = received
+        .filter((message) => message.message.payload.sessionId === SESSION_B)
+        .map((message) => message.message.payload);
+      expect(legacyMessages.map((payload) => payload.content)).toEqual([
+        "attempt-A-1",
+        "attempt-A-2",
+        "attempt-A-3",
+        "attempt-B-resumed",
+      ]);
+      // job.started is deliberately persisted as canonical lifecycle data but
+      // silenced by the WS renderer. Its internal sequence 3 therefore creates
+      // an intentional visible gap; the resumed text retains sequence 4.
+      expect(legacyMessages.map((payload) => payload.sequenceNum)).toEqual([
+        0, 1, 2, 4,
+      ]);
+      expect(
+        droppedLogs.filter((entry) => entry.jobId === JOB_B).length,
+      ).toBe(0);
     },
     40_000,
   );
@@ -420,6 +595,25 @@ describe.skipIf(!redisAvailable)("Pipeline e2e: stream → real consumer → pub
         // "regression" just because neither carries a sequence number.
         expect(await waitFor(() => seen("noseq-1"), 15_000)).toBe(true);
         expect(await waitFor(() => seen("noseq-2"), 15_000)).toBe(true);
+
+        const noSequenceMessages = received.filter(
+          (message) =>
+            message.message.payload.sessionId === SESSION_C &&
+            (message.message.payload.content === "noseq-1" ||
+              message.message.payload.content === "noseq-2"),
+        );
+        expect(
+          noSequenceMessages.map(
+            (message) => message.message.payload.sequenceNum,
+          ),
+        ).toEqual([0, 1]);
+
+        const persisted = () =>
+          persistedSessionEvents
+            .filter((request) => request.jobId === JOB_C)
+            .flatMap((request) => request.events);
+        expect(await waitFor(() => persisted().length === 2, 5_000)).toBe(true);
+        expect(persisted().map((event) => event.sequenceNum)).toEqual([0, 1]);
       } finally {
         rawRedis.disconnect();
       }
