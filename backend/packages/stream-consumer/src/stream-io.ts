@@ -17,6 +17,8 @@ type FormattedStreamEvent = AgentOutputEvent & {
   codingAgent?: string;
   runtimeSessionId?: string;
   emittedAt?: string;
+  sequenceProtocolVersion?: "durable.v2";
+  claimAttemptId?: string;
 };
 
 export type StreamReadResult =
@@ -55,6 +57,8 @@ const toCanonicalStreamEvent = (
     threadId: envelope.threadId,
     timestamp: envelope.timestamp,
     sequenceNumber: envelope.sequenceNumber,
+    sequenceProtocolVersion: map.get("sequenceProtocolVersion") as "durable.v2" | undefined,
+    claimAttemptId: map.get("claimAttemptId"),
     type: "message",
     _format: map.get("_format"),
     event: map.get("event"),
@@ -87,6 +91,8 @@ const toNativeStreamEvent = (
     threadId: envelope.threadId,
     timestamp: envelope.timestamp,
     sequenceNumber: envelope.sequenceNumber,
+    sequenceProtocolVersion: map.get("sequenceProtocolVersion") as "durable.v2" | undefined,
+    claimAttemptId: map.get("claimAttemptId"),
     type: "raw",
     payload: envelope.payload,
     _format: map.get("_format"),
@@ -125,6 +131,12 @@ export const readStreamEvent = (event: AgentOutputEvent): StreamReadResult => {
       String(event.timestamp),
       "sequenceNumber",
       String(event.sequenceNumber),
+      ...(rawEvent.sequenceProtocolVersion
+        ? ["sequenceProtocolVersion", rawEvent.sequenceProtocolVersion]
+        : []),
+      ...(rawEvent.claimAttemptId
+        ? ["claimAttemptId", rawEvent.claimAttemptId]
+        : []),
       "_format",
       rawEvent._format,
       "event",
@@ -152,6 +164,12 @@ export const readStreamEvent = (event: AgentOutputEvent): StreamReadResult => {
       String(event.timestamp),
       "sequenceNumber",
       String(event.sequenceNumber),
+      ...(rawEvent.sequenceProtocolVersion
+        ? ["sequenceProtocolVersion", rawEvent.sequenceProtocolVersion]
+        : []),
+      ...(rawEvent.claimAttemptId
+        ? ["claimAttemptId", rawEvent.claimAttemptId]
+        : []),
       "_format",
       rawEvent._format,
       "nativeEventType",

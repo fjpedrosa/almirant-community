@@ -30,6 +30,8 @@ export type AgentOutputEvent = {
   threadId: string;
   timestamp: number;
   sequenceNumber: number;
+  sequenceProtocolVersion?: "durable.v2";
+  claimAttemptId?: string;
 
   // Content
   type: AgentOutputEventType;

@@ -338,6 +338,26 @@ export type CanonicalEvent = (
 
 export type CanonicalEventKind = CanonicalEvent["kind"];
 
+/** Marks producer sequence numbers backed by durable per-job high-water state. */
+export const DURABLE_SEQUENCE_PROTOCOL_VERSION = "durable.v2" as const;
+export type SequenceProtocolVersion = typeof DURABLE_SEQUENCE_PROTOCOL_VERSION;
+
+export const assertValidSequenceProtocolMetadata = (value: {
+  sequenceProtocolVersion?: unknown;
+  claimAttemptId?: unknown;
+}): void => {
+  const { sequenceProtocolVersion, claimAttemptId } = value;
+  if (sequenceProtocolVersion === undefined && claimAttemptId === undefined) {
+    return;
+  }
+  if (sequenceProtocolVersion !== DURABLE_SEQUENCE_PROTOCOL_VERSION) {
+    throw new Error("unsupported sequence protocol");
+  }
+  if (typeof claimAttemptId !== "string" || claimAttemptId.trim().length === 0) {
+    throw new Error("durable.v2 requires claimAttemptId");
+  }
+};
+
 export type CanonicalEventEnvelope = {
   jobId: string;
   sessionId: string;
@@ -345,6 +365,9 @@ export type CanonicalEventEnvelope = {
   threadId: string;
   timestamp: number;
   sequenceNumber: number;
+  sequenceProtocolVersion?: SequenceProtocolVersion;
+  /** Exact atomic claim generation that produced this event. */
+  claimAttemptId?: string;
   protocolVersion?: "canonical.v1" | "canonical.v2";
   schemaVersion?: "canonical.v1" | "canonical.v2";
   eventId?: string;
@@ -364,6 +387,9 @@ export type NativeEventEnvelope = {
   threadId: string;
   timestamp: number;
   sequenceNumber: number;
+  sequenceProtocolVersion?: SequenceProtocolVersion;
+  /** Exact atomic claim generation that produced this event. */
+  claimAttemptId?: string;
   nativeEventType: string;
   sourceFormat: string;
   provider?: string;
@@ -376,6 +402,7 @@ export type NativeEventEnvelope = {
 export const serializeNativeEnvelope = (
   envelope: NativeEventEnvelope,
 ): string[] => {
+  assertValidSequenceProtocolMetadata(envelope);
   const fields: string[] = [];
 
   fields.push("jobId", envelope.jobId);
@@ -384,6 +411,10 @@ export const serializeNativeEnvelope = (
   fields.push("threadId", envelope.threadId);
   fields.push("timestamp", String(envelope.timestamp));
   fields.push("sequenceNumber", String(envelope.sequenceNumber));
+  if (envelope.sequenceProtocolVersion === DURABLE_SEQUENCE_PROTOCOL_VERSION) {
+    fields.push("sequenceProtocolVersion", DURABLE_SEQUENCE_PROTOCOL_VERSION);
+  }
+  if (envelope.claimAttemptId) fields.push("claimAttemptId", envelope.claimAttemptId);
   fields.push("nativeEventType", envelope.nativeEventType);
   fields.push("sourceFormat", envelope.sourceFormat);
   fields.push("payload", JSON.stringify(envelope.payload));
@@ -420,6 +451,13 @@ export const deserializeNativeEnvelope = (
     return null;
   }
 
+  const sequenceProtocolVersion = map.get("sequenceProtocolVersion");
+  const claimAttemptId = map.get("claimAttemptId");
+  assertValidSequenceProtocolMetadata({
+    sequenceProtocolVersion,
+    claimAttemptId,
+  });
+
   let payload: Record<string, unknown>;
   try {
     const parsed = JSON.parse(map.get("payload")!);
@@ -438,6 +476,10 @@ export const deserializeNativeEnvelope = (
     threadId: map.get("threadId") ?? "",
     timestamp: Number(map.get("timestamp") ?? 0),
     sequenceNumber: Number(map.get("sequenceNumber") ?? 0),
+    ...(sequenceProtocolVersion === DURABLE_SEQUENCE_PROTOCOL_VERSION
+      ? { sequenceProtocolVersion: DURABLE_SEQUENCE_PROTOCOL_VERSION }
+      : {}),
+    ...(claimAttemptId ? { claimAttemptId } : {}),
     nativeEventType: map.get("nativeEventType") ?? "unknown",
     sourceFormat: map.get("sourceFormat") ?? "sse",
     provider: map.get("provider") || undefined,
@@ -463,6 +505,7 @@ export const isNativeFormat = (fields: string[]): boolean => {
 export const serializeCanonicalEnvelope = (
   envelope: CanonicalEventEnvelope,
 ): string[] => {
+  assertValidSequenceProtocolMetadata(envelope);
   const fields: string[] = [];
 
   fields.push("jobId", envelope.jobId);
@@ -471,6 +514,10 @@ export const serializeCanonicalEnvelope = (
   fields.push("threadId", envelope.threadId);
   fields.push("timestamp", String(envelope.timestamp));
   fields.push("sequenceNumber", String(envelope.sequenceNumber));
+  if (envelope.sequenceProtocolVersion === DURABLE_SEQUENCE_PROTOCOL_VERSION) {
+    fields.push("sequenceProtocolVersion", DURABLE_SEQUENCE_PROTOCOL_VERSION);
+  }
+  if (envelope.claimAttemptId) fields.push("claimAttemptId", envelope.claimAttemptId);
   if (envelope.protocolVersion) fields.push("protocolVersion", envelope.protocolVersion);
   if (envelope.schemaVersion) fields.push("schemaVersion", envelope.schemaVersion);
   if (envelope.eventId) fields.push("eventId", envelope.eventId);
@@ -503,6 +550,13 @@ export const deserializeCanonicalEnvelope = (
     return null;
   }
 
+  const sequenceProtocolVersion = map.get("sequenceProtocolVersion");
+  const claimAttemptId = map.get("claimAttemptId");
+  assertValidSequenceProtocolMetadata({
+    sequenceProtocolVersion,
+    claimAttemptId,
+  });
+
   let event: CanonicalEvent;
   try {
     event = JSON.parse(map.get("event")!) as CanonicalEvent;
@@ -524,6 +578,10 @@ export const deserializeCanonicalEnvelope = (
     sequenceNumber: map.has("sequenceNumber")
       ? Number(map.get("sequenceNumber"))
       : Number.NaN,
+    ...(sequenceProtocolVersion === DURABLE_SEQUENCE_PROTOCOL_VERSION
+      ? { sequenceProtocolVersion: DURABLE_SEQUENCE_PROTOCOL_VERSION }
+      : {}),
+    ...(claimAttemptId ? { claimAttemptId } : {}),
     ...(map.get("protocolVersion") ? { protocolVersion: map.get("protocolVersion") as "canonical.v1" | "canonical.v2" } : {}),
     ...(map.get("schemaVersion") ? { schemaVersion: map.get("schemaVersion") as "canonical.v1" | "canonical.v2" } : {}),
     ...(map.get("eventId") ? { eventId: map.get("eventId")! } : {}),

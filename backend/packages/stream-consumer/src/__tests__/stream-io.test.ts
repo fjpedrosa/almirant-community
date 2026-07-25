@@ -14,6 +14,8 @@ const envelope: CanonicalEventEnvelope = {
   threadId: "thread-1",
   timestamp: 1_710_000_000_000,
   sequenceNumber: 7,
+  sequenceProtocolVersion: "durable.v2",
+  claimAttemptId: "attempt-1",
   event: {
     kind: "agent.wave.end",
     successCount: 2,
@@ -32,6 +34,7 @@ describe("stream-io", () => {
     }
 
     expect(result.envelope).toEqual(envelope);
+    expect(result.envelope.sequenceProtocolVersion).toBe("durable.v2");
   });
 
 
@@ -43,6 +46,8 @@ describe("stream-io", () => {
       threadId: "thread-1",
       timestamp: 1_710_000_000_001,
       sequenceNumber: 8,
+      sequenceProtocolVersion: "durable.v2",
+      claimAttemptId: "attempt-1",
       nativeEventType: "message.part.updated",
       sourceFormat: "opencode-sse",
       codingAgent: "opencode",
@@ -80,5 +85,25 @@ describe("stream-io", () => {
       format: "legacy",
       event: legacyEvent,
     });
+  });
+
+  it("falla cerrado ante un protocolo durable desconocido", () => {
+    const malformed = {
+      ...createCanonicalStreamEvent(envelope),
+      sequenceProtocolVersion: "durable.v3",
+    } as unknown as AgentOutputEvent;
+
+    expect(() => readStreamEvent(malformed)).toThrow(
+      "unsupported sequence protocol",
+    );
+  });
+
+  it("falla cerrado cuando durable.v2 no incluye claimAttemptId", () => {
+    const { claimAttemptId: _claimAttemptId, ...withoutClaim } =
+      createCanonicalStreamEvent(envelope);
+
+    expect(() => readStreamEvent(withoutClaim as AgentOutputEvent)).toThrow(
+      "durable.v2 requires claimAttemptId",
+    );
   });
 });

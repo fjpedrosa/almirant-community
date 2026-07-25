@@ -2,11 +2,13 @@ import { describe, it, expect } from "bun:test";
 import { createWebRenderer } from "../src/web-renderer";
 import {
   createCanonicalRouter,
+  buildCanonicalSessionProjection,
   type CanonicalEvent,
   type CanonicalEventEnvelope,
   type BridgeRendererContext,
 } from "@almirant/stream-consumer";
 import { createSequenceGuard } from "../src/sequence-guard";
+import { buildOutboundCanonicalEnvelope } from "../src/consumer";
 
 // ---------------------------------------------------------------------------
 // Mock Redis Pub/Sub — records publish calls instead of connecting to Redis
@@ -735,6 +737,104 @@ describe("Web Bridge: Canonical → WS message mapping", () => {
 // ===========================================================================
 
 describe("SequenceGuard: dedup and ordering", () => {
+  it("preserves producer sequences only for the explicit durable v2 protocol", () => {
+    const guard = createSequenceGuard();
+
+    expect(guard.resolveOutboundSequence("job-v2", 73, "durable.v2")).toBe(73);
+    expect(guard.resolveOutboundSequence("job-v2", undefined, "durable.v2")).toBe(74);
+
+    // A finite number is not sufficient to trust a rolling-deploy producer:
+    // old runners used a process-global namespace that can restart per attempt.
+    expect(guard.resolveOutboundSequence("legacy-job", 73, undefined)).toBe(0);
+    expect(guard.resolveOutboundSequence("legacy-job", 1, undefined)).toBe(1);
+  });
+
+  it("keeps legacy output monotonic when an old runner resumes the same job with low sequences", () => {
+    const guard = createSequenceGuard();
+
+    expect(guard.resolveOutboundSequence("legacy-job", 100, undefined)).toBe(0);
+    expect(guard.resolveOutboundSequence("legacy-job", 101, undefined)).toBe(1);
+    guard.resetHighWater("legacy-job");
+    expect(guard.resolveOutboundSequence("legacy-job", 1, undefined)).toBe(2);
+    expect(guard.resolveOutboundSequence("legacy-job", 2, undefined)).toBe(3);
+  });
+
+  it("does not let an old runner's process-global sequence poison a later durable attempt", () => {
+    const guard = createSequenceGuard();
+
+    expect(guard.isRegression("mixed-job", 1_000, undefined)).toBe(false);
+    expect(guard.isRegression("mixed-job", 3, "durable.v2")).toBe(false);
+    expect(guard.isRegression("mixed-job", 3, "durable.v2")).toBe(false);
+  });
+
+  it("never drops durable out-of-order sequences because PostgreSQL owns idempotency", () => {
+    const guard = createSequenceGuard();
+
+    expect(guard.isRegression("durable-out-of-order", 2, "durable.v2")).toBe(false);
+    expect(guard.isRegression("durable-out-of-order", 1, "durable.v2")).toBe(false);
+    expect(guard.isRegression("durable-out-of-order", 2, "durable.v2")).toBe(false);
+  });
+
+  it("fails closed for invalid durable-v2 producer sequences", () => {
+    const invalid = [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648];
+
+    for (const sequenceNumber of invalid) {
+      const guard = createSequenceGuard();
+      expect(() =>
+        guard.resolveOutboundSequence(
+          "durable-invalid",
+          sequenceNumber,
+          "durable.v2",
+        ),
+      ).toThrow("invalid durable.v2 sequence");
+      expect(() =>
+        guard.isRegression(
+          "durable-invalid",
+          sequenceNumber,
+          "durable.v2",
+        ),
+      ).toThrow("invalid durable.v2 sequence");
+    }
+  });
+
+  it("regenerates legacy event identity from the bridge-local sequence across resumes", () => {
+    const legacyEnvelope: CanonicalEventEnvelope = {
+      jobId: "legacy-resume",
+      sessionId: "session-legacy",
+      workspaceId: "workspace-legacy",
+      threadId: "legacy-resume",
+      timestamp: 1_700_000_000_000,
+      sequenceNumber: 1,
+      eventId: "legacy-resume:1:system.info",
+      event: {
+        kind: "system.info",
+        message: "same producer identity from two old attempts",
+        metadata: { eventId: "legacy-resume:1:system.info" },
+      },
+    };
+
+    const first = buildOutboundCanonicalEnvelope(
+      legacyEnvelope,
+      0,
+      undefined,
+    );
+    const resumed = buildOutboundCanonicalEnvelope(
+      legacyEnvelope,
+      1,
+      undefined,
+    );
+    const projection = buildCanonicalSessionProjection([
+      first,
+      resumed,
+    ]);
+
+    expect(first.eventId).toBe("legacy-resume:0:system.info");
+    expect(resumed.eventId).toBe("legacy-resume:1:system.info");
+    expect(first.event.metadata?.eventId).toBe(first.eventId);
+    expect(resumed.event.metadata?.eventId).toBe(resumed.eventId);
+    expect(projection.duplicateCount).toBe(0);
+  });
+
   it("rejects duplicate envelopes with same sequenceNumber", () => {
     const guard = createSequenceGuard();
 
@@ -823,15 +923,14 @@ describe("SequenceGuard: dedup and ordering", () => {
     expect(guard.isRegression("job-001", 2)).toBe(true);
   });
 
-  it("resetHighWater preserves the outbound counter (contiguous frontend ordering)", () => {
+  it("resetHighWater preserves the legacy fallback counter", () => {
     const guard = createSequenceGuard();
 
-    // Outbound (bridge-local) numbering advances during attempt A.
+    // Bridge-local fallback numbering advances during attempt A.
     expect(guard.nextSequence("job-001")).toBe(0);
     expect(guard.nextSequence("job-001")).toBe(1);
 
-    // A reset (unlike cleanup) must NOT restart the outbound counter, so the
-    // frontend keeps receiving a contiguous, monotonic sequence across attempts.
+    // A reset (unlike cleanup) must NOT restart the fallback counter.
     guard.resetHighWater("job-001");
     expect(guard.nextSequence("job-001")).toBe(2);
   });
