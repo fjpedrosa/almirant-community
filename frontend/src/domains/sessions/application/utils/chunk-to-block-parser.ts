@@ -373,8 +373,17 @@ const normalizeSummaryDuplicateText = (value: string): string =>
     .trim()
     .toLowerCase();
 
-/** A summary heading occupying its whole line — the real section marker. */
-const SUMMARY_SECTION_HEADING = /^##[ \t]*(?:Summary|Resumen)[ \t]*:?[ \t]*$/gm;
+/**
+ * Closing-report headings, kept in sync with `SUMMARY_HEADING_REGEX` in
+ * services/runner/src/session/sse-canonical-adapter.ts. The producer decides
+ * what becomes an `agent.summary`; this decides where that body was lifted
+ * from, so the prose can drop it instead of repeating the card.
+ *
+ * A tail is allowed — agents title their reports ("## Resumen del trabajo (…)")
+ * — because the body always starts after the heading LINE.
+ */
+const SUMMARY_SECTION_HEADING =
+  /^##[ \t]+(?:Final Report|Final Summary|Summary|Reporte Final|Informe Final|Resumen Final|Resumen)\b[^\n]*$/gim;
 
 const findLastSummaryHeadingIndex = (content: string): number | null => {
   SUMMARY_SECTION_HEADING.lastIndex = 0;

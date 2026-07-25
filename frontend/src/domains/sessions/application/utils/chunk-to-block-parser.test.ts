@@ -1244,6 +1244,51 @@ curl -s -X POST "$MCP_URL" \\
     expect(textBlocks[0]?.content).toContain("## Resumen del trabajo (scrape-bundle)");
   });
 
+  it("mueve un «Reporte final» a la tarjeta en vez de dejarlo como prosa", () => {
+    const chunks = [
+      makeChunk({
+        id: "text-1",
+        seq: 1,
+        phase: "transcript",
+        eventType: "agent.text",
+        contentType: "text",
+        message:
+          "Envio completado.\n\n## Reporte final\n\n**Plataforma detectada:** Shopify",
+        timestamp: "2026-07-25T21:00:00.000Z",
+      }),
+      makeChunk({
+        id: "summary-1",
+        seq: 2,
+        phase: "transcript",
+        eventType: "agent.summary",
+        message: "**Plataforma detectada:** Shopify",
+        payload: {
+          section: "Resumen",
+          text: "**Plataforma detectada:** Shopify",
+        },
+        timestamp: "2026-07-25T21:00:01.000Z",
+      }),
+    ];
+
+    const blocks = parseChunksToStreamingBlocks(chunks, false);
+    const summaryBlocks = blocks.filter(
+      (block): block is Extract<typeof block, { type: "summary" }> =>
+        block.type === "summary",
+    );
+    const textBlocks = blocks.filter(
+      (block): block is Extract<typeof block, { type: "text" }> =>
+        block.type === "text",
+    );
+
+    expect(summaryBlocks).toHaveLength(1);
+    expect(summaryBlocks[0]?.text).toContain("Plataforma detectada");
+    // The prose keeps what preceded the report and loses the section itself.
+    expect(textBlocks).toHaveLength(1);
+    expect(textBlocks[0]?.content).toContain("Envio completado.");
+    expect(textBlocks[0]?.content).not.toContain("## Reporte final");
+    expect(textBlocks[0]?.content).not.toContain("Plataforma detectada");
+  });
+
   it("recorta la sección de resumen de la prosa en vez de repetirla en la tarjeta", () => {
     const chunks = [
       makeChunk({

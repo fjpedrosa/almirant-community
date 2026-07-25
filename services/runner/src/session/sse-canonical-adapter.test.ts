@@ -461,31 +461,76 @@ describe("createSseCanonicalAdapter", () => {
     }
   });
 
-  it("no trata un encabezado que solo EMPIEZA por Resumen como marcador de resumen", () => {
+  it("reconoce un encabezado titulado sin arrastrar el título al cuerpo", () => {
     const adapter = createSseCanonicalAdapter();
-    // El agente titula su respuesta, no abre un bloque estructurado. Tratarlo
-    // como marcador partía el título ("Resumen" se perdía) y duplicaba todo el
-    // cuerpo en una tarjeta de resumen debajo del propio texto.
+    // El cuerpo arranca DESPUÉS de la línea del encabezado, así que las
+    // palabras extra del título no pueden filtrarse al resumen.
     adapter.processEvent(
       createSseEvent("message.part.updated", {
         part: {
-          text: "## Resumen del trabajo (scrape-bundle)\n\n- Plataforma detectada: Shopify\n- Hostname: spellbinders.com\n",
+          text: "## Resumen del trabajo (scrape-bundle)\n\n- Plataforma detectada: Shopify\n",
         },
         contentType: "text",
       }),
     );
     const idleEvents = adapter.processEvent(createSseEvent("session.idle", {}));
+    const summaryEvent = idleEvents.find(
+      (event) => event.kind === "agent.summary",
+    );
 
-    expect(
-      idleEvents.find((event) => event.kind === "agent.summary"),
-    ).toBeUndefined();
+    expect(summaryEvent).toBeDefined();
+    if (summaryEvent && summaryEvent.kind === "agent.summary") {
+      expect(summaryEvent.section).toBe("Resumen");
+      expect(summaryEvent.text).toBe("- Plataforma detectada: Shopify");
+      expect(summaryEvent.text.startsWith("del trabajo")).toBe(false);
+    }
   });
 
-  it("no trata un encabezado que solo EMPIEZA por Summary como marcador de resumen", () => {
+  it("reconoce «Reporte final» como informe de cierre", () => {
     const adapter = createSseCanonicalAdapter();
     adapter.processEvent(
       createSseEvent("message.part.updated", {
-        part: { text: "## Summary of the run\n\n- Did the thing\n" },
+        part: { text: "## Reporte final\n\n**Plataforma:** Shopify" },
+        contentType: "text",
+      }),
+    );
+    const idleEvents = adapter.processEvent(createSseEvent("session.idle", {}));
+    const summaryEvent = idleEvents.find(
+      (event) => event.kind === "agent.summary",
+    );
+
+    expect(summaryEvent).toBeDefined();
+    if (summaryEvent && summaryEvent.kind === "agent.summary") {
+      expect(summaryEvent.section).toBe("Resumen");
+      expect(summaryEvent.text).toBe("**Plataforma:** Shopify");
+    }
+  });
+
+  it("reconoce «Final report» y lo etiqueta en inglés", () => {
+    const adapter = createSseCanonicalAdapter();
+    adapter.processEvent(
+      createSseEvent("message.part.updated", {
+        part: { text: "## Final report\n\n- Shipped it" },
+        contentType: "text",
+      }),
+    );
+    const idleEvents = adapter.processEvent(createSseEvent("session.idle", {}));
+    const summaryEvent = idleEvents.find(
+      (event) => event.kind === "agent.summary",
+    );
+
+    expect(summaryEvent).toBeDefined();
+    if (summaryEvent && summaryEvent.kind === "agent.summary") {
+      expect(summaryEvent.section).toBe("Summary");
+      expect(summaryEvent.text).toBe("- Shipped it");
+    }
+  });
+
+  it("no confunde un encabezado cualquiera con un informe de cierre", () => {
+    const adapter = createSseCanonicalAdapter();
+    adapter.processEvent(
+      createSseEvent("message.part.updated", {
+        part: { text: "## Notas de implementación\n\n- Detalle" },
         contentType: "text",
       }),
     );

@@ -77,18 +77,22 @@ type PartTracker = {
  * same block to the transcript without relying on text parsing downstream.
  */
 /**
- * The heading must be the WHOLE line — `## Summary`, optionally followed by a
- * colon and trailing spaces. `\b` alone also matched titles that merely begin
- * with the word, so `## Resumen del trabajo` was read as the marker `Resumen`
- * plus a body starting at "del trabajo": the title lost its first word and the
- * entire response was repeated below itself as a summary card.
+ * Headings an agent uses to open its closing report. Titles carry extra words
+ * — `## Resumen del trabajo (scrape-bundle)`, `## Reporte final` — so the
+ * pattern deliberately allows a tail.
  *
- * Deliberately stricter than `extractStructuredSummary` in
- * orchestration/job-completion-guards.ts: that one gates job completion, where
- * being lenient is the safe failure mode. This one drives rendering, where
- * being lenient corrupts the transcript.
+ * The body is then taken from the end of the heading LINE, never from the end
+ * of the matched keyword. That distinction is the whole fix: consuming only
+ * `## Resumen ` left `del trabajo (scrape-bundle)` as the summary body, which
+ * rendered a card whose heading had lost its first word.
  */
-const SUMMARY_HEADING_REGEX = /^## (Summary|Resumen)[ \t]*:?[ \t]*(?:\n|$)/m;
+const ENGLISH_SUMMARY_HEADINGS = "Final Report|Final Summary|Summary";
+const SPANISH_SUMMARY_HEADINGS =
+  "Reporte Final|Informe Final|Resumen Final|Resumen";
+const SUMMARY_HEADING_REGEX = new RegExp(
+  `^##[ \\t]+(?:(${ENGLISH_SUMMARY_HEADINGS})|(${SPANISH_SUMMARY_HEADINGS}))\\b[^\\n]*(?:\\n|$)`,
+  "im",
+);
 const extractSummarySection = (
   text: string,
 ): { text: string; section: "Summary" | "Resumen" } | null => {
@@ -96,7 +100,10 @@ const extractSummarySection = (
   if (!match) return null;
   const body = text.slice(match.index + match[0].length).trim();
   if (!body) return null;
-  return { text: body, section: match[1] as "Summary" | "Resumen" };
+  // The canonical event carries the card's language, not the agent's exact
+  // wording: `## Reporte final` is labelled RESUMEN, `## Final report` SUMMARY.
+  const section: "Summary" | "Resumen" = match[1] ? "Summary" : "Resumen";
+  return { text: body, section };
 };
 
 export const createSseCanonicalAdapter = (): EventAdapter => {
