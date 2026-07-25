@@ -1,6 +1,7 @@
 import { Elysia } from "elysia";
 import { loadBridgeEnv } from "./config";
 import { createWebBridgeConsumer } from "./consumer";
+import { createApiClient } from "./api-client";
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -50,10 +51,25 @@ const log = (
 // Consumer
 // ---------------------------------------------------------------------------
 
+const apiClient =
+  env.BACKEND_API_URL && env.BRIDGE_API_KEY
+    ? createApiClient({
+        baseUrl: env.BACKEND_API_URL,
+        apiKey: env.BRIDGE_API_KEY,
+        log,
+      })
+    : null;
+
+if (apiClient) {
+  await apiClient.checkCredential();
+  log("info", "Backend service-account credential preflight passed");
+}
+
 const consumer = createWebBridgeConsumer({
   env,
   redisConnectionString: env.REDIS_URL,
   log,
+  apiClient,
 });
 
 consumer.start();

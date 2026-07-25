@@ -56,6 +56,8 @@ const apiClient =
     : null;
 
 if (apiClient) {
+  await apiClient.checkCredential();
+  log("info", "Backend service-account credential preflight passed");
   log("info", "API client initialized for canonical event processing", {
     baseUrl: env.BACKEND_API_URL,
   });
