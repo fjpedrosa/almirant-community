@@ -36,6 +36,7 @@ type ConsumerDeps = {
   env: BridgeEnv;
   redisConnectionString: string;
   log: (level: string, message: string, meta?: Record<string, unknown>) => void;
+  apiClient?: ApiClient | null;
   now?: () => number;
 };
 
@@ -48,7 +49,13 @@ export type WebBridgeConsumer = {
 export const createWebBridgeConsumer = (
   deps: ConsumerDeps
 ): WebBridgeConsumer => {
-  const { env, redisConnectionString, log, now: nowFn } = deps;
+  const {
+    env,
+    redisConnectionString,
+    log,
+    apiClient: injectedApiClient,
+    now: nowFn,
+  } = deps;
   const startedAt = (nowFn ?? Date.now)();
   let totalProcessed = 0;
   let totalFailed = 0;
@@ -59,7 +66,7 @@ export const createWebBridgeConsumer = (
   let reader: StreamReader | null = null;
   let coalescer: Coalescer | null = null;
   let pubsubRedis: Redis | null = null;
-  let apiClient: ApiClient | null = null;
+  let apiClient: ApiClient | null = injectedApiClient ?? null;
   let eventPersistence: EventPersistenceStrategy | null = null;
 
   const handleFlush = async (batch: WebBridgeBatch): Promise<void> => {
@@ -111,12 +118,14 @@ export const createWebBridgeConsumer = (
       });
 
       // Initialize API client for canonical events (optional — only if configured)
-      if (env.BACKEND_API_URL && env.BRIDGE_API_KEY) {
+      if (!apiClient && env.BACKEND_API_URL && env.BRIDGE_API_KEY) {
         apiClient = createApiClient({
           baseUrl: env.BACKEND_API_URL,
           apiKey: env.BRIDGE_API_KEY,
           log,
         });
+      }
+      if (apiClient) {
         eventPersistence = createEventPersistenceStrategy(apiClient, log);
         log("info", "API client initialized for canonical event processing", {
           baseUrl: env.BACKEND_API_URL,

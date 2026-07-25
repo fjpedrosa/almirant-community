@@ -16,6 +16,7 @@ export type BridgeApiClientConfig = {
   baseUrl: string;
   apiKey: string;
   log: PersistenceLogger;
+  fetch?: (url: string, init?: RequestInit) => Promise<Response>;
 };
 
 export type JobStatusPayload = {
@@ -43,6 +44,7 @@ export type NativeEventPayload = {
 };
 
 export type BridgeApiClient = {
+  checkCredential: () => Promise<void>;
   updateJobStatus: (jobId: string, payload: JobStatusPayload) => Promise<void>;
   persistSessionEvents: (
     jobId: string,
@@ -139,7 +141,12 @@ export const withPersistenceRetry = async <T>(
 export const createBridgeApiClient = (
   config: BridgeApiClientConfig,
 ): BridgeApiClient => {
-  const { baseUrl, apiKey, log } = config;
+  const {
+    baseUrl,
+    apiKey,
+    log,
+    fetch: requestFetch = globalThis.fetch,
+  } = config;
 
   const request = async <T = unknown>(
     path: string,
@@ -149,7 +156,7 @@ export const createBridgeApiClient = (
 
     const response = await withPersistenceRetry(
       () =>
-        fetch(url, {
+        requestFetch(url, {
           ...options,
           headers: {
             "Content-Type": "application/json",
@@ -178,6 +185,12 @@ export const createBridgeApiClient = (
   };
 
   return {
+    checkCredential: async () => {
+      await request("/workers/credential-check", {
+        method: "GET",
+      });
+    },
+
     updateJobStatus: async (jobId, payload) => {
       await request(`/workers/jobs/${jobId}/status`, {
         method: "POST",
