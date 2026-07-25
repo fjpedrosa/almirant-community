@@ -23,6 +23,9 @@ export interface ConversationMessageLabels {
   feedbackPlaceholder?: string;
   feedbackSubmit?: string;
   feedbackSuccess?: string;
+  showMore?: string;
+  showLess?: string;
+  lines?: string;
 }
 
 export type QuickFeedbackSentiment = "positive" | "negative";

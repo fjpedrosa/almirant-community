@@ -1,8 +1,9 @@
 import { useState, useCallback } from "react";
-import { CheckCircle2, Clock, Copy, Check, Loader2, MessageSquareWarning, ThumbsUp, ThumbsDown } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, Clock, Copy, Check, Loader2, MessageSquareWarning, ThumbsUp, ThumbsDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { MarkdownPreview } from "@/domains/shared/presentation/components/markdown-preview";
 import { ThinkingBlock } from "@/domains/shared/presentation/components/streaming-blocks";
 import type {
@@ -12,6 +13,7 @@ import type {
   QuickFeedbackSentiment,
 } from "../../domain/conversation-types";
 import { useTypewriter } from "../../application/hooks/use-typewriter";
+import { useCollapsibleText } from "../../application/hooks/use-collapsible-text";
 
 const DEFAULT_LABELS: Required<
   Omit<ConversationMessageLabels, "summary">
@@ -28,6 +30,9 @@ const DEFAULT_LABELS: Required<
   feedbackPlaceholder: "What could be improved?",
   feedbackSubmit: "Submit",
   feedbackSuccess: "Thanks!",
+  showMore: "Show more",
+  showLess: "Show less",
+  lines: "lines",
 };
 
 const CopyMessageButton: React.FC<{
@@ -226,6 +231,63 @@ const MessageTimestamp: React.FC<{
   );
 };
 
+/** Launch prompts are authored as Markdown (headings, fenced JSON, lists) and
+ *  routinely run for hundreds of lines. Render them as Markdown, and clip the
+ *  long ones so the prompt frames the run instead of burying it. */
+const UserMessageBody: React.FC<{
+  content: string;
+  showMoreLabel: string;
+  showLessLabel: string;
+  linesLabel: string;
+  markdownComponents?: ConversationMessageProps["markdownComponents"];
+}> = ({
+  content,
+  showMoreLabel,
+  showLessLabel,
+  linesLabel,
+  markdownComponents,
+}) => {
+  const { isCollapsible, isCollapsed, lineCount, toggle } =
+    useCollapsibleText(content);
+
+  return (
+    <div className="min-w-0">
+      <div
+        className={cn(
+          "relative min-w-0",
+          isCollapsed && "max-h-64 overflow-hidden",
+        )}
+      >
+        <MarkdownPreview
+          content={content}
+          size="sm"
+          className="prose-p:text-foreground prose-li:text-foreground prose-pre:bg-background/60"
+          components={markdownComponents}
+        />
+        {isCollapsed && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-muted via-muted/80 to-transparent" />
+        )}
+      </div>
+      {isCollapsible && (
+        <button
+          type="button"
+          onClick={toggle}
+          className="mt-1 -mb-0.5 inline-flex items-center gap-1 rounded text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          {isCollapsed ? (
+            <ChevronDown className="size-3.5" />
+          ) : (
+            <ChevronUp className="size-3.5" />
+          )}
+          {isCollapsed
+            ? `${showMoreLabel} · ${lineCount} ${linesLabel}`
+            : showLessLabel}
+        </button>
+      )}
+    </div>
+  );
+};
+
 const SeedCards: React.FC<{ seeds: ConversationUserSeed[] }> = ({ seeds }) => (
   <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-thin scrollbar-thumb-muted-foreground/20">
     {seeds.map((seed) => (
@@ -335,10 +397,14 @@ export const ConversationMessage: React.FC<ConversationMessageProps> = ({
 
     return (
       <div className="group/msg flex flex-col gap-1 w-full items-end">
-        <div className="max-w-[80%] rounded-2xl bg-muted/50 px-4 py-2.5 space-y-2">
-          <p className="text-base whitespace-pre-wrap break-words text-foreground">
-            {content}
-          </p>
+        <div className="min-w-0 max-w-[85%] space-y-2 overflow-hidden rounded-2xl rounded-br-md border border-border bg-muted px-4 py-3 shadow-sm">
+          <UserMessageBody
+            content={content}
+            showMoreLabel={mergedLabels.showMore}
+            showLessLabel={mergedLabels.showLess}
+            linesLabel={mergedLabels.lines}
+            markdownComponents={markdownComponents}
+          />
           {seeds && seeds.length > 0 && <SeedCards seeds={seeds} />}
         </div>
         <div className="relative flex items-center gap-1 flex-row-reverse">

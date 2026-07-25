@@ -255,10 +255,42 @@ const MCP_SERVER_LABELS: Record<string, string> = {
   claude_ai_Google_Calendar: "Calendar",
 };
 
-/** Legacy/direct MCP tool prefixes emitted by some coding agents. */
-const DIRECT_MCP_SERVER_PREFIXES: Record<string, string> = {
-  almirant: "almirant",
+/** MCP servers whose tools arrive flattened as `server_action`.
+ *  Claude Code namespaces MCP tools as `mcp__server__action`, but OpenCode and
+ *  Codex flatten them, so `scraper_fetch_document` is really the `fetch_document`
+ *  action of the `scraper` server. Only single-token lowercase names belong here:
+ *  a server name containing `_` cannot be split back out unambiguously. */
+const DIRECT_MCP_SERVERS = new Set([
+  "almirant",
+  "scraper",
+  "context7",
+  "playwright",
+  "serena",
+  "engram",
+  "memory",
+  "filesystem",
+  "brightdata",
+  "posthog",
+  "sentry",
+  "coolify",
+  "vercel",
+  "stripe",
+  "recraft",
+  "higgsfield",
+]);
+
+/** `fetch_document` / `run-browser-check` → `Fetch document` / `Run browser check`.
+ *  Sentence case, matching the curated MCP_ACTION_LABELS, not Title Case. */
+const toSentenceCase = (raw: string): string => {
+  const words = raw.replace(/[-_]+/g, " ").trim();
+  if (!words) return raw;
+  return words.charAt(0).toUpperCase() + words.slice(1);
 };
+
+/** Machine-generated tool names look like `snake_case` or `kebab-case`: all
+ *  lowercase with at least one separator. Built-ins (`Read`, `TodoWrite`) and
+ *  already-humanized labels (`Fetch document`) must not match. */
+const MACHINE_TOOL_NAME = /^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)+$/;
 
 export interface McpToolParts {
   serverRaw: string;
@@ -279,14 +311,13 @@ export const parseMcpToolName = (toolName: string): McpToolParts | null => {
     if (parts.length < 3) return null;
     serverRaw = parts[1];
     action = parts.slice(2).join("__");
-  } else {
-    for (const [prefix, server] of Object.entries(DIRECT_MCP_SERVER_PREFIXES)) {
-      const directPrefix = `${prefix}_`;
-      if (toolName.startsWith(directPrefix)) {
-        serverRaw = server;
-        action = toolName.slice(directPrefix.length);
-        break;
-      }
+  } else if (MACHINE_TOOL_NAME.test(toolName)) {
+    const separatorIndex = toolName.indexOf("_");
+    const candidateServer =
+      separatorIndex > 0 ? toolName.slice(0, separatorIndex) : null;
+    if (candidateServer && DIRECT_MCP_SERVERS.has(candidateServer)) {
+      serverRaw = candidateServer;
+      action = toolName.slice(separatorIndex + 1);
     }
   }
 
@@ -294,16 +325,8 @@ export const parseMcpToolName = (toolName: string): McpToolParts | null => {
 
   const serverLabel =
     MCP_SERVER_LABELS[serverRaw] ??
-    serverRaw
-      .replace(/^plugin_/, "")
-      .split(/[_-]/)
-      .pop()!
-      .replace(/\b\w/g, (c) => c.toUpperCase());
-  const actionLabel =
-    MCP_ACTION_LABELS[action] ??
-    action
-      .replace(/[-_]/g, " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase());
+    toSentenceCase(serverRaw.replace(/^plugin_/, "").split(/[_-]/).pop()!);
+  const actionLabel = MCP_ACTION_LABELS[action] ?? toSentenceCase(action);
   return { serverRaw, serverLabel, action, actionLabel };
 };
 
@@ -321,9 +344,13 @@ export const humanizeToolName = (toolName: string): string => {
   if (TOOL_NAME_MAP[toolName]) return TOOL_NAME_MAP[toolName];
 
   // MCP tools: mcp__almirant__get_ideation_context or
-  // legacy/direct almirant_get_ideation_context → "Ideation context"
+  // flattened almirant_get_ideation_context → "Ideation context"
   const mcpParts = parseMcpToolName(toolName);
   if (mcpParts) return mcpParts.actionLabel;
+
+  // Unknown machine-generated names (local tools, unregistered MCP servers):
+  // never surface raw snake_case to the user.
+  if (MACHINE_TOOL_NAME.test(toolName)) return toSentenceCase(toolName);
 
   // Built-in tools: keep as-is (Read, Edit, Bash, etc.)
   return toolName;
@@ -389,7 +416,7 @@ export const humanizeInputPreview = (
     // Extract the MCP tool name or query
     const selectMatch = raw.match(/select:mcp__[^_]+__(.+)/);
     if (selectMatch) {
-      return selectMatch[1].replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      return toSentenceCase(selectMatch[1]);
     }
     const queryMatch = raw.match(/query:\s*(.+)/);
     if (queryMatch) return queryMatch[1].trim();
@@ -398,7 +425,7 @@ export const humanizeInputPreview = (
     if (jsonMatch) {
       const q = jsonMatch[1];
       const mcpSelect = q.match(/select:mcp__[^_]+__(.+)/);
-      if (mcpSelect) return mcpSelect[1].replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      if (mcpSelect) return toSentenceCase(mcpSelect[1]);
       return q;
     }
     return undefined;
@@ -539,13 +566,8 @@ export const ToolIcon: React.FC<ToolIconProps> = ({
 
   if (
     toolName.startsWith("mcp__") ||
-    toolName.includes("almirant") ||
-    toolName.includes("context7") ||
-    toolName.includes("playwright") ||
-    toolName.includes("serena") ||
-    toolName.includes("memory") ||
-    toolName.includes("filesystem") ||
-    toolName.includes("DeepGraph")
+    toolName.includes("DeepGraph") ||
+    parseMcpToolName(toolName)
   ) {
     return <McpIcon className={className} />;
   }

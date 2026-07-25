@@ -129,6 +129,8 @@ export interface TimelinePhase {
   label: string;
   status: TimelinePhaseStatus;
   startedAt: string | null;
+  /** Timestamp of the most recent event observed in this phase. */
+  lastEventAt?: string | null;
   eventCount: number;
   details?: string[];
 }
