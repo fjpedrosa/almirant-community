@@ -212,9 +212,19 @@ interface ResolvedEstimatorModel {
 }
 
 /**
- * Resolve a LangChain chat model honoring the org AI-key policy when we have
- * a user+org context. Falls back to the env default (OPENAI_API_KEY) only
- * when there is no user/org and provider is "openai".
+ * Resolve a LangChain chat model honoring the org AI-key policy.
+ *
+ * The estimator is a platform service configured once by an admin, and its
+ * main caller is the background sweeper, which has no user in context. So the
+ * workspace alone is enough to resolve a key: `resolveAiKey` skips the `user`
+ * scope when `userId` is null and goes straight to the organization
+ * connections. Requiring a userId here meant the workspace's own connections
+ * were never consulted from the sweeper, and every provider other than OpenAI
+ * — which alone has an env-level fallback — silently degraded to the heuristic
+ * no matter how valid its key was.
+ *
+ * A userId, when present (admin dry-run from the settings screen), is still
+ * passed through so a user-scoped key wins under `user_preferred` policy.
  *
  * Temperature + maxTokens are applied via `.bind()` so they surface to the
  * provider call without having to plumb them through `createModel`.
@@ -224,10 +234,10 @@ const resolveEstimatorModel = async (
   userId: string | undefined,
   workspaceId: string | null | undefined,
 ): Promise<ResolvedEstimatorModel> => {
-  if (userId && workspaceId) {
+  if (workspaceId) {
     const resolved = await resolveModelByPolicy({
       provider: config.provider,
-      userId,
+      userId: userId ?? null,
       workspaceId,
       modelName: config.model,
     });
