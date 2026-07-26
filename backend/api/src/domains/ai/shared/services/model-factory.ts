@@ -37,6 +37,14 @@ export interface ResolvedModel {
   connectionId: string;
 }
 
+// Z.AI exposes the Coding Plan through two surfaces: an OpenAI-compatible one
+// that only accepts platform (pay-as-you-go) API keys, and an
+// Anthropic-compatible one that accepts Coding Plan tokens. Connections store
+// the former as their baseUrl (see ai-connection-config), so it doubles as the
+// marker for "this is a Coding Plan connection".
+const ZAI_CODING_PLAN_BASE_URL = "https://api.z.ai/api/coding/paas/v4";
+const ZAI_ANTHROPIC_BASE_URL = "https://api.z.ai/api/anthropic";
+
 // ---------------------------------------------------------------------------
 // isAuthError - detect 401/403 / auth-related errors from AI providers
 // ---------------------------------------------------------------------------
@@ -166,7 +174,26 @@ export const createModel = (config: CreateModelConfig): BaseChatModel => {
       });
 
     case "zai": {
-      const zaiBaseUrl = baseUrl ?? "https://api.z.ai/api/coding/paas/v4";
+      const zaiBaseUrl = baseUrl ?? ZAI_CODING_PLAN_BASE_URL;
+      // A Coding Plan token authenticates against Z.AI's Anthropic-compatible
+      // surface — the same one the runner injects as ANTHROPIC_BASE_URL /
+      // ANTHROPIC_AUTH_TOKEN for Claude Code (see the runner's
+      // config-injector). The OpenAI-compatible `coding/paas/v4` surface
+      // rejects those tokens with `401 token expired or incorrect`, so every
+      // server-side Z.AI call built here failed auth regardless of the key.
+      // Platform (pay-as-you-go) keys keep the OpenAI-compatible client, which
+      // is what an explicit non-Coding-Plan baseUrl signals.
+      if (zaiBaseUrl === ZAI_CODING_PLAN_BASE_URL) {
+        return new ChatAnthropic({
+          anthropicApiKey: "placeholder",
+          modelName,
+          streaming,
+          clientOptions: {
+            baseURL: ZAI_ANTHROPIC_BASE_URL,
+            authToken: apiKey,
+          },
+        });
+      }
       return new ChatOpenAI({
         openAIApiKey: apiKey,
         modelName,
