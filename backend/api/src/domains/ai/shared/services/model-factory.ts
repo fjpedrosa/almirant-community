@@ -304,7 +304,12 @@ export const resolveModelFromProviderKey = async (
  */
 export const resolveModelByPolicy = async (params: {
   provider: "openai" | "anthropic" | "google" | "zai" | "xai";
-  userId: string;
+  /**
+   * Null for platform services that run without a user in context (e.g. the
+   * effort-estimation sweeper). `resolveAiKey` then skips the `user` scope and
+   * resolves against the workspace's organization connections.
+   */
+  userId: string | null;
   workspaceId: string;
   modelName?: string;
   streaming?: boolean;
