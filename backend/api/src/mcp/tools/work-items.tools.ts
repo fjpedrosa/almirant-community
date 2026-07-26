@@ -31,6 +31,15 @@ import {
 import { getActivityLogger } from "@almirant/shared";
 import { saveGeneratedPrompt, addWorkItemToSession, linkWorkItemToSeed } from "@almirant/database";
 import { wsConnectionManager } from "../../shared/ws/ws-connection-manager";
+// Imported as a namespace on purpose: the enqueue is fire-and-forget, so tests
+// assert on it by spying the module. A destructured import would be inlined and
+// unreachable for the spy once a sibling test file has cached this module.
+import * as effortEstimation from "../../domains/agents/services/enqueue-effort-estimation";
+import {
+  planEstimationEnqueuesForCreate,
+  planEstimationEnqueuesForUpdate,
+  type EstimationEnqueue,
+} from "./work-item-estimation-enqueue";
 import { gatherWorkItemContext, buildEnrichedPromptInput } from "../../domains/project-management/work-items/services/prompt-context-service";
 import { formatText, isAiConfigured } from "../../domains/ai/shared/services/ai-service";
 import { calculateCostUsd, type AiProvider } from "../../domains/billing/quota/services/ai-model-pricing";
@@ -134,6 +143,21 @@ const getMetadataNumber = (
     return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
   }
   return 0;
+};
+
+/**
+ * Fire-and-forget effort-estimation enqueues for a work-item write, mirroring
+ * what the REST routes do (work-items.routes.ts). Which estimations a write
+ * triggers is decided by the pure planners in work-item-estimation-enqueue.ts;
+ * this only dispatches them.
+ *
+ * Dispatched right after the write so a failure in any later step (planning
+ * links, forecasts, websocket broadcast) cannot swallow the estimation.
+ */
+const dispatchEstimationEnqueues = (enqueues: EstimationEnqueue[]): void => {
+  for (const [workItemId, reason] of enqueues) {
+    effortEstimation.enqueueEffortEstimation(workItemId, reason).catch(() => {});
+  }
 };
 
 const refreshForecastsForChangedWorkItems = async (
@@ -504,6 +528,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           metadata: mergeManagedByMetadata(undefined, { ...planningMeta, ...params.metadata }, managedBy),
         });
 
+        dispatchEstimationEnqueues(planEstimationEnqueuesForCreate(item));
         await linkPlanningContext(workspaceId, item.id, planningSessionId, fromSeedIds, userId);
         await refreshForecastsForChangedWorkItems(workspaceId, [item.id]);
 
@@ -608,6 +633,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           metadata: mergeManagedByMetadata(undefined, { ...planningMeta, ...params.metadata }, managedBy),
         });
 
+        dispatchEstimationEnqueues(planEstimationEnqueuesForCreate(item));
         await linkPlanningContext(workspaceId, item.id, planningSessionId, fromSeedIds, userId);
         await refreshForecastsForChangedWorkItems(workspaceId, [item.id]);
 
@@ -675,6 +701,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           metadata: mergeManagedByMetadata(undefined, { ...planningMeta, ...params.metadata }, managedBy),
         });
 
+        dispatchEstimationEnqueues(planEstimationEnqueuesForCreate(item));
         await linkPlanningContext(workspaceId, item.id, planningSessionId, fromSeedIds, userId);
         await refreshForecastsForChangedWorkItems(workspaceId, [item.id]);
 
@@ -742,6 +769,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           metadata: mergeManagedByMetadata(undefined, { ...planningMeta, ...params.metadata }, managedBy),
         });
 
+        dispatchEstimationEnqueues(planEstimationEnqueuesForCreate(item));
         await linkPlanningContext(workspaceId, item.id, planningSessionId, fromSeedIds, userId);
         await refreshForecastsForChangedWorkItems(workspaceId, [item.id]);
 
@@ -807,6 +835,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           metadata: mergeManagedByMetadata(undefined, { ...planningMeta, ...params.metadata }, managedBy),
         });
 
+        dispatchEstimationEnqueues(planEstimationEnqueuesForCreate(item));
         await linkPlanningContext(workspaceId, item.id, planningSessionId, fromSeedIds, userId);
         await refreshForecastsForChangedWorkItems(workspaceId, [item.id]);
 
@@ -904,6 +933,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
               isError: true,
             };
           }
+
+          dispatchEstimationEnqueues(
+            planEstimationEnqueuesForUpdate(id, before, updateFields),
+          );
         }
 
         // Return the final state of the work item
