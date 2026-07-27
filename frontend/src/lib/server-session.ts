@@ -34,6 +34,7 @@ const resolveBackendOrigin = (): string => {
 
 /** Better-Auth is mounted at `${origin}/api/auth/*` on the backend. */
 const AUTH_BASE = `${resolveBackendOrigin()}/api/auth`;
+const AUTH_BACKEND_TIMEOUT_MS = 10_000;
 
 /** Shape returned by `GET /api/auth/get-session` (Better-Auth). */
 export interface ServerSession {
@@ -74,15 +75,43 @@ export async function authBackendFetch(
 ): Promise<Response> {
   const incoming = await headers();
   const cookie = incoming.get("cookie") ?? "";
+  const controller = new AbortController();
+  const callerSignal = init.signal;
+  let isListeningToCaller = false;
 
-  return fetch(`${AUTH_BASE}${path}`, {
-    ...init,
-    headers: {
-      ...(init.headers as Record<string, string> | undefined),
-      ...(cookie ? { cookie } : {}),
-    },
-    cache: "no-store",
-  });
+  const abortFromCaller = () => {
+    controller.abort(callerSignal?.reason);
+  };
+
+  if (callerSignal?.aborted) {
+    abortFromCaller();
+  } else if (callerSignal) {
+    callerSignal.addEventListener("abort", abortFromCaller, { once: true });
+    isListeningToCaller = true;
+  }
+
+  const timeoutHandle = setTimeout(() => {
+    controller.abort(
+      new DOMException("Auth backend request timed out", "TimeoutError"),
+    );
+  }, AUTH_BACKEND_TIMEOUT_MS);
+
+  try {
+    return await fetch(`${AUTH_BASE}${path}`, {
+      ...init,
+      headers: {
+        ...(init.headers as Record<string, string> | undefined),
+        ...(cookie ? { cookie } : {}),
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutHandle);
+    if (isListeningToCaller) {
+      callerSignal?.removeEventListener("abort", abortFromCaller);
+    }
+  }
 }
 
 /**

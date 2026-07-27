@@ -74,10 +74,28 @@ let nextResponse: () => Response = () =>
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
 let fetchThrows = false;
+let fetchPending = false;
 
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   fetchCalls.push({ url: String(input), init });
   if (fetchThrows) throw new Error("network down");
+  if (fetchPending) {
+    return new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      if (!signal) return;
+
+      const rejectOnAbort = () => {
+        reject(signal.reason);
+      };
+
+      if (signal.aborted) {
+        rejectOnAbort();
+        return;
+      }
+
+      signal.addEventListener("abort", rejectOnAbort, { once: true });
+    });
+  }
   return nextResponse();
 }) as typeof fetch;
 
@@ -94,6 +112,7 @@ beforeEach(() => {
   cookieSetCalls = [];
   fetchCalls = [];
   fetchThrows = false;
+  fetchPending = false;
   delete process.env.BACKEND_URL;
   delete process.env.NEXT_PUBLIC_AUTH_URL;
   delete process.env.NEXT_PUBLIC_API_URL;
@@ -177,6 +196,112 @@ describe("resolveBackendOrigin precedence (via AUTH_BASE)", () => {
     expect(fetchCalls[0]?.url).toBe(
       "http://localhost:3001/api/auth/get-session",
     );
+  });
+});
+
+describe("authBackendFetch timeout", () => {
+  it("aborts a fetch that stays pending instead of waiting for the edge timeout", async () => {
+    fetchPending = true;
+    const realSetTimeout = globalThis.setTimeout;
+    const realClearTimeout = globalThis.clearTimeout;
+    let timeoutCallback: (() => void) | undefined;
+    let timeoutDelay: number | undefined;
+    let timeoutHandleCleared = false;
+
+    globalThis.setTimeout = ((
+      callback: TimerHandler,
+      delay?: number,
+    ): ReturnType<typeof setTimeout> => {
+      timeoutCallback = callback as () => void;
+      timeoutDelay = delay;
+      return 101 as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = ((handle: ReturnType<typeof setTimeout>) => {
+      if (handle === (101 as unknown as ReturnType<typeof setTimeout>)) {
+        timeoutHandleCleared = true;
+      }
+    }) as typeof clearTimeout;
+
+    try {
+      const { authBackendFetch } = await freshModule();
+      const request = authBackendFetch("/bootstrap-status");
+      void request.catch(() => {});
+      await Promise.resolve();
+
+      expect(timeoutCallback).toBeFunction();
+      expect(timeoutDelay).toBe(10_000);
+
+      timeoutCallback?.();
+
+      await expect(request).rejects.toMatchObject({ name: "TimeoutError" });
+      expect(timeoutHandleCleared).toBe(true);
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+      globalThis.clearTimeout = realClearTimeout;
+    }
+  });
+
+  it("composes a caller signal and removes its listener and timeout after abort", async () => {
+    fetchPending = true;
+    const caller = new AbortController();
+    const callerSignal = caller.signal;
+    const realAddEventListener = callerSignal.addEventListener.bind(callerSignal);
+    const realRemoveEventListener =
+      callerSignal.removeEventListener.bind(callerSignal);
+    const realSetTimeout = globalThis.setTimeout;
+    const realClearTimeout = globalThis.clearTimeout;
+    let callerListenersAdded = 0;
+    let callerListenersRemoved = 0;
+    let timeoutHandleCleared = false;
+
+    Object.defineProperty(callerSignal, "addEventListener", {
+      configurable: true,
+      value: (...args: Parameters<AbortSignal["addEventListener"]>) => {
+        callerListenersAdded += 1;
+        return realAddEventListener(...args);
+      },
+    });
+    Object.defineProperty(callerSignal, "removeEventListener", {
+      configurable: true,
+      value: (...args: Parameters<AbortSignal["removeEventListener"]>) => {
+        callerListenersRemoved += 1;
+        return realRemoveEventListener(...args);
+      },
+    });
+    globalThis.setTimeout = ((
+      callback: TimerHandler,
+      delay?: number,
+    ): ReturnType<typeof setTimeout> => {
+      void callback;
+      void delay;
+      return 202 as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = ((handle: ReturnType<typeof setTimeout>) => {
+      if (handle === (202 as unknown as ReturnType<typeof setTimeout>)) {
+        timeoutHandleCleared = true;
+      }
+    }) as typeof clearTimeout;
+
+    try {
+      const { authBackendFetch } = await freshModule();
+      const reason = new DOMException("Caller cancelled", "AbortError");
+      const request = authBackendFetch("/providers", {
+        signal: callerSignal,
+      });
+      void request.catch(() => {});
+      await Promise.resolve();
+
+      caller.abort(reason);
+
+      await expect(request).rejects.toBe(reason);
+      expect(fetchCalls[0]?.init?.signal).not.toBe(callerSignal);
+      expect(callerListenersAdded).toBe(1);
+      expect(callerListenersRemoved).toBe(1);
+      expect(timeoutHandleCleared).toBe(true);
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+      globalThis.clearTimeout = realClearTimeout;
+    }
   });
 });
 
