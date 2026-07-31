@@ -80,7 +80,7 @@ export const getAuthBootstrapStatus = async (
   return {
     hasUsers,
     needsInitialAdminSetup: !hasUsers,
-    allowRegistration: !hasUsers || (settings?.allowNewRegistrations ?? true),
+    allowRegistration: !hasUsers || (settings?.allowNewRegistrations ?? false),
   };
 };
 

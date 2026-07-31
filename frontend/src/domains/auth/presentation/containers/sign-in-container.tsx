@@ -9,14 +9,21 @@ import type {
   SocialAuthProvider,
 } from '../../domain/types';
 import { useAuth } from '../../application/hooks/use-auth';
+import { resolveSafeAuthRedirectTarget } from '../../application/lib/auth-route-state';
 import { SignInCard } from '../components/sign-in-card';
 
 const SignInContent = ({
   mode,
   socialProviders,
+  showSignUpLink,
+  signUpHref,
+  showInvitationHint,
 }: {
   mode: AuthPageMode;
   socialProviders?: EnabledAuthProviders;
+  showSignUpLink?: boolean;
+  signUpHref?: string;
+  showInvitationHint?: boolean;
 }) => {
   const {
     signInWithEmail,
@@ -52,7 +59,7 @@ const SignInContent = ({
   const redirectTarget =
     mode === 'initial_admin_setup'
       ? '/onboarding'
-      : redirectTo || '/board';
+      : resolveSafeAuthRedirectTarget(redirectTo);
 
   const validationError = useMemo(() => {
     if (!isSignUpMode) {
@@ -137,6 +144,9 @@ const SignInContent = ({
       error={errorMessage}
       socialProviders={socialProviders}
       onSocialSignIn={handleSocialSignIn}
+      showSignUpLink={showSignUpLink}
+      signUpHref={signUpHref}
+      showInvitationHint={showInvitationHint}
     />
   );
 };
@@ -144,13 +154,25 @@ const SignInContent = ({
 export const SignInContainer = ({
   mode,
   socialProviders,
+  showSignUpLink,
+  signUpHref,
+  showInvitationHint,
 }: {
   mode: AuthPageMode;
   socialProviders?: EnabledAuthProviders;
+  showSignUpLink?: boolean;
+  signUpHref?: string;
+  showInvitationHint?: boolean;
 }) => {
   return (
     <Suspense>
-      <SignInContent mode={mode} socialProviders={socialProviders} />
+      <SignInContent
+        mode={mode}
+        socialProviders={socialProviders}
+        showSignUpLink={showSignUpLink}
+        signUpHref={signUpHref}
+        showInvitationHint={showInvitationHint}
+      />
     </Suspense>
   );
 };

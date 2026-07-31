@@ -37,7 +37,9 @@ export default async function SignUpPage({
     searchParams,
   ]);
 
-  if (!canAccessSignUpPage(bootstrapStatus, hasInvitationIntent(resolvedSearchParams))) {
+  const invitationIntent = hasInvitationIntent(resolvedSearchParams);
+
+  if (!canAccessSignUpPage(bootstrapStatus, invitationIntent)) {
     redirect("/sign-in");
   }
 
@@ -47,6 +49,7 @@ export default async function SignUpPage({
     <SignInContainer
       mode={bootstrapStatus.needsInitialAdminSetup ? "initial_admin_setup" : "sign_up"}
       socialProviders={socialProviders}
+      showInvitationHint={invitationIntent && !bootstrapStatus.allowRegistration}
     />
   );
 }
