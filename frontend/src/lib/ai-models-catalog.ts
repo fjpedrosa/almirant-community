@@ -10,11 +10,18 @@ import type {
  * provider with display names and categories for UI components.
  */
 
-// Anthropic models - July 2026 (verified against platform.claude.com models + pricing)
+// Anthropic models - August 2026 (verified against platform.claude.com models + pricing)
 // Order matters: use-model-selector picks the FIRST entry as the default selection,
-// so Opus 4.8 (the claude-code default) must stay first. Fable 5 is the most capable
+// so Opus 5 (the claude-code default) must stay first. Fable 5 is the most capable
 // model but is intentionally NOT the default (premium price + 30-day retention).
 const ANTHROPIC_MODELS: ModelDefinition[] = [
+  {
+    // Same $5/$25 MTok as Opus 4.8, 1M context. Supports the full effort
+    // ladder (low → max); thinking is on by default.
+    id: "claude-opus-5",
+    displayName: "Claude Opus 5",
+    category: "best",
+  },
   {
     id: "claude-opus-4-8",
     displayName: "Claude Opus 4.8",

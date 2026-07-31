@@ -19,14 +19,14 @@ const providerToImplementationDefaults = (
   if (provider === "codex") return { codingAgent: "codex", aiProvider: "openai", model: "gpt-5.6-sol", reasoningLevel: null };
   if (provider === "zipu") return { codingAgent: "opencode", aiProvider: "zai", model: "glm-5.2", reasoningLevel: null };
   if (provider === "grok") return { codingAgent: "opencode", aiProvider: "xai", model: "grok-4.3", reasoningLevel: null };
-  return { codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-opus-4-8", reasoningLevel: null };
+  return { codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-opus-5", reasoningLevel: null };
 };
 
 const defaultModelForAiProvider = (aiProvider: ProjectImplementationAiProvider): string => {
   if (aiProvider === "openai") return "gpt-5.6-sol";
   if (aiProvider === "zai") return "glm-5.2";
   if (aiProvider === "xai") return "grok-4.3";
-  return "claude-opus-4-8";
+  return "claude-opus-5";
 };
 
 export const useProjectAiConfig = (projectId: string) => {
@@ -106,7 +106,7 @@ export const useProjectAiConfig = (projectId: string) => {
     } else if (codingAgent === "opencode") {
       handleImplementationDefaultChange({ codingAgent, aiProvider: "zai", model: "glm-5.2", reasoningLevel: null });
     } else {
-      handleImplementationDefaultChange({ codingAgent, aiProvider: "anthropic", model: "claude-opus-4-8", reasoningLevel: null });
+      handleImplementationDefaultChange({ codingAgent, aiProvider: "anthropic", model: "claude-opus-5", reasoningLevel: null });
     }
   }, [handleImplementationDefaultChange]);
 
