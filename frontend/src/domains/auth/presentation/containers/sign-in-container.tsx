@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import type {
@@ -10,6 +10,10 @@ import type {
 } from '../../domain/types';
 import { useAuth } from '../../application/hooks/use-auth';
 import { resolveSafeAuthRedirectTarget } from '../../application/lib/auth-route-state';
+import {
+  notifyPublicSignupPageOpened,
+  submitSignupWithLifecycle,
+} from '../../application/lib/signup-lifecycle';
 import { SignInCard } from '../components/sign-in-card';
 
 const SignInContent = ({
@@ -18,12 +22,14 @@ const SignInContent = ({
   showSignUpLink,
   signUpHref,
   showInvitationHint,
+  isPublicSignUp = false,
 }: {
   mode: AuthPageMode;
   socialProviders?: EnabledAuthProviders;
   showSignUpLink?: boolean;
   signUpHref?: string;
   showInvitationHint?: boolean;
+  isPublicSignUp?: boolean;
 }) => {
   const {
     signInWithEmail,
@@ -44,6 +50,7 @@ const SignInContent = ({
   const t = useTranslations('auth.errors');
   const errorParam = searchParams.get('error');
   const redirectTo = searchParams.get('redirectTo');
+  const hasNotifiedPublicSignup = useRef(false);
 
   const ERROR_KEYS: Record<string, string> = {
     unauthorized: 'unauthorized',
@@ -56,10 +63,20 @@ const SignInContent = ({
     : null;
 
   const isSignUpMode = mode === 'initial_admin_setup' || mode === 'sign_up';
+  const isPublicSignup = mode === 'sign_up' && isPublicSignUp;
   const redirectTarget =
     mode === 'initial_admin_setup'
       ? '/onboarding'
       : resolveSafeAuthRedirectTarget(redirectTo);
+
+  useEffect(() => {
+    if (!isPublicSignup || hasNotifiedPublicSignup.current) {
+      return;
+    }
+
+    hasNotifiedPublicSignup.current = true;
+    notifyPublicSignupPageOpened();
+  }, [isPublicSignup]);
 
   const validationError = useMemo(() => {
     if (!isSignUpMode) {
@@ -99,12 +116,21 @@ const SignInContent = ({
 
     try {
       const result = isSignUpMode
-        ? await signUpWithEmail(
-            credentials.name.trim(),
-            credentials.email.trim(),
-            credentials.password,
-            redirectTarget,
-          )
+        ? isPublicSignup
+          ? await submitSignupWithLifecycle(() =>
+              signUpWithEmail(
+                credentials.name.trim(),
+                credentials.email.trim(),
+                credentials.password,
+                redirectTarget,
+              ),
+            )
+          : await signUpWithEmail(
+              credentials.name.trim(),
+              credentials.email.trim(),
+              credentials.password,
+              redirectTarget,
+            )
         : await signInWithEmail(
             credentials.email.trim(),
             credentials.password,
@@ -157,12 +183,14 @@ export const SignInContainer = ({
   showSignUpLink,
   signUpHref,
   showInvitationHint,
+  isPublicSignUp = false,
 }: {
   mode: AuthPageMode;
   socialProviders?: EnabledAuthProviders;
   showSignUpLink?: boolean;
   signUpHref?: string;
   showInvitationHint?: boolean;
+  isPublicSignUp?: boolean;
 }) => {
   return (
     <Suspense>
@@ -172,6 +200,7 @@ export const SignInContainer = ({
         showSignUpLink={showSignUpLink}
         signUpHref={signUpHref}
         showInvitationHint={showInvitationHint}
+        isPublicSignUp={isPublicSignUp}
       />
     </Suspense>
   );
