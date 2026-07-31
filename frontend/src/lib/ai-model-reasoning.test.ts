@@ -43,6 +43,13 @@ describe("getReasoningEffortOptions", () => {
   });
 
   test("uses model-specific Claude efforts and exposes none for Haiku", () => {
+    expect(valuesFor({ codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-opus-5" })).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
     expect(valuesFor({ codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-opus-4-8" })).toEqual([
       "low",
       "medium",
