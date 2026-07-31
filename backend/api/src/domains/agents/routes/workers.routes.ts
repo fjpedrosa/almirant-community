@@ -117,6 +117,7 @@ import {
 } from "../services/resource-forecast";
 import { resolveExpectedWorkItemIdsForCompletion } from "../services/completion-snapshot";
 import { assertValidScheduledAgentRuntime } from "../services/scheduled-agent-runtime-validation";
+import { getScheduledAgentDemand } from "../services/scheduled-agent-demand";
 import { resolveScheduledAgentEffectiveRuntimes } from "../services/scheduled-agent-effective-model-resolver";
 
 type RevalidatedScheduledWorkItemJob = {
@@ -3121,6 +3122,19 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       return successResponse({
         targetCapacity: queueDepth + activeJobs + env.SCALING_MIN_AVAILABLE_SLOTS,
       });
+    }
+  )
+
+  // GET /workers/scheduled-demand — work that scheduled agents would pick up
+  // right now but that nobody has enqueued, because dispatching requires a
+  // runner. Lets the scaler boot one on real demand instead of keeping a warm
+  // runner around, which is what MIN_RUNNERS=0 otherwise makes impossible.
+  .get(
+    "/scheduled-demand",
+    async ({ set }) => {
+      const demand = await getScheduledAgentDemand();
+      set.status = 200;
+      return successResponse(demand);
     }
   )
 
