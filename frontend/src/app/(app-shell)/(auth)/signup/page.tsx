@@ -50,6 +50,11 @@ export default async function SignUpPage({
       mode={bootstrapStatus.needsInitialAdminSetup ? "initial_admin_setup" : "sign_up"}
       socialProviders={socialProviders}
       showInvitationHint={invitationIntent && !bootstrapStatus.allowRegistration}
+      isPublicSignUp={
+        bootstrapStatus.allowRegistration &&
+        !bootstrapStatus.needsInitialAdminSetup &&
+        !invitationIntent
+      }
     />
   );
 }
