@@ -2,6 +2,7 @@ export type AgentAiProvider = "anthropic" | "openai" | "google" | "zai" | "xai";
 
 const MODEL_CATALOG: Record<AgentAiProvider, readonly string[]> = {
   anthropic: [
+    "claude-opus-5",
     "claude-opus-4-8",
     "claude-fable-5",
     "claude-opus-4-7",
@@ -59,7 +60,7 @@ const MODEL_CATALOG: Record<AgentAiProvider, readonly string[]> = {
 };
 
 const DEFAULT_MODELS: Record<AgentAiProvider, string> = {
-  anthropic: "claude-opus-4-8",
+  anthropic: "claude-opus-5",
   openai: "gpt-5.6-sol",
   google: "gemini-3.1-pro-preview",
   zai: "glm-5.2",
@@ -132,7 +133,7 @@ export const getAgentModelReasoningEfforts = (
     if (/claude-(?:opus|sonnet)-4-6/.test(normalizedModel)) {
       return ["low", "medium", "high", "max"];
     }
-    if (/claude-(?:fable-5|opus-4-(?:7|8)|sonnet-5)/.test(normalizedModel)) {
+    if (/claude-(?:fable-5|opus-5|opus-4-(?:7|8)|sonnet-5)/.test(normalizedModel)) {
       return ["low", "medium", "high", "xhigh", "max"];
     }
     return [];

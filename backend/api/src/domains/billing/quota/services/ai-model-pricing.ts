@@ -43,6 +43,14 @@ const AI_MODEL_PRICING: AiModelPricing[] = [
   },
   {
     provider: "anthropic",
+    model: "claude-opus-5",
+    label: "Claude Opus 5",
+    inputUsdPerMTok: 5,
+    outputUsdPerMTok: 25,
+    matches: (m) => m.includes("claude-opus-5") || m.includes("opus-5"),
+  },
+  {
+    provider: "anthropic",
     model: "claude-opus-4-8",
     label: "Claude Opus 4.8",
     inputUsdPerMTok: 5,

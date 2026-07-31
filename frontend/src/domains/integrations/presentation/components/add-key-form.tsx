@@ -41,7 +41,7 @@ const PROVIDER_NAMES: Record<ProviderType, string> = {
 };
 
 const MODEL_PLACEHOLDERS: Record<ProviderType, string> = {
-  anthropic: "claude-opus-4-8",
+  anthropic: "claude-opus-5",
   openai: "gpt-5.6-sol",
   google: "gemini-3.1-pro-preview",
   zai: "glm-5.2",
