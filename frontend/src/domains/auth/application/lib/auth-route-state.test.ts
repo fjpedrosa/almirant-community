@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   canAccessSignUpPage,
   resolveAuthEntryPath,
+  resolveSafeAuthRedirectTarget,
   shouldRedirectSignInToSignUp,
 } from "./auth-route-state";
 
@@ -72,6 +73,19 @@ describe("auth-route-state", () => {
     ).toBe(true);
   });
 
+  it("allows /signup when the server enables public registration", () => {
+    expect(
+      canAccessSignUpPage(
+        {
+          hasUsers: true,
+          needsInitialAdminSetup: false,
+          allowRegistration: true,
+        },
+        false
+      )
+    ).toBe(true);
+  });
+
   it("blocks /signup direct access when the instance already has users and there is no invitation context", () => {
     expect(
       canAccessSignUpPage(
@@ -83,5 +97,16 @@ describe("auth-route-state", () => {
         false
       )
     ).toBe(false);
+  });
+
+  it("keeps auth redirects on an internal path", () => {
+    expect(resolveSafeAuthRedirectTarget("/board?view=active")).toBe(
+      "/board?view=active"
+    );
+    expect(resolveSafeAuthRedirectTarget("https://attacker.example")).toBe("/board");
+    expect(resolveSafeAuthRedirectTarget("//attacker.example")).toBe("/board");
+    expect(resolveSafeAuthRedirectTarget("/safe/..//attacker.example")).toBe(
+      "/board"
+    );
   });
 });

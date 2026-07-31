@@ -15,5 +15,11 @@ export default async function SignInPage() {
 
   const socialProviders = await getEnabledAuthProviders();
 
-  return <SignInContainer mode="sign_in" socialProviders={socialProviders} />;
+  return (
+    <SignInContainer
+      mode="sign_in"
+      socialProviders={socialProviders}
+      showSignUpLink={bootstrapStatus.allowRegistration}
+    />
+  );
 }
