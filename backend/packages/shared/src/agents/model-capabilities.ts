@@ -133,6 +133,10 @@ export const getAgentModelReasoningEfforts = (
     if (/claude-(?:opus|sonnet)-4-6/.test(normalizedModel)) {
       return ["low", "medium", "high", "max"];
     }
+    // Keep in sync with supportsCurrentClaudeEffort in
+    // frontend/src/lib/ai-model-reasoning.ts, which gates the same set for the
+    // effort selector. A model listed there but not here fails runtime
+    // validation; here but not there renders an empty selector.
     if (/claude-(?:fable-5|opus-5|opus-4-(?:7|8)|sonnet-5)/.test(normalizedModel)) {
       return ["low", "medium", "high", "xhigh", "max"];
     }

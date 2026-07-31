@@ -45,8 +45,12 @@ const CODEX_PRO_MODELS = new Set([
   "gpt-5.4-pro",
 ]);
 
+// Keep in sync with getAgentModelReasoningEfforts in
+// backend/packages/shared/src/agents/model-capabilities.ts, which gates the
+// same set server-side. A model added there but not here renders an empty
+// effort selector; added here but not there fails runtime validation.
 const supportsCurrentClaudeEffort = (model: string): boolean =>
-  /claude-(?:fable-5|opus-4-(?:7|8)|sonnet-5)/.test(model);
+  /claude-(?:fable-5|opus-5|opus-4-(?:7|8)|sonnet-5)/.test(model);
 
 /**
  * Return only effort values verified for the selected runtime/model pair.
