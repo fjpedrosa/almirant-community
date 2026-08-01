@@ -112,6 +112,88 @@ describe("isTimeWindowActive", () => {
       ),
     ).toBe(true);
   });
+
+  // ---------------------------------------------------------------------
+  // isBuiltinReconciler contract pin — must treat all four built-in
+  // automation flags identically (any one of them enabled -> no cooldown),
+  // and must NOT treat an unrelated/absent targetConfig as a reconciler.
+  // This now derives from @almirant/shared's builtin-automations catalog
+  // (resolveEnabledBuiltinAutomation) instead of its own literal OR chain;
+  // these cases pin that the derived behavior is unchanged.
+  // ---------------------------------------------------------------------
+  test("dodRemediation ignores the cooldown, same as backlogDrain", () => {
+    expect(
+      isTimeWindowActive(
+        window({
+          startHour: 9,
+          endHour: 17,
+          lastRunAt: "2026-08-05T09:58:00Z",
+          targetConfig: { dodRemediation: { enabled: true } },
+        }),
+        WED_10H,
+      ),
+    ).toBe(true);
+  });
+
+  test("dodReview ignores the cooldown, same as backlogDrain", () => {
+    expect(
+      isTimeWindowActive(
+        window({
+          startHour: 9,
+          endHour: 17,
+          lastRunAt: "2026-08-05T09:58:00Z",
+          targetConfig: { dodReview: { enabled: true } },
+        }),
+        WED_10H,
+      ),
+    ).toBe(true);
+  });
+
+  test("releaseIntegration ignores the cooldown, same as backlogDrain", () => {
+    expect(
+      isTimeWindowActive(
+        window({
+          startHour: 9,
+          endHour: 17,
+          lastRunAt: "2026-08-05T09:58:00Z",
+          targetConfig: { releaseIntegration: { enabled: true } },
+        }),
+        WED_10H,
+      ),
+    ).toBe(true);
+  });
+
+  test("a targetConfig with every flag explicitly false is NOT a reconciler — cooldown still applies", () => {
+    expect(
+      isTimeWindowActive(
+        window({
+          startHour: 9,
+          endHour: 17,
+          lastRunAt: "2026-08-05T09:58:00Z",
+          targetConfig: {
+            backlogDrain: { enabled: false },
+            dodRemediation: { enabled: false },
+            dodReview: { enabled: false },
+            releaseIntegration: { enabled: false },
+          },
+        }),
+        WED_10H,
+      ),
+    ).toBe(false);
+  });
+
+  test("an absent targetConfig is NOT a reconciler — cooldown still applies", () => {
+    expect(
+      isTimeWindowActive(
+        window({
+          startHour: 9,
+          endHour: 17,
+          lastRunAt: "2026-08-05T09:58:00Z",
+        }),
+        WED_10H,
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("isScheduleDue", () => {

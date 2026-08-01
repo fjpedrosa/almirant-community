@@ -5,6 +5,7 @@ export * from "./agents/agent-workspace";
 export * from "./agents/evidence-artifacts";
 export * from "./agents/model-capabilities";
 export * from "./agents/scheduled-runtime-precedence";
+export * from "./agents/builtin-automations";
 export * from "./agents/schedule-evaluation";
 export * from "./agents/scheduled-connection-runtime";
 export * from "./agents/resource-estimation";
