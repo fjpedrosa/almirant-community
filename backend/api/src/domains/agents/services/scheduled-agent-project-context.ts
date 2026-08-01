@@ -1,5 +1,3 @@
-import { getOrgPrimaryRepository } from "@almirant/database";
-
 export interface ScheduledAgentProjectContext {
   projectId: string | null;
   repositoryId: string | null;
@@ -7,15 +5,20 @@ export interface ScheduledAgentProjectContext {
 }
 
 /**
- * Resolve the implicit project used by scheduled/webhook execution.
+ * Resolve the project used by scheduled/webhook execution.
  *
- * Configs without an explicit project historically execute against the
- * organization's primary repository. CREATE/PATCH validation must therefore
- * use that repository's project as well, otherwise validation and execution
- * can resolve different project defaults without any configuration change.
+ * A config without an explicit project resolves to no project and no
+ * repository. It used to resolve to the workspace's primary repository — the
+ * first one by `order`, which with several tied at 0 is an arbitrary pick. That
+ * silently pointed an agent at a repository nobody chose: it would clone it,
+ * branch it and open a pull request against it. Running with an empty workspace
+ * is a supported mode, so an unspecified project now means exactly that.
+ *
+ * CREATE/PATCH validation calls this too, so validation and execution keep
+ * resolving the same project defaults.
  */
 export const resolveScheduledAgentProjectContext = async (
-  workspaceId: string,
+  _workspaceId: string,
   projectId: string | null | undefined,
 ): Promise<ScheduledAgentProjectContext> => {
   if (projectId) {
@@ -26,20 +29,9 @@ export const resolveScheduledAgentProjectContext = async (
     };
   }
 
-  try {
-    const repository = await getOrgPrimaryRepository(workspaceId);
-    return {
-      projectId: repository?.projectId ?? null,
-      repositoryId: repository?.id ?? null,
-      repoUrl: repository?.url ?? null,
-    };
-  } catch {
-    // Preserve the existing non-fatal repository fallback. Runtime validation
-    // still fails closed if no model can be resolved without a project.
-    return {
-      projectId: null,
-      repositoryId: null,
-      repoUrl: null,
-    };
-  }
+  return {
+    projectId: null,
+    repositoryId: null,
+    repoUrl: null,
+  };
 };

@@ -432,9 +432,11 @@ describe("scheduledAgentsRoutes POST /scheduled-agents", () => {
     expect(state.createdConfigInput).toBeNull();
   });
 
-  it("valida CREATE sin projectId contra el mismo proyecto primario que usará execute", async () => {
+  it("no adopta el proyecto del repo primario al crear sin projectId", async () => {
     const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
     const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+    // Existe un repo primario en el workspace, pero el agente no lo ha elegido:
+    // antes se adoptaba su proyecto en silencio y el agente acababa clonándolo.
     state.orgPrimaryRepositoryOverride = {
       id: "repo-primary",
       url: "https://github.com/acme/primary.git",
@@ -466,7 +468,9 @@ describe("scheduledAgentsRoutes POST /scheduled-agents", () => {
     }));
 
     expect(response.status).toBe(201);
-    expect(state.projectAiConfigCalls).toEqual(["project-primary"]);
+    // Sin proyecto no hay defaults de proyecto que consultar — ni en CREATE ni
+    // en execute, que resuelven por la misma vía y por tanto siguen coincidiendo.
+    expect(state.projectAiConfigCalls).toEqual([]);
     expect(state.createdConfigInput).toMatchObject({ projectId: null });
   });
 
@@ -694,7 +698,7 @@ describe("scheduledAgentsRoutes PATCH /scheduled-agents/:id", () => {
     expect(state.updatedConfigInput).toBeNull();
   });
 
-  it("revalida PATCH projectId=null usando el proyecto primario efectivo", async () => {
+  it("al quitar el proyecto no hereda los defaults del repo primario", async () => {
     const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
     const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
     state.orgPrimaryRepositoryOverride = {
@@ -733,9 +737,13 @@ describe("scheduledAgentsRoutes PATCH /scheduled-agents/:id", () => {
         },
       ));
 
-      expect(response.status).toBe(400);
-      expect(state.projectAiConfigCalls).toEqual(["project-primary"]);
-      expect(state.updatedConfigInput).toBeNull();
+      // El proyecto primario declara un modelo que no existe. Antes se validaba
+      // contra él —un proyecto que el agente no había elegido— y el PATCH se
+      // rechazaba; ahora quitar el proyecto significa quedarse sin defaults de
+      // proyecto, no adoptar los de un repositorio ajeno.
+      expect(response.status).toBe(200);
+      expect(state.projectAiConfigCalls).toEqual([]);
+      expect(state.updatedConfigInput).toMatchObject({ projectId: null });
     } finally {
       state.scheduledConfigOverride = null;
     }
@@ -884,7 +892,7 @@ describe("scheduledAgentsRoutes POST /scheduled-agents/:id/trigger", () => {
     }
   });
 
-  it("mantiene en execute el runtime validado en CREATE cuando no hay projectId explícito", async () => {
+  it("ejecuta sin repositorio ni proyecto cuando el agente no tiene projectId", async () => {
     const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
     const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
     state.orgPrimaryRepositoryOverride = {
@@ -924,15 +932,14 @@ describe("scheduledAgentsRoutes POST /scheduled-agents/:id/trigger", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(state.projectAiConfigCalls).toEqual(["project-primary"]);
+    // Hay un repo primario en el workspace, pero este agente no lo eligió: el
+    // job sale sin proyecto y sin repositorio en vez de apropiarse del ajeno.
+    expect(state.projectAiConfigCalls).toEqual([]);
     expect(state.createdJobInput).toMatchObject({
-      projectId: "project-primary",
-      provider: "zipu",
-      codingAgent: "opencode",
-      aiProvider: "zai",
-      model: "glm-5.1",
-      config: expect.objectContaining({ projectId: "project-primary" }),
+      projectId: null,
+      config: expect.objectContaining({ repositoryResolution: "none" }),
     });
+    expect(state.createdJobInput?.config).not.toHaveProperty("repoUrl");
   });
 
   it("mantiene la misma precedencia schedule > project > connection al ejecutar", async () => {
