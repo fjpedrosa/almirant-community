@@ -33,7 +33,7 @@ jobs:
           # commit them even while `main` is protected.
           branch: 'cla-signatures'
           # Maintainers/owners and bots are exempt from signing.
-          allowlist: 'fjpedrosa,*[bot]'
+          allowlist: 'fjpedrosa,Almirant,*[bot]'
           custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
           custom-allsigned-comment: 'All contributors have signed the Almirant CLA. Thank you!'
           custom-notsigned-comment: 'Thank you for your contribution. Before we can merge, please read the [Contributor License Agreement](https://github.com/fjpedrosa/almirant-community/blob/main/CLA.md) and sign it by posting the comment below in this PR.'
