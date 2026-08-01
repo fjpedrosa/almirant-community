@@ -23,7 +23,7 @@ RUN apk add --no-cache git openssh-client
 
 # Install Claude Code CLI (required for AI code execution)
 RUN apk add --no-cache nodejs npm && \
-    npm install -g @anthropic-ai/claude-code@2.1.119 && \
+    npm install -g @anthropic-ai/claude-code@2.1.209 && \
     apk del npm
 
 COPY --from=builder /app/worker ./

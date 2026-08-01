@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import type { NativeRuntimeEvent } from "@almirant/shim-server";
-import { CodexAdapter, TOOL_CANONICAL_KINDS } from "./codex-adapter";
+import {
+  CodexAdapter,
+  normalizeCodexReasoningEffort,
+  TOOL_CANONICAL_KINDS,
+} from "./codex-adapter";
 
 describe("TOOL_CANONICAL_KINDS", () => {
   it("includes the existing tool/file/bash kinds", () => {
@@ -23,6 +27,20 @@ describe("TOOL_CANONICAL_KINDS", () => {
     expect(TOOL_CANONICAL_KINDS.has("agent.text.complete")).toBe(false);
     expect(TOOL_CANONICAL_KINDS.has("agent.thinking")).toBe(false);
     expect(TOOL_CANONICAL_KINDS.has("session.idle")).toBe(false);
+  });
+});
+
+describe("normalizeCodexReasoningEffort", () => {
+  it("accepts exactly the ModelReasoningEffort values from codex-sdk 0.144.4", () => {
+    for (const effort of ["minimal", "low", "medium", "high", "xhigh"] as const) {
+      expect(normalizeCodexReasoningEffort(effort)).toBe(effort);
+    }
+  });
+
+  it("does not silently translate unsupported none or max values", () => {
+    expect(normalizeCodexReasoningEffort("none")).toBeUndefined();
+    expect(normalizeCodexReasoningEffort("max")).toBeUndefined();
+    expect(normalizeCodexReasoningEffort("min")).toBeUndefined();
   });
 });
 

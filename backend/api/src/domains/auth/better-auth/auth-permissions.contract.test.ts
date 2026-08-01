@@ -14,7 +14,7 @@ import * as backend from "./auth-permissions";
  * the `statements` map or any role definition changes in one file without the
  * other, this test fails.
  *
- * APPROACH USED: direct import of the frontend copy via its ABSOLUTE path.
+ * APPROACH USED: direct import of the frontend copy via a repository-relative path.
  * Bun resolves `better-auth/plugins/access` for the frontend module from the
  * backend test process, so the real frontend module loads and we compare its
  * runtime access-control definitions against the backend's.
@@ -24,8 +24,7 @@ import * as backend from "./auth-permissions";
  * consumed by both runtimes, which would make this duplication — and this
  * contract test — unnecessary.
  */
-// eslint-disable-next-line @typescript-eslint/consistent-type-imports
-import * as frontend from "/Users/javi/projects/thekrokocompany/almirant/almirant-auth-to-api/frontend/src/lib/auth-permissions.ts";
+import * as frontend from "../../../../../../frontend/src/lib/auth-permissions";
 
 // The access-control instance exposes the full statements map; each role
 // exposes its granted permissions via `.statements`.

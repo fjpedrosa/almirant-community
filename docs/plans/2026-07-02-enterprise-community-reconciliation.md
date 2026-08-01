@@ -134,7 +134,7 @@ Community conserva la **capa de datos** de feedback (schema + repositorios `feed
 | `466700352` | 04-18 | rename repo references to almirant-enterprise | Específico del linaje enterprise |
 | `6b218abb2` | 04-18 | bump 0189 migration `when` | Artefacto de linaje de migraciones |
 | `d3968085d`, `38c5b7053`, `d86934c67`, `13c5f31d0` | 04-05…04-14 | timestamps de journal de migraciones | Artefactos de linaje |
-| `1ce1c4ecd` | 04-18 | ARRAY vs ROW en JSONB ?| overlap | Aplica al claim SQL del feedback enterprise; community reescribió el claim (REVISAR antes de descartar del todo) |
+| `1ce1c4ecd` | 04-18 | ARRAY vs ROW en JSONB `?\|` overlap | Aplica al claim SQL del feedback enterprise; community reescribió el claim (REVISAR antes de descartar del todo) |
 | `4ecb2aed2`, `795b381a0` | 04-12 | harden feedback claim timestamp / type-check | Community evolucionó el claim (`claimNextBugFeedbackItem` existe con otra implementación); `safeJsonTimestampSql` no necesario a priori |
 
 ## 8. YA-EN-COMMUNITY (agregado)

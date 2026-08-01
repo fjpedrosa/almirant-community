@@ -1,4 +1,8 @@
-import type { ModelDefinition, ProviderType } from "@/domains/integrations/domain/types";
+import type {
+  ModelAccessChannel,
+  ModelDefinition,
+  ProviderType,
+} from "@/domains/integrations/domain/types";
 
 /**
  * Comprehensive catalog of AI models updated for July 2026.
@@ -6,11 +10,18 @@ import type { ModelDefinition, ProviderType } from "@/domains/integrations/domai
  * provider with display names and categories for UI components.
  */
 
-// Anthropic models - July 2026 (verified against platform.claude.com models + pricing)
+// Anthropic models - August 2026 (verified against platform.claude.com models + pricing)
 // Order matters: use-model-selector picks the FIRST entry as the default selection,
-// so Opus 4.8 (the claude-code default) must stay first. Fable 5 is the most capable
+// so Opus 5 (the claude-code default) must stay first. Fable 5 is the most capable
 // model but is intentionally NOT the default (premium price + 30-day retention).
 const ANTHROPIC_MODELS: ModelDefinition[] = [
+  {
+    // Same $5/$25 MTok as Opus 4.8, 1M context. Supports the full effort
+    // ladder (low → max); thinking is on by default.
+    id: "claude-opus-5",
+    displayName: "Claude Opus 5",
+    category: "best",
+  },
   {
     id: "claude-opus-4-8",
     displayName: "Claude Opus 4.8",
@@ -43,6 +54,21 @@ const ANTHROPIC_MODELS: ModelDefinition[] = [
 
 // OpenAI models - July 2026 (verified against OpenAI models + pricing pages)
 const OPENAI_MODELS: ModelDefinition[] = [
+  {
+    id: "gpt-5.6-sol",
+    displayName: "GPT-5.6 Sol",
+    category: "best",
+  },
+  {
+    id: "gpt-5.6-terra",
+    displayName: "GPT-5.6 Terra",
+    category: "fast",
+  },
+  {
+    id: "gpt-5.6-luna",
+    displayName: "GPT-5.6 Luna",
+    category: "cheap",
+  },
   {
     id: "gpt-5.5",
     displayName: "GPT-5.5",
@@ -129,13 +155,15 @@ const GOOGLE_MODELS: ModelDefinition[] = [
   },
 ];
 
-// OpenAI-compatible models (current z.ai GLM catalog, verified against z.ai pricing)
-// GLM-5.2 is the flagship and the zai default.
+// Z.AI models. `accessChannels` distinguishes the models available through the
+// Coding Plan agent endpoint from models that require the general Z.AI API.
+// GLM-5.2 is the Coding Plan flagship and default.
 const OPENAI_COMPATIBLE_MODELS: ModelDefinition[] = [
   {
     id: "glm-5.2",
     displayName: "GLM-5.2",
     category: "best",
+    accessChannels: ["agent-runtime"],
   },
   {
     id: "glm-5.1",
@@ -156,6 +184,7 @@ const OPENAI_COMPATIBLE_MODELS: ModelDefinition[] = [
     id: "glm-5v-turbo",
     displayName: "GLM-5V Turbo",
     category: "fast",
+    accessChannels: ["general-api"],
   },
   {
     id: "glm-4.7",
@@ -166,31 +195,52 @@ const OPENAI_COMPATIBLE_MODELS: ModelDefinition[] = [
     id: "glm-4.7-flashx",
     displayName: "GLM-4.7-FlashX",
     category: "cheap",
+    accessChannels: ["general-api"],
   },
   {
     id: "glm-4.7-flash",
     displayName: "GLM-4.7-Flash",
+    category: "cheap",
+    accessChannels: ["general-api"],
+  },
+  {
+    id: "glm-4.6",
+    displayName: "GLM-4.6",
+    category: "reasoning",
+  },
+  {
+    id: "glm-4.5",
+    displayName: "GLM-4.5",
+    category: "reasoning",
+  },
+  {
+    id: "glm-4.5-air",
+    displayName: "GLM-4.5 Air",
     category: "cheap",
   },
   {
     id: "glm-4.6v",
     displayName: "GLM-4.6V",
     category: "reasoning",
+    accessChannels: ["general-api"],
   },
   {
     id: "glm-4.6v-flashx",
     displayName: "GLM-4.6V-FlashX",
     category: "cheap",
+    accessChannels: ["general-api"],
   },
   {
     id: "glm-4.6v-flash",
     displayName: "GLM-4.6V-Flash",
     category: "cheap",
+    accessChannels: ["general-api"],
   },
   {
     id: "glm-ocr",
     displayName: "GLM-OCR",
     category: "cheap",
+    accessChannels: ["general-api"],
   },
 ];
 
@@ -246,8 +296,16 @@ export const AI_MODELS_CATALOG: Record<string, ModelDefinition[]> = {
 /**
  * Get available models for a specific provider
  */
-export const getModelsForProvider = (provider: ProviderType | string): ModelDefinition[] => {
-  return AI_MODELS_CATALOG[provider] ?? [];
+export const getModelsForProvider = (
+  provider: ProviderType | string,
+  accessChannel?: ModelAccessChannel,
+): ModelDefinition[] => {
+  const models = AI_MODELS_CATALOG[provider] ?? [];
+  if (!accessChannel) return models;
+
+  return models.filter((model) =>
+    model.accessChannels ? model.accessChannels.includes(accessChannel) : true,
+  );
 };
 
 /**
@@ -337,8 +395,11 @@ export const reconcileModelWithAvailable = (
 /**
  * Get models grouped by category for a provider
  */
-export const getModelsGroupedByCategory = (provider: ProviderType | string) => {
-  const models = getModelsForProvider(provider);
+export const getModelsGroupedByCategory = (
+  provider: ProviderType | string,
+  accessChannel?: ModelAccessChannel,
+) => {
+  const models = getModelsForProvider(provider, accessChannel);
   return models.reduce((acc, model) => {
     if (!acc[model.category]) {
       acc[model.category] = [];

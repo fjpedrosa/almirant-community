@@ -40,6 +40,35 @@ describe("OpenCodeSessionManager", () => {
     expect(sessions).toEqual([{ id: "s1", status: "active" }]);
   });
 
+  it("creates sessions with an empty JSON body — opencode >=1.x rejects cwd/model/provider", async () => {
+    let capturedBody = "";
+    let capturedPath = "";
+
+    const manager = createOpenCodeSessionManager(
+      { baseUrl: "http://localhost:4096" },
+      {
+        fetchFn: asFetch(async (input, init) => {
+          capturedPath = String(input);
+          capturedBody = String(init?.body ?? "");
+          return jsonResponse(200, { id: "ses_1", status: "active" });
+        }),
+      }
+    );
+
+    const session = await manager.createSession({
+      cwd: "/workspace/repo",
+      model: "glm-5.2",
+      provider: "zai",
+      metadata: { interactive: true },
+    });
+
+    // The model/provider come from the injected opencode.json config; the
+    // session create endpoint accepts none of the legacy fields.
+    expect(capturedPath).toContain("/session");
+    expect(JSON.parse(capturedBody)).toEqual({});
+    expect(session).toEqual({ id: "ses_1", status: "active" });
+  });
+
   it("sends prompt payload", async () => {
     let capturedBody = "";
 

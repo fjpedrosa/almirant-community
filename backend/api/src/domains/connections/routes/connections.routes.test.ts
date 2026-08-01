@@ -13,6 +13,7 @@ const __real_connectionUsageService = { ...(await import("../services/connection
 const state = {
   deactivateCalls: [] as string[],
   createConnectionCalls: [] as Array<Record<string, unknown>>,
+  updateConnectionCalls: [] as Array<{ id: string; input: Record<string, unknown> }>,
   usageSummaryCalls: [] as Array<{
     connectionId: string;
     period: { startDate: string; endDate: string };
@@ -63,6 +64,24 @@ mock.module("@almirant/database", () =>
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+    },
+    getConnectionById: async (id: string) => id === "conn-zai"
+      ? {
+          id,
+          provider: "zai",
+          category: "ai",
+          scope: "organization",
+          scopeId: "org-test-1",
+          config: {
+            zaiPlan: "coding",
+            baseUrl: "https://api.z.ai/api/coding/paas/v4",
+            implementationModel: "glm-5.2",
+          },
+        }
+      : null,
+    updateConnection: async (id: string, input: Record<string, unknown>) => {
+      state.updateConnectionCalls.push({ id, input });
+      return { id, ...input };
     },
     listConnections: async (filters: {
       category?: string;
@@ -169,6 +188,7 @@ describe("connectionsRoutes OAuth callback", () => {
   beforeEach(() => {
     state.deactivateCalls = [];
     state.createConnectionCalls = [];
+    state.updateConnectionCalls = [];
     state.usageSummaryCalls = [];
     state.fetchCalls = [];
 
@@ -300,6 +320,66 @@ describe("connectionsRoutes OAuth callback", () => {
           call.period.endDate.length === 10,
       ),
     ).toBe(true);
+  });
+
+  it("canonicalizes entitled Z.AI Coding Plan models before persistence", async () => {
+    const { Elysia } = await import("elysia");
+    const { connectionsRoutes } = await import("./connections.routes");
+    const app = new Elysia().use(withTestOrg).use(connectionsRoutes);
+
+    const res = await app.handle(
+      new Request(
+        "http://localhost/connections",
+        json({
+          provider: "zai",
+          category: "ai",
+          scope: "organization",
+          name: "Z.AI Coding Plan",
+          config: { baseUrl: "https://api.z.ai/api/coding/paas/v4/" },
+          implementationModel: " GLM-5.2 ",
+          implementationReasoningBudget: "MAX",
+        }),
+      ),
+    );
+
+    expect(res.status).toBe(201);
+    expect(state.createConnectionCalls).toHaveLength(1);
+    expect(state.createConnectionCalls[0]?.config).toMatchObject({
+      zaiPlan: "coding",
+      baseUrl: "https://api.z.ai/api/coding/paas/v4",
+      implementationModel: "glm-5.2",
+      implementationReasoningBudget: "max",
+    });
+  });
+
+  it("rejects API-only and unknown model slugs on both create and update", async () => {
+    const { Elysia } = await import("elysia");
+    const { connectionsRoutes } = await import("./connections.routes");
+    const app = new Elysia().use(withTestOrg).use(connectionsRoutes);
+
+    const createRes = await app.handle(
+      new Request(
+        "http://localhost/connections",
+        json({
+          provider: "zai",
+          category: "ai",
+          scope: "organization",
+          name: "Invalid Z.AI",
+          implementationModel: "glm-5v-turbo",
+        }),
+      ),
+    );
+    const updateRes = await app.handle(
+      new Request(
+        "http://localhost/connections/conn-zai",
+        json({ implementationModel: "totally-not-a-model" }, "PATCH"),
+      ),
+    );
+
+    expect(createRes.status).toBe(400);
+    expect(updateRes.status).toBe(400);
+    expect(state.createConnectionCalls).toHaveLength(0);
+    expect(state.updateConnectionCalls).toHaveLength(0);
   });
 });
 

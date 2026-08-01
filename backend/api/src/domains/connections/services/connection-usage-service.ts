@@ -498,18 +498,33 @@ const fetchOpenAiUsage = async (
   for (const bucket of usageReport.data) {
     for (const result of bucket.results) {
       const model = result.model?.trim() || "Unspecified model";
-      const uncachedInputTokens = result.input_tokens;
-      const cachedInputTokens = result.input_cached_tokens;
-      const effectiveInputTokens =
-        uncachedInputTokens + cachedInputTokens;
-      const totalTokens = effectiveInputTokens + result.output_tokens;
-      // OpenAI cached prompt tokens use different pricing tiers; estimate
-      // model cost from uncached prompt tokens plus output tokens only.
+      // OpenAI reports input_tokens as the inclusive total. Cached input is a
+      // subset, not an additional bucket. Clamp defensive provider anomalies
+      // before splitting the inclusive total for price calculation.
+      const effectiveInputTokens = Number.isFinite(result.input_tokens)
+        ? Math.max(0, result.input_tokens)
+        : 0;
+      const reportedCachedInputTokens = Number.isFinite(result.input_cached_tokens)
+        ? Math.max(0, result.input_cached_tokens)
+        : 0;
+      const cachedInputTokens = Math.min(
+        effectiveInputTokens,
+        reportedCachedInputTokens,
+      );
+      const uncachedInputTokens = effectiveInputTokens - cachedInputTokens;
+      const effectiveOutputTokens = Number.isFinite(result.output_tokens)
+        ? Math.max(0, result.output_tokens)
+        : 0;
+      const effectiveRequests = Number.isFinite(result.num_model_requests)
+        ? Math.max(0, result.num_model_requests)
+        : 0;
+      const totalTokens = effectiveInputTokens + effectiveOutputTokens;
       const estimatedModelCost = calculateCostUsd({
         provider: "openai",
         model,
         inputTokens: uncachedInputTokens,
-        outputTokens: result.output_tokens,
+        cacheReadInputTokens: cachedInputTokens,
+        outputTokens: effectiveOutputTokens,
       });
 
       const existing =
@@ -527,9 +542,9 @@ const fetchOpenAiUsage = async (
 
       existing.inputTokens += effectiveInputTokens;
       existing.cachedInputTokens += cachedInputTokens;
-      existing.outputTokens += result.output_tokens;
+      existing.outputTokens += effectiveOutputTokens;
       existing.totalTokens += totalTokens;
-      existing.requests += result.num_model_requests;
+      existing.requests += effectiveRequests;
 
       if (
         existing.estimatedCostUsd !== null &&
@@ -545,8 +560,8 @@ const fetchOpenAiUsage = async (
       models.set(model, existing);
 
       inputTokens += effectiveInputTokens;
-      outputTokens += result.output_tokens;
-      requests += result.num_model_requests;
+      outputTokens += effectiveOutputTokens;
+      requests += effectiveRequests;
 
       if (estimatedModelCost !== null) {
         estimatedCostUsd += estimatedModelCost;

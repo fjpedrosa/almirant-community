@@ -31,7 +31,9 @@ export const repoInstallationLinks = pgTable("repo_installation_links", {
   githubRepoFullName: varchar("github_repo_full_name", { length: 512 }).notNull(),
   defaultBranch: varchar("default_branch", { length: 255 }).default("main"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [
+  uniqueIndex("repo_installation_links_repo_id_unique_idx").on(table.repoId),
+]);
 
 // GitHub commits cached locally
 export const githubCommits = pgTable("github_commits", {

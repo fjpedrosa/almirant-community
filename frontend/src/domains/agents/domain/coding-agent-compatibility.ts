@@ -55,7 +55,7 @@ export const isSingleProviderAgent = (agent: CodingAgent): boolean =>
 
 /** Get available models for an agent provider (maps to AI provider catalog) */
 export const getModelsForAgentProvider = (agentProvider: AgentProvider): ModelDefinition[] =>
-  getModelsForProvider(AGENT_PROVIDER_TO_AI_PROVIDER[agentProvider]);
+  getModelsForProvider(AGENT_PROVIDER_TO_AI_PROVIDER[agentProvider], "agent-runtime");
 
 /** Get AI provider name from agent provider */
 export const agentProviderToAiProvider = (agentProvider: AgentProvider): string =>

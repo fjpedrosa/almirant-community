@@ -22,6 +22,9 @@ export const SignInCard = ({
   error,
   socialProviders,
   onSocialSignIn,
+  showSignUpLink = false,
+  signUpHref = "/signup",
+  showInvitationHint = false,
 }: SignInCardProps) => {
   const t = useTranslations("auth");
   const isInitialAdminSetup = mode === "initial_admin_setup";
@@ -35,7 +38,7 @@ export const SignInCard = ({
   const cardDescription = isInitialAdminSetup
     ? t("createAdminDescription")
     : isSignUp
-      ? t("invitedSignupDescription")
+      ? t("createAccountDescription")
       : t("signInToContinue");
 
   return (
@@ -114,7 +117,7 @@ export const SignInCard = ({
             <p className="text-xs text-muted-foreground">{t("setupHint")}</p>
           )}
 
-          {!isInitialAdminSetup && mode === "sign_up" && (
+          {!isInitialAdminSetup && mode === "sign_up" && showInvitationHint && (
             <p className="text-xs text-muted-foreground">
               {t("invitedSignupHint")}
             </p>
@@ -131,6 +134,14 @@ export const SignInCard = ({
                 : t("signIn")}
           </Button>
         </form>
+
+        {!isSignUp && showSignUpLink && (
+          <p className="text-center text-sm text-muted-foreground">
+            <a href={signUpHref} className="font-medium text-primary hover:underline">
+              {t("createAccount")}
+            </a>
+          </p>
+        )}
 
         {showSocial && (
           <>

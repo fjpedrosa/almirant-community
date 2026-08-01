@@ -772,6 +772,8 @@ describe("Repositories", () => {
       const body = await res.json() as any;
       expect(body.success).toBe(true);
       expect(body.data.id).toBe("repo-1");
+      expect(body.data.url).toBe("https://github.com/org/repo");
+      expect(body.data.created).toBeUndefined();
     });
 
     it("returns 400 when name is empty", async () => {
@@ -814,6 +816,7 @@ describe("Repositories", () => {
             url: "https://github.com/org/repo",
             provider: "github",
             isMonorepo: true,
+            order: 7,
           })
         )
       );
@@ -821,6 +824,29 @@ describe("Repositories", () => {
       expect(res.status).toBe(201);
       const body = await res.json() as any;
       expect(body.success).toBe(true);
+      expect(body.data.provider).toBe("github");
+      expect(body.data.isMonorepo).toBe(true);
+      expect(body.data.order).toBe(7);
+    });
+
+    it("returns 400 only for known repository URL validation failures", async () => {
+      const app = await makeApp();
+      const res = await app.handle(req(
+        `/projects/${testProject.id}/repositories`,
+        json({ name: "unsafe", url: "http://127.0.0.1/repo", provider: "other" }),
+      ));
+
+      expect(res.status).toBe(400);
+      expect((await res.json() as any).error).toContain("HTTPS");
+    });
+
+    it("classifies unknown failures as generic logged 500 responses", async () => {
+      const { classifyRepositoryAttachError } = await import("./projects.routes");
+      expect(classifyRepositoryAttachError(new Error("sensitive database detail"))).toEqual({
+        status: 500,
+        message: "Could not attach repository",
+        log: true,
+      });
     });
   });
 

@@ -194,7 +194,7 @@ describe("agentJobsRoutes POST /agent-jobs", () => {
     );
 
     expect(res.status).toBe(201);
-    expect(state.createdJobInput?.model).toBe("gpt-5.5");
+    expect(state.createdJobInput?.model).toBe("gpt-5.6-sol");
   });
 
   it("resolves the default model from the shared runtime for batch jobs without an explicit model", async () => {

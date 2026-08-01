@@ -1,16 +1,17 @@
 import {
   createJob,
   getRepositories,
-  getOrgPrimaryRepository,
   updateScheduledAgentConfigLastRunAt,
 } from "@almirant/database";
-import type {
-  ScheduledAgentConfigDb,
-  CodingAgent,
-  AiProvider,
-} from "@almirant/database";
-import { resolveRuntime } from "@almirant/shared";
+import type { ScheduledAgentConfigDb } from "@almirant/database";
+import { logger } from "@almirant/config";
 import { wsConnectionManager } from "../../../shared/ws/ws-connection-manager";
+import { resolveScheduledAgentEffectiveRuntimes } from "./scheduled-agent-effective-model-resolver";
+import { assertValidScheduledAgentRuntime } from "./scheduled-agent-runtime-validation";
+import { resolveScheduledAgentProjectContext } from "./scheduled-agent-project-context";
+
+/** How the job's repository was decided, recorded on the job for diagnosis. */
+export type RepositoryResolution = "project" | "none";
 
 export interface ExecuteScheduledAgentConfigOptions {
   /** User ID who initiated execution. `null` for unattended (webhook, cron) flows. */
@@ -42,7 +43,7 @@ const composePrompt = (
  *   - POST /webhooks/agents/:agentId    (incoming webhook trigger)
  *
  * The function:
- *   1. resolves a primary repository (project-scoped, then org-scoped fallback)
+ *   1. resolves the project's repository, or none when the agent has no project
  *   2. resolves runtime (provider/codingAgent/model)
  *   3. creates an agent job
  *   4. updates `lastRunAt`
@@ -54,12 +55,16 @@ export const executeScheduledAgentConfig = async (
 ) => {
   const orgId = config.workspaceId;
 
-  let repoUrl: string | undefined;
-  let repositoryId: string | undefined;
+  const projectContext = await resolveScheduledAgentProjectContext(
+    orgId,
+    config.projectId,
+  );
+  let repoUrl = projectContext.repoUrl ?? undefined;
+  let repositoryId = projectContext.repositoryId ?? undefined;
   const baseBranch = "main";
-  let resolvedProjectId = config.projectId ?? undefined;
+  let resolvedProjectId = projectContext.projectId ?? undefined;
 
-  if (resolvedProjectId) {
+  if (config.projectId && resolvedProjectId) {
     try {
       const repos = await getRepositories(orgId, resolvedProjectId);
       const primary = repos[0];
@@ -72,33 +77,64 @@ export const executeScheduledAgentConfig = async (
     }
   }
 
-  if (!repoUrl && orgId) {
-    try {
-      const orgRepo = await getOrgPrimaryRepository(orgId);
-      if (orgRepo) {
-        repoUrl = orgRepo.url;
-        repositoryId = orgRepo.id;
-        resolvedProjectId = resolvedProjectId ?? orgRepo.projectId;
-      }
-    } catch {
-      // Non-fatal: runner will resolve via API fallback
-    }
+  // A repository nobody chose is worse than no repository at all. This used to
+  // fall back to the workspace's first repository by `order`, which with several
+  // repositories tied at 0 is effectively arbitrary — an agent written for one
+  // project would clone another, read it, branch it and open a pull request
+  // against it. Running with an empty workspace is already a supported mode, so
+  // prefer it and record why, instead of guessing.
+  const repositoryResolution: RepositoryResolution = repoUrl
+    ? "project"
+    : "none";
+
+  if (!repoUrl) {
+    logger.info(
+      {
+        scheduledConfigId: config.id,
+        scheduledConfigName: config.name,
+        workspaceId: orgId,
+        projectId: config.projectId ?? null,
+      },
+      "Scheduled agent resolved no repository; starting with an empty workspace",
+    );
   }
 
-  const resolvedRuntime = resolveRuntime({
+  const effectiveRuntimes = await resolveScheduledAgentEffectiveRuntimes({
+    workspaceId: config.workspaceId,
     provider: config.provider,
-    codingAgent: config.codingAgent ?? undefined,
-    model: config.aiModel ?? undefined,
+    codingAgent: config.codingAgent,
+    aiProvider: config.aiProvider,
+    aiModel: config.aiModel,
+    reasoningLevel: config.reasoningLevel,
+    jobType: config.jobType,
+    projectId: resolvedProjectId,
+    targetConfig: config.targetConfig,
   });
+  const [resolvedRuntime] = effectiveRuntimes;
+  if (!resolvedRuntime) {
+    throw new Error("Invalid scheduled agent runtime: could not resolve an effective execution runtime");
+  }
 
   const finalPrompt = composePrompt(config.prompt, options.extraUserPrompt);
+
+  // Revalidate the complete, current source set immediately before enqueueing.
+  // A connection or project default may have changed since CREATE/PATCH.
+  assertValidScheduledAgentRuntime({
+    provider: config.provider,
+    codingAgent: config.codingAgent,
+    aiProvider: config.aiProvider,
+    aiModel: config.aiModel,
+    reasoningLevel: config.reasoningLevel,
+    effectiveRuntimes,
+    targetConfig: config.targetConfig,
+  });
 
   const job = await createJob({
     projectId: resolvedProjectId ?? null,
     workspaceId: config.workspaceId,
     createdByUserId: options.createdByUserId,
     jobType: config.jobType,
-    provider: config.provider,
+    provider: resolvedRuntime.provider as typeof config.provider,
     priority: "medium",
     config: {
       repoPath: ".",
@@ -107,17 +143,16 @@ export const executeScheduledAgentConfig = async (
       projectId: resolvedProjectId,
       scheduledConfigId: config.id,
       scheduledConfigName: config.name,
+      repositoryResolution,
       source: config.trigger === "webhook" ? "webhook" : "scheduled",
-      reasoningLevel: config.reasoningLevel ?? undefined,
+      reasoningLevel: resolvedRuntime.reasoningLevel ?? undefined,
       ...(config.mcpServers ? { mcpServers: config.mcpServers } : {}),
       ...(repoUrl ? { repoUrl } : {}),
       ...(repositoryId ? { repositoryId } : {}),
     },
-    codingAgent:
-      (config.codingAgent as CodingAgent | undefined) ?? resolvedRuntime.codingAgent,
-    aiProvider:
-      (config.aiProvider as AiProvider | undefined) ?? resolvedRuntime.aiProvider,
-    model: config.aiModel ?? resolvedRuntime.model,
+    codingAgent: resolvedRuntime.codingAgent as never,
+    aiProvider: resolvedRuntime.aiProvider as never,
+    model: resolvedRuntime.model,
     prompt: finalPrompt,
     promptTemplate: null,
     triggerType: "event",

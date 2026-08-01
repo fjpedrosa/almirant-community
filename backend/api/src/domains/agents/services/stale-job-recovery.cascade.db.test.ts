@@ -6,12 +6,14 @@
  * the linked active attempt is cascaded to `failed` (before the wiring it stays
  * "implementing" forever).
  *
- * DB-gated: auto-skips when DATABASE_URL is unset.
+ * DB-gated: the pre-push runner enables it only when TEST_DATABASE_URL points
+ * to a prepared PostgreSQL test database. For a direct run, set both
+ * DATABASE_URL and ALMIRANT_RUN_DB_TESTS=true.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 
-const hasDb = Boolean(process.env.DATABASE_URL);
+const hasDb = process.env.ALMIRANT_RUN_DB_TESTS === "true";
 const d = hasDb ? describe : describe.skip;
 
 d("stale-job-recovery → bug_fix_attempt cascade (direct-update paths)", () => {
@@ -101,6 +103,32 @@ d("stale-job-recovery → bug_fix_attempt cascade (direct-update paths)", () => 
     return attemptId;
   };
 
+  const createPreSessionStuckJob = async (): Promise<string> => {
+    const id = randomUUID();
+    await db.execute(sql`
+      INSERT INTO agent_jobs (
+        id, workspace_id, project_id, job_type, provider, priority,
+        status, config, coding_agent, ai_provider, model, started_at
+      )
+      VALUES (
+        ${id}, ${workspaceId}, ${projectId}, 'bug-analysis', 'claude-code',
+        'medium', 'running', '{}'::jsonb, 'claude-code', 'anthropic',
+        'claude-opus-4-7', NOW() - INTERVAL '20 minutes'
+      )
+    `);
+    await db.execute(sql`
+      INSERT INTO agent_job_logs (
+        job_id, org_id, seq, phase, event_type, message, timestamp
+      )
+      VALUES (
+        ${id}, ${workspaceId}, 1, 'serve', 'serve.ready', 'ready',
+        NOW() - INTERVAL '20 minutes'
+      )
+    `);
+    createdIds.jobs.push(id);
+    return id;
+  };
+
   const getStatus = async (
     table: "agent_jobs" | "bug_fix_attempts",
     id: string
@@ -121,5 +149,13 @@ d("stale-job-recovery → bug_fix_attempt cascade (direct-update paths)", () => 
 
     expect(await getStatus("agent_jobs", jobId)).toBe("failed");
     expect(await getStatus("bug_fix_attempts", attemptId)).toBe("failed");
+  });
+
+  test("pre-session watchdog requeues a job stuck after serve.ready", async () => {
+    const jobId = await createPreSessionStuckJob();
+
+    await runStaleJobRecoveryOnce();
+
+    expect(await getStatus("agent_jobs", jobId)).toBe("queued");
   });
 });

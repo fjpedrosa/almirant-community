@@ -16,5 +16,20 @@
   // would need a full rewrite (create organization + thread org id through
   // tags/documentCategories/etc.) to typecheck. Excluded until somebody
   // revives it — it is not wired into any runtime path.
-  "exclude": ["src/seed.ts"]
+  //
+  // shared's own test files must stay excluded here too, mirroring
+  // ../shared/tsconfig.json's own exclude list. Without this, widening
+  // `include` to `../shared/src/**/*.ts` above also pulls in shared's
+  // *.test.ts files under database's project — including
+  // builtin-automations.frontend-parity.test.ts, whose deliberate relative
+  // import of frontend/src/... (see that file's own comment) is only valid
+  // under the frontend's own tsconfig, not database's rootDir/paths. Letting
+  // it leak in here previously caused a TS6059/TS6307 rootDir violation plus
+  // a TS2307/TS7006 cascade from frontend files with `@/*` aliases database
+  // doesn't resolve.
+  "exclude": [
+    "src/seed.ts",
+    "../shared/src/**/*.test.ts",
+    "../shared/src/**/__tests__/**/*.ts"
+  ]
 }

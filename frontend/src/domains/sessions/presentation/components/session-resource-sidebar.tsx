@@ -11,7 +11,6 @@ import {
   YAxis,
 } from "recharts";
 import { Bot, MemoryStick } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { ResourceTimeline } from "@/domains/agents/domain/types";
@@ -75,26 +74,26 @@ const RAM_COLOR_BY_STATE: Record<
   },
 };
 
-const confidenceVariant = (
-  confidence: string | undefined,
-): "default" | "secondary" | "outline" => {
-  if (confidence === "high") return "default";
-  if (confidence === "medium") return "secondary";
-  return "outline";
+const confidenceTone = (confidence: string | undefined): string => {
+  if (confidence === "high") return "text-emerald-500/80";
+  if (confidence === "medium") return "text-amber-500/80";
+  return "text-muted-foreground/70";
 };
 
+/** Sections are separated by rhythm, not by nested boxes — the rail is already
+ *  one card, and a border per metric turns it into a stack of receipts. */
 const SidebarSection: React.FC<{
   label: string;
   icon: React.ReactNode;
   children: React.ReactNode;
 }> = ({ label, icon, children }) => (
-  <div className="rounded-lg border bg-background/60 p-3 shadow-sm">
+  <section>
     <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
       <span>{label}</span>
       {icon}
     </div>
     <div className="mt-2">{children}</div>
-  </div>
+  </section>
 );
 
 const StatRow: React.FC<{ label: string; value: React.ReactNode }> = ({
@@ -123,9 +122,9 @@ export const SessionResourceSidebar: React.FC<SessionResourceSidebarProps> = ({
 
   if (!timeline) {
     return (
-      <div className="rounded-lg border border-dashed bg-background/40 p-3 text-xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         No RAM samples for this job yet.
-      </div>
+      </p>
     );
   }
 
@@ -162,18 +161,7 @@ export const SessionResourceSidebar: React.FC<SessionResourceSidebarProps> = ({
       : "—";
 
   return (
-    <div className="flex flex-col gap-3">
-      {timeline.forecast && (
-        <div className="flex items-center justify-end">
-          <Badge
-            variant={confidenceVariant(timeline.forecast.confidence)}
-            className="text-[10px]"
-          >
-            {timeline.forecast.confidence} confidence
-          </Badge>
-        </div>
-      )}
-
+    <div className="flex flex-col gap-5">
       <SidebarSection label="RAM" icon={<MemoryStick className="h-3 w-3" />}>
         <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 tabular-nums">
           <span
@@ -193,6 +181,11 @@ export const SessionResourceSidebar: React.FC<SessionResourceSidebarProps> = ({
         {expectedRamMb !== null && (
           <p className="mt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
             expected max
+            {timeline.forecast && (
+              <span className={cn("ml-1.5", confidenceTone(timeline.forecast.confidence))}>
+                · {timeline.forecast.confidence} confidence
+              </span>
+            )}
           </p>
         )}
         <div className="mt-3 grid gap-1">

@@ -13,6 +13,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -58,6 +59,9 @@ interface WorkItemFormContentProps {
   submitLabel: string;
   cancelLabel?: string;
   onCancel: () => void;
+  // "edit" reveals fields that only make sense on an already-persisted item
+  // (e.g. start date — the create endpoint doesn't accept it yet).
+  mode?: "create" | "edit";
   // Available options
   availableParents: { id: string; title: string; type: WorkItemType }[];
   availableProjects: { id: string; name: string }[];
@@ -108,6 +112,7 @@ export const WorkItemFormContent: React.FC<WorkItemFormContentProps> = ({
   submitLabel,
   cancelLabel,
   onCancel,
+  mode = "create",
   availableParents,
   availableProjects,
   isLoadingParents,
@@ -264,8 +269,8 @@ export const WorkItemFormContent: React.FC<WorkItemFormContentProps> = ({
             )}
           />
 
-          {/* Assignee + "Yo" button | Due Date - 2 cols */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Assignee + "Yo" button | Start Date (edit only) | Due Date */}
+          <div className={cn("grid grid-cols-1 gap-3", mode === "edit" ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
             {useMultiSelectAssignee ? (
               <FormItem>
                 <FormLabel>{t("form.assignee")}</FormLabel>
@@ -316,6 +321,60 @@ export const WorkItemFormContent: React.FC<WorkItemFormContentProps> = ({
                         </Button>
                       )}
                     </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
+            {mode === "edit" && (
+              <FormField
+                control={form.control}
+                name="startDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("form.startDate")}</FormLabel>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button
+                            variant="outline"
+                            className={cn(
+                              "w-full justify-start text-left font-normal",
+                              !field.value && "text-muted-foreground"
+                            )}
+                          >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {field.value
+                              ? formatLong(field.value)
+                              : tCommon("selectDate")}
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={field.value}
+                          onSelect={field.onChange}
+                          initialFocus
+                          locale={locale}
+                        />
+                        {field.value && (
+                          <div className="px-3 pb-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="w-full text-xs"
+                              onClick={() => field.onChange(undefined)}
+                            >
+                              {tCommon("clear")}
+                            </Button>
+                          </div>
+                        )}
+                      </PopoverContent>
+                    </Popover>
+                    <FormDescription>{t("form.startDateHint")}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

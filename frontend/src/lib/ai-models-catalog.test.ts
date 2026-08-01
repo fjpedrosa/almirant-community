@@ -31,6 +31,16 @@ describe("resolveCanonicalModelId", () => {
     expect(resolveCanonicalModelId("glm-5-turbo-preview")).toBe("glm-5-turbo");
   });
 
+  it("resolves the Opus 5 display name to its canonical id (post-merge catalog entry)", () => {
+    expect(resolveCanonicalModelId("Claude Opus 5")).toBe("claude-opus-5");
+  });
+
+  it("resolves a dated Opus 5 snapshot id to its base model via prefix", () => {
+    expect(resolveCanonicalModelId("claude-opus-5-20260615")).toBe(
+      "claude-opus-5",
+    );
+  });
+
   it("returns null for unknown, empty or nullish values", () => {
     expect(resolveCanonicalModelId("totally-made-up-model")).toBeNull();
     expect(resolveCanonicalModelId("")).toBeNull();
@@ -63,6 +73,12 @@ describe("reconcileModelWithAvailable", () => {
     expect(reconcileModelWithAvailable("gpt-5.4", ["glm-5.2", "glm-5.1"])).toBe(
       "",
     );
+  });
+
+  it("canonicalizes a persisted Opus 5 display name into the available catalog id", () => {
+    expect(
+      reconcileModelWithAvailable("Claude Opus 5", ["claude-opus-5", "claude-sonnet-5"]),
+    ).toBe("claude-opus-5");
   });
 
   it("clears empty or nullish values", () => {

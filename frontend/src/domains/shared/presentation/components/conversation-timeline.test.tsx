@@ -301,6 +301,62 @@ describe("ConversationTimeline", () => {
     expect(screen.queryByText("almirant_get_current_user")).not.toBeInTheDocument();
   });
 
+  it("funde el reasoning intercalado con tool calls en una sola fila por tramo", () => {
+    renderTimeline({
+      messages: [
+        {
+          id: "think-1",
+          role: "assistant",
+          content: "Comprobando la plataforma de la tienda.",
+          messageType: "thinking",
+        },
+        {
+          id: "tool-1",
+          role: "assistant",
+          content: "",
+          messageType: "tool_call",
+          metadata: {
+            toolName: "scraper_fetch_document",
+            toolCallId: "tool-1",
+          },
+        },
+        {
+          id: "think-2",
+          role: "assistant",
+          content: "Respondió el endpoint, así que es Shopify.",
+          messageType: "thinking",
+        },
+        {
+          id: "text-1",
+          role: "assistant",
+          content: "Confirmada la plataforma.",
+        },
+        {
+          id: "think-3",
+          role: "assistant",
+          content: "Ahora pagino a la página dos.",
+          messageType: "thinking",
+        },
+      ],
+    });
+
+    // Two runs → two reasoning rows, each headlined by its own opening thought.
+    const reasoningRows = screen.getAllByRole("button", {
+      name: /Comprobando la plataforma|Ahora pagino a la página dos/,
+    });
+    expect(reasoningRows).toHaveLength(2);
+
+    // The second thought of the first run folded into the first row instead of
+    // producing a row of its own.
+    expect(
+      screen.queryByRole("button", { name: /Respondió el endpoint/ }),
+    ).not.toBeInTheDocument();
+
+    // The tool call keeps its own position between the runs.
+    expect(screen.getByText("Scraper")).toBeInTheDocument();
+    expect(screen.getByText("Fetch document")).toBeInTheDocument();
+  });
+
   it("normaliza la tool skill en minúsculas como Skill", () => {
     renderTimeline({
       messages: [

@@ -46,6 +46,7 @@ WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/backend ./backend
 COPY --from=builder /app/services ./services
+COPY --chmod=755 backend/api/docker-entrypoint.sh /usr/local/bin/almirant-api-entrypoint
 
 # Build metadata — injected from `docker build --build-arg ALMIRANT_BUILD_SHA=$(git rev-parse HEAD)`
 # so the running backend can report its own version to the update-check endpoint.
@@ -60,4 +61,5 @@ EXPOSE 3001
 
 WORKDIR /app/backend/api
 
+ENTRYPOINT ["almirant-api-entrypoint"]
 CMD ["bun", "run", "dist/index.js"]

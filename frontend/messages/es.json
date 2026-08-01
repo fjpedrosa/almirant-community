@@ -289,6 +289,8 @@
       "assignee": "Asignado a",
       "assigneePlaceholder": "Sin asignar",
       "assignToMe": "Asignarme a mí",
+      "startDate": "Fecha de inicio",
+      "startDateHint": "Los agentes automáticos no cogerán esta tarea hasta esa fecha.",
       "dueDate": "Fecha límite",
       "estimatedHours": "Horas estimadas",
       "parent": "Padre",
@@ -408,7 +410,8 @@
       "storyPoints": "Story Points: {points}",
       "releasePr": "Release v{number}",
       "releaseOpen": "abierta",
-      "releaseMerged": "desplegada"
+      "releaseMerged": "desplegada",
+      "scheduled": "Programada · {date}"
     },
     "selection": {
       "selected": "{count, plural, one {# tarea seleccionada} other {# tareas seleccionadas}}",
@@ -608,7 +611,9 @@
       "edit": "Editar",
       "cancelEdit": "Cancelar",
       "save": "Guardar",
+      "startDate": "Fecha de inicio",
       "dueDate": "Fecha limite",
+      "scheduled": "Programada · {date}",
       "parent": "Padre",
       "tags": "Etiquetas",
       "bugFlag": "Bug"

@@ -1,4 +1,8 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import {
+  collectScheduledAgentConnectionRuntimes,
+  resolveScheduledAgentAiProvider,
+} from "@almirant/shared";
 import { db } from "../../client";
 import {
   agentJobs,
@@ -18,6 +22,10 @@ import {
   type BacklogDrainSelectionMode,
   type ProjectAgentDefaults,
 } from "./backlog-drain-selection";
+import {
+  findActiveConnections,
+  mapAiProviderToConnectionProvider,
+} from "../connections/connection-repository";
 
 export interface BacklogDrainCandidateResult {
   candidates: BacklogDrainCandidate[];
@@ -168,6 +176,8 @@ const emptyCandidateResult = (): BacklogDrainCandidateResult => ({
     notDodRemediation: [],
     missingDodReport: [],
     humanReviewRequired: [],
+    scheduledForLater: [],
+    assignedToOtherAgent: [],
   },
 });
 
@@ -234,11 +244,14 @@ const markRepeatedDodRemediationAttemptsForHumanIntervention = async (
 
 const selectBacklogDrainForWorkspace = async (params: {
   workspaceId: string;
+  jobType?: string;
   mode?: BacklogDrainSelectionMode;
   rules: BacklogDrainProjectRule[];
   allProjects?: boolean;
   defaultMaxConcurrentJobs?: number | null;
   minAgeMinutes?: number | null;
+  /** Id of the scheduled agent config running this drain; see BacklogDrainSelectionInput. */
+  scheduledAgentConfigId?: string | null;
   fallbackRuntime?: {
     provider?: string | null;
     codingAgent?: string | null;
@@ -278,7 +291,23 @@ const selectBacklogDrainForWorkspace = async (params: {
       ? Math.max(0, params.minAgeMinutes) * 60_000
       : undefined;
 
-  const [itemRows, dependencyRows, activeJobRows, dodRemediationAttemptRows] = await Promise.all([
+  const connectionAiProvider = resolveScheduledAgentAiProvider({
+    provider: params.fallbackRuntime?.provider,
+    aiProvider: params.fallbackRuntime?.aiProvider,
+  });
+  const shouldLoadConnection = Boolean(
+    connectionAiProvider && !normalizeString(params.fallbackRuntime?.model),
+  );
+
+  // One prioritized connection query per selection run, executed alongside
+  // the other bulk reads. Never resolve a connection inside the item loop.
+  const [
+    itemRows,
+    dependencyRows,
+    activeJobRows,
+    dodRemediationAttemptRows,
+    activeConnections,
+  ] = await Promise.all([
     db
       .select({
         id: workItems.id,
@@ -293,9 +322,11 @@ const selectBacklogDrainForWorkspace = async (params: {
         columnIsDone: boardColumns.isDone,
         columnOrder: boardColumns.order,
         updatedAt: workItems.updatedAt,
+        startDate: workItems.startDate,
         codingAgent: workItems.codingAgent,
         aiModel: workItems.aiModel,
         metadata: workItems.metadata,
+        scheduledAgentConfigId: workItems.scheduledAgentConfigId,
       })
       .from(workItems)
       .innerJoin(projects, eq(workItems.projectId, projects.id))
@@ -355,7 +386,22 @@ const selectBacklogDrainForWorkspace = async (params: {
           )
           .groupBy(agentJobs.workItemId)
       : Promise.resolve([]),
+    shouldLoadConnection && connectionAiProvider
+      ? findActiveConnections(
+          mapAiProviderToConnectionProvider(connectionAiProvider),
+          "organization",
+          params.workspaceId,
+        )
+      : Promise.resolve([]),
   ]);
+
+  const [connectionRuntime] = connectionAiProvider
+    ? collectScheduledAgentConnectionRuntimes({
+        aiProvider: connectionAiProvider,
+        jobType: params.jobType ?? "implementation",
+        connections: activeConnections,
+      })
+    : [];
 
   const dodRemediationAttemptCountByWorkItemId = new Map(
     dodRemediationAttemptRows
@@ -404,6 +450,7 @@ const selectBacklogDrainForWorkspace = async (params: {
     rules: effectiveRules,
     defaultMaxConcurrentJobs: params.defaultMaxConcurrentJobs,
     stabilizationWindowMs,
+    drainingAgentConfigId: params.scheduledAgentConfigId ?? null,
     projects: projectRows.map((project) => ({
       id: project.id,
       agentDefaults: project.agentDefaults as ProjectAgentDefaults | null,
@@ -424,6 +471,9 @@ const selectBacklogDrainForWorkspace = async (params: {
       model: params.fallbackRuntime?.model ?? null,
       reasoningLevel: params.fallbackRuntime?.reasoningLevel ?? null,
     },
+    connectionRuntime: connectionRuntime
+      ? { ...connectionRuntime, aiProvider: connectionAiProvider }
+      : null,
   });
 };
 
@@ -433,11 +483,13 @@ export const getBacklogDrainCandidatesForScheduledConfig = async (
   const { rules, allProjects, defaultMaxConcurrentJobs, minAgeMinutes } = resolveBacklogDrainRules(config);
   return selectBacklogDrainForWorkspace({
     workspaceId: config.workspaceId,
+    jobType: config.jobType,
     mode: "implementation",
     rules,
     allProjects,
     defaultMaxConcurrentJobs,
     minAgeMinutes,
+    scheduledAgentConfigId: config.id,
     fallbackRuntime: {
       provider: config.provider,
       codingAgent: config.codingAgent,
@@ -454,11 +506,13 @@ export const getDodRemediationCandidatesForScheduledConfig = async (
   const { rules, allProjects, defaultMaxConcurrentJobs, minAgeMinutes } = resolveDodRemediationRules(config);
   return selectBacklogDrainForWorkspace({
     workspaceId: config.workspaceId,
+    jobType: config.jobType,
     mode: "dod-remediation",
     rules,
     allProjects,
     defaultMaxConcurrentJobs,
     minAgeMinutes,
+    scheduledAgentConfigId: config.id,
     fallbackRuntime: {
       provider: config.provider,
       codingAgent: config.codingAgent,
@@ -469,28 +523,41 @@ export const getDodRemediationCandidatesForScheduledConfig = async (
   });
 };
 
+// workspaceId is optional: the worker plane (workers.routes.ts) is instance
+// infrastructure and resolves configs by id alone, the same trust boundary as
+// /workers/jobs/claim. Callers that DO have a trusted workspace (e.g. an
+// authenticated admin route) can still pass it to scope the lookup.
 export const getBacklogDrainCandidatesForConfigId = async (
   configId: string,
-  workspaceId: string,
+  workspaceId?: string,
 ): Promise<BacklogDrainCandidateResult | null> => {
+  const conditions = [eq(scheduledAgentConfigs.id, configId)];
+  if (workspaceId) {
+    conditions.push(eq(scheduledAgentConfigs.workspaceId, workspaceId));
+  }
   const [config] = await db
     .select()
     .from(scheduledAgentConfigs)
-    .where(and(eq(scheduledAgentConfigs.id, configId), eq(scheduledAgentConfigs.workspaceId, workspaceId)))
+    .where(and(...conditions))
     .limit(1);
 
   if (!config) return null;
   return getBacklogDrainCandidatesForScheduledConfig(config);
 };
 
+// See getBacklogDrainCandidatesForConfigId above for why workspaceId is optional.
 export const getDodRemediationCandidatesForConfigId = async (
   configId: string,
-  workspaceId: string,
+  workspaceId?: string,
 ): Promise<BacklogDrainCandidateResult | null> => {
+  const conditions = [eq(scheduledAgentConfigs.id, configId)];
+  if (workspaceId) {
+    conditions.push(eq(scheduledAgentConfigs.workspaceId, workspaceId));
+  }
   const [config] = await db
     .select()
     .from(scheduledAgentConfigs)
-    .where(and(eq(scheduledAgentConfigs.id, configId), eq(scheduledAgentConfigs.workspaceId, workspaceId)))
+    .where(and(...conditions))
     .limit(1);
 
   if (!config) return null;
@@ -505,6 +572,13 @@ export const previewBacklogDrainCandidates = async (params: {
   aiProvider?: string | null;
   aiModel?: string | null;
   reasoningLevel?: string | null;
+  /**
+   * Id of the scheduled agent config being previewed. Left null for a config
+   * that hasn't been saved yet, which correctly limits the preview to
+   * currently-unassigned items — it can't match an assignment that names a
+   * real (different) config id.
+   */
+  scheduledAgentConfigId?: string | null;
 }): Promise<BacklogDrainCandidateResult> => {
   const isDodRemediation = isDodRemediationTargetConfig(params.targetConfig);
   const { rules, allProjects, defaultMaxConcurrentJobs, minAgeMinutes } = (isDodRemediation ? resolveDodRemediationRules : resolveBacklogDrainRules)({
@@ -513,11 +587,13 @@ export const previewBacklogDrainCandidates = async (params: {
   });
   return selectBacklogDrainForWorkspace({
     workspaceId: params.workspaceId,
+    jobType: "implementation",
     mode: isDodRemediation ? "dod-remediation" : "implementation",
     rules,
     allProjects,
     defaultMaxConcurrentJobs,
     minAgeMinutes,
+    scheduledAgentConfigId: params.scheduledAgentConfigId ?? null,
     fallbackRuntime: {
       codingAgent: params.codingAgent,
       aiProvider: params.aiProvider,

@@ -379,6 +379,7 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
             value="resources"
             className="min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden"
           >
+            <SessionEventTimeline phases={phases} className="border-b p-4" />
             <SessionResourceTimeline
               timeline={resourceTimeline}
               isLoading={isResourceTimelineLoading}
@@ -390,7 +391,7 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
             className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
           >
             {hasThinkingBlocks && onToggleAllThinking && (
-              <div className="flex items-center border-b px-4 py-1.5">
+              <div className="flex items-center px-4 pt-2">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -573,17 +574,12 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
           />
         )}
 
-      {/* Main area: events left + transcript center + resources right */}
+      {/* Main area: transcript + a single right rail (progress over resources) */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-        {/* Events timeline sidebar */}
-        <div className="hidden w-32 shrink-0 overflow-y-auto px-3 pt-8 pb-4 lg:flex lg:justify-center">
-          <SessionEventTimeline phases={phases} />
-        </div>
-
         {/* Transcript */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {hasThinkingBlocks && onToggleAllThinking && (
-            <div className="flex items-center border-b px-4 py-1.5">
+            <div className="flex items-center px-4 pt-2">
               <Button
                 variant="ghost"
                 size="sm"
@@ -627,12 +623,24 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
           />
         </div>
 
-        {/* Resources sidebar */}
-        <aside className="hidden w-80 shrink-0 overflow-y-auto bg-muted/20 p-3 lg:block">
-          <SessionResourceSidebar
-            timeline={resourceTimeline}
-            isLoading={isResourceTimelineLoading}
-          />
+        {/* Right rail: one floating card — progress over live resources.
+            Kept borderless against the transcript so the panel reads as a
+            single surface instead of a column of stacked frames. */}
+        <aside className="hidden w-[21rem] shrink-0 overflow-y-auto p-3 lg:block">
+          <div className="rounded-2xl border border-border/50 bg-card/60 shadow-lg shadow-black/5 backdrop-blur-sm">
+            {phases.length > 0 && (
+              <>
+                <SessionEventTimeline phases={phases} className="p-4" />
+                <div className="mx-4 h-px bg-border/50" />
+              </>
+            )}
+            <div className="p-4">
+              <SessionResourceSidebar
+                timeline={resourceTimeline}
+                isLoading={isResourceTimelineLoading}
+              />
+            </div>
+          </div>
         </aside>
       </div>
     </div>

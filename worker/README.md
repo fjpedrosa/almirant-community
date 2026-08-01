@@ -70,7 +70,7 @@ The worker is stateless between jobs. Multiple workers can run against the same 
 |-------------|---------|-------|
 | [Bun](https://bun.sh) | >= 1.1 | Runtime and package manager |
 | git | >= 2.x | Must be in PATH |
-| Claude Code CLI | 2.1.119 | `npm install -g @anthropic-ai/claude-code@2.1.119` |
+| Claude Code CLI | 2.1.209 | `npm install -g @anthropic-ai/claude-code@2.1.209` |
 | Almirant backend | running | Port 3001 by default |
 | Anthropic API key | - | For Claude Code provider |
 
@@ -481,7 +481,7 @@ The GitHub App must be installed on the target organization or repository, and i
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `[FAIL] Provider API keys: no provider API keys set` | `ANTHROPIC_API_KEY` missing | Set it in `worker/.env` or add it in Almirant Settings > Provider Keys |
-| `claude: command not found` | Claude Code CLI not installed | Run `npm install -g @anthropic-ai/claude-code@2.1.119` (only for local dev; Docker handles this automatically) |
+| `claude: command not found` | Claude Code CLI not installed | Run `npm install -g @anthropic-ai/claude-code@2.1.209` (only for local dev; Docker handles this automatically) |
 | PR created but no changes in diff | Claude Code ran but made no edits | Refine the work item description to be more specific and actionable |
 
 ### Repository and git issues

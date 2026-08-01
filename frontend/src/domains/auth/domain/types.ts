@@ -41,6 +41,9 @@ export interface SignInCardProps {
   /** Social providers to offer. Omitted/empty ⇒ no social buttons rendered. */
   socialProviders?: Partial<EnabledAuthProviders>;
   onSocialSignIn?: (provider: SocialAuthProvider) => void;
+  showSignUpLink?: boolean;
+  signUpHref?: string;
+  showInvitationHint?: boolean;
 }
 
 export type AcceptInvitationStatus =

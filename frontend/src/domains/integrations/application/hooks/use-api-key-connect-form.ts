@@ -6,8 +6,12 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useTranslations } from "next-intl";
 import { showToast } from "@/domains/shared/presentation/utils/show-toast";
+import { normalizeReasoningEffort } from "@/lib/ai-model-reasoning";
 import { useCreateConnection, useTestCredentials, useUpdateConnection } from "./use-connections";
-import { getModelsForProvider } from "@/lib/ai-models-catalog";
+import {
+  getModelsForAiConnection,
+  normalizeAiConnectionModel,
+} from "../../domain/connection-model-access";
 import type {
   ApiKeyConnectFormData,
   ApiKeyManageConnection,
@@ -100,6 +104,20 @@ const PROVIDER_CATEGORY: Record<ApiKeyProvider, ConnectionCategory> = {
   gitlab: "code",
 };
 
+const normalizeConnectionReasoning = (
+  provider: string,
+  model: string | undefined,
+  effort: string | undefined,
+): string | undefined => normalizeReasoningEffort({
+  aiProvider: provider === "zipu" ? "zai" : provider,
+  codingAgent: provider === "openai"
+    ? "codex"
+    : provider === "anthropic"
+      ? "claude-code"
+      : "opencode",
+  model,
+}, effort);
+
 // ---------------------------------------------------------------------------
 // useApiKeyConnectForm
 // ---------------------------------------------------------------------------
@@ -141,6 +159,31 @@ export const useApiKeyConnectForm = (
   useEffect(() => {
     setActiveScope(scope);
   }, [scope]);
+
+  useEffect(() => {
+    const reasoningByModel = {
+      planningModel: "planningReasoningBudget",
+      implementationModel: "implementationReasoningBudget",
+      validationModel: "validationReasoningBudget",
+    } as const;
+    const subscription = form.watch((values, { name }) => {
+      if (!name || !(name in reasoningByModel)) return;
+      const modelField = name as keyof typeof reasoningByModel;
+      const reasoningField = reasoningByModel[modelField];
+      const compatible = normalizeConnectionReasoning(
+        values.provider ?? "anthropic",
+        values[modelField],
+        values[reasoningField],
+      );
+      if ((values[reasoningField] ?? "") !== (compatible ?? "")) {
+        form.setValue(reasoningField, compatible ?? "", {
+          shouldDirty: true,
+          shouldValidate: true,
+        });
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [form]);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
@@ -218,12 +261,33 @@ export const useApiKeyConnectForm = (
         return trimmed.length > 0 ? trimmed : undefined;
       };
 
-      const planningModel = normalizeOptional(data.planningModel);
-      const implementationModel = normalizeOptional(data.implementationModel);
-      const validationModel = normalizeOptional(data.validationModel);
-      const planningReasoningBudget = normalizeOptional(data.planningReasoningBudget);
-      const implementationReasoningBudget = normalizeOptional(data.implementationReasoningBudget);
-      const validationReasoningBudget = normalizeOptional(data.validationReasoningBudget);
+      const planningModel = normalizeAiConnectionModel(
+        data.provider,
+        data.planningModel,
+      );
+      const implementationModel = normalizeAiConnectionModel(
+        data.provider,
+        data.implementationModel,
+      );
+      const validationModel = normalizeAiConnectionModel(
+        data.provider,
+        data.validationModel,
+      );
+      const planningReasoningBudget = normalizeConnectionReasoning(
+        data.provider,
+        planningModel,
+        data.planningReasoningBudget,
+      );
+      const implementationReasoningBudget = normalizeConnectionReasoning(
+        data.provider,
+        implementationModel,
+        data.implementationReasoningBudget,
+      );
+      const validationReasoningBudget = normalizeConnectionReasoning(
+        data.provider,
+        validationModel,
+        data.validationReasoningBudget,
+      );
       const baseUrl = data.provider === "zai"
         ? ZAI_BASE_URLS.coding
         : data.provider === "xai"
@@ -381,7 +445,7 @@ export const useApiKeyConnectForm = (
   );
 
   const availableModels = useMemo(
-    () => getModelsForProvider(selectedProvider),
+    () => getModelsForAiConnection(selectedProvider),
     [selectedProvider],
   );
 

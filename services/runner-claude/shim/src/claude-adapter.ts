@@ -1,5 +1,6 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import type {
   PromptRequest,
   RuntimeAdapter,
@@ -58,6 +59,28 @@ const normalizeClaudeEffortLevel = (value: string | undefined): string | undefin
 // does not support reasoning effort, so the flag must be dropped for it.
 // Family match so dated/snapshot ids are covered too.
 const MODELS_WITHOUT_EFFORT = /haiku/i;
+const CLAUDE_46_MODELS = /claude-(?:opus|sonnet)-4-6/i;
+
+export const READ_ONLY_CLAUDE_MCP_CONFIG_PATH =
+  "/tmp/almirant-visual-judge-mcp.json";
+export const READ_ONLY_CLAUDE_CONFIG_DIR =
+  "/tmp/almirant-visual-judge-claude";
+
+const READ_ONLY_REQUIRED_CLI_FLAGS = [
+  "--safe-mode",
+  "--strict-mcp-config",
+  "--mcp-config",
+  "--setting-sources",
+  "--tools",
+  "--no-session-persistence",
+  "--no-chrome",
+  "--disable-slash-commands",
+  "--permission-mode",
+  "--allowedTools",
+  "--disallowedTools",
+] as const;
+
+let readOnlyRuntimeSupportVerified = false;
 
 /** CLI effort level for a model, or undefined when it must not be sent. */
 export const resolveClaudeEffortLevel = (
@@ -67,7 +90,135 @@ export const resolveClaudeEffortLevel = (
   const level = normalizeClaudeEffortLevel(rawBudget);
   if (!level) return undefined;
   if (model && MODELS_WITHOUT_EFFORT.test(model)) return undefined;
+  if (model && CLAUDE_46_MODELS.test(model) && level === "xhigh") return undefined;
   return level;
+};
+
+/**
+ * Claude CLI permission arguments selected by the runner-owned job policy.
+ * `plan` mode plus an explicit deny list is required for unattended read-only
+ * sessions; merely writing settings.json would be defeated by the normal
+ * `--dangerously-skip-permissions` flag.
+ */
+export const resolveClaudeToolPermissionArgs = (
+  policy: string | undefined,
+): string[] => {
+  if (policy !== "read-only") return ["--dangerously-skip-permissions"];
+
+  return [
+    "--safe-mode",
+    "--strict-mcp-config",
+    "--mcp-config",
+    READ_ONLY_CLAUDE_MCP_CONFIG_PATH,
+    "--setting-sources",
+    "",
+    "--tools",
+    "Read,Glob,Grep",
+    "--no-session-persistence",
+    "--no-chrome",
+    "--disable-slash-commands",
+    "--permission-mode",
+    "plan",
+    "--allowedTools",
+    "Read,Glob,Grep",
+    "--disallowedTools",
+    "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Task,Agent",
+  ];
+};
+
+export const resolveClaudeProcessEnv = (
+  policy: string | undefined,
+  source: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv => {
+  const env = { ...source };
+  if (policy !== "read-only") return env;
+
+  // CLI flags remain authoritative. These values are defense in depth and
+  // deliberately replace any job-controlled env values.
+  env.CLAUDE_CODE_SAFE_MODE = "1";
+  env.CLAUDE_CONFIG_DIR = READ_ONLY_CLAUDE_CONFIG_DIR;
+  delete env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD;
+  delete env.CLAUDE_CODE_PLUGIN_ROOT;
+  return env;
+};
+
+/**
+ * Build print-mode argv with an explicit option terminator. Claude accepts the
+ * print prompt as a positional argument, so placing an option-shaped prompt
+ * before `--` would let untrusted job text activate CLI features such as
+ * `--worktree` even when the tool policy itself is read-only.
+ */
+export const buildClaudePrintArgs = (
+  prompt: string,
+  model: string | undefined,
+  effortLevel: string | undefined,
+  toolPolicy: string | undefined,
+): string[] => [
+  "-p",
+  "--output-format",
+  "stream-json",
+  "--include-partial-messages",
+  "--verbose",
+  ...resolveClaudeToolPermissionArgs(toolPolicy),
+  ...(model ? ["--model", model] : []),
+  ...(effortLevel ? ["--effort", effortLevel] : []),
+  "--",
+  prompt,
+];
+
+export const assertClaudeReadOnlyRuntimeSupport = (helpOutput: string): void => {
+  const missing = READ_ONLY_REQUIRED_CLI_FLAGS.filter((flag) =>
+    !helpOutput.includes(flag)
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `Claude runtime cannot enforce the visual judge sandbox; missing CLI support: ${missing.join(", ")}`,
+    );
+  }
+};
+
+export const assertClaudeReadOnlyMcpConfig = (): void => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(READ_ONLY_CLAUDE_MCP_CONFIG_PATH, "utf8"));
+  } catch {
+    throw new Error(
+      `visual_judge requires a runner-owned empty MCP config at ${READ_ONLY_CLAUDE_MCP_CONFIG_PATH}`,
+    );
+  }
+
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    Array.isArray(parsed) ||
+    typeof (parsed as Record<string, unknown>).mcpServers !== "object" ||
+    (parsed as Record<string, unknown>).mcpServers === null ||
+    Array.isArray((parsed as Record<string, unknown>).mcpServers) ||
+    Object.keys(
+      (parsed as { mcpServers: Record<string, unknown> }).mcpServers,
+    ).length > 0
+  ) {
+    throw new Error("visual_judge runner-owned MCP config must not expose MCP servers");
+  }
+};
+
+const ensureClaudeReadOnlyRuntime = (): void => {
+  assertClaudeReadOnlyMcpConfig();
+  if (readOnlyRuntimeSupportVerified) return;
+
+  const probe = spawnSync("claude", ["--help"], {
+    cwd: READ_ONLY_CLAUDE_CONFIG_DIR,
+    env: resolveClaudeProcessEnv("read-only", process.env),
+    encoding: "utf8",
+    timeout: 5_000,
+  });
+  if (probe.error || probe.status !== 0) {
+    throw new Error(
+      `Claude runtime capability probe failed; refusing visual_judge: ${probe.error?.message ?? probe.stderr ?? `exit ${probe.status}`}`,
+    );
+  }
+  assertClaudeReadOnlyRuntimeSupport(`${probe.stdout}\n${probe.stderr}`);
+  readOnlyRuntimeSupportVerified = true;
 };
 
 export class ClaudeAdapter implements RuntimeAdapter {
@@ -180,21 +331,13 @@ export class ClaudeAdapter implements RuntimeAdapter {
 
     const model = session.session.model;
     const effortLevel = resolveClaudeEffortLevel(model, process.env.REASONING_BUDGET);
-    const args = [
-      "-p",
-      prompt,
-      "--output-format",
-      "stream-json",
-      "--include-partial-messages",
-      "--verbose",
-      "--dangerously-skip-permissions",
-      ...(model ? ["--model", model] : []),
-      ...(effortLevel ? ["--effort", effortLevel] : []),
-    ];
+    const toolPolicy = process.env.ALMIRANT_CLAUDE_TOOL_POLICY;
+    if (toolPolicy === "read-only") ensureClaudeReadOnlyRuntime();
+    const args = buildClaudePrintArgs(prompt, model, effortLevel, toolPolicy);
 
     const proc = spawn("claude", args, {
       cwd: session.session.cwd ?? "/workspace",
-      env: process.env,
+      env: resolveClaudeProcessEnv(toolPolicy, process.env),
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -376,6 +519,8 @@ export class ClaudeAdapter implements RuntimeAdapter {
 
     const model = session.session.model;
     const effortLevel = resolveClaudeEffortLevel(model, process.env.REASONING_BUDGET);
+    const toolPolicy = process.env.ALMIRANT_CLAUDE_TOOL_POLICY;
+    if (toolPolicy === "read-only") ensureClaudeReadOnlyRuntime();
     const args = [
       "-p",
       "--input-format",
@@ -384,14 +529,14 @@ export class ClaudeAdapter implements RuntimeAdapter {
       "stream-json",
       "--include-partial-messages",
       "--verbose",
-      "--dangerously-skip-permissions",
+      ...resolveClaudeToolPermissionArgs(toolPolicy),
       ...(model ? ["--model", model] : []),
       ...(effortLevel ? ["--effort", effortLevel] : []),
     ];
 
     const proc = spawn("claude", args, {
       cwd: session.session.cwd ?? "/workspace",
-      env: process.env,
+      env: resolveClaudeProcessEnv(toolPolicy, process.env),
       stdio: ["pipe", "pipe", "pipe"],
     });
 

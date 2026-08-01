@@ -289,6 +289,8 @@
       "assignee": "Assigned to",
       "assigneePlaceholder": "Unassigned",
       "assignToMe": "Assign to me",
+      "startDate": "Start date",
+      "startDateHint": "Automated agents won't pick up this task until this date.",
       "dueDate": "Due date",
       "estimatedHours": "Estimated hours",
       "parent": "Parent",
@@ -408,7 +410,8 @@
       "storyPoints": "Story Points: {points}",
       "releasePr": "Release v{number}",
       "releaseOpen": "open",
-      "releaseMerged": "shipped"
+      "releaseMerged": "shipped",
+      "scheduled": "Scheduled · {date}"
     },
     "selection": {
       "selected": "{count, plural, one {# task selected} other {# tasks selected}}",
@@ -608,7 +611,9 @@
       "edit": "Edit",
       "cancelEdit": "Cancel",
       "save": "Save",
+      "startDate": "Start date",
       "dueDate": "Due date",
+      "scheduled": "Scheduled · {date}",
       "parent": "Parent",
       "tags": "Tags",
       "bugFlag": "Bug"

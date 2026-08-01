@@ -44,6 +44,10 @@ import {
   deleteLinkToken,
 } from "../services/link-token-store";
 import { connectionUsageService } from "../services/connection-usage-service";
+import {
+  AI_CONNECTION_CONFIG_ERROR,
+  normalizeAiConnectionConfig,
+} from "../services/ai-connection-config";
 
 // ---------------------------------------------------------------------------
 // OAuth helpers
@@ -601,6 +605,11 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
         if (body.validationReasoningBudget !== undefined) {
           nextConfig.validationReasoningBudget = body.validationReasoningBudget;
         }
+        const normalizedConfig = normalizeAiConnectionConfig({
+          provider: body.provider,
+          category: body.category,
+          config: nextConfig,
+        });
 
         const connection = await createConnection(
           {
@@ -613,7 +622,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
             accountIdentifier: body.accountIdentifier?.trim() ?? null,
             isActive: true,
             isDefault: body.isDefault,
-            config: nextConfig,
+            config: normalizedConfig,
             credentials: body.credentials,
           },
           encryptionKey,
@@ -623,6 +632,10 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
         return successResponse(connection);
       } catch (error) {
         logger.error(error, "Failed to create connection");
+        if (error instanceof Error && error.message.startsWith(AI_CONNECTION_CONFIG_ERROR)) {
+          set.status = 400;
+          return errorResponse(error.message, 400);
+        }
         set.status = 500;
         return errorResponse(
           error instanceof Error ? error.message : "Failed to create connection",
@@ -696,24 +709,19 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
           typeof (body.credentials as Record<string, unknown>)?.apiKey === "string" &&
           isAnthropicSetupToken((body.credentials as Record<string, unknown>).apiKey as string);
 
-        const updated = await updateConnection(
-          params.id,
-          {
-            ...(body.name !== undefined && { name: body.name.trim() }),
-            ...(body.accountIdentifier !== undefined && {
-              accountIdentifier: body.accountIdentifier.trim(),
-            }),
-            ...(body.isDefault !== undefined && { isDefault: body.isDefault }),
-            ...(body.orchestrationEnabled !== undefined && { orchestrationEnabled: body.orchestrationEnabled }),
-            ...(body.priority !== undefined && { priority: body.priority }),
-            ...((body.config !== undefined ||
-              body.planningModel !== undefined ||
-              body.implementationModel !== undefined ||
-              body.validationModel !== undefined ||
-              body.planningReasoningBudget !== undefined ||
-              body.implementationReasoningBudget !== undefined ||
-              body.validationReasoningBudget !== undefined ||
-              isSetupTokenUpdate) && {
+        const shouldUpdateConfig =
+          body.config !== undefined ||
+          body.planningModel !== undefined ||
+          body.implementationModel !== undefined ||
+          body.validationModel !== undefined ||
+          body.planningReasoningBudget !== undefined ||
+          body.implementationReasoningBudget !== undefined ||
+          body.validationReasoningBudget !== undefined ||
+          isSetupTokenUpdate;
+        const normalizedConfig = shouldUpdateConfig
+          ? normalizeAiConnectionConfig({
+              provider: existing.provider,
+              category: existing.category,
               config: {
                 ...(existing.config ?? {}),
                 ...(body.config ?? {}),
@@ -735,11 +743,22 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
                 ...(body.validationReasoningBudget !== undefined
                   ? { validationReasoningBudget: body.validationReasoningBudget }
                   : {}),
-                ...(isSetupTokenUpdate
-                  ? { authMethod: "setup_token" }
-                  : {}),
+                ...(isSetupTokenUpdate ? { authMethod: "setup_token" } : {}),
               },
+            })
+          : undefined;
+
+        const updated = await updateConnection(
+          params.id,
+          {
+            ...(body.name !== undefined && { name: body.name.trim() }),
+            ...(body.accountIdentifier !== undefined && {
+              accountIdentifier: body.accountIdentifier.trim(),
             }),
+            ...(body.isDefault !== undefined && { isDefault: body.isDefault }),
+            ...(body.orchestrationEnabled !== undefined && { orchestrationEnabled: body.orchestrationEnabled }),
+            ...(body.priority !== undefined && { priority: body.priority }),
+            ...(shouldUpdateConfig && { config: normalizedConfig }),
             ...(body.credentials !== undefined && {
               credentials: {
                 ...body.credentials,
@@ -761,6 +780,10 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
         return successResponse(updated);
       } catch (error) {
         logger.error(error, "Failed to update connection");
+        if (error instanceof Error && error.message.startsWith(AI_CONNECTION_CONFIG_ERROR)) {
+          set.status = 400;
+          return errorResponse(error.message, 400);
+        }
         set.status = 500;
         return errorResponse(
           error instanceof Error ? error.message : "Failed to update connection",

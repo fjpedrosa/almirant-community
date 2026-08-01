@@ -1144,13 +1144,187 @@ curl -s -X POST "$MCP_URL" \\
 
     const blocks = parseChunksToStreamingBlocks(chunks, false);
 
-    expect(blocks.filter((block) => block.type === "text")).toHaveLength(0);
+    // `## Resumen de reparación DoD — F-E-4` is the agent's own title, not a
+    // section marker, so the producer's summary payload starts mid-title. The
+    // complete prose wins and the card is dropped — rendering the card would
+    // show a heading with its first word missing.
+    expect(blocks.filter((block) => block.type === "summary")).toHaveLength(0);
+    const textBlocks = blocks.filter(
+      (block): block is Extract<typeof block, { type: "text" }> =>
+        block.type === "text",
+    );
+    expect(textBlocks).toHaveLength(1);
+    expect(textBlocks[0]?.content).toContain(
+      "## Resumen de reparación DoD — F-E-4",
+    );
+    expect(textBlocks[0]?.content).toContain("Branch `almirant/F-E-4`");
+  });
+
+  it("deduplica el resumen aunque haya una tool call entre el texto y el evento", () => {
+    const chunks = [
+      makeChunk({
+        id: "text-1",
+        seq: 1,
+        phase: "transcript",
+        eventType: "agent.text",
+        contentType: "text",
+        message: "## Resumen del trabajo\n\n- Plataforma: Shopify",
+        timestamp: "2026-07-25T18:00:00.000Z",
+      }),
+      makeChunk({
+        id: "tool-1",
+        seq: 2,
+        phase: "transcript",
+        eventType: "agent.tool.start",
+        message: "",
+        payload: {
+          toolCallId: "call-submit-1",
+          toolName: "almirant_submit_agent_output",
+        },
+        timestamp: "2026-07-25T18:00:01.000Z",
+      }),
+      makeChunk({
+        id: "summary-1",
+        seq: 3,
+        phase: "transcript",
+        eventType: "agent.summary",
+        message: "del trabajo\n\n- Plataforma: Shopify",
+        payload: {
+          section: "Resumen",
+          text: "del trabajo\n\n- Plataforma: Shopify",
+        },
+        timestamp: "2026-07-25T18:00:02.000Z",
+      }),
+    ];
+
+    const blocks = parseChunksToStreamingBlocks(chunks, false);
+    const rendered = [
+      ...blocks.filter((block) => block.type === "text"),
+      ...blocks.filter((block) => block.type === "summary"),
+    ];
+
+    // The prose and the card must not both carry the same body.
+    expect(rendered).toHaveLength(1);
+  });
+
+  it("conserva el texto y descarta la tarjeta cuando el resumen perdió su encabezado", () => {
+    const chunks = [
+      makeChunk({
+        id: "text-1",
+        seq: 1,
+        phase: "transcript",
+        eventType: "agent.text",
+        contentType: "text",
+        message: "## Resumen del trabajo (scrape-bundle)\n\n- Plataforma: Shopify",
+        timestamp: "2026-07-25T18:00:00.000Z",
+      }),
+      makeChunk({
+        id: "summary-1",
+        seq: 2,
+        phase: "transcript",
+        eventType: "agent.summary",
+        message: "del trabajo (scrape-bundle)\n\n- Plataforma: Shopify",
+        payload: {
+          section: "Resumen",
+          text: "del trabajo (scrape-bundle)\n\n- Plataforma: Shopify",
+        },
+        timestamp: "2026-07-25T18:00:01.000Z",
+      }),
+    ];
+
+    const blocks = parseChunksToStreamingBlocks(chunks, false);
+
+    // The card's body starts mid-title, so the complete prose wins.
+    expect(blocks.filter((block) => block.type === "summary")).toHaveLength(0);
+    const textBlocks = blocks.filter(
+      (block): block is Extract<typeof block, { type: "text" }> =>
+        block.type === "text",
+    );
+    expect(textBlocks).toHaveLength(1);
+    expect(textBlocks[0]?.content).toContain("## Resumen del trabajo (scrape-bundle)");
+  });
+
+  it("mueve un «Reporte final» a la tarjeta en vez de dejarlo como prosa", () => {
+    const chunks = [
+      makeChunk({
+        id: "text-1",
+        seq: 1,
+        phase: "transcript",
+        eventType: "agent.text",
+        contentType: "text",
+        message:
+          "Envio completado.\n\n## Reporte final\n\n**Plataforma detectada:** Shopify",
+        timestamp: "2026-07-25T21:00:00.000Z",
+      }),
+      makeChunk({
+        id: "summary-1",
+        seq: 2,
+        phase: "transcript",
+        eventType: "agent.summary",
+        message: "**Plataforma detectada:** Shopify",
+        payload: {
+          section: "Resumen",
+          text: "**Plataforma detectada:** Shopify",
+        },
+        timestamp: "2026-07-25T21:00:01.000Z",
+      }),
+    ];
+
+    const blocks = parseChunksToStreamingBlocks(chunks, false);
     const summaryBlocks = blocks.filter(
       (block): block is Extract<typeof block, { type: "summary" }> =>
         block.type === "summary",
     );
+    const textBlocks = blocks.filter(
+      (block): block is Extract<typeof block, { type: "text" }> =>
+        block.type === "text",
+    );
+
     expect(summaryBlocks).toHaveLength(1);
-    expect(summaryBlocks[0]?.section).toBe("Resumen");
-    expect(summaryBlocks[0]?.text).toContain("de reparación DoD — F-E-4");
+    expect(summaryBlocks[0]?.text).toContain("Plataforma detectada");
+    // The prose keeps what preceded the report and loses the section itself.
+    expect(textBlocks).toHaveLength(1);
+    expect(textBlocks[0]?.content).toContain("Envio completado.");
+    expect(textBlocks[0]?.content).not.toContain("## Reporte final");
+    expect(textBlocks[0]?.content).not.toContain("Plataforma detectada");
+  });
+
+  it("recorta la sección de resumen de la prosa en vez de repetirla en la tarjeta", () => {
+    const chunks = [
+      makeChunk({
+        id: "text-1",
+        seq: 1,
+        phase: "transcript",
+        eventType: "agent.text",
+        contentType: "text",
+        message:
+          "Investigué la regresión y la reproduje en local.\n\n## Summary\n- Añadí el tipo canónico\n- Cableé la emisión",
+        timestamp: "2026-07-25T18:00:00.000Z",
+      }),
+      makeChunk({
+        id: "summary-1",
+        seq: 2,
+        phase: "transcript",
+        eventType: "agent.summary",
+        message: "- Añadí el tipo canónico\n- Cableé la emisión",
+        payload: {
+          section: "Summary",
+          text: "- Añadí el tipo canónico\n- Cableé la emisión",
+        },
+        timestamp: "2026-07-25T18:00:01.000Z",
+      }),
+    ];
+
+    const blocks = parseChunksToStreamingBlocks(chunks, false);
+    const textBlocks = blocks.filter(
+      (block): block is Extract<typeof block, { type: "text" }> =>
+        block.type === "text",
+    );
+
+    expect(blocks.filter((block) => block.type === "summary")).toHaveLength(1);
+    expect(textBlocks).toHaveLength(1);
+    expect(textBlocks[0]?.content).toContain("Investigué la regresión");
+    expect(textBlocks[0]?.content).not.toContain("Añadí el tipo canónico");
+    expect(textBlocks[0]?.content).not.toContain("## Summary");
   });
 });

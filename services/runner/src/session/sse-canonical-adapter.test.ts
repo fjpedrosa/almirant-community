@@ -461,6 +461,105 @@ describe("createSseCanonicalAdapter", () => {
     }
   });
 
+  it("reconoce un encabezado titulado sin arrastrar el título al cuerpo", () => {
+    const adapter = createSseCanonicalAdapter();
+    // El cuerpo arranca DESPUÉS de la línea del encabezado, así que las
+    // palabras extra del título no pueden filtrarse al resumen.
+    adapter.processEvent(
+      createSseEvent("message.part.updated", {
+        part: {
+          text: "## Resumen del trabajo (scrape-bundle)\n\n- Plataforma detectada: Shopify\n",
+        },
+        contentType: "text",
+      }),
+    );
+    const idleEvents = adapter.processEvent(createSseEvent("session.idle", {}));
+    const summaryEvent = idleEvents.find(
+      (event) => event.kind === "agent.summary",
+    );
+
+    expect(summaryEvent).toBeDefined();
+    if (summaryEvent && summaryEvent.kind === "agent.summary") {
+      expect(summaryEvent.section).toBe("Resumen");
+      expect(summaryEvent.text).toBe("- Plataforma detectada: Shopify");
+      expect(summaryEvent.text.startsWith("del trabajo")).toBe(false);
+    }
+  });
+
+  it("reconoce «Reporte final» como informe de cierre", () => {
+    const adapter = createSseCanonicalAdapter();
+    adapter.processEvent(
+      createSseEvent("message.part.updated", {
+        part: { text: "## Reporte final\n\n**Plataforma:** Shopify" },
+        contentType: "text",
+      }),
+    );
+    const idleEvents = adapter.processEvent(createSseEvent("session.idle", {}));
+    const summaryEvent = idleEvents.find(
+      (event) => event.kind === "agent.summary",
+    );
+
+    expect(summaryEvent).toBeDefined();
+    if (summaryEvent && summaryEvent.kind === "agent.summary") {
+      expect(summaryEvent.section).toBe("Resumen");
+      expect(summaryEvent.text).toBe("**Plataforma:** Shopify");
+    }
+  });
+
+  it("reconoce «Final report» y lo etiqueta en inglés", () => {
+    const adapter = createSseCanonicalAdapter();
+    adapter.processEvent(
+      createSseEvent("message.part.updated", {
+        part: { text: "## Final report\n\n- Shipped it" },
+        contentType: "text",
+      }),
+    );
+    const idleEvents = adapter.processEvent(createSseEvent("session.idle", {}));
+    const summaryEvent = idleEvents.find(
+      (event) => event.kind === "agent.summary",
+    );
+
+    expect(summaryEvent).toBeDefined();
+    if (summaryEvent && summaryEvent.kind === "agent.summary") {
+      expect(summaryEvent.section).toBe("Summary");
+      expect(summaryEvent.text).toBe("- Shipped it");
+    }
+  });
+
+  it("no confunde un encabezado cualquiera con un informe de cierre", () => {
+    const adapter = createSseCanonicalAdapter();
+    adapter.processEvent(
+      createSseEvent("message.part.updated", {
+        part: { text: "## Notas de implementación\n\n- Detalle" },
+        contentType: "text",
+      }),
+    );
+    const idleEvents = adapter.processEvent(createSseEvent("session.idle", {}));
+
+    expect(
+      idleEvents.find((event) => event.kind === "agent.summary"),
+    ).toBeUndefined();
+  });
+
+  it("acepta el marcador con espacios o dos puntos finales en la misma línea", () => {
+    const adapter = createSseCanonicalAdapter();
+    adapter.processEvent(
+      createSseEvent("message.part.updated", {
+        part: { text: "Listo.\n\n## Summary:  \nTodo OK." },
+        contentType: "text",
+      }),
+    );
+    const idleEvents = adapter.processEvent(createSseEvent("session.idle", {}));
+    const summaryEvent = idleEvents.find(
+      (event) => event.kind === "agent.summary",
+    );
+
+    expect(summaryEvent).toBeDefined();
+    if (summaryEvent && summaryEvent.kind === "agent.summary") {
+      expect(summaryEvent.text).toBe("Todo OK.");
+    }
+  });
+
   it("no emite agent.summary cuando el texto final no contiene bloque de resumen", () => {
     const adapter = createSseCanonicalAdapter();
     adapter.processEvent(

@@ -28,7 +28,6 @@ import {
   getSkillConfig,
   updateSkillConfig,
   getRepositories,
-  createRepository,
   updateRepository,
   deleteRepository,
   reorderRepositories,
@@ -68,6 +67,7 @@ import {
 import { extractKeyFromUrl, getS3Client, isS3Configured } from "../../../../shared/services/s3-service";
 import { env, logger } from "@almirant/config";
 import { getPermissionChecker } from "@almirant/shared";
+import { attachProjectRepository, RepositoryUrlValidationError } from "../services/project-repository-service";
 
 const NIGHTLY_VALIDATION_UNAVAILABLE_MESSAGE =
   "Nightly validation is unavailable until the projects.nightly_validation migration is applied.";
@@ -78,6 +78,12 @@ const NIGHTLY_VALIDATION_PROVIDER_SCHEMA = t.Union([
   t.Literal("grok"),
 ]);
 const DEFAULT_NIGHTLY_VALIDATION_PROVIDER = "claude-code" as const;
+export const classifyRepositoryAttachError = (cause: unknown) => {
+  if (cause instanceof RepositoryUrlValidationError) {
+    return { status: 400 as const, message: cause.message, log: false };
+  }
+  return { status: 500 as const, message: "Could not attach repository", log: true };
+};
 const PROJECT_CODING_AGENT_SCHEMA = t.Union([t.Literal("claude-code"), t.Literal("codex"), t.Literal("opencode")]);
 const PROJECT_AI_PROVIDER_SCHEMA = t.Union([t.Literal("anthropic"), t.Literal("openai"), t.Literal("google"), t.Literal("zai"), t.Literal("xai")]);
 const PROJECT_AGENT_DEFAULTS_SCHEMA = t.Object(
@@ -865,39 +871,27 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
     }
 
     const orgId = activeWorkspace!.id;
-    const repo = await createRepository(orgId, params.id, {
-      ...body,
-      provider: body.provider as "github" | "gitlab" | "bitbucket" | "other" | undefined,
-    });
-
-    if (!repo) {
-      set.status = 404;
-      return notFoundResponse("Project");
-    }
-
-    // Auto-link to GitHub installation if this is a GitHub repo
-    const effectiveProvider = body.provider || "github";
-    if (effectiveProvider === "github" && activeWorkspace) {
-      const githubRepoFullName = extractGithubRepoFullName(body.url);
-      if (githubRepoFullName) {
-        try {
-          const connection = await getGithubConnectionForWorkspace(activeWorkspace.id);
-          if (connection) {
-            await linkRepoToInstallation({
-              installationId: connection.id,
-              repoId: repo.id,
-              githubRepoFullName,
-            });
-            logger.info(
-              { repoId: repo.id, connectionId: connection.id, githubRepoFullName },
-              "Auto-linked repository to GitHub installation"
-            );
-          }
-        } catch (err) {
-          // Do not fail the repo creation if linking fails
-          logger.error(err, "Failed to auto-link repository to GitHub installation");
-        }
+    let repo;
+    try {
+      ({ repository: repo } = await attachProjectRepository({
+        workspaceId: orgId,
+        projectId: params.id,
+        name: body.name,
+        url: body.url,
+        provider: (body.provider || "github") as "github" | "gitlab" | "bitbucket" | "other",
+        isMonorepo: body.isMonorepo ?? false,
+        order: body.order,
+      }));
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Could not attach repository";
+      if (message === "Project not found") {
+        set.status = 404;
+        return notFoundResponse("Project");
       }
+      const classified = classifyRepositoryAttachError(cause);
+      if (classified.log) logger.error(cause, "Failed to attach project repository");
+      set.status = classified.status;
+      return errorResponse(classified.message);
     }
 
     set.status = 201;

@@ -250,7 +250,7 @@ Work through this checklist to confirm the full flow completed correctly:
 | `[FAIL] Provider API keys: no provider API keys set` | `ANTHROPIC_API_KEY` missing | Set it in the environment or add it in Settings > Provider Keys |
 | `Missing GitHub token` or 403 on PR creation | `GITHUB_TOKEN` not set or lacks permissions | Add `GITHUB_TOKEN` with `repo` and `pull_requests` scopes |
 | Clone failed with 128 or repository not found | Private repo, wrong URL, or missing token | Verify `repoUrl` in `mc-worker.json` and that `GITHUB_TOKEN` has access |
-| `claude: command not found` | Claude Code CLI not installed | Install globally: `npm install -g @anthropic-ai/claude-code@2.1.119` |
+| `claude: command not found` | Claude Code CLI not installed | Install globally: `npm install -g @anthropic-ai/claude-code@2.1.209` |
 | `bun install failed in clone` | Dependencies fail in the cloned repo | Check that the repo has a valid `package.json` and `bun` is in PATH |
 | Job stuck in `queued` status | Daemon not running or poll interval too long | Start the daemon; default poll interval is 5000ms |
 | `work item not found for taskId MC-NNN` | Wrong task ID or wrong database | Verify the task ID exists in the Almirant board; check `DATABASE_URL` |

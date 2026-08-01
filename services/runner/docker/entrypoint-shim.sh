@@ -185,30 +185,45 @@ if [[ -n "${CODEX_MCP_JSON:-}" ]]; then
   unset CODEX_MCP_JSON
 fi
 
-# Write Claude Code MCP config and settings for Claude shim containers
-if [[ -n "${CLAUDE_MCP_JSON:-}" ]]; then
+# visual_judge never receives MCP. Materialize a runner-owned empty config
+# outside the repository so --strict-mcp-config has one explicit source and
+# cannot fall back to a repo-controlled .mcp.json. The shim also validates this
+# file and probes --safe-mode support before spawning Claude.
+if [[ "${ALMIRANT_CLAUDE_TOOL_POLICY:-}" == "read-only" ]]; then
+  READ_ONLY_CLAUDE_MCP_CONFIG="/tmp/almirant-visual-judge-mcp.json"
+  READ_ONLY_CLAUDE_CONFIG_DIR="/tmp/almirant-visual-judge-claude"
+  rm -rf "$READ_ONLY_CLAUDE_CONFIG_DIR"
+  mkdir -p "$READ_ONLY_CLAUDE_CONFIG_DIR"
+  chmod 0700 "$READ_ONLY_CLAUDE_CONFIG_DIR"
+  printf '%s' '{"mcpServers":{}}' > "$READ_ONLY_CLAUDE_MCP_CONFIG"
+  chmod 0400 "$READ_ONLY_CLAUDE_MCP_CONFIG"
+  export CLAUDE_CODE_SAFE_MODE=1
+  export CLAUDE_CONFIG_DIR="$READ_ONLY_CLAUDE_CONFIG_DIR"
+  unset CLAUDE_MCP_JSON
+# Write Claude Code MCP config and settings for normal Claude shim containers.
+elif [[ -n "${CLAUDE_MCP_JSON:-}" ]]; then
   printf '%s' "$CLAUDE_MCP_JSON" > "$TARGET_DIR/.mcp.json"
   mark_runner_managed_path ".mcp.json"
 
   mkdir -p "$TARGET_DIR/.claude"
   MCP_PERMISSION_ALLOW=$(echo "$CLAUDE_MCP_JSON" | jq -c '
-    [
-      "Bash(*)",
-      "Read",
-      "Edit",
-      "Write",
-      "Glob",
-      "Grep",
-      "WebFetch",
-      "WebSearch",
-      "NotebookEdit"
-    ] + (
-      .mcpServers
-      | keys
-      | map(["mcp__" + . + "__*", "mcp__" + (gsub("[^A-Za-z0-9_]"; "_")) + "__*"])
-      | flatten
-    ) | unique
-  ')
+      [
+        "Bash(*)",
+        "Read",
+        "Edit",
+        "Write",
+        "Glob",
+        "Grep",
+        "WebFetch",
+        "WebSearch",
+        "NotebookEdit"
+      ] + (
+        .mcpServers
+        | keys
+        | map(["mcp__" + . + "__*", "mcp__" + (gsub("[^A-Za-z0-9_]"; "_")) + "__*"])
+        | flatten
+      ) | unique
+    ')
   cat > "$TARGET_DIR/.claude/settings.json" <<SETTINGS
 {"permissions":{"allow":${MCP_PERMISSION_ALLOW}}}
 SETTINGS

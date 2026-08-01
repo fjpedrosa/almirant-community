@@ -46,6 +46,10 @@ const dbMocks = createDatabaseMocks({
     id === webhookAgent.id && token === webhookAgent.webhookToken ? webhookAgent : undefined,
   getRepositories: async () => [],
   getOrgPrimaryRepository: async () => null,
+  getProjectAiConfig: async () => ({
+    defaultProvider: null,
+    agentDefaults: {},
+  }),
   updateScheduledAgentConfigLastRunAt: async (id: string) => {
     state.lastRunAtUpdates.push(id);
   },

@@ -81,6 +81,23 @@ export const getScheduledAgentConfigById = async (
   return row ? normalizeScheduledAgentConfig(row) : row;
 };
 
+// Global lookup for the worker plane (workers.routes.ts): the runner is
+// shared instance infrastructure, not scoped to one workspace — the same
+// trust boundary as /workers/jobs/claim. The config's own workspaceId is the
+// attribution source of truth for job creation and billing, so this
+// intentionally does not filter by any caller-supplied workspace.
+export const getScheduledAgentConfigByIdUnscoped = async (
+  id: string,
+): Promise<ScheduledAgentConfigDb | undefined> => {
+  const [row] = await db
+    .select()
+    .from(scheduledAgentConfigs)
+    .where(eq(scheduledAgentConfigs.id, id))
+    .limit(1);
+
+  return row ? normalizeScheduledAgentConfig(row) : row;
+};
+
 export const createScheduledAgentConfig = async (
   data: NewScheduledAgentConfig,
 ): Promise<ScheduledAgentConfigDb> => {

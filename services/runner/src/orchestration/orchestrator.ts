@@ -5,10 +5,8 @@ import type {
   ClaimedJob,
   DefinitionOfDoneReviewCandidate,
   ScheduledAgentConfig,
-  TimeWindowScheduleConfig,
-  CronScheduleConfig,
 } from "@almirant/remote-agent";
-import { Cron } from "croner";
+import { isCronDue, isTimeWindowActive } from "@almirant/shared";
 import type { ContainerCleanupResult } from "../workspace/container-manager";
 import type { ContainerDriver } from "../workspace/container-driver";
 import type { JobExecutor } from "../job-executor";
@@ -812,109 +810,12 @@ export class RunnerOrchestrator {
     now: Date
   ): Promise<void> {
     if (config.scheduleType === "cron") {
-      if (!this.isCronDue(config, now)) return;
+      if (!isCronDue(config, now)) return;
     } else {
-      if (!this.isTimeWindowActive(config, now)) return;
+      if (!isTimeWindowActive(config, now)) return;
     }
 
     await this.executeScheduledConfig(config);
-  }
-
-  private isCronDue(config: ScheduledAgentConfig, now: Date): boolean {
-    const cronConfig = config.scheduleConfig as CronScheduleConfig;
-
-    try {
-      const job = new Cron(cronConfig.expression, { timezone: config.timezone });
-
-      if (config.lastRunAt) {
-        const lastRun = new Date(config.lastRunAt);
-        const nextRun = job.nextRun(lastRun);
-
-        if (!nextRun || nextRun > now) {
-          return false;
-        }
-      }
-
-      return true;
-    } catch (error) {
-      console.error(
-        `scheduled-configs: invalid cron expression for "${config.name}": ${cronConfig.expression}`,
-        error
-      );
-      return false;
-    }
-  }
-
-  private isTimeWindowActive(config: ScheduledAgentConfig, now: Date): boolean {
-    const scheduleConfig = config.scheduleConfig as TimeWindowScheduleConfig;
-
-    // Check day of week
-    const hourFormatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: config.timezone,
-      hour: "numeric",
-      hour12: false,
-    });
-
-    // Get current day of week (0=Sunday) in config's timezone
-    const dateInTz = new Intl.DateTimeFormat("en-US", {
-      timeZone: config.timezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(now);
-    const tzDate = new Date(dateInTz);
-    const currentDayOfWeek = tzDate.getDay();
-
-    if (
-      scheduleConfig.daysOfWeek &&
-      scheduleConfig.daysOfWeek.length > 0 &&
-      !scheduleConfig.daysOfWeek.includes(currentDayOfWeek)
-    ) {
-      return false;
-    }
-
-    // Check time window
-    const currentHour = parseInt(hourFormatter.format(now), 10);
-    let inWindow: boolean;
-    if (scheduleConfig.startHour <= scheduleConfig.endHour) {
-      inWindow =
-        currentHour >= scheduleConfig.startHour &&
-        currentHour < scheduleConfig.endHour;
-    } else {
-      // Wrap-around (e.g., startHour=22, endHour=6)
-      inWindow =
-        currentHour >= scheduleConfig.startHour ||
-        currentHour < scheduleConfig.endHour;
-    }
-
-    if (!inWindow) return false;
-
-    // Backlog drain is a reconciler, not a one-shot batch. It is safe to run
-    // every scheduler tick because candidate selection subtracts active jobs
-    // from each project's configured concurrency before creating new jobs.
-    if (config.targetConfig?.backlogDrain?.enabled === true) {
-      return true;
-    }
-    if (config.targetConfig?.dodRemediation?.enabled === true) {
-      return true;
-    }
-    if (config.targetConfig?.dodReview?.enabled === true) {
-      return true;
-    }
-    if (config.targetConfig?.releaseIntegration?.enabled === true) {
-      return true;
-    }
-
-    // Cooldown check: skip if lastRunAt < 5 minutes ago
-    const COOLDOWN_MS = 5 * 60 * 1000;
-    if (config.lastRunAt) {
-      const lastRun = new Date(config.lastRunAt);
-      if (now.getTime() - lastRun.getTime() < COOLDOWN_MS) {
-        return false;
-      }
-    }
-
-    return true;
   }
 
   private async executeScheduledConfig(config: ScheduledAgentConfig): Promise<void> {
@@ -1387,6 +1288,7 @@ export class RunnerOrchestrator {
         const projectCandidates = await this.workerClient.getDodReviewCandidates({
           projectId: scope.projectId,
           workspaceId: config.workspaceId,
+          scheduledConfigId: config.id,
           limit: requestLimit,
           maxActiveJobs: scope.maxActiveItems,
           minAgeMinutes,
@@ -1465,6 +1367,7 @@ export class RunnerOrchestrator {
         const result = await this.workerClient.queueReleaseIntegration({
           projectId: scope.projectId,
           workspaceId: config.workspaceId,
+          scheduledConfigId: config.id,
           limit: requestLimit,
           maxActiveItems: scope.maxActiveItems,
           minAgeMinutes,

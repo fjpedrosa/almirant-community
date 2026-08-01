@@ -184,6 +184,28 @@ describe("resolveRuntimeConfig", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildInjectedEnv", () => {
+  it("uses the same current defaults as runtime-selection when connection models are absent", async () => {
+    const openaiResult = await buildInjectedEnv({
+      workerClient: buildMockClient({
+        openaiApiKey: "sk-openai-default",
+        openaiAuthMethod: "api_key",
+      }),
+      job: baseJob("codex", { jobType: "implementation" }),
+      repository: {},
+    });
+    const anthropicResult = await buildInjectedEnv({
+      workerClient: buildMockClient({
+        anthropicApiKey: "sk-ant-default",
+        anthropicAuthMethod: "api_key",
+      }),
+      job: baseJob("claude-code", { jobType: "implementation" }),
+      repository: {},
+    });
+
+    expect(openaiResult.resolvedModel).toBe("gpt-5.6-sol");
+    expect(anthropicResult.resolvedModel).toBe("claude-opus-4-8");
+  });
+
   it("sets ANTHROPIC_API_KEY for anthropic api_key auth", async () => {
     const keys: ProviderKeysResponse = {
       anthropicApiKey: "sk-ant-api-key",
@@ -962,6 +984,88 @@ describe("buildInjectedEnv", () => {
     });
   });
 
+  it("materializa visual_judge como Claude read-only aunque el runner habilite browser globalmente", async () => {
+    const previousEnableBrowser = process.env.ENABLE_BROWSER;
+    process.env.ENABLE_BROWSER = "true";
+    const requestSessionToken = mock(async () => ({
+      token: "read-only-token",
+      expiresAt: new Date().toISOString(),
+    }));
+
+    try {
+      const result = await buildInjectedEnv({
+        workerClient: buildMockClient({
+          anthropicApiKey: "sk-ant-key",
+          anthropicAuthMethod: "api_key",
+        }),
+        job: baseJob("anthropic", {
+          projectId: "project-1",
+          workspaceId: "org-1",
+          codingAgent: "claude-code",
+          config: {
+            siteBuildStage: "visual_judge",
+            workspaceIntent: "read-only",
+            postSessionPushPolicy: "never",
+            needsBrowser: false,
+            requiresBrowser: false,
+            enableBrowser: false,
+            resourceProfile: { needsBrowser: false, requiresBrowser: false },
+            evidenceArtifacts: [{
+              artifactId: "00000000-0000-4000-8000-000000000001",
+              sha256: "a".repeat(64),
+              byteSize: 128,
+              contentType: "image/png",
+              localFilename: "desktop.png",
+            }],
+          },
+        }),
+        repository: { workspaceKind: "git_repo" },
+        apiBaseUrl: "http://localhost:3001",
+        requestSessionToken,
+      });
+
+      expect(requestSessionToken).not.toHaveBeenCalled();
+      expect(result.env.ALMIRANT_CLAUDE_TOOL_POLICY).toBe("read-only");
+      expect(result.env.CLAUDE_CODE_SAFE_MODE).toBe("1");
+      expect(result.env.CLAUDE_CONFIG_DIR).toBe("/tmp/almirant-visual-judge-claude");
+      expect(result.env.ENABLE_BROWSER).toBeUndefined();
+      expect(Object.keys(result.openCodeConfig.mcp)).toEqual([]);
+      expect(result.openCodeConfig.mcp.almirant).toBeUndefined();
+      expect(result.openCodeConfig.mcp.playwright).toBeUndefined();
+      expect(result.openCodeConfig.mcp.filesystem).toBeUndefined();
+      expect(result.openCodeConfig.mcp.memory).toBeUndefined();
+    } finally {
+      if (previousEnableBrowser === undefined) delete process.env.ENABLE_BROWSER;
+      else process.env.ENABLE_BROWSER = previousEnableBrowser;
+    }
+  });
+
+  it("fails closed when visual_judge selects a runtime without an enforced read-only policy", async () => {
+    await expect(buildInjectedEnv({
+      workerClient: buildMockClient({
+        openaiApiKey: "sk-openai-key",
+        openaiAuthMethod: "api_key",
+      }),
+      job: baseJob("codex", {
+        codingAgent: "codex",
+        config: {
+          siteBuildStage: "visual_judge",
+          workspaceIntent: "read-only",
+          postSessionPushPolicy: "never",
+          needsBrowser: false,
+          evidenceArtifacts: [{
+            artifactId: "00000000-0000-4000-8000-000000000001",
+            sha256: "a".repeat(64),
+            byteSize: 128,
+            contentType: "image/png",
+            localFilename: "desktop.png",
+          }],
+        },
+      }),
+      repository: { workspaceKind: "git_repo" },
+    })).rejects.toThrow(/visual_judge requires an enforced Claude read-only runtime/i);
+  });
+
   it("ignora MCP custom inválido en defensa en profundidad", async () => {
     const keys: ProviderKeysResponse = {
       openaiApiKey: "sk-openai-key",
@@ -1001,6 +1105,7 @@ describe("buildInjectedEnv", () => {
     });
 
     expect(result.env.__GIT_CLONE_TOKEN).toBe("gh-token");
+    expect(result.cloneCredential).toEqual({ status: "granted" });
   });
 
   it("continua sin __GIT_CLONE_TOKEN si getGithubToken falla", async () => {
@@ -1024,5 +1129,42 @@ describe("buildInjectedEnv", () => {
 
     expect(result.env.__GIT_CLONE_TOKEN).toBeUndefined();
     expect(result.env.ANTHROPIC_API_KEY).toBe("sk-ant-key");
+    // El motivo tiene que sobrevivir al fallo: es la unica pista de por que el
+    // clon sera anonimo, y sin ella el job solo muestra el timeout del serve.
+    expect(result.cloneCredential).toEqual({
+      status: "unavailable",
+      reason: "github down",
+    });
+  });
+
+  it("reporta la credencial como no disponible cuando el repo no trae id", async () => {
+    const keys: ProviderKeysResponse = {
+      anthropicApiKey: "sk-ant-key",
+      anthropicAuthMethod: "api_key",
+    };
+
+    const result = await buildInjectedEnv({
+      workerClient: buildMockClient(keys),
+      job: baseJob("anthropic"),
+      repository: { url: "https://github.com/acme/private-repo" },
+    });
+
+    expect(result.env.__GIT_CLONE_TOKEN).toBeUndefined();
+    expect(result.cloneCredential?.status).toBe("unavailable");
+  });
+
+  it("no reclama credencial cuando no hay repositorio que clonar", async () => {
+    const keys: ProviderKeysResponse = {
+      anthropicApiKey: "sk-ant-key",
+      anthropicAuthMethod: "api_key",
+    };
+
+    const result = await buildInjectedEnv({
+      workerClient: buildMockClient(keys),
+      job: baseJob("anthropic"),
+      repository: {},
+    });
+
+    expect(result.cloneCredential).toEqual({ status: "not_needed" });
   });
 });

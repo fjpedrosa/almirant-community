@@ -31,6 +31,7 @@ import type { ProvenanceSource } from "./provenance";
 import type {
   AgentWorkspace,
   ClusterInvestigationContext,
+  EvidenceArtifactDescriptor,
   ResourceEstimate,
   RunnerCustomMcpServersConfig,
 } from "@almirant/shared";
@@ -58,6 +59,12 @@ export interface AgentJobConfig {
   scheduledConfigId?: string;
   /** Human-readable scheduled-agent config name for session list UX and audit context. */
   scheduledConfigName?: string;
+  /**
+   * How the job's repository was decided. `"none"` records that the agent named
+   * no project, so the job runs with an empty workspace — without it, a job with
+   * no `repoUrl` is indistinguishable from one whose resolution silently failed.
+   */
+  repositoryResolution?: "project" | "none";
   skillName?: string;
   /** UUID of the skill in the skills table — when present, runner fetches content from DB */
   skillId?: string;
@@ -84,6 +91,11 @@ export interface AgentJobConfig {
   targetUrl?: string;
   /** Enables browser/Playwright MCP support for this runner job. */
   needsBrowser?: boolean;
+  /**
+   * Server-owned raster evidence references materialized by the runner as a
+   * sidecar. This contract deliberately carries no blobs, base64, or URLs.
+   */
+  evidenceArtifacts?: EvidenceArtifactDescriptor[];
   /** Whether this job is a pre-warm placeholder (not yet a real planning job). */
   isPrewarm?: boolean;
   /** ID of the previous job attempt, set by stale recovery for session continuity */

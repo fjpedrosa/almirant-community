@@ -1,5 +1,6 @@
 import { SignInContainer } from "@/domains/auth/presentation/containers/sign-in-container";
 import { canAccessSignUpPage } from "@/domains/auth/application/lib/auth-route-state";
+import { getSignupAttribution } from "@/domains/auth/application/lib/signup-attribution";
 import { getAuthBootstrapStatus } from "@/lib/auth-bootstrap";
 import { getEnabledAuthProviders } from "@/lib/auth-providers";
 import { redirect } from "next/navigation";
@@ -36,8 +37,9 @@ export default async function SignUpPage({
     getAuthBootstrapStatus(),
     searchParams,
   ]);
+  const invitationIntent = hasInvitationIntent(resolvedSearchParams);
 
-  if (!canAccessSignUpPage(bootstrapStatus, hasInvitationIntent(resolvedSearchParams))) {
+  if (!canAccessSignUpPage(bootstrapStatus, invitationIntent)) {
     redirect("/sign-in");
   }
 
@@ -47,6 +49,13 @@ export default async function SignUpPage({
     <SignInContainer
       mode={bootstrapStatus.needsInitialAdminSetup ? "initial_admin_setup" : "sign_up"}
       socialProviders={socialProviders}
+      signupAttribution={getSignupAttribution(resolvedSearchParams)}
+      showInvitationHint={invitationIntent && !bootstrapStatus.allowRegistration}
+      isPublicSignUp={
+        bootstrapStatus.allowRegistration &&
+        !bootstrapStatus.needsInitialAdminSetup &&
+        !invitationIntent
+      }
     />
   );
 }

@@ -60,6 +60,29 @@ describe("auth-bootstrap", () => {
         allowRegistration: false,
       });
     });
+
+    it("fails closed when a populated instance has no settings row", async () => {
+      const executor = createMockExecutor([[{ userCount: 3 }], []]);
+
+      await expect(getAuthBootstrapStatus(executor as never)).resolves.toEqual({
+        hasUsers: true,
+        needsInitialAdminSetup: false,
+        allowRegistration: false,
+      });
+    });
+
+    it("honors explicitly open registrations once the instance already has users", async () => {
+      const executor = createMockExecutor([
+        [{ userCount: 3 }],
+        [{ id: "settings-1", allowNewRegistrations: true }],
+      ]);
+
+      await expect(getAuthBootstrapStatus(executor as never)).resolves.toEqual({
+        hasUsers: true,
+        needsInitialAdminSetup: false,
+        allowRegistration: true,
+      });
+    });
   });
 
   describe("hasPendingInvitation", () => {

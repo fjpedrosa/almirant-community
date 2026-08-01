@@ -20,8 +20,8 @@ describe("resolveRuntime", () => {
     });
   });
 
-  it("keeps the codex default model untouched", () => {
-    expect(resolveRuntime({ provider: "codex" }).model).toBe("gpt-5.5");
+  it("defaults Codex to the current GPT-5.6 Sol model", () => {
+    expect(resolveRuntime({ provider: "codex" }).model).toBe("gpt-5.6-sol");
   });
 
   it("keeps the zipu default model untouched", () => {

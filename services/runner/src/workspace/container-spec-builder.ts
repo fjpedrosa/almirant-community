@@ -25,7 +25,7 @@ export const CONTAINER_USER = "1001:1001";
 
 /**
  * Extra memory (MB) for heavier runtimes. Codex (OpenAI) loads a larger
- * process than claude-code and OOM-kills at the default 2028 MB limit.
+ * process than claude-code and can OOM-kill at the configured base limit.
  *
  * `claude-shim` gets a smaller bump to absorb the short window during
  * post-session push where the primary LLM session is being torn down

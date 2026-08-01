@@ -52,7 +52,7 @@ const PROVIDER_MAP: Record<AgentProvider, {
   defaultModel: string;
 }> = {
   "claude-code": { codingAgent: "claude-code", aiProvider: "anthropic", defaultModel: "claude-opus-4-8" },
-  codex:         { codingAgent: "codex",       aiProvider: "openai",    defaultModel: "gpt-5.5" },
+  codex:         { codingAgent: "codex",       aiProvider: "openai",    defaultModel: "gpt-5.6-sol" },
   zipu:          { codingAgent: "opencode",    aiProvider: "zai",       defaultModel: "glm-5.2" },
   grok:          { codingAgent: "opencode",    aiProvider: "xai",       defaultModel: "grok-4.3" },
 };

@@ -321,6 +321,88 @@ describe("createAlmirantWorkerClient", () => {
     });
   });
 
+  it("streams worker-authenticated evidence bytes from the job/artifact endpoint", async () => {
+    let requestedUrl = "";
+    let authHeader = "";
+    let redirectMode: RequestRedirect | undefined;
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+
+    setMockFetch(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requestedUrl = String(input);
+      authHeader = new Headers(init?.headers).get("authorization") ?? "";
+      redirectMode = init?.redirect;
+      return new Response(bytes, {
+        status: 200,
+        headers: {
+          "content-type": "image/png",
+          "content-length": String(bytes.length),
+          "x-almirant-artifact-size": String(bytes.length),
+          "x-almirant-artifact-sha256": "a".repeat(64),
+        },
+      });
+    });
+
+    const client = createAlmirantWorkerClient({
+      apiBaseUrl: "https://api.example.com",
+      apiKey: "test-key",
+      maxRetries: 0,
+    });
+
+    const artifact = await client.getEvidenceArtifact("job/123", "artifact/123");
+    const received = Buffer.from(await new Response(artifact.body).arrayBuffer());
+
+    expect(requestedUrl).toContain(
+      "/workers/jobs/job%2F123/evidence-artifacts/artifact%2F123",
+    );
+    expect(authHeader).toBe("Bearer test-key");
+    expect(redirectMode).toBe("error");
+    expect(received).toEqual(bytes);
+    expect(artifact).toMatchObject({
+      contentType: "image/png",
+      byteSize: bytes.length,
+      sha256: "a".repeat(64),
+    });
+  });
+
+  it("rejects evidence responses that omit integrity headers", async () => {
+    setMockFetch(async () => new Response(Buffer.from("bytes"), {
+      status: 200,
+      headers: { "content-type": "image/png" },
+    }));
+
+    const client = createAlmirantWorkerClient({
+      apiBaseUrl: "https://api.example.com",
+      apiKey: "test-key",
+      maxRetries: 0,
+    });
+
+    await expect(client.getEvidenceArtifact("job-123", "artifact-123"))
+      .rejects.toThrow("evidence response headers");
+  });
+
+  it("rejects content-encoded evidence because byte-size headers must describe the body", async () => {
+    const bytes = Buffer.from("encoded");
+    setMockFetch(async () => new Response(bytes, {
+      status: 200,
+      headers: {
+        "content-type": "image/png",
+        "content-length": String(bytes.length),
+        "content-encoding": "gzip",
+        "x-almirant-artifact-size": String(bytes.length),
+        "x-almirant-artifact-sha256": "a".repeat(64),
+      },
+    }));
+
+    const client = createAlmirantWorkerClient({
+      apiBaseUrl: "https://api.example.com",
+      apiKey: "test-key",
+      maxRetries: 0,
+    });
+
+    await expect(client.getEvidenceArtifact("job-123", "artifact-123"))
+      .rejects.toThrow("evidence response headers");
+  });
+
   it("fetches DoD remediation candidates from the dedicated worker endpoint", async () => {
     let requestedUrl = "";
 

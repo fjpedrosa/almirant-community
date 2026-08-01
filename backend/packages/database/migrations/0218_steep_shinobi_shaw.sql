@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "repo_installation_links_repo_id_unique_idx" ON "repo_installation_links" USING btree ("repo_id");

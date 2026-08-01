@@ -77,9 +77,9 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DOCKER_HOST: tcp://docker-proxy:2375
       RUNNER_RELEASE_SLICE: runner
-      OPENCODE_IMAGE: ${OPENCODE_IMAGE:-almirant-opencode-shim:1.14.31}
-      CLAUDE_SHIM_IMAGE: ${CLAUDE_SHIM_IMAGE:-almirant-claude-shim:2.1.126}
-      CODEX_SHIM_IMAGE: ${CODEX_SHIM_IMAGE:-almirant-codex-shim:0.128.0}
+      OPENCODE_IMAGE: ${OPENCODE_IMAGE:-almirant-opencode-shim:1.17.20}
+      CLAUDE_SHIM_IMAGE: ${CLAUDE_SHIM_IMAGE:-almirant-claude-shim:2.1.209}
+      CODEX_SHIM_IMAGE: ${CODEX_SHIM_IMAGE:-almirant-codex-shim:0.144.4}
     volumes:
       - ./repos:/app/repos
     networks:
@@ -171,21 +171,21 @@ services:
     build:
       context: ../..
       dockerfile: services/runner-claude/Dockerfile
-    image: almirant-claude-shim:2.1.126
+    image: almirant-claude-shim:2.1.209
 
   codex-shim:
     profiles: ["shims"]
     build:
       context: ../..
       dockerfile: services/runner/docker/Dockerfile.codex
-    image: almirant-codex-shim:0.128.0
+    image: almirant-codex-shim:0.144.4
 
   opencode-shim:
     profiles: ["shims"]
     build:
       context: ../..
       dockerfile: services/runner/docker/Dockerfile.opencode
-    image: almirant-opencode-shim:1.14.31
+    image: almirant-opencode-shim:1.17.20
 
 networks:
   runner-internal:

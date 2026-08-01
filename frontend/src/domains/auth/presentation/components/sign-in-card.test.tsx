@@ -123,3 +123,20 @@ describe("SignInCard social providers", () => {
     ).toBe(true);
   });
 });
+
+describe("SignInCard registration link", () => {
+  it("exposes Create account from sign-in when registration is allowed", async () => {
+    await renderCard({ showSignUpLink: true, signUpHref: "/signup?source=marketing" });
+
+    expect(screen.getByRole("link", { name: "createAccount" })).toHaveAttribute(
+      "href",
+      "/signup?source=marketing",
+    );
+  });
+
+  it("does not expose Create account from sign-in when registration is closed", async () => {
+    await renderCard({ showSignUpLink: false });
+
+    expect(screen.queryByRole("link", { name: "createAccount" })).toBeNull();
+  });
+});

@@ -42,6 +42,56 @@ describe("calculateCostUsd", () => {
     expect(cost).toBe(210);
   });
 
+  it("calculates the official base prices for the GPT-5.6 family", () => {
+    expect(calculateCostUsd({
+      provider: "openai",
+      model: "gpt-5.6-sol",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    })).toBe(35);
+    expect(calculateCostUsd({
+      provider: "openai",
+      model: "gpt-5.6-terra",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    })).toBe(17.5);
+    expect(calculateCostUsd({
+      provider: "openai",
+      model: "gpt-5.6-luna",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    })).toBe(7);
+  });
+
+  it("prices the gpt-5.6 alias as GPT-5.6 Sol", () => {
+    expect(calculateCostUsd({
+      provider: "openai",
+      model: "gpt-5.6",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    })).toBe(35);
+  });
+
+  it("uses the official cached-input rate for GPT-5.6 Sol", () => {
+    expect(calculateCostUsd({
+      provider: "openai",
+      model: "gpt-5.6-sol",
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadInputTokens: 1_000_000,
+    })).toBe(0.5);
+  });
+
+  it("uses the official cache-write rate for GPT-5.6 Sol", () => {
+    expect(calculateCostUsd({
+      provider: "openai",
+      model: "gpt-5.6-sol",
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 1_000_000,
+    })).toBe(6.25);
+  });
+
   it("calculates Anthropic Claude Fable 5 cost", () => {
     const cost = calculateCostUsd({
       provider: "anthropic",
@@ -88,14 +138,27 @@ describe("calculateCostUsd", () => {
     expect(cost).toBe(90);
   });
 
-  it("calculates Anthropic Claude Sonnet 5 cost at list price", () => {
+  it("uses Sonnet 5 introductory pricing through 2026-08-31 inclusive", () => {
     const cost = calculateCostUsd({
       provider: "anthropic",
       model: "claude-sonnet-5",
       inputTokens: 1_000_000,
       outputTokens: 1_000_000,
+      at: new Date("2026-08-31T23:59:59.999Z"),
     });
-    // List price: 3 + 15 = 18 (intro pricing intentionally not modeled)
+    // Introductory price: 2 + 10 = 12.
+    expect(cost).toBe(12);
+  });
+
+  it("switches Sonnet 5 to list pricing at 2026-09-01T00:00:00Z", () => {
+    const cost = calculateCostUsd({
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      at: new Date("2026-09-01T00:00:00.000Z"),
+    });
+    // List price: 3 + 15 = 18.
     expect(cost).toBe(18);
   });
 
@@ -120,15 +183,14 @@ describe("calculateCostUsd", () => {
     expect(cost).toBe(4.2);
   });
 
-  it("maps openai-compatible GLM models to Z.AI pricing", () => {
+  it("does not silently bill GLM-5.2 without an official published API price", () => {
     const cost = calculateCostUsd({
       provider: "zai",
       model: "glm-5.2-250828",
       inputTokens: 1_000_000,
       outputTokens: 1_000_000,
     });
-    // glm-5.2 snapshot id fuzzy-matches the base glm-5.2 pricing: 1.4 + 4.4 = 5.8
-    expect(cost).toBe(5.8);
+    expect(cost).toBeNull();
   });
 
   it("supports free GLM flash models", () => {
@@ -151,29 +213,30 @@ describe("calculateCostUsd", () => {
     expect(cost).toBe(1.2);
   });
 
-  it("includes Anthropic cache read cost at 10% of input rate", () => {
-    // Anthropic Sonnet 5: input $3/MTok. Cache read = $3 * 0.1 = $0.30 / MTok.
+  it("applies cache-read pricing to the effective Sonnet 5 introductory input rate", () => {
+    // Intro input $2/MTok. Cache read = $2 * 0.1 = $0.20 / MTok.
     const cost = calculateCostUsd({
       provider: "anthropic",
       model: "claude-sonnet-5",
       inputTokens: 1_000_000,
       outputTokens: 0,
       cacheReadInputTokens: 1_000_000,
+      at: new Date("2026-07-14T00:00:00.000Z"),
     });
-    // Base input: 3, Cache read: 0.30 → 3.30
-    expect(cost).toBe(3.3);
+    expect(cost).toBe(2.2);
   });
 
-  it("includes Anthropic cache creation cost at 125% of input rate", () => {
-    // Anthropic Sonnet 5: input $3/MTok. Cache creation = $3 * 1.25 = $3.75 / MTok.
+  it("applies cache-write pricing to the effective Sonnet 5 introductory input rate", () => {
+    // Intro input $2/MTok. Cache creation = $2 * 1.25 = $2.50 / MTok.
     const cost = calculateCostUsd({
       provider: "anthropic",
       model: "claude-sonnet-5",
       inputTokens: 0,
       outputTokens: 0,
       cacheCreationInputTokens: 1_000_000,
+      at: new Date("2026-07-14T00:00:00.000Z"),
     });
-    expect(cost).toBe(3.75);
+    expect(cost).toBe(2.5);
   });
 
   it("combines all token types correctly for Anthropic Opus 4.7", () => {

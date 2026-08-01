@@ -1,3 +1,7 @@
+import {
+  EVIDENCE_ARTIFACT_ENDPOINT_SEGMENT,
+  EVIDENCE_ARTIFACT_RESPONSE_HEADERS,
+} from "./types";
 import type {
   AlmirantWorkerClient,
   ApiClientConfig,
@@ -22,6 +26,7 @@ import type {
   WorkerHeartbeatPayload,
   WorkerInteraction,
   WorkspaceFileDownloadResponse,
+  EvidenceArtifactDownloadResponse,
   NightlyValidationConfig,
   ValidationCandidate,
   DefinitionOfDoneReviewCandidate,
@@ -201,6 +206,144 @@ const requestJson = async <T>(
   throw new NetworkError("Request failed after exhausting retries");
 };
 
+const requestEvidenceArtifact = async (
+  config: ApiClientConfig,
+  path: string,
+): Promise<EvidenceArtifactDownloadResponse> => {
+  const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
+  const initialRetryDelayMs = config.initialRetryDelayMs ?? DEFAULT_INITIAL_RETRY_DELAY_MS;
+  let attempt = 0;
+
+  while (attempt <= maxRetries) {
+    attempt += 1;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let timeoutHandedToBody = false;
+
+    try {
+      const response = await fetch(buildUrl(config.apiBaseUrl, path), {
+        method: "GET",
+        headers: { Authorization: `Bearer ${config.apiKey}` },
+        redirect: "error",
+        signal: controller.signal,
+      });
+
+      if (response.status === 401 || response.status === 403) {
+        throw new AuthError(
+          await toErrorMessage(response, `Unauthorized (${response.status})`),
+        );
+      }
+      if (response.status === 404) {
+        throw new NotFoundError(await toErrorMessage(response, "Resource not found"));
+      }
+      if (!response.ok) {
+        const message = await toErrorMessage(
+          response,
+          `HTTP ${response.status} ${response.statusText}`,
+        );
+        if (RETRYABLE_STATUS_CODES.has(response.status) && attempt <= maxRetries) {
+          const delay = initialRetryDelayMs * 2 ** (attempt - 1) +
+            Math.floor(Math.random() * 100);
+          await sleep(delay);
+          continue;
+        }
+        throw new ApiError(message);
+      }
+
+      const contentType = response.headers
+        .get(EVIDENCE_ARTIFACT_RESPONSE_HEADERS.contentType)
+        ?.trim() ?? "";
+      const contentLength = response.headers
+        .get(EVIDENCE_ARTIFACT_RESPONSE_HEADERS.contentLength)
+        ?.trim() ?? "";
+      const contentEncoding = response.headers
+        .get(EVIDENCE_ARTIFACT_RESPONSE_HEADERS.contentEncoding)
+        ?.trim() ?? "";
+      const declaredSize = response.headers
+        .get(EVIDENCE_ARTIFACT_RESPONSE_HEADERS.byteSize)
+        ?.trim() ?? "";
+      const declaredDigest = response.headers
+        .get(EVIDENCE_ARTIFACT_RESPONSE_HEADERS.sha256)
+        ?.trim()
+        .toLowerCase() ?? "";
+      const contentLengthNumber = Number(contentLength);
+      const declaredSizeNumber = Number(declaredSize);
+
+      if (
+        contentType.length === 0 ||
+        contentEncoding.length > 0 ||
+        !Number.isSafeInteger(contentLengthNumber) ||
+        contentLengthNumber <= 0 ||
+        !Number.isSafeInteger(declaredSizeNumber) ||
+        declaredSizeNumber <= 0 ||
+        contentLengthNumber !== declaredSizeNumber ||
+        !/^[a-f0-9]{64}$/.test(declaredDigest) ||
+        response.body === null
+      ) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new ApiError("Invalid evidence response headers");
+      }
+
+      const sourceReader = response.body.getReader();
+      const body = new ReadableStream<Uint8Array>({
+        async pull(streamController) {
+          try {
+            const next = await sourceReader.read();
+            if (next.done) {
+              clearTimeout(timeout);
+              streamController.close();
+              return;
+            }
+            streamController.enqueue(next.value);
+          } catch (error) {
+            clearTimeout(timeout);
+            streamController.error(error);
+          }
+        },
+        async cancel(reason) {
+          clearTimeout(timeout);
+          await sourceReader.cancel(reason);
+        },
+      });
+      timeoutHandedToBody = true;
+
+      return {
+        body,
+        contentType,
+        byteSize: declaredSizeNumber,
+        sha256: declaredDigest,
+      };
+    } catch (error) {
+      if (
+        error instanceof AuthError ||
+        error instanceof NotFoundError ||
+        error instanceof ApiError
+      ) {
+        throw error;
+      }
+
+      if (error instanceof DOMException && error.name === "AbortError") {
+        if (attempt <= maxRetries) {
+          await sleep(initialRetryDelayMs * 2 ** (attempt - 1));
+          continue;
+        }
+        throw new NetworkError(`Request timed out after ${timeoutMs}ms`);
+      }
+
+      if (attempt <= maxRetries) {
+        await sleep(initialRetryDelayMs * 2 ** (attempt - 1));
+        continue;
+      }
+      throw new NetworkError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (!timeoutHandedToBody) clearTimeout(timeout);
+    }
+  }
+
+  throw new NetworkError("Request failed after exhausting retries");
+};
+
 export const createAlmirantWorkerClient = (
   config: ApiClientConfig
 ): AlmirantWorkerClient => {
@@ -372,6 +515,13 @@ export const createAlmirantWorkerClient = (
       );
     },
 
+    getEvidenceArtifact: async (jobId: string, artifactId: string) => {
+      return requestEvidenceArtifact(
+        config,
+        `/workers/jobs/${encodeURIComponent(jobId)}/${EVIDENCE_ARTIFACT_ENDPOINT_SEGMENT}/${encodeURIComponent(artifactId)}`,
+      );
+    },
+
     getWorkItem: async (workItemId: string) => {
       return requestJson<WorkItemDetails>(config, `/workers/work-items/${workItemId}`, {
         method: "GET",
@@ -409,6 +559,7 @@ export const createAlmirantWorkerClient = (
 
     getDodReviewCandidates: async (params?: {
       workspaceId?: string;
+      scheduledConfigId?: string;
       projectId?: string;
       limit?: number;
       maxActiveJobs?: number;
@@ -417,6 +568,9 @@ export const createAlmirantWorkerClient = (
       const queryParams = new URLSearchParams();
       if (params?.workspaceId) {
         queryParams.set("workspaceId", params.workspaceId);
+      }
+      if (params?.scheduledConfigId) {
+        queryParams.set("scheduledConfigId", params.scheduledConfigId);
       }
       if (params?.projectId) {
         queryParams.set("projectId", params.projectId);
@@ -484,6 +638,7 @@ export const createAlmirantWorkerClient = (
 
     queueReleaseIntegration: async (params?: {
       workspaceId?: string;
+      scheduledConfigId?: string;
       projectId?: string;
       limit?: number;
       maxActiveItems?: number;
@@ -492,6 +647,9 @@ export const createAlmirantWorkerClient = (
       const queryParams = new URLSearchParams();
       if (params?.workspaceId) {
         queryParams.set("workspaceId", params.workspaceId);
+      }
+      if (params?.scheduledConfigId) {
+        queryParams.set("scheduledConfigId", params.scheduledConfigId);
       }
       if (params?.projectId) {
         queryParams.set("projectId", params.projectId);

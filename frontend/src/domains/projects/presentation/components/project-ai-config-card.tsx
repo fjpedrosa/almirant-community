@@ -23,6 +23,7 @@ import { OpenAIIcon } from "@/components/icons/openai-icon";
 import { XAIIcon } from "@/components/icons/xai-icon";
 import { ZAIIcon } from "@/components/icons/zai-icon";
 import { getModelsForProvider } from "@/lib/ai-models-catalog";
+import { getReasoningEffortOptions } from "@/lib/ai-model-reasoning";
 import type {
   AiConfigProvider,
   ProjectImplementationAiProvider,
@@ -53,30 +54,6 @@ const AI_PROVIDER_OPTIONS: Array<{ value: ProjectImplementationAiProvider; label
   { value: "zai", label: "z.ai", icon: <ZAIIcon className="h-4 w-4" /> },
   { value: "xai", label: "xAI", icon: <XAIIcon className="h-4 w-4" /> },
 ];
-
-const REASONING_OPTIONS_BY_CODING_AGENT: Record<
-  ProjectImplementationCodingAgent,
-  Array<{ value: string; label: string }>
-> = {
-  "claude-code": [
-    { value: "low", label: "Low" },
-    { value: "medium", label: "Medium" },
-    { value: "high", label: "High" },
-    { value: "xhigh", label: "XHigh" },
-    { value: "max", label: "Max" },
-  ],
-  codex: [
-    { value: "minimal", label: "Minimal" },
-    { value: "low", label: "Low" },
-    { value: "medium", label: "Medium" },
-    { value: "high", label: "High" },
-    { value: "xhigh", label: "XHigh" },
-  ],
-  opencode: [
-    { value: "enabled", label: "Thinking enabled" },
-    { value: "disabled", label: "Thinking disabled" },
-  ],
-};
 
 interface ProjectAiConfigCardProps {
   defaultProvider: AiConfigProvider | null;
@@ -114,8 +91,12 @@ export const ProjectAiConfigCard: React.FC<ProjectAiConfigCardProps> = ({
 }) => {
   const aiProvider = implementationDefaults.aiProvider ?? "anthropic";
   const codingAgent = implementationDefaults.codingAgent ?? "claude-code";
-  const modelOptions = getModelsForProvider(aiProvider);
-  const reasoningOptions = REASONING_OPTIONS_BY_CODING_AGENT[codingAgent];
+  const modelOptions = getModelsForProvider(aiProvider, "agent-runtime");
+  const reasoningOptions = getReasoningEffortOptions({
+    codingAgent,
+    aiProvider,
+    model: implementationDefaults.model,
+  });
 
   return (
     <Card>
@@ -232,7 +213,7 @@ export const ProjectAiConfigCard: React.FC<ProjectAiConfigCardProps> = ({
               <Select
                 value={implementationDefaults.reasoningLevel ?? "__default__"}
                 onValueChange={(value) => onReasoningLevelChange(value === "__default__" ? null : value)}
-                disabled={isSaving}
+                disabled={isSaving || reasoningOptions.length === 0}
               >
                 <SelectTrigger className="h-9">
                   <SelectValue placeholder="Default" />

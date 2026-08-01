@@ -373,20 +373,93 @@ const normalizeSummaryDuplicateText = (value: string): string =>
     .trim()
     .toLowerCase();
 
-const isDuplicateSummaryTextSegment = (
-  textSegment: string,
+/**
+ * Closing-report headings, kept in sync with `SUMMARY_HEADING_REGEX` in
+ * services/runner/src/session/sse-canonical-adapter.ts. The producer decides
+ * what becomes an `agent.summary`; this decides where that body was lifted
+ * from, so the prose can drop it instead of repeating the card.
+ *
+ * A tail is allowed — agents title their reports ("## Resumen del trabajo (…)")
+ * — because the body always starts after the heading LINE.
+ */
+const SUMMARY_SECTION_HEADING =
+  /^##[ \t]+(?:Final Report|Final Summary|Summary|Reporte Final|Informe Final|Resumen Final|Resumen)\b[^\n]*$/gim;
+
+const findLastSummaryHeadingIndex = (content: string): number | null => {
+  SUMMARY_SECTION_HEADING.lastIndex = 0;
+  let lastIndex: number | null = null;
+  let match: RegExpExecArray | null;
+  while ((match = SUMMARY_SECTION_HEADING.exec(content)) !== null) {
+    lastIndex = match.index;
+  }
+  return lastIndex;
+};
+
+type SummaryDuplicateResolution =
+  | { kind: "drop-text"; index: number }
+  | { kind: "trim-text"; index: number; content: string }
+  | { kind: "drop-summary" }
+  | null;
+
+/**
+ * The `agent.summary` event repeats prose the transcript already rendered, so
+ * one of the two has to give way. Which one depends on how they overlap:
+ *
+ * - identical            → the card owns it, drop the text segment
+ * - identical only once
+ *   the section word is
+ *   prepended            → the producer ate the first word of the agent's own
+ *                          heading, so the card would render a decapitated
+ *                          title. Keep the complete prose, drop the card.
+ * - prose then a real
+ *   `## Summary` section → keep the prose, strip the section, card owns it
+ * - unrelated            → keep both
+ *
+ * The candidate is the last text segment, not the immediately previous one:
+ * tool calls routinely sit between the agent's closing prose and the summary.
+ */
+const resolveSummaryDuplicate = (
+  segments: MergedSegment[],
   summaryText: string,
   section: "Summary" | "Resumen",
-): boolean => {
-  const normalizedSegment = normalizeSummaryDuplicateText(textSegment);
-  const normalizedSummary = normalizeSummaryDuplicateText(summaryText);
-  const normalizedSummaryWithSection = normalizeSummaryDuplicateText(
-    `${section} ${summaryText}`,
-  );
+): SummaryDuplicateResolution => {
+  let index = -1;
+  for (let cursor = segments.length - 1; cursor >= 0; cursor--) {
+    if (segments[cursor].type === "text") {
+      index = cursor;
+      break;
+    }
+  }
+  if (index < 0) return null;
 
-  return [normalizedSummary, normalizedSummaryWithSection].some(
-    (candidate) => candidate.length > 0 && normalizedSegment === candidate,
-  );
+  const segment = segments[index];
+  if (segment.type !== "text") return null;
+
+  const content = segment.content;
+  const normalizedSegment = normalizeSummaryDuplicateText(content);
+  const normalizedSummary = normalizeSummaryDuplicateText(summaryText);
+  if (!normalizedSummary || !normalizedSegment) return null;
+
+  if (normalizedSegment === normalizedSummary) {
+    return { kind: "drop-text", index };
+  }
+
+  if (
+    normalizedSegment ===
+    normalizeSummaryDuplicateText(`${section} ${summaryText}`)
+  ) {
+    return { kind: "drop-summary" };
+  }
+
+  if (!normalizedSegment.endsWith(normalizedSummary)) return null;
+
+  const headingIndex = findLastSummaryHeadingIndex(content);
+  if (headingIndex === null) return null;
+
+  const trimmed = content.slice(0, headingIndex).trimEnd();
+  return trimmed
+    ? { kind: "trim-text", index, content: trimmed }
+    : { kind: "drop-text", index };
 };
 
 /**
@@ -528,12 +601,19 @@ export const parseChunksToStreamingBlocks = (
       const section: "Summary" | "Resumen" =
         sectionRaw === "Resumen" ? "Resumen" : "Summary";
       if (text) {
-        const last = segments[segments.length - 1];
-        if (
-          last?.type === "text" &&
-          isDuplicateSummaryTextSegment(last.content, text, section)
-        ) {
-          segments.pop();
+        const resolution = resolveSummaryDuplicate(segments, text, section);
+
+        if (resolution?.kind === "drop-summary") {
+          continue;
+        }
+
+        if (resolution?.kind === "drop-text") {
+          segments.splice(resolution.index, 1);
+        } else if (resolution?.kind === "trim-text") {
+          segments[resolution.index] = {
+            type: "text",
+            content: resolution.content,
+          };
         }
 
         segments.push({

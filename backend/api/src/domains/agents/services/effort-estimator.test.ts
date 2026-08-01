@@ -41,8 +41,18 @@ type GenerateScenario =
   | { kind: "throw"; error: Error }
   | { kind: "zod_exhausted" };
 
+type ResolveCall = {
+  provider: string;
+  userId: string | null;
+  workspaceId: string;
+  modelName?: string;
+};
+
 const state = {
   upsertCalls: [] as UpsertCall[],
+  resolveCalls: [] as ResolveCall[],
+  /** What the mocked `resolveModelByPolicy` returns. null = no connection. */
+  resolveResult: null as { model: unknown; connectionId: string } | null,
   generateScenario: {
     kind: "ok",
     result: {
@@ -111,7 +121,10 @@ mock.module(
   () => ({
     createModel: () => ({}) as unknown,
     getDefaultModel: () => ({}) as unknown,
-    resolveModelByPolicy: async () => null,
+    resolveModelByPolicy: async (params: ResolveCall) => {
+      state.resolveCalls.push(params);
+      return state.resolveResult;
+    },
     withAuthErrorDetection: async (
       _connectionId: string,
       fn: () => Promise<unknown>,
@@ -159,6 +172,8 @@ const buildParams = (overrides: RunParams = {}) => ({
 describe("effort-estimator::runEffortEstimation", () => {
   beforeEach(() => {
     state.upsertCalls = [];
+    state.resolveCalls = [];
+    state.resolveResult = null;
     state.generateScenario = {
       kind: "ok",
       result: {
@@ -169,6 +184,57 @@ describe("effort-estimator::runEffortEstimation", () => {
       },
       tokensUsed: 111,
     };
+  });
+
+  it("resolves the workspace connection with no userId — the estimator is a platform service", async () => {
+    // The estimator runs from the background sweeper, which has no user in
+    // context. Requiring a userId meant the workspace's own provider
+    // connections were never consulted, so every non-OpenAI provider fell
+    // through to the heuristic no matter how valid its key was.
+    const { runEffortEstimation } = await import("./effort-estimator");
+    state.resolveResult = { model: {}, connectionId: "conn-zai" };
+
+    const out = await runEffortEstimation({
+      ...buildParams(),
+      workItem: { ...buildParams().workItem, workspaceId: "ws-1" },
+      config: { ...buildParams().config, provider: "zai" as const, model: "glm-4.6" },
+      userId: undefined,
+    });
+
+    expect(state.resolveCalls).toHaveLength(1);
+    expect(state.resolveCalls[0]).toMatchObject({
+      provider: "zai",
+      userId: null,
+      workspaceId: "ws-1",
+      modelName: "glm-4.6",
+    });
+    expect(out.source).toBe("llm");
+  });
+
+  it("still falls back to the heuristic when the workspace has no connection for the provider", async () => {
+    const { runEffortEstimation } = await import("./effort-estimator");
+    state.resolveResult = null;
+
+    const out = await runEffortEstimation({
+      ...buildParams(),
+      workItem: { ...buildParams().workItem, workspaceId: "ws-1" },
+      config: { ...buildParams().config, provider: "zai" as const, model: "glm-4.6" },
+      userId: undefined,
+    });
+
+    expect(out.source).toBe("fallback_heuristic");
+  });
+
+  it("does not attempt resolution when the work item has no workspace", async () => {
+    const { runEffortEstimation } = await import("./effort-estimator");
+
+    await runEffortEstimation({
+      ...buildParams(),
+      config: { ...buildParams().config, provider: "zai" as const },
+      userId: undefined,
+    });
+
+    expect(state.resolveCalls).toEqual([]);
   });
 
   it("dry run: returns the LLM result without writing to the DB", async () => {

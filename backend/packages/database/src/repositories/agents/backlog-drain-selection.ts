@@ -1,3 +1,8 @@
+import {
+  resolveScheduledRuntimePrecedence,
+  type ScheduledRuntimeSource,
+} from "@almirant/shared";
+
 export type BacklogDrainCodingAgent = "claude-code" | "codex" | "opencode";
 export type BacklogDrainAiProvider = "anthropic" | "openai" | "google" | "zai" | "xai";
 export type BacklogDrainProvider = "claude-code" | "codex" | "zipu" | "grok";
@@ -45,6 +50,7 @@ export interface BacklogDrainWorkItemInput {
   columnIsDone: boolean | null;
   columnOrder: number | null;
   updatedAt: Date | string | number | null;
+  startDate?: Date | string | number | null;
   codingAgent?: BacklogDrainCodingAgent | null;
   aiModel?: string | null;
   metadata?: Record<string, unknown> | null;
@@ -52,6 +58,8 @@ export interface BacklogDrainWorkItemInput {
   dodReport?: string | null;
   dodReviewedAt?: string | null;
   dodRemediationAttemptCount?: number | null;
+  /** Scheduled agent config this item is dedicated to, if any. Null/undefined means unassigned. */
+  scheduledAgentConfigId?: string | null;
 }
 
 export interface BacklogDrainDependencyInput {
@@ -80,6 +88,13 @@ export interface BacklogDrainSelectionInput {
   projects?: BacklogDrainProjectInput[];
   now?: Date | string | number;
   stabilizationWindowMs?: number | null;
+  /**
+   * Id of the scheduled agent config running this drain. Items already
+   * dedicated to a different agent config are never eligible for it; items
+   * with no assignment at all are eligible for any agent config, including
+   * one still unsaved (drainingAgentConfigId left null/undefined).
+   */
+  drainingAgentConfigId?: string | null;
   fallbackRuntime?: {
     provider?: BacklogDrainProvider | null;
     codingAgent?: BacklogDrainCodingAgent | null;
@@ -87,6 +102,8 @@ export interface BacklogDrainSelectionInput {
     model?: string | null;
     reasoningLevel?: string | null;
   };
+  /** Highest-priority active connection resolved from the same source as API validation. */
+  connectionRuntime?: ScheduledRuntimeSource | null;
 }
 
 export interface BacklogDrainCandidate {
@@ -119,53 +136,16 @@ export interface BacklogDrainSelectionResult {
     notDodRemediation: string[];
     missingDodReport: string[];
     humanReviewRequired: string[];
+    /** start_date is set and still in the future. */
+    scheduledForLater: string[];
+    /** scheduled_agent_config_id is set to a different agent config than the one draining. */
+    assignedToOtherAgent: string[];
   };
 }
 
 const DEFAULT_MAX_CONCURRENT_PER_PROJECT = 1;
 const DEFAULT_STABILIZATION_WINDOW_MS = 15 * 60 * 1000;
-const DEFAULT_CODING_AGENT: BacklogDrainCodingAgent = "claude-code";
-const DEFAULT_AI_PROVIDER: BacklogDrainAiProvider = "anthropic";
-const DEFAULT_MODEL = "claude-opus-4-8";
 const MAX_AUTOMATED_DOD_INCOMPLETE_COUNT = 3;
-
-const codingAgentToProvider = (codingAgent: BacklogDrainCodingAgent): BacklogDrainProvider => {
-  if (codingAgent === "codex") return "codex";
-  if (codingAgent === "opencode") return "zipu";
-  return "claude-code";
-};
-
-const runtimeToProvider = (
-  codingAgent: BacklogDrainCodingAgent,
-  aiProvider: BacklogDrainAiProvider,
-): BacklogDrainProvider => {
-  if (aiProvider === "xai") return "grok";
-  if (aiProvider === "zai") return "zipu";
-  if (aiProvider === "openai") return "codex";
-  if (aiProvider === "anthropic") return "claude-code";
-  return codingAgentToProvider(codingAgent);
-};
-
-const codingAgentToAiProvider = (codingAgent: BacklogDrainCodingAgent): BacklogDrainAiProvider => {
-  if (codingAgent === "codex") return "openai";
-  if (codingAgent === "opencode") return "zai";
-  return "anthropic";
-};
-
-const defaultModelForCodingAgent = (codingAgent: BacklogDrainCodingAgent): string => {
-  if (codingAgent === "codex") return "gpt-5.5";
-  if (codingAgent === "opencode") return "glm-5.2";
-  return DEFAULT_MODEL;
-};
-
-const defaultModelForRuntime = (
-  codingAgent: BacklogDrainCodingAgent,
-  aiProvider: BacklogDrainAiProvider,
-): string => {
-  if (aiProvider === "xai") return "grok-4.3";
-  if (aiProvider === "zai") return "glm-5.2";
-  return defaultModelForCodingAgent(codingAgent);
-};
 
 const isTruthyEnabled = (enabled: boolean | undefined): boolean => enabled !== false;
 
@@ -211,6 +191,26 @@ const getNumberMetadata = (
 
 const isDodIncomplete = (item: BacklogDrainWorkItemInput): boolean => {
   return item.dodIncompleted === true || item.metadata?.dod_incompleted === true;
+};
+
+// A null/undefined start_date, or one already in the past, leaves the item
+// eligible immediately — matching how the roadmap treats an empty start_date.
+const isScheduledForLater = (
+  item: BacklogDrainWorkItemInput,
+  currentTimeMs: number,
+): boolean => {
+  const startMs = toTimeMs(item.startDate);
+  return startMs !== null && startMs > currentTimeMs;
+};
+
+// An unassigned item (null/undefined) is eligible for any agent config's
+// drain; an assigned item is only eligible for the one it's assigned to.
+const isAssignedToOtherAgent = (
+  item: BacklogDrainWorkItemInput,
+  drainingAgentConfigId: string | null,
+): boolean => {
+  const assignedId = item.scheduledAgentConfigId ?? null;
+  return assignedId !== null && assignedId !== drainingAgentConfigId;
 };
 
 const getDodReport = (item: BacklogDrainWorkItemInput): string | null => {
@@ -488,7 +488,10 @@ export const selectBacklogDrainCandidates = (
     notDodRemediation: [],
     missingDodReport: [],
     humanReviewRequired: [],
+    scheduledForLater: [],
+    assignedToOtherAgent: [],
   };
+  const drainingAgentConfigId = input.drainingAgentConfigId ?? null;
 
   for (const rule of input.rules.filter((r) => isTruthyEnabled(r.enabled))) {
     const projectItems = input.workItems.filter((item) => item.projectId === rule.projectId);
@@ -522,6 +525,16 @@ export const selectBacklogDrainCandidates = (
         return false;
       })
       .filter((item) => statusById.get(item.id)?.role === "backlog")
+      .filter((item) => {
+        if (!isScheduledForLater(item, currentTimeMs)) return true;
+        skipped.scheduledForLater.push(item.id);
+        return false;
+      })
+      .filter((item) => {
+        if (!isAssignedToOtherAgent(item, drainingAgentConfigId)) return true;
+        skipped.assignedToOtherAgent.push(item.id);
+        return false;
+      })
       .filter((item) => {
         if (mode === "dod-remediation") {
           if (!isDodIncomplete(item)) {
@@ -589,21 +602,20 @@ export const selectBacklogDrainCandidates = (
         continue;
       }
 
-      const codingAgent = rule.codingAgent
-        ?? input.fallbackRuntime?.codingAgent
-        ?? item.codingAgent
-        ?? projectDefaults?.codingAgent
-        ?? DEFAULT_CODING_AGENT;
-      const aiProvider = rule.aiProvider
-        ?? input.fallbackRuntime?.aiProvider
-        ?? projectDefaults?.aiProvider
-        ?? codingAgentToAiProvider(codingAgent);
-      const model = rule.model
-        ?? input.fallbackRuntime?.model
-        ?? item.aiModel
-        ?? projectDefaults?.model
-        ?? defaultModelForRuntime(codingAgent, aiProvider);
-      const provider = runtimeToProvider(codingAgent, aiProvider);
+      const runtime = resolveScheduledRuntimePrecedence({
+        rule,
+        schedule: input.fallbackRuntime,
+        workItem: {
+          codingAgent: item.codingAgent,
+          model: item.aiModel,
+        },
+        project: projectDefaults,
+        connection: input.connectionRuntime,
+      });
+      const codingAgent = runtime.codingAgent as BacklogDrainCodingAgent;
+      const aiProvider = runtime.aiProvider as BacklogDrainAiProvider;
+      const model = runtime.model;
+      const provider = runtime.provider as BacklogDrainProvider;
 
       selected.push({
         id: item.id,
@@ -617,10 +629,7 @@ export const selectBacklogDrainCandidates = (
         aiProvider,
         provider,
         model,
-        reasoningLevel: rule.reasoningLevel
-          ?? input.fallbackRuntime?.reasoningLevel
-          ?? projectDefaults?.reasoningLevel
-          ?? null,
+        reasoningLevel: runtime.reasoningLevel,
         skillName: mode === "dod-remediation" ? "runner-fix-dod" : "runner-implement",
         ...(mode === "dod-remediation"
           ? {

@@ -9,32 +9,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { getReasoningEffortOptions } from "@/lib/ai-model-reasoning";
 import { ChevronRight, Loader2, Save, Settings2 } from "lucide-react";
 import type { ModelsSectionProps } from "../../domain/types";
-
-const REASONING_BUDGET_OPTIONS_ANTHROPIC = [
-  { value: "", label: "Default" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "xhigh", label: "XHigh" },
-  { value: "max", label: "Max" },
-] as const;
-
-const REASONING_BUDGET_OPTIONS_CODEX = [
-  { value: "", label: "Default" },
-  { value: "minimal", label: "Minimal" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "xhigh", label: "XHigh" },
-] as const;
-
-const REASONING_BUDGET_OPTIONS_ZAI = [
-  { value: "", label: "Default" },
-  { value: "enabled", label: "Thinking enabled" },
-  { value: "disabled", label: "Thinking disabled" },
-] as const;
 
 export const ModelsSection: React.FC<ModelsSectionProps> = ({
   provider,
@@ -67,12 +44,20 @@ export const ModelsSection: React.FC<ModelsSectionProps> = ({
     modelSettings.validationModel ||
     "Default";
 
-  const REASONING_BUDGET_OPTIONS =
-    provider === "anthropic"
-      ? REASONING_BUDGET_OPTIONS_ANTHROPIC
-      : provider === "zai"
-        ? REASONING_BUDGET_OPTIONS_ZAI
-        : REASONING_BUDGET_OPTIONS_CODEX;
+  const reasoningOptionsFor = (model: string) =>
+    getReasoningEffortOptions({
+      codingAgent:
+        provider === "anthropic"
+          ? "claude-code"
+          : provider === "openai"
+            ? "codex"
+            : "opencode",
+      aiProvider: provider,
+      model,
+    });
+  const planningReasoningOptions = reasoningOptionsFor(modelSettings.planningModel);
+  const implementationReasoningOptions = reasoningOptionsFor(modelSettings.implementationModel);
+  const validationReasoningOptions = reasoningOptionsFor(modelSettings.validationModel);
 
   return (
     <div className={cn("rounded-md", disabled && "opacity-50")}>
@@ -223,8 +208,9 @@ export const ModelsSection: React.FC<ModelsSectionProps> = ({
                     <SelectValue placeholder="Select budget" />
                   </SelectTrigger>
                   <SelectContent>
-                    {REASONING_BUDGET_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value || "__default__"} value={opt.value || "__default__"}>
+                    <SelectItem value="__default__">Default</SelectItem>
+                    {planningReasoningOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
                         {opt.label}
                       </SelectItem>
                     ))}
@@ -250,8 +236,9 @@ export const ModelsSection: React.FC<ModelsSectionProps> = ({
                     <SelectValue placeholder="Select budget" />
                   </SelectTrigger>
                   <SelectContent>
-                    {REASONING_BUDGET_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value || "__default__"} value={opt.value || "__default__"}>
+                    <SelectItem value="__default__">Default</SelectItem>
+                    {implementationReasoningOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
                         {opt.label}
                       </SelectItem>
                     ))}
@@ -277,8 +264,9 @@ export const ModelsSection: React.FC<ModelsSectionProps> = ({
                     <SelectValue placeholder="Select budget" />
                   </SelectTrigger>
                   <SelectContent>
-                    {REASONING_BUDGET_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value || "__default__"} value={opt.value || "__default__"}>
+                    <SelectItem value="__default__">Default</SelectItem>
+                    {validationReasoningOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
                         {opt.label}
                       </SelectItem>
                     ))}

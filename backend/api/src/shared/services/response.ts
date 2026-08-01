@@ -1,3 +1,5 @@
+import { logger } from "@almirant/config";
+
 // Success response
 export const successResponse = <T>(
   data: T,
@@ -24,6 +26,29 @@ export const errorResponse = (error: string, status = 400, code?: string) => {
 // Not found response
 export const notFoundResponse = (resource = "Resource") => {
   return errorResponse(`${resource} not found`, 404);
+};
+
+/**
+ * Response for a caught, UNTYPED failure inside a route handler (DB errors,
+ * network errors, third-party SDK throws, ...) that the caller is about to
+ * turn into a 5xx. Route catches must use this instead of forwarding
+ * `error.message` into the body: driver errors like Drizzle's
+ * DrizzleQueryError embed the raw SQL, column names, and bound params
+ * (sometimes credential hashes) in `.message`, and that text was reaching
+ * callers verbatim (issue #55).
+ *
+ * The caught error's full detail is logged server-side via `logger.error`;
+ * the HTTP body only ever gets `fallback`. Domain-typed errors with
+ * deliberately curated, safe messages (400/403/404/409/...) are NOT this —
+ * keep calling `errorResponse` directly for those.
+ */
+export const internalErrorResponse = (
+  error: unknown,
+  logContext: Record<string, unknown>,
+  fallback = "Internal server error",
+) => {
+  logger.error({ ...logContext, err: error }, fallback);
+  return errorResponse(fallback, 500);
 };
 
 // Parse pagination params from query

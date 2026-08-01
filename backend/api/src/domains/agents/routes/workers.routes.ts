@@ -5,6 +5,12 @@ import {
   updateScheduledAgentConfigLastRunAt,
   getBacklogDrainCandidatesForConfigId,
   getDodRemediationCandidatesForConfigId,
+  getBacklogDrainCandidatesForScheduledConfig,
+  getDodRemediationCandidatesForScheduledConfig,
+  getScheduledAgentConfigById,
+  getScheduledAgentConfigByIdUnscoped,
+  isBacklogDrainTargetConfig,
+  isDodRemediationTargetConfig,
   getWorkers,
   upsertWorker,
   updateHeartbeat,
@@ -79,7 +85,15 @@ import {
   planningSessions,
 } from "@almirant/database";
 import { getInstallationAccessToken } from "../../integrations/github/services/github-service";
-import type { ProviderQuotaDb, ApiKey, CodingAgent, AiProvider, AgentJobConfig, NewAgentNativeEvent } from "@almirant/database";
+import type {
+  ProviderQuotaDb,
+  ApiKey,
+  CodingAgent,
+  AiProvider,
+  AgentJobConfig,
+  NewAgentNativeEvent,
+  ScheduledAgentConfigDb,
+} from "@almirant/database";
 import { env, logger } from "@almirant/config";
 import { refreshCanonicalSessionProjection } from "../../ideation/planning-sessions/services/canonical-session-projection";
 import { getGithubAppCredentials } from "../../instance/services/github-app-credentials-service";
@@ -103,6 +117,227 @@ import {
   toJobResourceEstimate,
 } from "../services/resource-forecast";
 import { resolveExpectedWorkItemIdsForCompletion } from "../services/completion-snapshot";
+import { assertValidScheduledAgentRuntime } from "../services/scheduled-agent-runtime-validation";
+import { getScheduledAgentDemand } from "../services/scheduled-agent-demand";
+import { resolveScheduledAgentEffectiveRuntimes } from "../services/scheduled-agent-effective-model-resolver";
+
+type RevalidatedScheduledWorkItemJob = {
+  provider: "claude-code" | "codex" | "zipu" | "grok";
+  codingAgent: CodingAgent;
+  aiProvider: AiProvider;
+  model: string;
+  reasoningLevel: string | null;
+  jobType: ScheduledAgentConfigDb["jobType"];
+  projectId: string;
+  scheduledConfigId: string;
+  scheduledConfigName: string;
+  skillName: string;
+  source: "backlog-drain" | "dod-remediation" | "scheduled-config";
+  mcpServers: ScheduledAgentConfigDb["mcpServers"];
+  dodReport: string | null;
+  dodReviewedAt: string | null;
+};
+
+type ScheduledWorkItemJobRequest = {
+  provider: string;
+  codingAgent?: string;
+  aiProvider?: string;
+  model?: string;
+  reasoningLevel?: string;
+  jobType?: string;
+  config?: {
+    projectId?: string;
+    scheduledConfigId?: string;
+    scheduledConfigName?: string;
+    skillName?: string;
+    source?: string;
+    reasoningLevel?: string;
+    dodReport?: string;
+    dodReviewedAt?: string;
+  };
+};
+
+const normalizeScheduledRuntimeValue = (value: string | null | undefined): string | null => {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+};
+
+const assertScheduledPayloadMatches = (
+  field: string,
+  requested: string | null | undefined,
+  effective: string | null | undefined,
+  required = false,
+): void => {
+  const requestedValue = normalizeScheduledRuntimeValue(requested);
+  if (!requestedValue && !required) return;
+  const effectiveValue = normalizeScheduledRuntimeValue(effective);
+  if (requestedValue !== effectiveValue) {
+    throw new Error(
+      `Scheduled agent payload field '${field}' does not match the current server-side runtime`,
+    );
+  }
+};
+
+const SCHEDULED_WORK_ITEM_SOURCES = new Set(["backlog-drain", "dod-remediation"]);
+const SCHEDULED_WORK_ITEM_SKILLS = new Set(["runner-implement", "runner-fix-dod"]);
+
+/**
+ * Detect every worker payload marker reserved for scheduled backlog/DoD work.
+ * No single caller-controlled field is authoritative: removing the source must
+ * not bypass the boundary while an internal skill or DoD evidence remains.
+ */
+const claimsBacklogOrDodSemantics = (request: ScheduledWorkItemJobRequest): boolean => {
+  const source = normalizeScheduledRuntimeValue(request.config?.source);
+  const skillName = normalizeScheduledRuntimeValue(request.config?.skillName);
+  return (
+    (source !== null && SCHEDULED_WORK_ITEM_SOURCES.has(source))
+    || (skillName !== null && SCHEDULED_WORK_ITEM_SKILLS.has(skillName))
+    || normalizeScheduledRuntimeValue(request.config?.dodReport) !== null
+    || normalizeScheduledRuntimeValue(request.config?.dodReviewedAt) !== null
+  );
+};
+
+const claimsScheduledWorkItemSemantics = (request: ScheduledWorkItemJobRequest): boolean =>
+  claimsBacklogOrDodSemantics(request)
+  || normalizeScheduledRuntimeValue(request.config?.scheduledConfigName) !== null;
+
+/**
+ * Re-resolve backlog/DoD candidates at the enqueue boundary. The runner's
+ * payload is only a request: the scheduled config, project rule, project
+ * defaults and active connection are server-authoritative.
+ */
+const revalidateScheduledWorkItemJob = async (
+  workspaceId: string,
+  workItemId: string,
+  workItemProjectId: string | null | undefined,
+  request: ScheduledWorkItemJobRequest,
+): Promise<RevalidatedScheduledWorkItemJob | null> => {
+  const scheduledConfigId = request.config?.scheduledConfigId?.trim();
+  if (!scheduledConfigId) {
+    if (claimsScheduledWorkItemSemantics(request)) {
+      throw new Error(
+        "config.scheduledConfigId is required for backlog-drain and DoD remediation jobs",
+      );
+    }
+    return null;
+  }
+
+  const scheduledConfig = await getScheduledAgentConfigById(scheduledConfigId, workspaceId);
+  if (!scheduledConfig) {
+    throw new Error("Scheduled agent config not found in this workspace");
+  }
+  if (scheduledConfig.enabled === false) {
+    throw new Error("Scheduled agent config is no longer enabled");
+  }
+
+  const isDodRemediation = isDodRemediationTargetConfig(scheduledConfig.targetConfig);
+  const isBacklogDrain = isBacklogDrainTargetConfig(scheduledConfig.targetConfig);
+  let runtime: {
+    provider: string;
+    codingAgent: string;
+    aiProvider: string;
+    model: string;
+    reasoningLevel?: string | null;
+  };
+  let projectId: string;
+  let source: RevalidatedScheduledWorkItemJob["source"];
+  let skillName: string;
+  let dodReport: string | null = null;
+  let dodReviewedAt: string | null = null;
+  let effectiveRuntimesToValidate: ReadonlyArray<typeof runtime>;
+
+  if (isDodRemediation || isBacklogDrain) {
+    const result = isDodRemediation
+      ? await getDodRemediationCandidatesForScheduledConfig(scheduledConfig)
+      : await getBacklogDrainCandidatesForScheduledConfig(scheduledConfig);
+    const candidate = result.candidates.find((item) => item.id === workItemId);
+    if (!candidate) {
+      throw new Error(
+        "Scheduled agent candidate is no longer eligible under the current server-side configuration",
+      );
+    }
+    runtime = candidate;
+    projectId = candidate.projectId;
+    source = isDodRemediation ? "dod-remediation" : "backlog-drain";
+    skillName = candidate.skillName;
+    dodReport = candidate.dodReport ?? null;
+    dodReviewedAt = candidate.dodReviewedAt ?? null;
+    effectiveRuntimesToValidate = [runtime];
+  } else {
+    const effectiveRuntimes = await resolveScheduledAgentEffectiveRuntimes({
+      workspaceId,
+      provider: scheduledConfig.provider,
+      codingAgent: scheduledConfig.codingAgent,
+      aiProvider: scheduledConfig.aiProvider,
+      aiModel: scheduledConfig.aiModel,
+      reasoningLevel: scheduledConfig.reasoningLevel,
+      jobType: scheduledConfig.jobType,
+      projectId: workItemProjectId,
+      targetConfig: scheduledConfig.targetConfig,
+    });
+    const [effectiveRuntime] = effectiveRuntimes;
+    if (!effectiveRuntime || !workItemProjectId) {
+      throw new Error(
+        "Scheduled agent runtime could not be resolved from the current server-side configuration",
+      );
+    }
+    runtime = effectiveRuntime;
+    effectiveRuntimesToValidate = effectiveRuntimes;
+    projectId = workItemProjectId;
+    source = "scheduled-config";
+    skillName = request.config?.skillName ?? "validate";
+  }
+
+  assertValidScheduledAgentRuntime({
+    provider: scheduledConfig.provider,
+    codingAgent: scheduledConfig.codingAgent,
+    aiProvider: scheduledConfig.aiProvider,
+    aiModel: scheduledConfig.aiModel,
+    reasoningLevel: scheduledConfig.reasoningLevel,
+    effectiveRuntimes: effectiveRuntimesToValidate,
+    targetConfig: scheduledConfig.targetConfig,
+  });
+
+  assertScheduledPayloadMatches("provider", request.provider, runtime.provider, true);
+  assertScheduledPayloadMatches("codingAgent", request.codingAgent, runtime.codingAgent);
+  assertScheduledPayloadMatches("aiProvider", request.aiProvider, runtime.aiProvider);
+  assertScheduledPayloadMatches("model", request.model, runtime.model);
+  assertScheduledPayloadMatches("reasoningLevel", request.reasoningLevel, runtime.reasoningLevel);
+  assertScheduledPayloadMatches(
+    "config.reasoningLevel",
+    request.config?.reasoningLevel,
+    runtime.reasoningLevel,
+  );
+  assertScheduledPayloadMatches("jobType", request.jobType, scheduledConfig.jobType);
+  assertScheduledPayloadMatches("config.projectId", request.config?.projectId, projectId);
+  assertScheduledPayloadMatches("config.source", request.config?.source, source);
+  if (isDodRemediation || isBacklogDrain) {
+    assertScheduledPayloadMatches("config.skillName", request.config?.skillName, skillName);
+  }
+  assertScheduledPayloadMatches(
+    "config.scheduledConfigName",
+    request.config?.scheduledConfigName,
+    scheduledConfig.name,
+  );
+
+  return {
+    provider: runtime.provider as RevalidatedScheduledWorkItemJob["provider"],
+    codingAgent: runtime.codingAgent as CodingAgent,
+    aiProvider: runtime.aiProvider as AiProvider,
+    model: runtime.model,
+    reasoningLevel: runtime.reasoningLevel ?? null,
+    jobType: scheduledConfig.jobType,
+    projectId,
+    scheduledConfigId: scheduledConfig.id,
+    scheduledConfigName: scheduledConfig.name,
+    skillName,
+    source,
+    mcpServers: scheduledConfig.mcpServers,
+    dodReport,
+    dodReviewedAt,
+  };
+};
 
 const buildReleaseIntegrationExecutionName = (
   repositoryFullName: string | null | undefined,
@@ -206,6 +441,28 @@ const resolveOrgId = async (workItemId: string | null, planningSessionId: string
   if (workItemId) return resolveOrgIdFromWorkItem(workItemId);
   if (planningSessionId) return resolveOrgIdFromPlanningSession(planningSessionId);
   return null;
+};
+
+/**
+ * Resolve which workspace a scheduled-worker read endpoint should query.
+ *
+ * The runner is shared instance infrastructure (same trust boundary as
+ * /workers/jobs/claim): when it names a scheduledConfigId, that config is the
+ * source of truth for tenancy and is resolved by id alone, never scoped to
+ * the caller's own key. Older runner builds that omit the param keep the
+ * pre-existing behavior of scoping to the worker key's own workspace.
+ *
+ * Returns null when a scheduledConfigId was given but did not resolve to any
+ * config, so the caller can 404 instead of silently falling back to the key.
+ */
+const resolveScheduledWorkerIdentity = async (
+  workerApiKeyWorkspaceId: string,
+  scheduledConfigId: string | undefined,
+): Promise<string | null> => {
+  const trimmed = scheduledConfigId?.trim();
+  if (!trimmed) return workerApiKeyWorkspaceId;
+  const config = await getScheduledAgentConfigByIdUnscoped(trimmed);
+  return config?.workspaceId ?? null;
 };
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
@@ -1116,6 +1373,13 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         model: body.model,
       });
 
+      if (!body.workItemId && claimsBacklogOrDodSemantics(body)) {
+        set.status = 400;
+        return errorResponse(
+          "workItemId is required for backlog-drain and DoD remediation jobs",
+        );
+      }
+
       if (body.workItemId) {
         // === EXISTING FLOW (work-item-based job) ===
         const workItem = await getWorkItemById(body.workItemId);
@@ -1136,12 +1400,13 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           return errorResponse("Unable to resolve workspace for work item");
         }
 
-        const resolvedJobType = body.jobType ?? "validation";
+        const requestedJobType = body.jobType ?? "validation";
+        const requestedSkillName = body.config?.skillName ?? "validate";
         let resourceEstimate = body.config?.resourceEstimate as
           | NonNullable<AgentJobConfig["resourceEstimate"]>
           | undefined;
 
-        if (!resourceEstimate && resolvedJobType === "implementation") {
+        if (!resourceEstimate && requestedJobType === "implementation") {
           try {
             resourceEstimate = await buildRequiredImplementationResourceEstimate(
               workspaceId,
@@ -1160,51 +1425,95 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           }
         }
         resourceEstimate ??= buildDefaultJobResourceEstimate({
-          jobType: resolvedJobType,
-          skillName: body.config?.skillName ?? "validate",
-          promptTemplate: body.config?.skillName ?? "validate",
+          jobType: requestedJobType,
+          skillName: requestedSkillName,
+          promptTemplate: requestedSkillName,
         });
 
+        // Keep this revalidation adjacent to createJob: resource forecasting
+        // may perform I/O, so doing it first avoids a wider policy TOCTOU gap.
+        let scheduledJob: RevalidatedScheduledWorkItemJob | null;
+        try {
+          scheduledJob = await revalidateScheduledWorkItemJob(
+            workspaceId,
+            body.workItemId,
+            workItem.projectId,
+            body,
+          );
+        } catch (error) {
+          const message = error instanceof Error
+            ? error.message
+            : "Scheduled agent runtime revalidation failed";
+          logger.warn(
+            { error, workItemId: body.workItemId, workspaceId },
+            "workers/jobs: rejected stale or tampered scheduled job payload",
+          );
+          set.status = 400;
+          return errorResponse(message);
+        }
+
+        const resolvedJobType = scheduledJob?.jobType ?? requestedJobType;
+        const resolvedSkillName = scheduledJob?.skillName ?? requestedSkillName;
+        const resolvedReasoningLevel = scheduledJob
+          ? scheduledJob.reasoningLevel ?? undefined
+          : body.reasoningLevel ?? body.config?.reasoningLevel;
+        const resolvedMcpServers = scheduledJob
+          ? scheduledJob.mcpServers
+          : body.config?.mcpServers;
+
         const job = await createJob({
-          projectId: workItem.projectId ?? null,
+          projectId: scheduledJob?.projectId ?? workItem.projectId ?? null,
           boardId: workItem.boardId ?? null,
           workItemId: workItem.id,
           workspaceId,
           jobType: resolvedJobType,
-          provider: body.provider,
+          provider: scheduledJob?.provider ?? body.provider,
           priority: body.priority ?? "medium",
           config: {
             repoPath: body.config?.repoPath ?? ".",
             baseBranch: body.config?.baseBranch ?? "main",
             ...(body.config?.workspace ? { workspace: body.config.workspace } : {}),
-            projectId: body.config?.projectId ?? workItem.projectId ?? undefined,
-            ...(body.config?.scheduledConfigId
-              ? { scheduledConfigId: body.config.scheduledConfigId }
+            projectId: scheduledJob?.projectId ?? body.config?.projectId ?? workItem.projectId ?? undefined,
+            ...(scheduledJob?.scheduledConfigId ?? body.config?.scheduledConfigId
+              ? { scheduledConfigId: scheduledJob?.scheduledConfigId ?? body.config?.scheduledConfigId }
               : {}),
-            ...(body.config?.scheduledConfigName
-              ? { scheduledConfigName: body.config.scheduledConfigName }
+            ...(scheduledJob?.scheduledConfigName ?? body.config?.scheduledConfigName
+              ? {
+                  scheduledConfigName:
+                    scheduledJob?.scheduledConfigName ?? body.config?.scheduledConfigName,
+                }
               : {}),
-            skillName: body.config?.skillName ?? "validate",
+            skillName: resolvedSkillName,
             ...(body.config?.skillId ? { skillId: body.config.skillId } : {}),
-            source: body.config?.source ?? "worker",
-            ...(body.reasoningLevel ?? body.config?.reasoningLevel
-              ? { reasoningLevel: body.reasoningLevel ?? body.config?.reasoningLevel }
+            source: scheduledJob?.source ?? body.config?.source ?? "worker",
+            ...(resolvedReasoningLevel
+              ? { reasoningLevel: resolvedReasoningLevel }
+              : {}),
+            ...(scheduledJob?.dodReport ?? body.config?.dodReport
+              ? { dodReport: scheduledJob?.dodReport ?? body.config?.dodReport }
+              : {}),
+            ...(scheduledJob?.dodReviewedAt ?? body.config?.dodReviewedAt
+              ? { dodReviewedAt: scheduledJob?.dodReviewedAt ?? body.config?.dodReviewedAt }
               : {}),
             ...(body.config?.repositoryId
               ? { repositoryId: body.config.repositoryId }
               : {}),
-            ...(body.config?.mcpServers
-              ? { mcpServers: body.config.mcpServers }
+            ...(resolvedMcpServers
+              ? { mcpServers: resolvedMcpServers }
               : {}),
             ...(body.config?.needsBrowser ? { needsBrowser: true } : {}),
             ...(resourceEstimate ? { resourceEstimate } : {}),
           },
-          codingAgent: (body.codingAgent as CodingAgent | undefined) ?? resolvedRuntime.codingAgent,
-          aiProvider: (body.aiProvider as AiProvider | undefined) ?? resolvedRuntime.aiProvider,
-          model: body.model ?? resolvedRuntime.model,
-          skillName: body.config?.skillName ?? "validate",
+          codingAgent: scheduledJob?.codingAgent ??
+            (body.codingAgent as CodingAgent | undefined) ??
+            resolvedRuntime.codingAgent,
+          aiProvider: scheduledJob?.aiProvider ??
+            (body.aiProvider as AiProvider | undefined) ??
+            resolvedRuntime.aiProvider,
+          model: scheduledJob?.model ?? body.model ?? resolvedRuntime.model,
+          skillName: resolvedSkillName,
           // New model fields
-          promptTemplate: body.config?.skillName ?? "validate",
+          promptTemplate: resolvedSkillName,
           triggerType: "event",
           interactive: false,
         });
@@ -1235,6 +1544,30 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         return successResponse(job);
       } else if (body.workspaceId) {
         // === STANDALONE JOB (no work item) ===
+        // Prompt-type scheduled agents (jobType "scheduled") always send
+        // config.scheduledConfigId alongside workspaceId. Attribution must
+        // come from the config itself, not the caller-supplied
+        // body.workspaceId — the runner is shared instance infrastructure and
+        // a request body is not proof of ownership (mirrors the workItemId
+        // branch above, which derives workspace via resolveOrgIdFromWorkItem
+        // instead of trusting anything the caller sent).
+        let workspaceId = body.workspaceId;
+        const standaloneScheduledConfigId = body.config?.scheduledConfigId?.trim();
+        if (standaloneScheduledConfigId) {
+          const scheduledConfig = await getScheduledAgentConfigByIdUnscoped(
+            standaloneScheduledConfigId,
+          );
+          if (!scheduledConfig) {
+            set.status = 400;
+            return errorResponse("Scheduled agent config not found");
+          }
+          if (scheduledConfig.enabled === false) {
+            set.status = 400;
+            return errorResponse("Scheduled agent config is no longer enabled");
+          }
+          workspaceId = scheduledConfig.workspaceId;
+        }
+
         // Resolve primary repository when projectId is provided
         let repoUrl: string | undefined;
         let repositoryId: string | undefined;
@@ -1242,7 +1575,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
 
         if (standaloneProjectId) {
           try {
-            const repos = await getRepositories(body.workspaceId, standaloneProjectId);
+            const repos = await getRepositories(workspaceId, standaloneProjectId);
             const primary = repos[0];
             if (primary) {
               repoUrl = primary.url;
@@ -1253,19 +1586,10 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           }
         }
 
-        // Fallback: if no projectId, resolve the org's primary repository
-        if (!repoUrl) {
-          try {
-            const orgRepo = await getOrgPrimaryRepository(body.workspaceId);
-            if (orgRepo) {
-              repoUrl = orgRepo.url;
-              repositoryId = orgRepo.id;
-              standaloneProjectId = standaloneProjectId ?? orgRepo.projectId;
-            }
-          } catch {
-            // Non-fatal: runner will resolve via API fallback
-          }
-        }
+        // No project means no repository. This used to fall back to the
+        // workspace's primary repository — the first by `order`, arbitrary when
+        // several tie at 0 — which pointed the job at a repository nobody chose.
+        // An empty workspace is a supported mode; guessing a repository is not.
 
         // Prompt-only scheduled agents omit config.skillName so the runner
         // uses the raw prompt instead of looking for a SKILL.md file.
@@ -1280,7 +1604,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           });
         const job = await createJob({
           projectId: standaloneProjectId ?? null,
-          workspaceId: body.workspaceId,
+          workspaceId,
           jobType: body.jobType ?? "scheduled",
           provider: body.provider,
           priority: body.priority ?? "medium",
@@ -2422,14 +2746,13 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   })
 
   // GET /workers/backlog-drain-candidates - Deterministically select ready Backlog items for a scheduled backlog-drain config
-  // Security: workspaceId is derived from the worker API key; config ownership is verified in the repository lookup.
+  // Security: the runner is instance infrastructure (like /workers/jobs/claim);
+  // the config is resolved by id alone and its own workspaceId is what scopes
+  // the candidate search, never the worker key's workspace.
   .get(
     "/backlog-drain-candidates",
-    async ({ query, set, workerApiKey }) => {
-      const result = await getBacklogDrainCandidatesForConfigId(
-        query.configId,
-        workerApiKey!.workspaceId,
-      );
+    async ({ query, set }) => {
+      const result = await getBacklogDrainCandidatesForConfigId(query.configId);
 
       if (!result) {
         set.status = 404;
@@ -2446,14 +2769,13 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // GET /workers/dod-remediation-candidates - Select Backlog items that failed Definition of Done review
-  // Security: workspaceId is derived from the worker API key; config ownership is verified in the repository lookup.
+  // Security: the runner is instance infrastructure (like /workers/jobs/claim);
+  // the config is resolved by id alone and its own workspaceId is what scopes
+  // the candidate search, never the worker key's workspace.
   .get(
     "/dod-remediation-candidates",
-    async ({ query, set, workerApiKey }) => {
-      const result = await getDodRemediationCandidatesForConfigId(
-        query.configId,
-        workerApiKey!.workspaceId,
-      );
+    async ({ query, set }) => {
+      const result = await getDodRemediationCandidatesForConfigId(query.configId);
 
       if (!result) {
         set.status = 404;
@@ -2470,10 +2792,21 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // GET /workers/dod-review-candidates - Get review-column work items waiting for Definition of Done approval
-  // Security: workspaceId derived from API key, not from query params
+  // Security: workspaceId comes from scheduledConfigId when provided (config
+  // resolved by id alone, like /workers/jobs/claim); otherwise falls back to
+  // the worker API key's workspace for runner builds that predate the param.
   .get(
     "/dod-review-candidates",
-    async ({ query, workerApiKey }) => {
+    async ({ query, set, workerApiKey }) => {
+      const workspaceId = await resolveScheduledWorkerIdentity(
+        workerApiKey!.workspaceId,
+        query.scheduledConfigId,
+      );
+      if (!workspaceId) {
+        set.status = 404;
+        return errorResponse("Scheduled agent config not found", 404);
+      }
+
       const maxActiveJobs = typeof query.maxActiveJobs === "number"
         ? Math.max(0, Math.floor(query.maxActiveJobs))
         : undefined;
@@ -2481,7 +2814,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
 
       if (maxActiveJobs !== undefined) {
         const activeCount = await countActiveAgentJobsForLane({
-          workspaceId: workerApiKey!.workspaceId,
+          workspaceId,
           projectId: query.projectId,
           sources: ["dod-review"],
           skillNames: ["dod-review"],
@@ -2495,7 +2828,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       }
 
       const candidates = await getDefinitionOfDoneReviewCandidates(
-        workerApiKey!.workspaceId,
+        workspaceId,
         query.projectId,
         effectiveLimit,
         { minAgeMinutes: query.minAgeMinutes },
@@ -2508,16 +2841,27 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         limit: t.Optional(t.Number()),
         maxActiveJobs: t.Optional(t.Number()),
         minAgeMinutes: t.Optional(t.Number()),
+        scheduledConfigId: t.Optional(t.String()),
       }),
     }
   )
 
   // POST /workers/release-integration/queue - Batch validating work items into release integration jobs
-  // Security: workspaceId derived from API key, not from query params
+  // Security: workspaceId comes from scheduledConfigId when provided (config
+  // resolved by id alone, like /workers/jobs/claim); otherwise falls back to
+  // the worker API key's workspace for runner builds that predate the param.
   .post(
     "/release-integration/queue",
-    async ({ query, workerApiKey }) => {
-      const workspaceId = workerApiKey!.workspaceId;
+    async ({ query, set, workerApiKey }) => {
+      const workspaceId = await resolveScheduledWorkerIdentity(
+        workerApiKey!.workspaceId,
+        query.scheduledConfigId,
+      );
+      if (!workspaceId) {
+        set.status = 404;
+        return errorResponse("Scheduled agent config not found", 404);
+      }
+
       const maxActiveItems = typeof query.maxActiveItems === "number"
         ? Math.max(0, Math.floor(query.maxActiveItems))
         : undefined;
@@ -2762,17 +3106,22 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         limit: t.Optional(t.Number()),
         maxActiveItems: t.Optional(t.Number()),
         minAgeMinutes: t.Optional(t.Number()),
+        scheduledConfigId: t.Optional(t.String()),
       }),
     }
   )
 
   // GET /workers/validation-candidates - Get work items ready for validation, grouped by root ancestor
-  // Security: workspaceId derived from API key, not from query params
+  // Security: the scheduled-agent-config flow already sends the config's own
+  // workspaceId here (needed for org-wide configs with no fixed projectId);
+  // the runner is instance infrastructure, so honoring it is consistent with
+  // /workers/jobs/claim. The nightly-scheduler flow only ever sends
+  // projectId, so it keeps scoping to the worker key's own workspace.
   .get(
     "/validation-candidates",
     async ({ query, workerApiKey }) => {
       const candidates = await getValidationCandidates(
-        workerApiKey!.workspaceId,
+        query.workspaceId?.trim() || workerApiKey!.workspaceId,
         query.projectId,
         query.limit,
         { requireDodApproved: query.requireDodApproved },
@@ -2784,21 +3133,26 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         projectId: t.Optional(t.String()),
         limit: t.Optional(t.Number()),
         requireDodApproved: t.Optional(t.Boolean()),
+        workspaceId: t.Optional(t.String()),
       }),
     }
   )
 
   // GET /workers/fix-candidates - Get work items ready for nightly fix (in Needs Fix column, < 2 attempts)
-  // Security: workspaceId derived from API key, not from query params
+  // Security: see /workers/validation-candidates above — same fallback pattern.
   .get(
     "/fix-candidates",
     async ({ query, workerApiKey }) => {
-      const candidates = await getFixCandidates(workerApiKey!.workspaceId, query.projectId);
+      const candidates = await getFixCandidates(
+        query.workspaceId?.trim() || workerApiKey!.workspaceId,
+        query.projectId,
+      );
       return successResponse(candidates);
     },
     {
       query: t.Object({
         projectId: t.Optional(t.String()),
+        workspaceId: t.Optional(t.String()),
       }),
     }
   )
@@ -2836,6 +3190,19 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       return successResponse({
         targetCapacity: queueDepth + activeJobs + env.SCALING_MIN_AVAILABLE_SLOTS,
       });
+    }
+  )
+
+  // GET /workers/scheduled-demand — work that scheduled agents would pick up
+  // right now but that nobody has enqueued, because dispatching requires a
+  // runner. Lets the scaler boot one on real demand instead of keeping a warm
+  // runner around, which is what MIN_RUNNERS=0 otherwise makes impossible.
+  .get(
+    "/scheduled-demand",
+    async ({ set }) => {
+      const demand = await getScheduledAgentDemand();
+      set.status = 200;
+      return successResponse(demand);
     }
   )
 
@@ -3044,14 +3411,16 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // GET /workers/scheduled-configs - Returns enabled scheduled agent configs for the scheduler
-  // Security: filtered by the API key's workspace
-  .get("/scheduled-configs", async ({ set, workerApiKey }) => {
+  // The runner is shared instance infrastructure, not scoped to one workspace —
+  // same trust boundary as /workers/jobs/claim, which already returns jobs from
+  // any workspace. Each config carries its own workspaceId, and that value
+  // (not the worker key's) is what flows into job creation and usage billing,
+  // so filtering this list by the key's workspace only broke dispatch for
+  // every other workspace's scheduled agents without buying any real isolation.
+  .get("/scheduled-configs", async ({ set }) => {
     try {
       const allConfigs = await listEnabledScheduledAgentConfigs();
-      const filtered = allConfigs.filter(
-        (c) => c.workspaceId === workerApiKey!.workspaceId,
-      );
-      return successResponse(filtered);
+      return successResponse(allConfigs);
     } catch (error) {
       set.status = 500;
       return errorResponse(

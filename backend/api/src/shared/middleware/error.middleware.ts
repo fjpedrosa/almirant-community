@@ -3,7 +3,16 @@ import * as Sentry from "@sentry/bun";
 import { logger } from "@almirant/config";
 
 export const errorMiddleware = new Elysia({ name: "error-middleware" })
-  .onError(({ code, error, set, request }) => {
+  // `as: "global"` is load-bearing: Elysia's default onError scope is
+  // "local", meaning it only fires for errors thrown by routes defined
+  // directly on THIS instance. Since errorMiddleware has none of its own
+  // routes (every domain route is mounted elsewhere via `.use()`), an
+  // unscoped onError here never actually runs for the rest of the app —
+  // any uncaught error (e.g. a DrizzleQueryError thrown from a `.derive()`
+  // auth check) falls through to Elysia's built-in fallback, which
+  // serializes `error.message` — raw SQL, column names, bound params,
+  // sometimes credential hashes — directly as the plain-text response body.
+  .onError({ as: "global" }, ({ code, error, set, request }) => {
     const timestamp = new Date().toISOString();
     const pathname = new URL(request.url).pathname;
     const method = request.method;

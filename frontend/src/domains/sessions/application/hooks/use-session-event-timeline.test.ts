@@ -82,6 +82,62 @@ describe("buildSessionTimelinePhases", () => {
     expect(result[0].status).toBe("done");
   });
 
+  it("orders unknown phases chronologically instead of appending them at the end", () => {
+    const chunks: AgentLogChunk[] = [
+      makeChunk("claim", "job.claimed", "2026-04-05T17:57:37.000Z", 1),
+      makeChunk("config", "provider_key.resolved", "2026-04-05T17:57:38.000Z", 2),
+      makeChunk("startup", "runtime.startup", "2026-04-05T17:57:50.000Z", 3),
+      makeChunk("session", "prompt.sent", "2026-04-05T17:58:01.000Z", 4),
+      makeChunk("git", "git.status", "2026-04-05T18:07:17.000Z", 5),
+    ];
+
+    const phases = buildSessionTimelinePhases(chunks, "scheduled", false);
+
+    expect(phases.map((phase) => phase.id)).toEqual([
+      "claim",
+      "prepare",
+      "startup",
+      "execute",
+      "git",
+    ]);
+  });
+
+  it("marks the phase with the most recent activity as active, not the last in the array", () => {
+    const chunks: AgentLogChunk[] = [
+      makeChunk("claim", "job.claimed", "2026-04-05T17:57:37.000Z", 1),
+      makeChunk("config", "provider_key.resolved", "2026-04-05T17:57:38.000Z", 2),
+      makeChunk("startup", "runtime.startup", "2026-04-05T17:57:50.000Z", 3),
+      makeChunk("session", "prompt.sent", "2026-04-05T17:58:01.000Z", 4),
+      makeChunk("git", "git.status", "2026-04-05T18:07:17.000Z", 5),
+      // Execution keeps streaming after the git probe — it is the live phase.
+      makeChunk("transcript", "message.part.delta", "2026-04-05T18:12:00.000Z", 6),
+    ];
+
+    const phases = buildSessionTimelinePhases(chunks, "scheduled", true);
+    const byId = new Map(phases.map((phase) => [phase.id, phase.status]));
+
+    expect(byId.get("execute")).toBe("active");
+    expect(byId.get("git")).toBe("done");
+    expect(byId.get("startup")).toBe("done");
+    expect(phases.filter((phase) => phase.status === "active")).toHaveLength(1);
+  });
+
+  it("exposes the last event timestamp of every phase", () => {
+    const chunks: AgentLogChunk[] = [
+      makeChunk("claim", "job.claimed", "2026-04-05T17:57:37.000Z", 1),
+      makeChunk("session", "prompt.sent", "2026-04-05T17:58:01.000Z", 2),
+      makeChunk("transcript", "message.part.delta", "2026-04-05T18:12:00.000Z", 3),
+    ];
+
+    const phases = buildSessionTimelinePhases(chunks, "scheduled", false);
+    const execute = phases.find((phase) => phase.id === "execute");
+
+    expect(execute).toMatchObject({
+      startedAt: "2026-04-05T17:58:01.000Z",
+      lastEventAt: "2026-04-05T18:12:00.000Z",
+    });
+  });
+
   it("expone waves de implementación con estado done, active y pending", () => {
     const chunks: AgentLogChunk[] = [
       makeChunk("claim", "job.claimed", "2026-04-05T00:00:01.000Z", 1),

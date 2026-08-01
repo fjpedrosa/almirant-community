@@ -65,7 +65,11 @@ describe("SessionTranscript", () => {
   it("mantiene colapsado y permite expandir el reasoning de sesiones terminadas", () => {
     render(<CompletedTranscriptHarness />);
 
-    const reasoningButton = screen.getByRole("button", { name: /Reasoning/i });
+    // A completed reasoning row is headlined with what the agent worked out,
+    // not with the generic "Reasoning" label.
+    const reasoningButton = screen.getByRole("button", {
+      name: /Razonamiento interno de una sesión ya terminada/i,
+    });
 
     expect(reasoningButton.getAttribute("aria-expanded")).toBe("false");
 

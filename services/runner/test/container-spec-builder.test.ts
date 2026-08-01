@@ -47,17 +47,17 @@ describe("computeMemoryLimit", () => {
     expect(computeMemoryLimit(resources, false)).toBe(expected);
   });
 
-  it("claude-shim bind-mode final limit is 2028 + 512 = 2540 MB for the standard tier", () => {
+  it("claude-shim bind-mode final limit is 1536 + 512 = 2048 MB for the standard tier", () => {
     const resources = getResourcesForTier("standard");
     const base = computeMemoryLimit(resources, true);
     const bumped = base + (PROVIDER_MEMORY_BUMP["claude-shim"] ?? 0);
-    expect(bumped).toBe(2540);
+    expect(bumped).toBe(2048);
   });
 
-  it("codex-shim bind-mode final limit remains 2028 + 1536 = 3564 MB for the standard tier", () => {
+  it("codex-shim bind-mode final limit remains 1536 + 1536 = 3072 MB for the standard tier", () => {
     const resources = getResourcesForTier("standard");
     const base = computeMemoryLimit(resources, true);
     const bumped = base + (PROVIDER_MEMORY_BUMP["codex-shim"] ?? 0);
-    expect(bumped).toBe(3564);
+    expect(bumped).toBe(3072);
   });
 });

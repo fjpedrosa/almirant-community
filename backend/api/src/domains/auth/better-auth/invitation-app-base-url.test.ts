@@ -53,14 +53,30 @@ describe("getInvitationAppBaseUrl precedence", () => {
     expect(result).toBe("https://app.example.com");
   });
 
-  it("falls back to BETTER_AUTH_URL when NEXT_PUBLIC_SITE_URL is absent", () => {
+  it("falls back to the frontend origin (first CORS_ORIGIN) — NOT the API issuer BETTER_AUTH_URL — when NEXT_PUBLIC_SITE_URL is absent", () => {
+    // Regression: in split-origin (cloud) deployments BETTER_AUTH_URL is the API
+    // issuer origin (e.g. https://api.almirant.ai), which has NO accept-invitation
+    // page. The accept page lives on the FRONTEND, so the link base must be the
+    // configured frontend origin (first CORS_ORIGIN entry).
     const result = getInvitationAppBaseUrl({
       NEXT_PUBLIC_SITE_URL: undefined,
-      BETTER_AUTH_URL: "https://auth.example.com",
+      BETTER_AUTH_URL: "https://api.almirant.ai",
+      CORS_ORIGIN: "https://cloud.almirant.ai,https://www.almirant.ai",
       VERCEL_URL: "vercel.example.com",
     });
 
-    expect(result).toBe("https://auth.example.com");
+    expect(result).toBe("https://cloud.almirant.ai");
+  });
+
+  it("never returns the API issuer even when CORS_ORIGIN is absent (skips BETTER_AUTH_URL entirely)", () => {
+    const result = getInvitationAppBaseUrl({
+      NEXT_PUBLIC_SITE_URL: undefined,
+      BETTER_AUTH_URL: "https://api.almirant.ai",
+      VERCEL_URL: "my-app.vercel.app",
+    });
+
+    // No frontend origin configured → next candidate is VERCEL_URL, never the API.
+    expect(result).toBe("https://my-app.vercel.app");
   });
 
   it("falls back to VERCEL_URL (https-prefixed) when the first two are absent", () => {
