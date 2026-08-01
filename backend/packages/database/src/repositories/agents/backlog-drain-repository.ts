@@ -523,28 +523,41 @@ export const getDodRemediationCandidatesForScheduledConfig = async (
   });
 };
 
+// workspaceId is optional: the worker plane (workers.routes.ts) is instance
+// infrastructure and resolves configs by id alone, the same trust boundary as
+// /workers/jobs/claim. Callers that DO have a trusted workspace (e.g. an
+// authenticated admin route) can still pass it to scope the lookup.
 export const getBacklogDrainCandidatesForConfigId = async (
   configId: string,
-  workspaceId: string,
+  workspaceId?: string,
 ): Promise<BacklogDrainCandidateResult | null> => {
+  const conditions = [eq(scheduledAgentConfigs.id, configId)];
+  if (workspaceId) {
+    conditions.push(eq(scheduledAgentConfigs.workspaceId, workspaceId));
+  }
   const [config] = await db
     .select()
     .from(scheduledAgentConfigs)
-    .where(and(eq(scheduledAgentConfigs.id, configId), eq(scheduledAgentConfigs.workspaceId, workspaceId)))
+    .where(and(...conditions))
     .limit(1);
 
   if (!config) return null;
   return getBacklogDrainCandidatesForScheduledConfig(config);
 };
 
+// See getBacklogDrainCandidatesForConfigId above for why workspaceId is optional.
 export const getDodRemediationCandidatesForConfigId = async (
   configId: string,
-  workspaceId: string,
+  workspaceId?: string,
 ): Promise<BacklogDrainCandidateResult | null> => {
+  const conditions = [eq(scheduledAgentConfigs.id, configId)];
+  if (workspaceId) {
+    conditions.push(eq(scheduledAgentConfigs.workspaceId, workspaceId));
+  }
   const [config] = await db
     .select()
     .from(scheduledAgentConfigs)
-    .where(and(eq(scheduledAgentConfigs.id, configId), eq(scheduledAgentConfigs.workspaceId, workspaceId)))
+    .where(and(...conditions))
     .limit(1);
 
   if (!config) return null;

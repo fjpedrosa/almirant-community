@@ -8,6 +8,7 @@ import {
   getBacklogDrainCandidatesForScheduledConfig,
   getDodRemediationCandidatesForScheduledConfig,
   getScheduledAgentConfigById,
+  getScheduledAgentConfigByIdUnscoped,
   isBacklogDrainTargetConfig,
   isDodRemediationTargetConfig,
   getWorkers,
@@ -440,6 +441,28 @@ const resolveOrgId = async (workItemId: string | null, planningSessionId: string
   if (workItemId) return resolveOrgIdFromWorkItem(workItemId);
   if (planningSessionId) return resolveOrgIdFromPlanningSession(planningSessionId);
   return null;
+};
+
+/**
+ * Resolve which workspace a scheduled-worker read endpoint should query.
+ *
+ * The runner is shared instance infrastructure (same trust boundary as
+ * /workers/jobs/claim): when it names a scheduledConfigId, that config is the
+ * source of truth for tenancy and is resolved by id alone, never scoped to
+ * the caller's own key. Older runner builds that omit the param keep the
+ * pre-existing behavior of scoping to the worker key's own workspace.
+ *
+ * Returns null when a scheduledConfigId was given but did not resolve to any
+ * config, so the caller can 404 instead of silently falling back to the key.
+ */
+const resolveScheduledWorkerIdentity = async (
+  workerApiKeyWorkspaceId: string,
+  scheduledConfigId: string | undefined,
+): Promise<string | null> => {
+  const trimmed = scheduledConfigId?.trim();
+  if (!trimmed) return workerApiKeyWorkspaceId;
+  const config = await getScheduledAgentConfigByIdUnscoped(trimmed);
+  return config?.workspaceId ?? null;
 };
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
@@ -1521,6 +1544,30 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         return successResponse(job);
       } else if (body.workspaceId) {
         // === STANDALONE JOB (no work item) ===
+        // Prompt-type scheduled agents (jobType "scheduled") always send
+        // config.scheduledConfigId alongside workspaceId. Attribution must
+        // come from the config itself, not the caller-supplied
+        // body.workspaceId — the runner is shared instance infrastructure and
+        // a request body is not proof of ownership (mirrors the workItemId
+        // branch above, which derives workspace via resolveOrgIdFromWorkItem
+        // instead of trusting anything the caller sent).
+        let workspaceId = body.workspaceId;
+        const standaloneScheduledConfigId = body.config?.scheduledConfigId?.trim();
+        if (standaloneScheduledConfigId) {
+          const scheduledConfig = await getScheduledAgentConfigByIdUnscoped(
+            standaloneScheduledConfigId,
+          );
+          if (!scheduledConfig) {
+            set.status = 400;
+            return errorResponse("Scheduled agent config not found");
+          }
+          if (scheduledConfig.enabled === false) {
+            set.status = 400;
+            return errorResponse("Scheduled agent config is no longer enabled");
+          }
+          workspaceId = scheduledConfig.workspaceId;
+        }
+
         // Resolve primary repository when projectId is provided
         let repoUrl: string | undefined;
         let repositoryId: string | undefined;
@@ -1528,7 +1575,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
 
         if (standaloneProjectId) {
           try {
-            const repos = await getRepositories(body.workspaceId, standaloneProjectId);
+            const repos = await getRepositories(workspaceId, standaloneProjectId);
             const primary = repos[0];
             if (primary) {
               repoUrl = primary.url;
@@ -1542,7 +1589,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         // Fallback: if no projectId, resolve the org's primary repository
         if (!repoUrl) {
           try {
-            const orgRepo = await getOrgPrimaryRepository(body.workspaceId);
+            const orgRepo = await getOrgPrimaryRepository(workspaceId);
             if (orgRepo) {
               repoUrl = orgRepo.url;
               repositoryId = orgRepo.id;
@@ -1566,7 +1613,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           });
         const job = await createJob({
           projectId: standaloneProjectId ?? null,
-          workspaceId: body.workspaceId,
+          workspaceId,
           jobType: body.jobType ?? "scheduled",
           provider: body.provider,
           priority: body.priority ?? "medium",
@@ -2708,14 +2755,13 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   })
 
   // GET /workers/backlog-drain-candidates - Deterministically select ready Backlog items for a scheduled backlog-drain config
-  // Security: workspaceId is derived from the worker API key; config ownership is verified in the repository lookup.
+  // Security: the runner is instance infrastructure (like /workers/jobs/claim);
+  // the config is resolved by id alone and its own workspaceId is what scopes
+  // the candidate search, never the worker key's workspace.
   .get(
     "/backlog-drain-candidates",
-    async ({ query, set, workerApiKey }) => {
-      const result = await getBacklogDrainCandidatesForConfigId(
-        query.configId,
-        workerApiKey!.workspaceId,
-      );
+    async ({ query, set }) => {
+      const result = await getBacklogDrainCandidatesForConfigId(query.configId);
 
       if (!result) {
         set.status = 404;
@@ -2732,14 +2778,13 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // GET /workers/dod-remediation-candidates - Select Backlog items that failed Definition of Done review
-  // Security: workspaceId is derived from the worker API key; config ownership is verified in the repository lookup.
+  // Security: the runner is instance infrastructure (like /workers/jobs/claim);
+  // the config is resolved by id alone and its own workspaceId is what scopes
+  // the candidate search, never the worker key's workspace.
   .get(
     "/dod-remediation-candidates",
-    async ({ query, set, workerApiKey }) => {
-      const result = await getDodRemediationCandidatesForConfigId(
-        query.configId,
-        workerApiKey!.workspaceId,
-      );
+    async ({ query, set }) => {
+      const result = await getDodRemediationCandidatesForConfigId(query.configId);
 
       if (!result) {
         set.status = 404;
@@ -2756,10 +2801,21 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // GET /workers/dod-review-candidates - Get review-column work items waiting for Definition of Done approval
-  // Security: workspaceId derived from API key, not from query params
+  // Security: workspaceId comes from scheduledConfigId when provided (config
+  // resolved by id alone, like /workers/jobs/claim); otherwise falls back to
+  // the worker API key's workspace for runner builds that predate the param.
   .get(
     "/dod-review-candidates",
-    async ({ query, workerApiKey }) => {
+    async ({ query, set, workerApiKey }) => {
+      const workspaceId = await resolveScheduledWorkerIdentity(
+        workerApiKey!.workspaceId,
+        query.scheduledConfigId,
+      );
+      if (!workspaceId) {
+        set.status = 404;
+        return errorResponse("Scheduled agent config not found", 404);
+      }
+
       const maxActiveJobs = typeof query.maxActiveJobs === "number"
         ? Math.max(0, Math.floor(query.maxActiveJobs))
         : undefined;
@@ -2767,7 +2823,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
 
       if (maxActiveJobs !== undefined) {
         const activeCount = await countActiveAgentJobsForLane({
-          workspaceId: workerApiKey!.workspaceId,
+          workspaceId,
           projectId: query.projectId,
           sources: ["dod-review"],
           skillNames: ["dod-review"],
@@ -2781,7 +2837,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       }
 
       const candidates = await getDefinitionOfDoneReviewCandidates(
-        workerApiKey!.workspaceId,
+        workspaceId,
         query.projectId,
         effectiveLimit,
         { minAgeMinutes: query.minAgeMinutes },
@@ -2794,16 +2850,27 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         limit: t.Optional(t.Number()),
         maxActiveJobs: t.Optional(t.Number()),
         minAgeMinutes: t.Optional(t.Number()),
+        scheduledConfigId: t.Optional(t.String()),
       }),
     }
   )
 
   // POST /workers/release-integration/queue - Batch validating work items into release integration jobs
-  // Security: workspaceId derived from API key, not from query params
+  // Security: workspaceId comes from scheduledConfigId when provided (config
+  // resolved by id alone, like /workers/jobs/claim); otherwise falls back to
+  // the worker API key's workspace for runner builds that predate the param.
   .post(
     "/release-integration/queue",
-    async ({ query, workerApiKey }) => {
-      const workspaceId = workerApiKey!.workspaceId;
+    async ({ query, set, workerApiKey }) => {
+      const workspaceId = await resolveScheduledWorkerIdentity(
+        workerApiKey!.workspaceId,
+        query.scheduledConfigId,
+      );
+      if (!workspaceId) {
+        set.status = 404;
+        return errorResponse("Scheduled agent config not found", 404);
+      }
+
       const maxActiveItems = typeof query.maxActiveItems === "number"
         ? Math.max(0, Math.floor(query.maxActiveItems))
         : undefined;
@@ -3048,17 +3115,22 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         limit: t.Optional(t.Number()),
         maxActiveItems: t.Optional(t.Number()),
         minAgeMinutes: t.Optional(t.Number()),
+        scheduledConfigId: t.Optional(t.String()),
       }),
     }
   )
 
   // GET /workers/validation-candidates - Get work items ready for validation, grouped by root ancestor
-  // Security: workspaceId derived from API key, not from query params
+  // Security: the scheduled-agent-config flow already sends the config's own
+  // workspaceId here (needed for org-wide configs with no fixed projectId);
+  // the runner is instance infrastructure, so honoring it is consistent with
+  // /workers/jobs/claim. The nightly-scheduler flow only ever sends
+  // projectId, so it keeps scoping to the worker key's own workspace.
   .get(
     "/validation-candidates",
     async ({ query, workerApiKey }) => {
       const candidates = await getValidationCandidates(
-        workerApiKey!.workspaceId,
+        query.workspaceId?.trim() || workerApiKey!.workspaceId,
         query.projectId,
         query.limit,
         { requireDodApproved: query.requireDodApproved },
@@ -3070,21 +3142,26 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         projectId: t.Optional(t.String()),
         limit: t.Optional(t.Number()),
         requireDodApproved: t.Optional(t.Boolean()),
+        workspaceId: t.Optional(t.String()),
       }),
     }
   )
 
   // GET /workers/fix-candidates - Get work items ready for nightly fix (in Needs Fix column, < 2 attempts)
-  // Security: workspaceId derived from API key, not from query params
+  // Security: see /workers/validation-candidates above — same fallback pattern.
   .get(
     "/fix-candidates",
     async ({ query, workerApiKey }) => {
-      const candidates = await getFixCandidates(workerApiKey!.workspaceId, query.projectId);
+      const candidates = await getFixCandidates(
+        query.workspaceId?.trim() || workerApiKey!.workspaceId,
+        query.projectId,
+      );
       return successResponse(candidates);
     },
     {
       query: t.Object({
         projectId: t.Optional(t.String()),
+        workspaceId: t.Optional(t.String()),
       }),
     }
   )
@@ -3343,14 +3420,16 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // GET /workers/scheduled-configs - Returns enabled scheduled agent configs for the scheduler
-  // Security: filtered by the API key's workspace
-  .get("/scheduled-configs", async ({ set, workerApiKey }) => {
+  // The runner is shared instance infrastructure, not scoped to one workspace —
+  // same trust boundary as /workers/jobs/claim, which already returns jobs from
+  // any workspace. Each config carries its own workspaceId, and that value
+  // (not the worker key's) is what flows into job creation and usage billing,
+  // so filtering this list by the key's workspace only broke dispatch for
+  // every other workspace's scheduled agents without buying any real isolation.
+  .get("/scheduled-configs", async ({ set }) => {
     try {
       const allConfigs = await listEnabledScheduledAgentConfigs();
-      const filtered = allConfigs.filter(
-        (c) => c.workspaceId === workerApiKey!.workspaceId,
-      );
-      return successResponse(filtered);
+      return successResponse(allConfigs);
     } catch (error) {
       set.status = 500;
       return errorResponse(

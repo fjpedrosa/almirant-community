@@ -354,6 +354,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
       minAgeMinutes?: number;
       projectId?: string;
       workspaceId?: string;
+      scheduledConfigId?: string;
     }> = [];
     const orchestrator = new RunnerOrchestrator(
       {
@@ -371,6 +372,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
         workerClient: {
           getDodReviewCandidates: async (params?: {
             workspaceId?: string;
+            scheduledConfigId?: string;
             projectId?: string;
             limit?: number;
             maxActiveJobs?: number;
@@ -423,6 +425,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
       {
         projectId: "project-1",
         workspaceId: "org-1",
+        scheduledConfigId: "cfg-dod",
         limit: 1,
         maxActiveJobs: 1,
         minAgeMinutes: 15,
@@ -449,6 +452,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
       minAgeMinutes?: number;
       projectId?: string;
       workspaceId?: string;
+      scheduledConfigId?: string;
     }> = [];
     const orchestrator = new RunnerOrchestrator(
       {
@@ -466,6 +470,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
         workerClient: {
           getDodReviewCandidates: async (params?: {
             workspaceId?: string;
+            scheduledConfigId?: string;
             projectId?: string;
             limit?: number;
             maxActiveJobs?: number;
@@ -522,6 +527,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
       {
         projectId: "project-1",
         workspaceId: "org-1",
+        scheduledConfigId: "cfg-dod-multi",
         limit: 1,
         maxActiveJobs: 1,
         minAgeMinutes: 15,
@@ -529,6 +535,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
       {
         projectId: "project-2",
         workspaceId: "org-1",
+        scheduledConfigId: "cfg-dod-multi",
         limit: 1,
         maxActiveJobs: 1,
         minAgeMinutes: 15,
@@ -547,6 +554,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
       minAgeMinutes?: number;
       projectId?: string;
       workspaceId?: string;
+      scheduledConfigId?: string;
     }> = [];
     const orchestrator = new RunnerOrchestrator(
       {
@@ -564,6 +572,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
         workerClient: {
           getDodReviewCandidates: async (params?: {
             workspaceId?: string;
+            scheduledConfigId?: string;
             projectId?: string;
             limit?: number;
             maxActiveJobs?: number;
@@ -604,6 +613,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
       {
         projectId: "project-1",
         workspaceId: "org-1",
+        scheduledConfigId: "cfg-dod-limits",
         limit: 1,
         maxActiveJobs: 1,
         minAgeMinutes: 15,
@@ -611,6 +621,7 @@ describe("RunnerOrchestrator scheduled Definition of Done review", () => {
       {
         projectId: "project-2",
         workspaceId: "org-1",
+        scheduledConfigId: "cfg-dod-limits",
         limit: 2,
         maxActiveJobs: 2,
         minAgeMinutes: 15,
@@ -624,6 +635,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
     const queueCalls: Array<{
       projectId?: string;
       workspaceId?: string;
+      scheduledConfigId?: string;
       limit?: number;
       maxActiveItems?: number;
       minAgeMinutes?: number;
@@ -645,6 +657,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
         workerClient: {
           queueReleaseIntegration: async (params?: {
             workspaceId?: string;
+            scheduledConfigId?: string;
             projectId?: string;
             limit?: number;
             maxActiveItems?: number;
@@ -696,6 +709,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
       {
         projectId: "project-1",
         workspaceId: "org-1",
+        scheduledConfigId: "cfg-release",
         limit: 1,
         maxActiveItems: 1,
         minAgeMinutes: 15,
@@ -708,6 +722,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
     const queueCalls: Array<{
       projectId?: string;
       workspaceId?: string;
+      scheduledConfigId?: string;
       limit?: number;
       maxActiveItems?: number;
       minAgeMinutes?: number;
@@ -728,6 +743,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
         workerClient: {
           queueReleaseIntegration: async (params?: {
             workspaceId?: string;
+            scheduledConfigId?: string;
             projectId?: string;
             limit?: number;
             maxActiveItems?: number;
@@ -779,6 +795,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
       {
         projectId: "project-1",
         workspaceId: "org-1",
+        scheduledConfigId: "cfg-release-multi",
         limit: 1,
         maxActiveItems: 1,
         minAgeMinutes: 15,
@@ -786,6 +803,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
       {
         projectId: "project-2",
         workspaceId: "org-1",
+        scheduledConfigId: "cfg-release-multi",
         limit: 1,
         maxActiveItems: 1,
         minAgeMinutes: 15,
@@ -797,6 +815,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
     const queueCalls: Array<{
       projectId?: string;
       workspaceId?: string;
+      scheduledConfigId?: string;
       limit?: number;
       maxActiveItems?: number;
       minAgeMinutes?: number;
@@ -817,6 +836,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
         workerClient: {
           queueReleaseIntegration: async (params?: {
             workspaceId?: string;
+            scheduledConfigId?: string;
             projectId?: string;
             limit?: number;
             maxActiveItems?: number;
@@ -867,6 +887,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
       {
         projectId: "project-1",
         workspaceId: "org-1",
+        scheduledConfigId: "cfg-release-limits",
         limit: 1,
         maxActiveItems: 1,
         minAgeMinutes: 0,
@@ -874,6 +895,7 @@ describe("RunnerOrchestrator scheduled release integration", () => {
       {
         projectId: "project-2",
         workspaceId: "org-1",
+        scheduledConfigId: "cfg-release-limits",
         limit: 3,
         maxActiveItems: 3,
         minAgeMinutes: 0,
