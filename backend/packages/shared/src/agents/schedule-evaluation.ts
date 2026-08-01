@@ -1,4 +1,8 @@
 import { Cron } from "croner";
+import {
+  resolveEnabledBuiltinAutomation,
+  type BuiltinAutomationTargetFlags,
+} from "./builtin-automations";
 
 /**
  * Schedule evaluation for scheduled agent configs.
@@ -25,12 +29,9 @@ export type TimeWindowScheduleConfigLike = {
   daysOfWeek?: number[];
 };
 
-type BuiltinTargetFlags = {
-  backlogDrain?: { enabled?: boolean } | null;
-  dodRemediation?: { enabled?: boolean } | null;
-  dodReview?: { enabled?: boolean } | null;
-  releaseIntegration?: { enabled?: boolean } | null;
-};
+/** The four built-in-automation targetConfig flags — re-exported alias of
+ *  the catalog's shape so this file's public types are unaffected. */
+type BuiltinTargetFlags = BuiltinAutomationTargetFlags;
 
 export type ScheduleEvaluationInput = {
   scheduleType: string;
@@ -49,10 +50,7 @@ const toDate = (value: string | Date | null | undefined): Date | null => {
 };
 
 const isBuiltinReconciler = (targetConfig: BuiltinTargetFlags | null | undefined): boolean =>
-  targetConfig?.backlogDrain?.enabled === true ||
-  targetConfig?.dodRemediation?.enabled === true ||
-  targetConfig?.dodReview?.enabled === true ||
-  targetConfig?.releaseIntegration?.enabled === true;
+  resolveEnabledBuiltinAutomation(targetConfig) !== undefined;
 
 /**
  * A cron config is due when the next occurrence after its last run has already
