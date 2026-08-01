@@ -1586,19 +1586,10 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           }
         }
 
-        // Fallback: if no projectId, resolve the org's primary repository
-        if (!repoUrl) {
-          try {
-            const orgRepo = await getOrgPrimaryRepository(workspaceId);
-            if (orgRepo) {
-              repoUrl = orgRepo.url;
-              repositoryId = orgRepo.id;
-              standaloneProjectId = standaloneProjectId ?? orgRepo.projectId;
-            }
-          } catch {
-            // Non-fatal: runner will resolve via API fallback
-          }
-        }
+        // No project means no repository. This used to fall back to the
+        // workspace's primary repository — the first by `order`, arbitrary when
+        // several tie at 0 — which pointed the job at a repository nobody chose.
+        // An empty workspace is a supported mode; guessing a repository is not.
 
         // Prompt-only scheduled agents omit config.skillName so the runner
         // uses the raw prompt instead of looking for a SKILL.md file.

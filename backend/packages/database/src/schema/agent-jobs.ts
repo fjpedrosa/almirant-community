@@ -59,6 +59,12 @@ export interface AgentJobConfig {
   scheduledConfigId?: string;
   /** Human-readable scheduled-agent config name for session list UX and audit context. */
   scheduledConfigName?: string;
+  /**
+   * How the job's repository was decided. `"none"` records that the agent named
+   * no project, so the job runs with an empty workspace — without it, a job with
+   * no `repoUrl` is indistinguishable from one whose resolution silently failed.
+   */
+  repositoryResolution?: "project" | "none";
   skillName?: string;
   /** UUID of the skill in the skills table — when present, runner fetches content from DB */
   skillId?: string;

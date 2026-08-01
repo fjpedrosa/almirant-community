@@ -1,14 +1,17 @@
 import {
   createJob,
   getRepositories,
-  getOrgPrimaryRepository,
   updateScheduledAgentConfigLastRunAt,
 } from "@almirant/database";
 import type { ScheduledAgentConfigDb } from "@almirant/database";
+import { logger } from "@almirant/config";
 import { wsConnectionManager } from "../../../shared/ws/ws-connection-manager";
 import { resolveScheduledAgentEffectiveRuntimes } from "./scheduled-agent-effective-model-resolver";
 import { assertValidScheduledAgentRuntime } from "./scheduled-agent-runtime-validation";
 import { resolveScheduledAgentProjectContext } from "./scheduled-agent-project-context";
+
+/** How the job's repository was decided, recorded on the job for diagnosis. */
+export type RepositoryResolution = "project" | "none";
 
 export interface ExecuteScheduledAgentConfigOptions {
   /** User ID who initiated execution. `null` for unattended (webhook, cron) flows. */
@@ -40,7 +43,7 @@ const composePrompt = (
  *   - POST /webhooks/agents/:agentId    (incoming webhook trigger)
  *
  * The function:
- *   1. resolves a primary repository (project-scoped, then org-scoped fallback)
+ *   1. resolves the project's repository, or none when the agent has no project
  *   2. resolves runtime (provider/codingAgent/model)
  *   3. creates an agent job
  *   4. updates `lastRunAt`
@@ -74,17 +77,26 @@ export const executeScheduledAgentConfig = async (
     }
   }
 
-  if (!repoUrl && orgId) {
-    try {
-      const orgRepo = await getOrgPrimaryRepository(orgId);
-      if (orgRepo) {
-        repoUrl = orgRepo.url;
-        repositoryId = orgRepo.id;
-        resolvedProjectId = resolvedProjectId ?? orgRepo.projectId;
-      }
-    } catch {
-      // Non-fatal: runner will resolve via API fallback
-    }
+  // A repository nobody chose is worse than no repository at all. This used to
+  // fall back to the workspace's first repository by `order`, which with several
+  // repositories tied at 0 is effectively arbitrary — an agent written for one
+  // project would clone another, read it, branch it and open a pull request
+  // against it. Running with an empty workspace is already a supported mode, so
+  // prefer it and record why, instead of guessing.
+  const repositoryResolution: RepositoryResolution = repoUrl
+    ? "project"
+    : "none";
+
+  if (!repoUrl) {
+    logger.info(
+      {
+        scheduledConfigId: config.id,
+        scheduledConfigName: config.name,
+        workspaceId: orgId,
+        projectId: config.projectId ?? null,
+      },
+      "Scheduled agent resolved no repository; starting with an empty workspace",
+    );
   }
 
   const effectiveRuntimes = await resolveScheduledAgentEffectiveRuntimes({
@@ -131,6 +143,7 @@ export const executeScheduledAgentConfig = async (
       projectId: resolvedProjectId,
       scheduledConfigId: config.id,
       scheduledConfigName: config.name,
+      repositoryResolution,
       source: config.trigger === "webhook" ? "webhook" : "scheduled",
       reasoningLevel: resolvedRuntime.reasoningLevel ?? undefined,
       ...(config.mcpServers ? { mcpServers: config.mcpServers } : {}),
