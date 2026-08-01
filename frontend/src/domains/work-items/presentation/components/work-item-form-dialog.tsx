@@ -137,6 +137,7 @@ export const WorkItemFormDialog: React.FC<WorkItemFormDialogProps> = ({
       isPending={isPending}
       submitLabel={submitLabel}
       onCancel={() => handleOpenChange(false)}
+      mode={mode}
       availableParents={availableParents}
       availableProjects={availableProjects}
       isLoadingParents={isLoadingParents}

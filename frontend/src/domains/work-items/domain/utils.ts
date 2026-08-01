@@ -16,3 +16,20 @@ export const pointsToTShirtSize = (points: number): TShirtSize | null => {
   if (points <= 34) return "XL";
   return "XXL";
 };
+
+/**
+ * Map an optional form `Date` (e.g. `startDate`, `dueDate`) to the
+ * `string | null` shape the create/update work item requests expect.
+ * `undefined` (never set / cleared) becomes `null` so the field can be
+ * explicitly unset server-side instead of being silently ignored.
+ */
+export const toOptionalIsoString = (date: Date | undefined): string | null =>
+  date ? date.toISOString() : null;
+
+/**
+ * Map a persisted date value (as it comes back from the API — a `Date`,
+ * an ISO string, or `null`) to the optional `Date` the work item form uses.
+ */
+export const toOptionalFormDate = (
+  value: Date | string | null | undefined
+): Date | undefined => (value ? new Date(value) : undefined);

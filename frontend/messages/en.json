@@ -289,6 +289,8 @@
       "assignee": "Assigned to",
       "assigneePlaceholder": "Unassigned",
       "assignToMe": "Assign to me",
+      "startDate": "Start date",
+      "startDateHint": "Automated agents won't pick up this task until this date.",
       "dueDate": "Due date",
       "estimatedHours": "Estimated hours",
       "parent": "Parent",
