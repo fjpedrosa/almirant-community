@@ -10,6 +10,7 @@
     "build": "bun build src/index.ts --outdir dist --target bun",
     "start": "bun dist/index.js",
     "test": "bun test --pass-with-no-tests",
+    "test:pre-push": "bun run scripts/run-backend-tests.ts",
     "test:watch": "bun test --watch --pass-with-no-tests",
     "type-check": "tsc --noEmit",
     "s3:migrate-legacy-bucket": "bun run --env-file .env scripts/migrate-s3-buckets.ts",

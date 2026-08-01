@@ -73,7 +73,8 @@ export const captureAndStoreScreenshot = async (
 ): Promise<string | null> => {
   try {
     const thumUrl = buildThumIoUrl(productionUrl);
-    logger.info({ projectId, thumUrl }, "Capturing screenshot via thum.io");
+    // Never log the provider URL: authenticated Thum.io URLs embed the API key.
+    logger.info({ projectId }, "Capturing screenshot via thum.io");
 
     const response = await fetch(thumUrl, {
       signal: AbortSignal.timeout(30_000),
