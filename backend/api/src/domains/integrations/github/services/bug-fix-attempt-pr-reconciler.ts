@@ -7,7 +7,7 @@ import {
   getRepoIdByGithubFullName,
   inArray,
   isNotNull,
-  sql,
+  lt,
 } from "@almirant/database";
 import {
   markFeedbackBugsAsFailedOnPrClosed,
@@ -201,7 +201,7 @@ export const runBugFixAttemptPrReconciliationOnce = async (
 // Production dependencies — DB + GitHub
 // ---------------------------------------------------------------------------
 
-const defaultLoadStuckAttempts = async (cfg: {
+export const loadStuckBugFixAttempts = async (cfg: {
   olderThanMinutes: number;
   batchSize: number;
 }): Promise<StuckAttempt[]> => {
@@ -232,7 +232,7 @@ const defaultLoadStuckAttempts = async (cfg: {
         ]),
         isNotNull(bugFixAttempts.fixPrNumber),
         isNotNull(bugFixAttempts.fixPrUrl),
-        sql`${bugFixAttempts.updatedAt} < ${olderThan}`
+        lt(bugFixAttempts.updatedAt, olderThan)
       )
     )
     .limit(cfg.batchSize);
@@ -328,7 +328,7 @@ const defaultFetchPrState = async (
 };
 
 const productionDeps: BugFixAttemptReconcilerDeps = {
-  loadStuckAttempts: defaultLoadStuckAttempts,
+  loadStuckAttempts: loadStuckBugFixAttempts,
   fetchPrState: defaultFetchPrState,
   runMergePath: async (pr) =>
     moveFeedbackBugsToPendingValidationOnPrMerge({
