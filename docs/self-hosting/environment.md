@@ -24,6 +24,8 @@ These are the variables that matter for the self-hosted Docker stacks.
 | `POSTGRES_PORT` | `5432` | Host port mapped to Postgres |
 | `REDIS_PORT` | `6379` | Host port mapped to Redis |
 | `DATABASE_URL` | `postgresql://almirant:...@postgres:5432/almirant` | Shared DB connection string |
+| `MIGRATION_DATABASE_URL` | _(falls back to `DATABASE_URL`)_ | Direct or session-pooled connection used only by the schema migrator. Required when `DATABASE_URL` uses transaction-pooled PgBouncer. |
+| `MIGRATION_LOCK_TIMEOUT_MS` | `60000` | Maximum time the migrator polls for its PostgreSQL advisory lock before failing startup. |
 
 ## Service ports
 

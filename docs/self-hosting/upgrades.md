@@ -77,7 +77,7 @@ Backups are not pruned automatically — they are plain text and small.
 ## Database maintenance and data backfills
 
 Every upgrade path recreates the production stack through Docker Compose. The
-`db-init` service runs before `backend` and is the single automatic hook for
+`db-init` service runs before `backend` and is the primary automatic hook for
 database maintenance:
 
 1. ensure required extensions exist,
@@ -97,6 +97,28 @@ migrations and registered backfills during the same upgrade. When `backend` is
 recreated, Compose waits for `db-init` to finish successfully.
 Click-to-update already rebuilds every service except `updater`, so it includes
 `db-init` by default.
+
+The backend image also runs the validated schema migrator in its own
+entrypoint. This is a fail-closed deployment gate for standalone API platforms
+such as Coolify and a defense-in-depth check for Compose: concurrent API starts
+serialize through a PostgreSQL advisory lock, and the API does not listen for
+traffic if migration fails. Data backfills and self-hosted bootstrap work remain
+owned by `db-init`; the API entrypoint never uses `drizzle-kit push`.
+
+Because schema migration happens before the new API starts, release migrations
+must follow expand-contract. Expansion changes must remain compatible with the
+currently running and newly deploying API versions. Destructive contract
+changes are safe only after every old API instance is retired and an
+application rollback is no longer required. Rolling application code back does
+not reverse an applied schema migration; there is no automatic down migration.
+Recover through a tested forward migration, or stop writers and perform a
+deliberate database restore.
+
+When PgBouncer is configured in transaction-pooling mode, set
+`MIGRATION_DATABASE_URL` to a direct or session-pooled PostgreSQL connection.
+The API continues to use `DATABASE_URL`; only the pre-start migrator uses the
+override. Advisory-lock acquisition is bounded by `MIGRATION_LOCK_TIMEOUT_MS`
+(60 seconds by default), and timeout prevents backend startup.
 
 ---
 
