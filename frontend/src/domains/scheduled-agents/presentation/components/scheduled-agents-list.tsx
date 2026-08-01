@@ -198,6 +198,12 @@ const ScheduledAgentRow = ({
   const codingAgentLabel = CODING_AGENT_LABELS[codingAgent];
   const model = item.aiModel ?? "—";
   const isWebhook = item.trigger === "webhook";
+  // A non-webhook agent without a real cadence (manual / no schedule config) is
+  // "run on demand" — it is NOT "Scheduled". Deriving the badge from `trigger`
+  // alone mislabels these as Scheduled and contradicts the "Run on demand"
+  // detail below.
+  const isManual =
+    !isWebhook && (item.scheduleType === "manual" || !item.scheduleConfig);
   const webhookUrl = getWebhookUrl(item);
   const projectScopeLabel = getProjectScopeLabel(item);
   const hasDirectProject = Boolean(item.projectName);
@@ -256,8 +262,14 @@ const ScheduledAgentRow = ({
       <TableCell className="w-[15rem] max-w-[15rem]">
         <div className="space-y-1.5">
           <Badge variant={isWebhook ? "default" : "secondary"} className="gap-1.5">
-            {isWebhook ? <Webhook className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-            {isWebhook ? "Webhook" : "Scheduled"}
+            {isWebhook ? (
+              <Webhook className="h-3 w-3" />
+            ) : isManual ? (
+              <Play className="h-3 w-3" />
+            ) : (
+              <Clock className="h-3 w-3" />
+            )}
+            {isWebhook ? "Webhook" : isManual ? "Manual" : "Scheduled"}
           </Badge>
           {webhookUrl ? (
             <button
@@ -285,12 +297,23 @@ const ScheduledAgentRow = ({
 
       {/* Enabled */}
       <TableCell className="w-20">
-        <Switch
-          checked={item.enabled}
-          onCheckedChange={() => onToggle(item)}
-          disabled={isWebhook || item.scheduleType === "manual" || !item.scheduleConfig}
-          aria-label={`Toggle ${item.name}`}
-        />
+        {/* Manual agents cannot be enabled until they have a schedule — surface
+            that instead of a silently-dead toggle. */}
+        <span
+          title={
+            isManual
+              ? "Add a Time Window or Cron schedule to enable this agent"
+              : undefined
+          }
+          className="inline-flex"
+        >
+          <Switch
+            checked={item.enabled}
+            onCheckedChange={() => onToggle(item)}
+            disabled={isWebhook || isManual}
+            aria-label={`Toggle ${item.name}`}
+          />
+        </span>
       </TableCell>
 
       {/* Actions */}

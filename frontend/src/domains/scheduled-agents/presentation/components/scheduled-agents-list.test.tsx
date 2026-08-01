@@ -116,4 +116,68 @@ describe("ScheduledAgentsList", () => {
       `${window.location.origin}/webhooks/agents/webhook-agent-1?token=copy-token`,
     );
   });
+
+  it("etiqueta un agente manual como 'Manual', no como 'Scheduled'", () => {
+    render(
+      <ScheduledAgentsList
+        items={[{
+          ...baseScheduledAgent,
+          scheduleType: "manual",
+          scheduleConfig: null,
+          enabled: false,
+        }]}
+        isLoading={false}
+        triggeringId={null}
+        onToggle={noop}
+        onEdit={noop}
+        onDelete={noop}
+        onTrigger={noop}
+      />,
+    );
+
+    expect(screen.getByText("Manual")).toBeInTheDocument();
+    expect(screen.queryByText("Scheduled")).toBeNull();
+    // El detalle "Run on demand" ya no contradice al badge.
+    expect(screen.getByText("Run on demand")).toBeInTheDocument();
+  });
+
+  it("mantiene 'Scheduled' para agentes con una cadencia real", () => {
+    render(
+      <ScheduledAgentsList
+        items={[baseScheduledAgent]}
+        isLoading={false}
+        triggeringId={null}
+        onToggle={noop}
+        onEdit={noop}
+        onDelete={noop}
+        onTrigger={noop}
+      />,
+    );
+
+    expect(screen.getByText("Scheduled")).toBeInTheDocument();
+    expect(screen.queryByText("Manual")).toBeNull();
+  });
+
+  it("explica cómo activar un agente manual deshabilitado", () => {
+    render(
+      <ScheduledAgentsList
+        items={[{
+          ...baseScheduledAgent,
+          scheduleType: "manual",
+          scheduleConfig: null,
+          enabled: false,
+        }]}
+        isLoading={false}
+        triggeringId={null}
+        onToggle={noop}
+        onEdit={noop}
+        onDelete={noop}
+        onTrigger={noop}
+      />,
+    );
+
+    expect(
+      screen.getByTitle(/add a .*schedule to enable/i),
+    ).toBeInTheDocument();
+  });
 });

@@ -49,6 +49,13 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { SlashAutocompleteTextarea } from "@/components/ui/slash-autocomplete-textarea";
 import {
   CalendarDays,
@@ -60,6 +67,7 @@ import {
   HelpCircle,
   Hourglass,
   ListChecks,
+  Maximize2,
   ShieldCheck,
   Settings2,
   Sparkles,
@@ -318,6 +326,7 @@ export const AgentFormDrawer = ({
   const [timezoneOpen, setTimezoneOpen] = useState(false);
   const [projectScopeOpen, setProjectScopeOpen] = useState(false);
   const [copiedWebhookUrl, setCopiedWebhookUrl] = useState<string | null>(null);
+  const [promptDialogOpen, setPromptDialogOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState<WizardStep>(() => (isEditing ? "details" : "kind"));
   const isWebhookTrigger = trigger === "webhook";
   const isManualSchedule = scheduleType === "manual";
@@ -808,16 +817,29 @@ export const AgentFormDrawer = ({
           name="prompt"
           render={({ field }) => (
             <FormItem>
-              <div className="flex items-center gap-1">
-                <FormLabel>Prompt</FormLabel>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <HelpCircle className="size-4 text-muted-foreground cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="max-w-xs">
-                    The message sent to the coding agent each time this schedule fires. Use /skill-name to load a skill automatically.
-                  </TooltipContent>
-                </Tooltip>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1">
+                  <FormLabel>Prompt</FormLabel>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <HelpCircle className="size-4 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs">
+                      The message sent to the coding agent each time this schedule fires. Use /skill-name to load a skill automatically.
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1.5 text-muted-foreground hover:text-foreground"
+                  aria-label="Expand prompt editor"
+                  onClick={() => setPromptDialogOpen(true)}
+                >
+                  <Maximize2 className="size-3.5" aria-hidden="true" />
+                  Expand
+                </Button>
               </div>
               <FormControl>
                 <SlashAutocompleteTextarea
@@ -828,6 +850,24 @@ export const AgentFormDrawer = ({
                 />
               </FormControl>
               <FormMessage />
+
+              <Dialog open={promptDialogOpen} onOpenChange={setPromptDialogOpen}>
+                <DialogContent className="sm:max-w-3xl">
+                  <DialogHeader>
+                    <DialogTitle>Prompt</DialogTitle>
+                    <DialogDescription>
+                      Edit the full prompt. Type <span className="font-mono">/</span> to insert a skill. Changes stay in sync with the inline editor.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <SlashAutocompleteTextarea
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    skills={skills}
+                    placeholder="Expand the prompt editor — describe the agent's role, constraints, and expected output..."
+                    className="min-h-[420px]"
+                  />
+                </DialogContent>
+              </Dialog>
             </FormItem>
           )}
         />

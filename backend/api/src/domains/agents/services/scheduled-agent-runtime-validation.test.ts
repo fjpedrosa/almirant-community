@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { assertValidScheduledAgentRuntime } from "./scheduled-agent-runtime-validation";
+import {
+  assertValidScheduledAgentRuntime,
+  canonicalizeAiModelForStorage,
+} from "./scheduled-agent-runtime-validation";
 
 describe("assertValidScheduledAgentRuntime", () => {
   it("rejects Z.ai models under the Codex/OpenAI provider", () => {
@@ -221,5 +224,27 @@ describe("assertValidScheduledAgentRuntime", () => {
         },
       },
     })).toThrow(/targetConfig\.backlogDrain\.projects\[0\].*reasoningLevel 'max'/);
+  });
+});
+
+describe("canonicalizeAiModelForStorage", () => {
+  it("lowercases a model stored with display-name casing (the GLM-5.2 bug)", () => {
+    expect(canonicalizeAiModelForStorage("GLM-5.2")).toBe("glm-5.2");
+    expect(canonicalizeAiModelForStorage("GPT-5.4")).toBe("gpt-5.4");
+  });
+
+  it("trims surrounding whitespace", () => {
+    expect(canonicalizeAiModelForStorage("  glm-5.2  ")).toBe("glm-5.2");
+  });
+
+  it("leaves an already-canonical id unchanged", () => {
+    expect(canonicalizeAiModelForStorage("glm-5.2")).toBe("glm-5.2");
+  });
+
+  it("returns null for empty or nullish values", () => {
+    expect(canonicalizeAiModelForStorage("")).toBeNull();
+    expect(canonicalizeAiModelForStorage("   ")).toBeNull();
+    expect(canonicalizeAiModelForStorage(null)).toBeNull();
+    expect(canonicalizeAiModelForStorage(undefined)).toBeNull();
   });
 });
