@@ -60,6 +60,20 @@ type RuntimeImageConfig = {
   servePort?: number;
 };
 
+/**
+ * Whether the container got a credential for its clone.
+ *
+ * A failure here is not fatal on its own — public repositories clone fine
+ * without one — but it is the single cause of an unauthenticated clone, and
+ * an unauthenticated clone of a private repository kills the container before
+ * it can serve. Reporting the outcome lets the caller say so in the job log
+ * instead of leaving a timeout as the only evidence.
+ */
+export type CloneCredentialOutcome =
+  | { status: "granted" }
+  | { status: "unavailable"; reason: string }
+  | { status: "not_needed" };
+
 export type InjectedEnvResult = {
   env: Record<string, string>;
   openCodeConfig: ReturnType<typeof buildOpenCodeConfig>;
@@ -67,6 +81,8 @@ export type InjectedEnvResult = {
   resolvedModel: string;
   /** Debug metadata about the resolved provider key, for logging. */
   keyDebug?: Record<string, unknown>;
+  /** Outcome of resolving the git clone credential. */
+  cloneCredential?: CloneCredentialOutcome;
 };
 
 const ZAI_CODING_PLAN_BASE_URL = "https://api.z.ai/api/coding/paas/v4";
@@ -767,15 +783,20 @@ export const buildInjectedEnv = async (
     env.GIT_CLONE_DEPTH = String(input.repository.depth);
   }
 
+  let cloneCredential: CloneCredentialOutcome = { status: "not_needed" };
   if (input.repository.id) {
     try {
       const githubToken = await input.workerClient.getGithubToken(input.repository.id);
       env.__GIT_CLONE_TOKEN = githubToken.token;
+      cloneCredential = { status: "granted" };
       console.log(`[config-injector] GitHub token obtained for repo ${input.repository.id}`);
     } catch (err) {
-      console.warn(`[config-injector] Failed to get GitHub token for repo ${input.repository.id}: ${err instanceof Error ? err.message : String(err)}`);
+      const reason = err instanceof Error ? err.message : String(err);
+      cloneCredential = { status: "unavailable", reason };
+      console.warn(`[config-injector] Failed to get GitHub token for repo ${input.repository.id}: ${reason}`);
     }
   } else if (input.repository.url) {
+    cloneCredential = { status: "unavailable", reason: "repository has no id" };
     console.warn(`[config-injector] No repository.id — skipping GitHub token. repo.url=${input.repository.url}`);
   }
 
@@ -791,5 +812,5 @@ export const buildInjectedEnv = async (
     ...(keys._debug ?? {}),
   };
 
-  return { env, openCodeConfig, resolvedModel, keyDebug };
+  return { env, openCodeConfig, resolvedModel, keyDebug, cloneCredential };
 };

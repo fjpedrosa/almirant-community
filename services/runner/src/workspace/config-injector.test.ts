@@ -1105,6 +1105,7 @@ describe("buildInjectedEnv", () => {
     });
 
     expect(result.env.__GIT_CLONE_TOKEN).toBe("gh-token");
+    expect(result.cloneCredential).toEqual({ status: "granted" });
   });
 
   it("continua sin __GIT_CLONE_TOKEN si getGithubToken falla", async () => {
@@ -1128,5 +1129,42 @@ describe("buildInjectedEnv", () => {
 
     expect(result.env.__GIT_CLONE_TOKEN).toBeUndefined();
     expect(result.env.ANTHROPIC_API_KEY).toBe("sk-ant-key");
+    // El motivo tiene que sobrevivir al fallo: es la unica pista de por que el
+    // clon sera anonimo, y sin ella el job solo muestra el timeout del serve.
+    expect(result.cloneCredential).toEqual({
+      status: "unavailable",
+      reason: "github down",
+    });
+  });
+
+  it("reporta la credencial como no disponible cuando el repo no trae id", async () => {
+    const keys: ProviderKeysResponse = {
+      anthropicApiKey: "sk-ant-key",
+      anthropicAuthMethod: "api_key",
+    };
+
+    const result = await buildInjectedEnv({
+      workerClient: buildMockClient(keys),
+      job: baseJob("anthropic"),
+      repository: { url: "https://github.com/acme/private-repo" },
+    });
+
+    expect(result.env.__GIT_CLONE_TOKEN).toBeUndefined();
+    expect(result.cloneCredential?.status).toBe("unavailable");
+  });
+
+  it("no reclama credencial cuando no hay repositorio que clonar", async () => {
+    const keys: ProviderKeysResponse = {
+      anthropicApiKey: "sk-ant-key",
+      anthropicAuthMethod: "api_key",
+    };
+
+    const result = await buildInjectedEnv({
+      workerClient: buildMockClient(keys),
+      job: baseJob("anthropic"),
+      repository: {},
+    });
+
+    expect(result.cloneCredential).toEqual({ status: "not_needed" });
   });
 });

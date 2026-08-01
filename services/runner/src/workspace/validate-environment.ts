@@ -134,11 +134,26 @@ export const waitForHealthy = async (
   throw new Error(`Container ${containerId} did not become healthy within ${timeoutMs}ms`);
 };
 
+export type ServeReadinessOptions = {
+  /**
+   * Reports whether the container is still up.
+   *
+   * A container that has already exited will never open the port, so polling
+   * out the remaining timeout only delays a failure we can already name — and
+   * buries the cause: the entrypoint's own error scrolls past six minutes
+   * before anyone sees "serve did not become ready".
+   */
+  isContainerAlive?: () => Promise<boolean>;
+};
+
 /**
  * Poll an HTTP serve endpoint until it responds (any status code).
  * Network errors (connection refused, timeout) indicate the server is not yet ready.
  */
-export const waitForServeReady = async (baseUrl: string): Promise<void> => {
+export const waitForServeReady = async (
+  baseUrl: string,
+  options?: ServeReadinessOptions,
+): Promise<void> => {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < SERVE_READINESS_TIMEOUT_MS) {
@@ -153,6 +168,23 @@ export const waitForServeReady = async (baseUrl: string): Promise<void> => {
     } catch {
       // Not ready yet
     }
+
+    // Only a definitive "not running" answer stops the wait. An inspect that
+    // throws says nothing about the container, so keep polling.
+    if (options?.isContainerAlive) {
+      let exited = false;
+      try {
+        exited = !(await options.isContainerAlive());
+      } catch {
+        exited = false;
+      }
+      if (exited) {
+        throw new Error(
+          `Serve never opened at ${baseUrl}: the container exited before it started listening`
+        );
+      }
+    }
+
     await sleep(SERVE_READINESS_POLL_MS);
   }
 

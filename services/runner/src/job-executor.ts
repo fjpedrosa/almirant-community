@@ -60,6 +60,7 @@ import { classifyError } from "./shared/types";
 import { createRunnerJobEventLogger } from "./observability/job-event-logger";
 import type { RunnerJobEventLogger } from "./observability/job-event-logger";
 import { logTmpfsUsage } from "./observability/resource-monitor";
+import { captureContainerExitLogs } from "./observability/container-exit-logs";
 // computeOverallTimeout, DEFAULT_OVERALL_TIMEOUT_MS, DEFAULT_EFFORT_POINT_DURATION_MS
 // moved to session/event-consumer.ts
 import { buildCredentialHelperScript, buildAskpassScript, shouldRefreshToken, TOKEN_REFRESH_INTERVAL_MS } from "./shared/token-refresh";
@@ -212,6 +213,7 @@ type JobExecutionContext = {
   // Resolved during execution:
   workItem?: WorkItemDetails | null;
   injectedEnv: Record<string, string>;
+  cloneCredential?: Awaited<ReturnType<typeof buildInjectedEnv>>["cloneCredential"];
   openCodeConfig: Awaited<ReturnType<typeof buildInjectedEnv>>["openCodeConfig"];
   resolvedModel: string;
   runtimeConfig?: RuntimeConfig;
@@ -676,7 +678,7 @@ export const createJobExecutor = (
       );
     }
 
-    const { env: injectedEnv, openCodeConfig, resolvedModel, keyDebug } = await buildInjectedEnv({
+    const { env: injectedEnv, openCodeConfig, resolvedModel, keyDebug, cloneCredential } = await buildInjectedEnv({
       workerClient: workerClient,
       job,
       repository: ctx.repositoryOverride,
@@ -710,6 +712,7 @@ export const createJobExecutor = (
     });
 
     ctx.injectedEnv = injectedEnv;
+    ctx.cloneCredential = cloneCredential;
     ctx.openCodeConfig = openCodeConfig;
     ctx.resolvedModel = resolvedModel;
 
@@ -874,6 +877,21 @@ export const createJobExecutor = (
         branch: injectedEnv.REPO_BRANCH ?? "main",
         workspacePath: WORKSPACE_REPO_PATH,
       });
+      // Without a credential the clone is anonymous, which fails on any private
+      // repository and takes the container down before it can serve. Say so now,
+      // in the job's own log — the runner console never reaches the user.
+      if (ctx.cloneCredential?.status === "unavailable") {
+        eventLogger.error(
+          "git",
+          "git.clone_credential_unavailable",
+          "No GitHub credential for the clone — a private repository will fail",
+          {
+            repositoryId: ctx.repositoryOverride.id ?? null,
+            repositoryName: repositoryName ?? null,
+            reason: ctx.cloneCredential.reason,
+          },
+        );
+      }
     } else if (ctx.workspace?.kind === "uploaded_files") {
       eventLogger.info("workspace", "workspace.uploaded_files_started", "Container will start empty before uploaded files are materialized", {
         workspacePath: WORKSPACE_REPO_PATH,
@@ -1067,7 +1085,7 @@ export const createJobExecutor = (
 
     // Wait for serve to become healthy
     try {
-      await waitForServeReadyFn(baseUrl);
+      await waitForServeReadyFn(baseUrl, ctx.containerId);
     } catch (error) {
       eventLogger.error("serve", "serve.failed", "Serve readiness failed", {
         baseUrl,
@@ -2067,17 +2085,40 @@ export const createJobExecutor = (
     if (ctx.containerId) {
       // Inspect container for OOM detection before teardown (A-861)
       const containerState = await containerManager.inspectContainer(ctx.containerId);
+      const diedBadly =
+        !containerState.running &&
+        containerState.exitCode !== null &&
+        containerState.exitCode !== 0;
+
       if (containerState.oomKilled && !ctx.oomAlreadyDetected) {
         console.warn(`[job:${job.id}] Container was OOM-killed (exit code: ${containerState.exitCode})`);
         eventLogger.error("session", "container.oom_killed", "Container was OOM-killed by Docker", {
           exitCode: containerState.exitCode,
           containerId: ctx.containerId,
         });
-      } else if (!containerState.running && containerState.exitCode !== null && containerState.exitCode !== 0) {
+      } else if (diedBadly) {
         eventLogger.warn("session", "container.unexpected_exit", "Container exited unexpectedly", {
           exitCode: containerState.exitCode,
           containerId: ctx.containerId,
         });
+      }
+
+      // The exit code alone never explains the exit. Whatever the entrypoint
+      // printed on its way out is the only account of what went wrong, and it
+      // disappears with the container — so copy the tail into the job log.
+      if (diedBadly) {
+        const exitLogs = await captureContainerExitLogs(
+          (id) => containerManager.streamContainerLogs(id),
+          ctx.containerId,
+        );
+        if (exitLogs) {
+          eventLogger.error("session", "container.exit_logs", "Container output before exit", {
+            exitCode: containerState.exitCode,
+            containerId: ctx.containerId,
+            truncated: exitLogs.truncated,
+            lines: exitLogs.lines,
+          });
+        }
       }
 
       // Final checkpoint before teardown if job did not complete successfully (A-862)
@@ -2195,8 +2236,12 @@ export const createJobExecutor = (
 
   // startTmpfsWatcher and logTmpfsUsage extracted to ./observability/resource-monitor.ts
 
-  const waitForServeReadyFn = (baseUrl: string): Promise<void> => {
-    return waitForServeReady(baseUrl);
+  const waitForServeReadyFn = (baseUrl: string, containerId?: string): Promise<void> => {
+    return waitForServeReady(baseUrl, {
+      isContainerAlive: containerId
+        ? () => containerManager.isContainerRunning(containerId)
+        : undefined,
+    });
   };
 
   const resolveWorkItem = (
