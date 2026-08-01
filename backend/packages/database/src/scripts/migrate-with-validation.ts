@@ -11,6 +11,15 @@ import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { maybeRunBugFixAttemptPreflight } from "./bug-fix-attempts-migration-preflight";
+import { withMigrationAdvisoryLock } from "./migration-advisory-lock";
+import {
+  assertPendingMigrationsApplied,
+  readMigrationFileHash,
+} from "./migration-application-verifier";
+import {
+  resolveMigrationDatabaseUrl,
+  resolveMigrationLockTimeoutMs,
+} from "./migration-runtime-config";
 import { maybeRunVectorExtensionPreflight } from "./vector-extension-migration-preflight";
 
 const migrationsFolder = resolve(import.meta.dir, "../../migrations");
@@ -86,29 +95,37 @@ if (issues.length > 0) {
 
 console.log("✅ Journal validated.\n");
 
+// Validate the complete journal before connecting or reporting that the
+// database is current. A missing/unreadable SQL file is a broken release, not a
+// migration that may be silently skipped.
+const migrationHashes = new Map(
+  entries.map((entry) => [
+    entry.tag,
+    readMigrationFileHash(migrationsFolder, entry.tag),
+  ]),
+);
+
 // ── 2. Connect and find pending migrations ──────────────────────────────────
-const databaseUrl = process.env.DATABASE_URL!;
+const databaseUrl = resolveMigrationDatabaseUrl(process.env);
+const migrationLockTimeoutMs = resolveMigrationLockTimeoutMs(process.env);
 const urlParts = new URL(databaseUrl);
 console.log(`🔌 Database: ${urlParts.hostname}:${urlParts.port}${urlParts.pathname}`);
 console.log(`   Environment: ${process.env.NODE_ENV || "development"}\n`);
 
+// Keep the migrator on a single direct/session-pooled PostgreSQL connection so
+// its session advisory lock covers every preflight and migration query. Drizzle
+// requires the postgres.js Sql client itself (ReservedSql is not compatible
+// with the driver), therefore max: 1 is the connection-affinity boundary.
 const sql = postgres(databaseUrl, { max: 1 });
 const db = drizzle(sql);
 
-// Compute hashes for journal entries to find truly pending migrations
-// Drizzle hashes each migration's SQL content with SHA-256
-const { createHash } = await import("crypto");
-const { readFileSync: readFile } = await import("fs");
-
-const getMigrationHash = (entry: JournalEntry): string | null => {
-  const sqlPath = resolve(migrationsFolder, `${entry.tag}.sql`);
-
-  try {
-    const content = readFile(sqlPath, "utf-8");
-    return createHash("sha256").update(content).digest("hex");
-  } catch {
-    return null;
+const getMigrationHash = (entry: JournalEntry): string => {
+  const hash = migrationHashes.get(entry.tag);
+  if (!hash) {
+    throw new Error(`No validated SQL hash exists for migration ${entry.tag}`);
   }
+
+  return hash;
 };
 
 const loadAppliedHashes = async (): Promise<{
@@ -145,11 +162,6 @@ const getPendingEntries = (appliedHashes: Set<string>): JournalEntry[] => {
 
   for (const entry of entries) {
     const hash = getMigrationHash(entry);
-    if (!hash) {
-      // SQL file missing — skip (may have been removed)
-      continue;
-    }
-
     if (!appliedHashes.has(hash)) {
       result.push(entry);
     }
@@ -172,7 +184,7 @@ const backfillCompatibleMigrationHashes = async (
     const currentHash = getMigrationHash(entry);
     const compatibleHashes = COMPATIBLE_MIGRATION_HASHES[entry.tag] ?? [];
 
-    if (!currentHash || compatibleHashes.length === 0 || appliedHashes.has(currentHash)) {
+    if (compatibleHashes.length === 0 || appliedHashes.has(currentHash)) {
       continue;
     }
 
@@ -197,74 +209,110 @@ const backfillCompatibleMigrationHashes = async (
   return inserted;
 };
 
-let { hashes: appliedHashes, hasMigrationsTable } = await loadAppliedHashes();
-if (await backfillCompatibleMigrationHashes(appliedHashes, hasMigrationsTable)) {
-  ({ hashes: appliedHashes, hasMigrationsTable } = await loadAppliedHashes());
-}
-const pendingEntries = getPendingEntries(appliedHashes);
-const initiallyPendingEntries = [...pendingEntries];
-
-if (pendingEntries.length === 0) {
-  console.log("✅ No pending migrations. Database is up to date.\n");
-  await sql.end();
-  process.exit(0);
-}
-
-console.log(`⏳ Pending: ${pendingEntries.length} migration(s) to apply:\n`);
-for (const entry of pendingEntries) {
-  console.log(`   → ${entry.tag} (idx ${entry.idx})`);
-}
-console.log();
-
-await maybeRunBugFixAttemptPreflight({
-  pendingMigrationTags: pendingEntries.map((entry) => entry.tag),
-  executeInTransaction: async <T>(callback: (execute: (statement: string) => Promise<unknown>) => Promise<T>) =>
-    (await sql.begin(async (tx) =>
-      callback((statement) => tx.unsafe(statement) as Promise<unknown>))) as T,
-  log: (message) => console.log(message),
-});
-
-await maybeRunVectorExtensionPreflight({
-  pendingMigrationTags: pendingEntries.map((entry) => entry.tag),
-  execute: (statement) => sql.unsafe(statement) as Promise<unknown>,
-  log: (message) => console.log(message),
-});
-
-// ── 3. Run migrations ───────────────────────────────────────────────────────
 try {
-  await migrate(db, { migrationsFolder });
-} catch (err) {
-  console.error("\n❌ Migration failed:\n", err);
-  await sql.end();
-  process.exit(1);
-}
+  await withMigrationAdvisoryLock(
+    async (statement, parameters) => {
+      return (await sql.unsafe(statement, parameters)) as unknown as Array<
+        Record<string, unknown>
+      >;
+    },
+    async () => {
+      // Keep pristine-state detection, validation, exact ledger baseline and
+      // the normal append-only migration path inside one session
+      // advisory-lock critical section. Self-hosted empty-database bootstrap
+      // runs upstream of this script (see self-hosted-db-maintenance.ts); by
+      // the time this script runs, a migration ledger is expected to exist.
+      let { hashes: appliedHashes, hasMigrationsTable } =
+        await loadAppliedHashes();
+      if (
+        await backfillCompatibleMigrationHashes(
+          appliedHashes,
+          hasMigrationsTable,
+        )
+      ) {
+        ({ hashes: appliedHashes, hasMigrationsTable } =
+          await loadAppliedHashes());
+      }
+      const pendingEntries = getPendingEntries(appliedHashes);
+      const initiallyPendingMigrations = pendingEntries.map((entry) => ({
+        tag: entry.tag,
+        hash: getMigrationHash(entry),
+      }));
 
-// ── 4. Verify what was applied ──────────────────────────────────────────────
-const afterApplied = (await sql`
-  SELECT hash, created_at FROM "drizzle"."__drizzle_migrations" ORDER BY created_at ASC
-`) as Array<{ hash: string }>;
-const afterHashes = new Set(afterApplied.map((row) => row.hash));
-const newlyApplied = initiallyPendingEntries.filter((entry) => {
-  const hash = getMigrationHash(entry);
-  if (!hash) {
-    return false;
-  }
+      if (pendingEntries.length === 0) {
+        console.log("✅ No pending migrations. Database is up to date.\n");
+        return;
+      }
 
-  return afterHashes.has(hash);
-});
+      console.log(`⏳ Pending: ${pendingEntries.length} migration(s) to apply:\n`);
+      for (const entry of pendingEntries) {
+        console.log(`   → ${entry.tag} (idx ${entry.idx})`);
+      }
+      console.log();
 
-if (newlyApplied.length > 0) {
-  console.log(`\n✅ Successfully applied ${newlyApplied.length} migration(s):`);
-  for (const entry of newlyApplied) {
-    console.log(`   ✓ ${entry.tag}`);
-  }
-} else {
-  console.warn(
-    "\n⚠️  No migrations were applied despite pending entries." +
-      "\n   This likely means Drizzle skipped them due to 'when' ordering." +
-      "\n   Check the 'when' field in _journal.json.\n"
+      await maybeRunBugFixAttemptPreflight({
+        pendingMigrationTags: pendingEntries.map((entry) => entry.tag),
+        executeInTransaction: async <T>(
+          callback: (
+            execute: (statement: string) => Promise<unknown>,
+          ) => Promise<T>,
+        ) =>
+          (await sql.begin(async (tx) =>
+            callback(
+              (statement) => tx.unsafe(statement) as Promise<unknown>,
+            ))) as T,
+        log: (message) => console.log(message),
+      });
+
+      await maybeRunVectorExtensionPreflight({
+        pendingMigrationTags: pendingEntries.map((entry) => entry.tag),
+        execute: (statement) => sql.unsafe(statement) as Promise<unknown>,
+        log: (message) => console.log(message),
+      });
+
+      // ── 3. Run migrations ─────────────────────────────────────────────────
+      // WARNING: drizzle-orm's `migrate()` applies every pending migration in
+      // this batch inside ONE database transaction. Never ship a deploy batch
+      // that combines an enum `ADD VALUE` migration with a later
+      // migration/DML in the SAME batch that consumes that new value —
+      // Postgres forbids reading an enum value added earlier in the same
+      // transaction (error 55P04). Split them across separate deploys.
+      try {
+        await migrate(db, { migrationsFolder });
+      } catch (error) {
+        console.error("\n❌ Migration failed:\n", error);
+        throw error;
+      }
+
+      // ── 4. Verify what was applied ────────────────────────────────────────
+      const afterApplied = (await sql`
+        SELECT hash, created_at FROM "drizzle"."__drizzle_migrations" ORDER BY created_at ASC
+      `) as Array<{ hash: string }>;
+      const afterHashes = new Set(afterApplied.map((row) => row.hash));
+      const newlyApplied = assertPendingMigrationsApplied(
+        initiallyPendingMigrations,
+        afterHashes,
+      );
+
+      console.log(
+        `\n✅ Successfully applied ${newlyApplied.length} migration(s):`,
+      );
+      for (const entry of newlyApplied) {
+        console.log(`   ✓ ${entry.tag}`);
+      }
+
+      console.log();
+    },
+    {
+      timeoutMs: migrationLockTimeoutMs,
+      onUnlockError: (error) => {
+        console.error(
+          "Failed to release migration advisory lock after migration error:",
+          error,
+        );
+      },
+    },
   );
+} finally {
+  await sql.end();
 }
-
-console.log();
-await sql.end();
