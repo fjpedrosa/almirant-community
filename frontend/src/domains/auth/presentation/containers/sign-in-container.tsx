@@ -14,11 +14,18 @@ import {
   notifyPublicSignupPageOpened,
   submitSignupWithLifecycle,
 } from '../../application/lib/signup-lifecycle';
+import {
+  storeSignupAttribution,
+  type SignupAttribution,
+} from '../../application/lib/signup-attribution';
+import { shouldTrackCloudSignupFunnel } from '../../application/lib/signup-analytics';
 import { SignInCard } from '../components/sign-in-card';
+import { isCloudDeployment } from '@/lib/deployment-mode';
 
 const SignInContent = ({
   mode,
   socialProviders,
+  signupAttribution,
   showSignUpLink,
   signUpHref,
   showInvitationHint,
@@ -26,6 +33,7 @@ const SignInContent = ({
 }: {
   mode: AuthPageMode;
   socialProviders?: EnabledAuthProviders;
+  signupAttribution?: SignupAttribution;
   showSignUpLink?: boolean;
   signUpHref?: string;
   showInvitationHint?: boolean;
@@ -64,6 +72,17 @@ const SignInContent = ({
 
   const isSignUpMode = mode === 'initial_admin_setup' || mode === 'sign_up';
   const isPublicSignup = mode === 'sign_up' && isPublicSignUp;
+  // Stricter gate for the attribution *payload* only (adds the deployment-mode
+  // check main's `isPublicSignup` above doesn't have): a self-hosted install
+  // that happens to allow public registration still opens the lifecycle seam
+  // (`isPublicSignup`), but must not tag events with Cloud marketing
+  // attribution. Does not affect whether the seam fires, so it can't change
+  // when `notifyPublicSignupPageOpened`/`submitSignupWithLifecycle` are called.
+  const isCloudSignupFunnel = shouldTrackCloudSignupFunnel(
+    isCloudDeployment(),
+    mode,
+    Boolean(isPublicSignUp)
+  );
   const redirectTarget =
     mode === 'initial_admin_setup'
       ? '/onboarding'
@@ -75,8 +94,13 @@ const SignInContent = ({
     }
 
     hasNotifiedPublicSignup.current = true;
-    notifyPublicSignupPageOpened();
-  }, [isPublicSignup]);
+    const attribution = isCloudSignupFunnel ? signupAttribution : undefined;
+    if (attribution) {
+      notifyPublicSignupPageOpened(attribution);
+    } else {
+      notifyPublicSignupPageOpened();
+    }
+  }, [isPublicSignup, isCloudSignupFunnel, signupAttribution]);
 
   const validationError = useMemo(() => {
     if (!isSignUpMode) {
@@ -115,15 +139,18 @@ const SignInContent = ({
     setIsSubmitting(true);
 
     try {
+      const attribution = isCloudSignupFunnel ? signupAttribution : undefined;
       const result = isSignUpMode
         ? isPublicSignup
-          ? await submitSignupWithLifecycle(() =>
-              signUpWithEmail(
-                credentials.name.trim(),
-                credentials.email.trim(),
-                credentials.password,
-                redirectTarget,
-              ),
+          ? await submitSignupWithLifecycle(
+              () =>
+                signUpWithEmail(
+                  credentials.name.trim(),
+                  credentials.email.trim(),
+                  credentials.password,
+                  redirectTarget,
+                ),
+              attribution,
             )
           : await signUpWithEmail(
               credentials.name.trim(),
@@ -141,6 +168,13 @@ const SignInContent = ({
         setLocalError(result.error.message ?? t('generic'));
         setIsSubmitting(false);
         return;
+      }
+
+      if (isCloudSignupFunnel) {
+        // Persist attribution for `use-onboarding-wizard.ts` to retrieve when
+        // the first workspace activates, since that happens on a later page
+        // with no signup search params available.
+        storeSignupAttribution(attribution ?? { source: 'direct', placement: 'direct' });
       }
 
       window.location.assign(redirectTarget);
@@ -180,6 +214,7 @@ const SignInContent = ({
 export const SignInContainer = ({
   mode,
   socialProviders,
+  signupAttribution,
   showSignUpLink,
   signUpHref,
   showInvitationHint,
@@ -187,6 +222,7 @@ export const SignInContainer = ({
 }: {
   mode: AuthPageMode;
   socialProviders?: EnabledAuthProviders;
+  signupAttribution?: SignupAttribution;
   showSignUpLink?: boolean;
   signUpHref?: string;
   showInvitationHint?: boolean;
@@ -197,6 +233,7 @@ export const SignInContainer = ({
       <SignInContent
         mode={mode}
         socialProviders={socialProviders}
+        signupAttribution={signupAttribution}
         showSignUpLink={showSignUpLink}
         signUpHref={signUpHref}
         showInvitationHint={showInvitationHint}
