@@ -45,6 +45,7 @@ const listSpy = mock(async () => [] as unknown[]);
 const resetAiSpy = mock(async () => ({}) as unknown);
 const createSpy = mock(async () => ({}) as unknown);
 const deleteSpy = mock(async () => ({}) as unknown);
+const updateSpy = mock(async () => ({}) as unknown);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let realApi: any;
@@ -59,6 +60,7 @@ beforeAll(async () => {
       resetAi: resetAiSpy,
       create: createSpy,
       delete: deleteSpy,
+      update: updateSpy,
     },
   }));
 });
@@ -73,6 +75,7 @@ afterEach(() => {
   resetAiSpy.mockClear();
   createSpy.mockClear();
   deleteSpy.mockClear();
+  updateSpy.mockClear();
 });
 
 const makeClient = () =>
@@ -236,5 +239,172 @@ describe("useDeleteWorkItem (scoped invalidation)", () => {
     expect(hasKey(keys, ["work-items"])).toBe(false);
 
     expect(client.getQueryState(boardKey)?.isInvalidated).toBe(true);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Scheduled work items (backend gate #47): `startDate` must get the same
+// optimistic-cache treatment `dueDate` already gets, so the detail panel's
+// "Scheduled" badge/date picker update instantly instead of waiting on a
+// refetch.
+// -----------------------------------------------------------------------------
+describe("useUpdateWorkItem (optimistic startDate)", () => {
+  it("fijar: optimistically applies a picked startDate to the detail cache", async () => {
+    mockConfirmedTeamId = "team-1";
+    const client = makeClient();
+    const detailKey = ["work-items", "detail", "wi-1"];
+    client.setQueryData(detailKey, { id: "wi-1", startDate: null });
+
+    const { useUpdateWorkItem } = await import("./use-work-items");
+    const { result } = renderHook(() => useUpdateWorkItem(), {
+      wrapper: wrapperFor(client),
+    });
+
+    result.current.mutate({
+      id: "wi-1",
+      data: { startDate: "2026-09-01T00:00:00.000Z" },
+    });
+
+    await waitFor(() => {
+      const cached = client.getQueryData(detailKey) as { startDate: Date | null };
+      expect(cached.startDate).toEqual(new Date("2026-09-01T00:00:00.000Z"));
+    });
+  });
+
+  it("limpiar: optimistically clears startDate to null on the detail cache", async () => {
+    mockConfirmedTeamId = "team-1";
+    const client = makeClient();
+    const detailKey = ["work-items", "detail", "wi-1"];
+    client.setQueryData(detailKey, {
+      id: "wi-1",
+      startDate: new Date("2026-09-01T00:00:00.000Z"),
+    });
+
+    const { useUpdateWorkItem } = await import("./use-work-items");
+    const { result } = renderHook(() => useUpdateWorkItem(), {
+      wrapper: wrapperFor(client),
+    });
+
+    result.current.mutate({ id: "wi-1", data: { startDate: null } });
+
+    await waitFor(() => {
+      const cached = client.getQueryData(detailKey) as { startDate: Date | null };
+      expect(cached.startDate).toBeNull();
+    });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Review fix (T2.1 #1): the board-cache branch of `onMutate` patches
+// title/priority/assignee/description/metadata but was silently dropping
+// startDate/dueDate — the non-modal panel updated everything except the
+// "Scheduled" badge, which only caught up once the board query refetched.
+// Mirrors the detail-cache assertions above but reads back the *board* cache.
+// -----------------------------------------------------------------------------
+describe("useUpdateWorkItem (optimistic startDate/dueDate - board cache)", () => {
+  const boardKey = ["work-items", "board", "b1", "", "org:team-1"];
+
+  type BoardCacheShape = { items: { id: string; startDate: Date | null; dueDate: Date | null }[] }[];
+
+  it("fijar: optimistically applies a picked startDate to the board cache", async () => {
+    mockConfirmedTeamId = "team-1";
+    const client = makeClient();
+    client.setQueryData(boardKey, [
+      {
+        column: { id: "col-1", name: "Todo" },
+        items: [{ id: "wi-1", startDate: null, dueDate: null }],
+        count: 1,
+      },
+    ]);
+
+    const { useUpdateWorkItem } = await import("./use-work-items");
+    const { result } = renderHook(() => useUpdateWorkItem(), {
+      wrapper: wrapperFor(client),
+    });
+
+    result.current.mutate({
+      id: "wi-1",
+      data: { startDate: "2026-09-01T00:00:00.000Z" },
+    });
+
+    await waitFor(() => {
+      const cached = client.getQueryData(boardKey) as BoardCacheShape;
+      expect(cached[0].items[0].startDate).toEqual(new Date("2026-09-01T00:00:00.000Z"));
+    });
+  });
+
+  it("limpiar: optimistically clears startDate to null on the board cache", async () => {
+    mockConfirmedTeamId = "team-1";
+    const client = makeClient();
+    client.setQueryData(boardKey, [
+      {
+        column: { id: "col-1", name: "Todo" },
+        items: [{ id: "wi-1", startDate: new Date("2026-09-01T00:00:00.000Z"), dueDate: null }],
+        count: 1,
+      },
+    ]);
+
+    const { useUpdateWorkItem } = await import("./use-work-items");
+    const { result } = renderHook(() => useUpdateWorkItem(), {
+      wrapper: wrapperFor(client),
+    });
+
+    result.current.mutate({ id: "wi-1", data: { startDate: null } });
+
+    await waitFor(() => {
+      const cached = client.getQueryData(boardKey) as BoardCacheShape;
+      expect(cached[0].items[0].startDate).toBeNull();
+    });
+  });
+
+  it("fijar: optimistically applies a picked dueDate to the board cache", async () => {
+    mockConfirmedTeamId = "team-1";
+    const client = makeClient();
+    client.setQueryData(boardKey, [
+      {
+        column: { id: "col-1", name: "Todo" },
+        items: [{ id: "wi-1", startDate: null, dueDate: null }],
+        count: 1,
+      },
+    ]);
+
+    const { useUpdateWorkItem } = await import("./use-work-items");
+    const { result } = renderHook(() => useUpdateWorkItem(), {
+      wrapper: wrapperFor(client),
+    });
+
+    result.current.mutate({
+      id: "wi-1",
+      data: { dueDate: "2026-09-15T00:00:00.000Z" },
+    });
+
+    await waitFor(() => {
+      const cached = client.getQueryData(boardKey) as BoardCacheShape;
+      expect(cached[0].items[0].dueDate).toEqual(new Date("2026-09-15T00:00:00.000Z"));
+    });
+  });
+
+  it("limpiar: optimistically clears dueDate to null on the board cache", async () => {
+    mockConfirmedTeamId = "team-1";
+    const client = makeClient();
+    client.setQueryData(boardKey, [
+      {
+        column: { id: "col-1", name: "Todo" },
+        items: [{ id: "wi-1", startDate: null, dueDate: new Date("2026-09-15T00:00:00.000Z") }],
+        count: 1,
+      },
+    ]);
+
+    const { useUpdateWorkItem } = await import("./use-work-items");
+    const { result } = renderHook(() => useUpdateWorkItem(), {
+      wrapper: wrapperFor(client),
+    });
+
+    result.current.mutate({ id: "wi-1", data: { dueDate: null } });
+
+    await waitFor(() => {
+      const cached = client.getQueryData(boardKey) as BoardCacheShape;
+      expect(cached[0].items[0].dueDate).toBeNull();
+    });
   });
 });

@@ -129,6 +129,12 @@ export const useUpdateWorkItem = () => {
                 ...(data.priority !== undefined && { priority: data.priority }),
                 ...(data.assignee !== undefined && { assignee: data.assignee }),
                 ...(data.description !== undefined && { description: data.description }),
+                // Mirror the detail-cache branch below: without this the board
+                // cards (non-modal panel) update every field except
+                // startDate/dueDate, so the "Scheduled" badge only catches up
+                // after the board query refetches.
+                ...(data.startDate !== undefined && { startDate: data.startDate ? new Date(data.startDate) : null }),
+                ...(data.dueDate !== undefined && { dueDate: data.dueDate ? new Date(data.dueDate) : null }),
                 ...(data.metadata !== undefined && { metadata: { ...item.metadata, ...data.metadata } }),
               };
             }),
@@ -149,6 +155,7 @@ export const useUpdateWorkItem = () => {
               ...(data.priority !== undefined && { priority: data.priority }),
               ...(data.assignee !== undefined && { assignee: data.assignee }),
               ...(data.description !== undefined && { description: data.description }),
+              ...(data.startDate !== undefined && { startDate: data.startDate ? new Date(data.startDate) : null }),
               ...(data.dueDate !== undefined && { dueDate: data.dueDate ? new Date(data.dueDate) : null }),
               ...(data.estimatedHours !== undefined && { estimatedHours: data.estimatedHours }),
               ...(data.parentId !== undefined && { parentId: data.parentId }),

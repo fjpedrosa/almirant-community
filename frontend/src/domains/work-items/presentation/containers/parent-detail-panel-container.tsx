@@ -69,6 +69,8 @@ interface ParentDetailPanelContainerProps {
   selectedAssigneeIds?: string[];
   onSelectAssignee?: (userId: string) => void;
   onRemoveAssignee?: (userId: string) => void;
+  startDate?: Date | null;
+  onStartDateChange?: (date: Date | null) => void;
   dueDate?: Date | null;
   onDueDateChange?: (date: Date | null) => void;
   estimatedHours?: number | null;
@@ -158,6 +160,8 @@ export const ParentDetailPanelContainer: React.FC<ParentDetailPanelContainerProp
   selectedAssigneeIds,
   onSelectAssignee,
   onRemoveAssignee,
+  startDate,
+  onStartDateChange,
   dueDate,
   onDueDateChange,
   estimatedHours,
@@ -251,6 +255,8 @@ export const ParentDetailPanelContainer: React.FC<ParentDetailPanelContainerProp
     selectedAssigneeIds,
     onSelectAssignee,
     onRemoveAssignee,
+    startDate,
+    onStartDateChange,
     dueDate,
     onDueDateChange,
     estimatedHours,

@@ -36,6 +36,7 @@ import {
 import { showToast } from "@/domains/shared/presentation/utils/show-toast";
 import { useTranslations } from "next-intl";
 import { useWorkItemsByBoard, useWorkItemsByArea } from "../../application/hooks/use-work-item-board";
+import { useMinuteNow } from "../../application/hooks/use-minute-now";
 import { useSprintFilter } from "../../application/hooks/use-sprint-filter";
 import { useWorkItemKanban } from "../../application/hooks/use-work-item-kanban";
 import { useCreateWorkItemForm } from "../../application/hooks/use-create-work-item-form";
@@ -194,6 +195,15 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
   const t = useTranslations("workItems");
   const router = useRouter();
   const pathname = usePathname();
+  // Scheduled work items (backend gate #47): ticks every 60s so the
+  // "Scheduled" badge re-checks its visibility even though the board query
+  // has a 5-minute staleTime and WorkItemCard is memoized. Threaded down
+  // through WorkItemColumn -> WorkItemCard -> ScheduledBadge as `now`. The
+  // detail panel (ParentDetailPanelContainer/ParentDetailPanel) is NOT
+  // memoized, so it already cascades a fresh render-time `now` from this same
+  // tick for free — no separate prop needed there (see comment at its
+  // ScheduledBadge usage in parent-detail-panel.tsx).
+  const now = useMinuteNow();
   // Derive unique assignee options from board items for the filter dropdown.
   // Uses a ref to avoid circular dependency: useBoardFilters needs assignees,
   // but assignees come from column data which needs filterParams from useBoardFilters.
@@ -1260,6 +1270,7 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
                 <WorkItemColumn
                   key={col.column.id}
                   compact={viewMode === "compact"}
+                  now={now}
                   column={col.column}
                   items={col.items}
                   onAddItem={() => handleOpenAddItem(col.column.id)}
@@ -1477,6 +1488,8 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
         selectedAssigneeIds={detailPanel.selectedAssigneeIds}
         onSelectAssignee={detailPanel.handleSelectAssignee}
         onRemoveAssignee={detailPanel.handleRemoveAssignee}
+        startDate={detailPanel.startDate ? new Date(detailPanel.startDate) : null}
+        onStartDateChange={detailPanel.handleStartDateChange}
         dueDate={detailPanel.dueDate ? new Date(detailPanel.dueDate) : null}
         onDueDateChange={detailPanel.handleDueDateChange}
         estimatedHours={detailPanel.estimatedHours}

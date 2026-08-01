@@ -185,6 +185,19 @@ export const useWorkItemDetailPanel = () => {
     [panel.parentItem, updateWorkItem]
   );
 
+  // Scheduled work items (backend gate #47): sets/clears the start date the
+  // backlog drain gates on. Mirrors handleDueDateChange exactly.
+  const handleStartDateChange = useCallback(
+    (date: Date | null) => {
+      if (!panel.parentItem) return;
+      updateWorkItem.mutate({
+        id: panel.parentItem.id,
+        data: { startDate: date ? date.toISOString() : null },
+      });
+    },
+    [panel.parentItem, updateWorkItem]
+  );
+
   const handleEstimatedHoursChange = useCallback(
     (hours: number | null) => {
       if (!panel.parentItem) return;
@@ -305,6 +318,8 @@ export const useWorkItemDetailPanel = () => {
       handleRemoveAssignee,
       dueDate: panel.parentItem?.dueDate ?? null,
       handleDueDateChange,
+      startDate: panel.parentItem?.startDate ?? null,
+      handleStartDateChange,
       estimatedHours: panel.parentItem?.estimatedHours ?? null,
       handleEstimatedHoursChange,
       availableParents: parentCandidates,
@@ -345,6 +360,7 @@ export const useWorkItemDetailPanel = () => {
       handleSelectAssignee,
       handleRemoveAssignee,
       handleDueDateChange,
+      handleStartDateChange,
       handleEstimatedHoursChange,
       parentCandidates,
       isLoadingParents,
