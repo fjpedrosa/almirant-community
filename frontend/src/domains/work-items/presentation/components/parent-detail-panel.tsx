@@ -75,6 +75,7 @@ import {
 } from "./work-item-style";
 import { GroupedDetailProgress } from "./grouped-detail-progress";
 import { HierarchyTreeView } from "./hierarchy-tree-view";
+import { ScheduledBadge } from "./scheduled-badge";
 import type {
   ParentDetailPanelProps,
   WorkItemMetadata,
@@ -262,6 +263,8 @@ export const ParentDetailPanel: React.FC<ParentDetailPanelProps> = ({
   selectedAssigneeIds,
   onSelectAssignee,
   onRemoveAssignee,
+  startDate,
+  onStartDateChange,
   dueDate,
   onDueDateChange,
   estimatedHours,
@@ -287,9 +290,27 @@ export const ParentDetailPanel: React.FC<ParentDetailPanelProps> = ({
   const tCommon = useTranslations("common");
   const tEstimation = useTranslations("estimation");
 
-  const { formatLong, locale } = useFormattedDate();
+  const { formatLong, formatRelative, locale } = useFormattedDate();
 
   const metadata = item?.metadata as WorkItemMetadata | undefined;
+  // "Scheduled" badge (gate #47): only meaningful while startDate is set —
+  // visibility itself is decided by ScheduledBadge via the pure `isFutureDate`
+  // check, this just avoids formatting a relative label off a null date.
+  //
+  // Unlike WorkItemCard, this component and its container
+  // (ParentDetailPanelContainer) are NOT wrapped in React.memo, and the
+  // sliding panel stays mounted (CSS transform + `inert`, see
+  // sliding-form-panel.tsx) rather than unmounting when closed. That means
+  // it re-renders on every WorkItemBoardContainer render for free —
+  // including the 60s `useMinuteNow` tick that lives there for the board
+  // cards — so ScheduledBadge's own render-time `now` default (`new Date()`)
+  // is already refreshed on that same cadence without threading a `now` prop
+  // through this already-90+-prop container. If either component is ever
+  // memoized, this must switch to explicit `now` prop threading like
+  // WorkItemCard does.
+  const scheduledLabel = item?.startDate
+    ? t("scheduled", { date: formatRelative(item.startDate) })
+    : null;
   const estimatedPoints = metadata?.estimatedPoints;
   const definitionOfDone = metadata?.definitionOfDone;
   // Aggregated story points from leaf children (for parent items)
@@ -385,6 +406,10 @@ export const ParentDetailPanel: React.FC<ParentDetailPanelProps> = ({
                   <span className="font-mono text-xs text-muted-foreground">
                     {item.taskId}
                   </span>
+                )}
+
+                {scheduledLabel && (
+                  <ScheduledBadge startDate={item.startDate} label={scheduledLabel} />
                 )}
 
                 {/* Stop AI button */}
@@ -712,6 +737,53 @@ export const ParentDetailPanel: React.FC<ParentDetailPanelProps> = ({
                               </span>
                             )}
                           </MetadataRow>
+
+                          {/* Start Date (scheduled — backend gate #47) */}
+                          {onStartDateChange && (
+                            <MetadataRow
+                              icon={<CalendarIcon className="h-4 w-4" />}
+                              label={t("startDate")}
+                            >
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className={cn(
+                                      "h-8 justify-start text-left font-normal text-xs",
+                                      !startDate && "text-muted-foreground"
+                                    )}
+                                  >
+                                    <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                                    {startDate
+                                      ? formatLong(startDate)
+                                      : tCommon("selectDate")}
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                  <Calendar
+                                    mode="single"
+                                    selected={startDate ?? undefined}
+                                    onSelect={(date: Date | undefined) => onStartDateChange(date ?? null)}
+                                    initialFocus
+                                    locale={locale}
+                                  />
+                                  {startDate && (
+                                    <div className="px-3 pb-2">
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="w-full text-xs"
+                                        onClick={() => onStartDateChange(null)}
+                                      >
+                                        {tCommon("clear")}
+                                      </Button>
+                                    </div>
+                                  )}
+                                </PopoverContent>
+                              </Popover>
+                            </MetadataRow>
+                          )}
 
                           {/* Due Date */}
                           {onDueDateChange && (

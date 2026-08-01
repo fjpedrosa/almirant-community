@@ -6,6 +6,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { AlertTriangle, Bug, ChevronDown, ChevronRight, ClipboardCopy, ExternalLink, GitCommitHorizontal, HelpCircle, Info, Rocket, SearchCheck, ShieldCheck, TerminalSquare, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
+import useFormattedDate from "@/domains/shared/application/hooks/use-formatted-date";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -16,7 +17,6 @@ import { CopyPromptButton } from "./copy-prompt-button";
 import { WorkItemInfoPopup } from "./work-item-info-popup";
 import { useIsMobile } from "@/lib/hooks";
 import { WorkItemChildrenList } from "./work-item-children-list";
-import type { WorkItemChild } from "./work-item-children-list";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AgentJobIndicator } from "@/domains/agents/presentation/components/agent-job-indicator";
@@ -28,10 +28,8 @@ import {
   mapAgentProviderToNormalized,
 } from "@/domains/shared/presentation/utils/provider-icons";
 import type { NormalizedProvider } from "@/domains/shared/presentation/utils/provider-icons";
-import type { ColumnRole } from "@/domains/boards/domain/types";
-import type { AgentJobStatus, AgentProvider, RepoOption } from "@/domains/agents/domain/types";
-import type { CodingAgent } from "@/domains/agents/domain/coding-agent-compatibility";
-import type { AiParticipant, AiParticipantProvider, ParticipantOrAi, WorkItemParticipant, WorkItemWithContext, WorkItemMetadata } from "../../domain/types";
+import type { AgentProvider } from "@/domains/agents/domain/types";
+import type { AiParticipant, AiParticipantProvider, ParticipantOrAi, WorkItemWithContext, WorkItemMetadata } from "../../domain/types";
 import { parseChecklistStatus } from "../../domain/types";
 import type { RunnerActionType } from "../../domain/column-actions";
 import { isActionAvailable, isActionAvailableByRole, getRunnerActionForRole } from "../../domain/column-actions";
@@ -47,6 +45,8 @@ import { AggregatedUserActionsChecklistContainer } from "../containers/aggregate
 import { TShirtBadge } from "./tshirt-badge";
 import { pointsToTShirtSize } from "../../domain/utils";
 import { HumanActionRequiredBadge } from "./human-action-required-badge";
+import { ScheduledBadge } from "./scheduled-badge";
+import { workItemCardPropsAreEqual, type WorkItemCardProps } from "./work-item-card.memo";
 
 export { typeBadgeColors, priorityColors };
 
@@ -211,51 +211,6 @@ const buildAiParticipants = (
   return result;
 };
 
-interface WorkItemCardProps {
-  item: WorkItemWithContext;
-  columnName: string;
-  /** Column role for role-based action resolution */
-  columnRole?: ColumnRole;
-  compact?: boolean;
-  agentJobStatus?: AgentJobStatus;
-  agentJobProvider?: AgentProvider;
-  onImplementWithAi?: (provider: AgentProvider, codingAgent?: CodingAgent, model?: string) => void;
-  isImplementWithAiPending?: boolean;
-  /** Generic runner action callback (validate, fix, document) */
-  onRunnerAction?: (provider: AgentProvider, actionType: RunnerActionType, codingAgent?: CodingAgent, model?: string) => void;
-  isRunnerActionPending?: boolean;
-  projectRepos?: RepoOption[];
-  selectedRepoId?: string | null;
-  onRepoSelect?: (repoId: string | null) => void;
-  /** The project's default AI provider for highlighting in the provider selector. */
-  defaultProvider?: AgentProvider;
-  participants?: WorkItemParticipant[];
-  onClick?: () => void;
-  onCopyPrompt?: () => void;
-  onCopySavedPrompt?: () => void;
-  isCopyingPrompt?: boolean;
-  showCopySuccess?: boolean;
-  isSelected?: boolean;
-  onToggleSelect?: () => void;
-  onRangeSelect?: () => void;
-  isGroupedForDrag?: boolean;
-  isJustDropped?: boolean;
-  isDragActive?: boolean;
-  onCopyTaskCommand?: () => void;
-  onCopyReviewCommand?: () => void;
-  onCopyCliCommand?: () => void;
-  cliCommandCopied?: boolean;
-  isExpanded?: boolean;
-  onToggleExpand?: () => void;
-  childrenItems?: WorkItemChild[];
-  isLoadingChildren?: boolean;
-  onParentClick?: (parentId: string) => void;
-  /** Column name-by-id map for grouped card progress badges */
-  columnNamesById?: Record<string, string>;
-  /** Column color-by-id map for grouped card progress badges */
-  columnColorsById?: Record<string, string>;
-}
-
 const RUNNER_ACTION_LABELS: Record<RunnerActionType, string> = {
   implement: "Implement",
   validate: "Validate",
@@ -266,6 +221,7 @@ const RUNNER_ACTION_LABELS: Record<RunnerActionType, string> = {
 const WorkItemCardInner: React.FC<WorkItemCardProps> = ({
   item,
   columnName,
+  now,
   columnRole,
   compact,
   agentJobStatus,
@@ -305,6 +261,13 @@ const WorkItemCardInner: React.FC<WorkItemCardProps> = ({
   const t = useTranslations("workItems");
   const tAgents = useTranslations("agents");
   const isMobile = useIsMobile();
+  const { formatRelative } = useFormattedDate();
+  // "Scheduled" badge (gate #47): only meaningful while startDate is set —
+  // visibility itself is decided by ScheduledBadge via the pure `isFutureDate`
+  // check, this just avoids formatting a relative label off a null date.
+  const scheduledLabel = item.startDate
+    ? t("card.scheduled", { date: formatRelative(item.startDate) })
+    : null;
   const aiProviders = normalizeAiProvidersFromMetadata(item.metadata as Record<string, unknown> | undefined);
   // Works off BOTH DTOs: slim board list (descriptionPreview / has* flags) and
   // the full item — so no preview/affordance breaks under `?view=board`.
@@ -549,6 +512,9 @@ const WorkItemCardInner: React.FC<WorkItemCardProps> = ({
                 tools={externalValidationRequirement.tools}
                 compact
               />
+            )}
+            {scheduledLabel && (
+              <ScheduledBadge startDate={item.startDate} label={scheduledLabel} now={now} compact />
             )}
             {/* Right slot: swap avatars ↔ actions via a single relative container */}
             <div className="ml-auto shrink-0 relative">
@@ -954,6 +920,9 @@ const WorkItemCardInner: React.FC<WorkItemCardProps> = ({
                 tools={externalValidationRequirement.tools}
               />
             )}
+            {scheduledLabel && (
+              <ScheduledBadge startDate={item.startDate} label={scheduledLabel} now={now} />
+            )}
           </div>
         )}
 
@@ -1228,83 +1197,6 @@ const WorkItemCardInner: React.FC<WorkItemCardProps> = ({
   );
 };
 
-export const WorkItemCard = memo(WorkItemCardInner, (prev, next) => {
-  return (
-    prev.compact === next.compact &&
-    prev.item.id === next.item.id &&
-    prev.item.title === next.item.title &&
-    prev.item.description === next.item.description &&
-    prev.item.descriptionPreview === next.item.descriptionPreview &&
-    prev.item.hasGeneratedPrompt === next.item.hasGeneratedPrompt &&
-    prev.item.hasDefinitionOfDone === next.item.hasDefinitionOfDone &&
-    prev.item.type === next.item.type &&
-    prev.item.priority === next.item.priority &&
-    prev.item.assignee === next.item.assignee &&
-    prev.item.assignees === next.item.assignees &&
-    prev.item.childrenCount === next.item.childrenCount &&
-    prev.item.isVirtualColumn === next.item.isVirtualColumn &&
-    prev.item.taskId === next.item.taskId &&
-    prev.item.tags === next.item.tags &&
-    prev.item.isAiProcessing === next.item.isAiProcessing &&
-    prev.item.createdBy === next.item.createdBy &&
-    prev.columnName === next.columnName &&
-    prev.columnRole === next.columnRole &&
-    prev.isSelected === next.isSelected &&
-    prev.isGroupedForDrag === next.isGroupedForDrag &&
-    prev.isJustDropped === next.isJustDropped &&
-    prev.isDragActive === next.isDragActive &&
-    prev.isCopyingPrompt === next.isCopyingPrompt &&
-    prev.showCopySuccess === next.showCopySuccess &&
-    prev.onClick === next.onClick &&
-    prev.onCopyPrompt === next.onCopyPrompt &&
-    prev.onCopySavedPrompt === next.onCopySavedPrompt &&
-    prev.onToggleSelect === next.onToggleSelect &&
-    prev.onRangeSelect === next.onRangeSelect &&
-    prev.item.metadata === next.item.metadata &&
-    (prev.item.metadata as WorkItemMetadata)?.isBug === (next.item.metadata as WorkItemMetadata)?.isBug &&
-    (prev.item.metadata as WorkItemMetadata)?.tested === (next.item.metadata as WorkItemMetadata)?.tested &&
-    (prev.item.metadata as WorkItemMetadata)?.dod_approved === (next.item.metadata as WorkItemMetadata)?.dod_approved &&
-    (prev.item.metadata as WorkItemMetadata)?.dod_human_action_required === (next.item.metadata as WorkItemMetadata)?.dod_human_action_required &&
-    (prev.item.metadata as WorkItemMetadata)?.dod_human_action === (next.item.metadata as WorkItemMetadata)?.dod_human_action &&
-    (prev.item.metadata as WorkItemMetadata)?.dod_human_action_reason === (next.item.metadata as WorkItemMetadata)?.dod_human_action_reason &&
-    (prev.item.metadata as WorkItemMetadata)?.dod_human_review_required === (next.item.metadata as WorkItemMetadata)?.dod_human_review_required &&
-    (prev.item.metadata as WorkItemMetadata)?.dod_human_review_reason === (next.item.metadata as WorkItemMetadata)?.dod_human_review_reason &&
-    (prev.item.metadata as WorkItemMetadata)?.dod_auto_remediation_blocked === (next.item.metadata as WorkItemMetadata)?.dod_auto_remediation_blocked &&
-    (prev.item.metadata as WorkItemMetadata)?.dod_external_validation_required === (next.item.metadata as WorkItemMetadata)?.dod_external_validation_required &&
-    (prev.item.metadata as WorkItemMetadata)?.dod_external_validation_reason === (next.item.metadata as WorkItemMetadata)?.dod_external_validation_reason &&
-    (prev.item.metadata as WorkItemMetadata)?.dod_external_validation_tools === (next.item.metadata as WorkItemMetadata)?.dod_external_validation_tools &&
-    (prev.item.metadata as WorkItemMetadata)?.previewUrl === (next.item.metadata as WorkItemMetadata)?.previewUrl &&
-    (prev.item.metadata as WorkItemMetadata)?.pullRequest?.state === (next.item.metadata as WorkItemMetadata)?.pullRequest?.state &&
-    (prev.item.metadata as WorkItemMetadata)?.pullRequest?.number === (next.item.metadata as WorkItemMetadata)?.pullRequest?.number &&
-    (prev.item.metadata as WorkItemMetadata)?.releasePullRequest?.state === (next.item.metadata as WorkItemMetadata)?.releasePullRequest?.state &&
-    (prev.item.metadata as WorkItemMetadata)?.releasePullRequest?.number === (next.item.metadata as WorkItemMetadata)?.releasePullRequest?.number &&
-    (prev.item.metadata as WorkItemMetadata)?.releasePullRequest?.releaseNumber === (next.item.metadata as WorkItemMetadata)?.releasePullRequest?.releaseNumber &&
-    (prev.item.metadata as WorkItemMetadata)?.ciStatus?.status === (next.item.metadata as WorkItemMetadata)?.ciStatus?.status &&
-    (prev.item.metadata as WorkItemMetadata)?.ciStatus?.conclusion === (next.item.metadata as WorkItemMetadata)?.ciStatus?.conclusion &&
-    (prev.item.metadata as Record<string, unknown> | undefined)?.lastAiError === (next.item.metadata as Record<string, unknown> | undefined)?.lastAiError &&
-    (prev.item.metadata as Record<string, unknown> | undefined)?.estimatedPoints === (next.item.metadata as Record<string, unknown> | undefined)?.estimatedPoints &&
-    prev.onCopyTaskCommand === next.onCopyTaskCommand &&
-    prev.onCopyReviewCommand === next.onCopyReviewCommand &&
-    prev.onCopyCliCommand === next.onCopyCliCommand &&
-    prev.cliCommandCopied === next.cliCommandCopied &&
-    prev.isExpanded === next.isExpanded &&
-    prev.childrenItems === next.childrenItems &&
-    prev.isLoadingChildren === next.isLoadingChildren &&
-    prev.agentJobStatus === next.agentJobStatus &&
-    prev.agentJobProvider === next.agentJobProvider &&
-    prev.onImplementWithAi === next.onImplementWithAi &&
-    prev.isImplementWithAiPending === next.isImplementWithAiPending &&
-    prev.onRunnerAction === next.onRunnerAction &&
-    prev.isRunnerActionPending === next.isRunnerActionPending &&
-    prev.projectRepos === next.projectRepos &&
-    prev.selectedRepoId === next.selectedRepoId &&
-    prev.onRepoSelect === next.onRepoSelect &&
-    prev.participants === next.participants &&
-    prev.onParentClick === next.onParentClick &&
-    prev.columnNamesById === next.columnNamesById &&
-    prev.columnColorsById === next.columnColorsById &&
-    prev.item.childrenSummary === next.item.childrenSummary
-  );
-});
+export const WorkItemCard = memo(WorkItemCardInner, workItemCardPropsAreEqual);
 
 WorkItemCard.displayName = "WorkItemCard";

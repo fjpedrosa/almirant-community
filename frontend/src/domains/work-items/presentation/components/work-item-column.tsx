@@ -75,6 +75,13 @@ type VirtualEntry =
 
 const WorkItemColumnInner: React.FC<WorkItemColumnProps & {
   compact?: boolean;
+  /**
+   * Reference time for the "Scheduled" badge, ticked every 60s by
+   * `useMinuteNow` at the board container level and passed straight through
+   * to each `WorkItemCard` so its memo comparator can re-check badge
+   * visibility on the tick — see `work-item-card.memo.ts`.
+   */
+  now: Date;
   onCopyPrompt?: (item: WorkItemWithContext) => void;
   onCopySavedPrompt?: (itemId: string) => void;
   copyingPromptId?: string | null;
@@ -112,6 +119,7 @@ const WorkItemColumnInner: React.FC<WorkItemColumnProps & {
   onParentClick?: (parentId: string) => void;
 }> = ({
   compact,
+  now,
   column,
   items,
   onAddItem,
@@ -257,6 +265,7 @@ const WorkItemColumnInner: React.FC<WorkItemColumnProps & {
       <WorkItemCard
         item={item}
         columnName={column.name}
+        now={now}
         columnRole={column.role}
         compact={compact}
         agentJobStatus={agentJobStatus}
@@ -410,6 +419,12 @@ const WorkItemColumnInner: React.FC<WorkItemColumnProps & {
 
 export const WorkItemColumn = memo(WorkItemColumnInner, (prev, next) => {
   if (prev.compact !== next.compact) return false;
+  // Scheduled badge staleness fix: `now` ticks every 60s (useMinuteNow) so the
+  // column must re-render to hand the new value down to `WorkItemCard` — its
+  // OWN memo comparator (`workItemCardPropsAreEqual`) is what actually
+  // decides whether any given card re-renders for the tick, so this is
+  // intentionally coarse at the column level.
+  if (prev.now !== next.now) return false;
   if (prev.column.id !== next.column.id) return false;
   if (prev.column.name !== next.column.name) return false;
   if (prev.column.color !== next.column.color) return false;

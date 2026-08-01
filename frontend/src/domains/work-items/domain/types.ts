@@ -1073,6 +1073,9 @@ export interface ParentDetailPanelProps {
   selectedAssigneeIds?: string[];
   onSelectAssignee?: (userId: string) => void;
   onRemoveAssignee?: (userId: string) => void;
+  /** Scheduled work items (backend gate #47): the backlog drain won't pick this item up until this date. */
+  startDate?: Date | null;
+  onStartDateChange?: (date: Date | null) => void;
   dueDate?: Date | null;
   onDueDateChange?: (date: Date | null) => void;
   estimatedHours?: number | null;
