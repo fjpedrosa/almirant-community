@@ -2,14 +2,18 @@ FROM node:22-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN mkdir -p -m 755 /etc/apt/keyrings \
+# node:22-bookworm-slim ships neither curl nor ca-certificates, but both are
+# required to fetch the GitHub CLI apt repo over HTTPS. Install them FIRST from
+# the default (HTTP) Debian mirror, then add the gh repo and install the rest.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+  && mkdir -p -m 755 /etc/apt/keyrings \
   && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null \
   && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
   && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
     > /etc/apt/sources.list.d/github-cli.list \
   && apt-get update && apt-get install -y --no-install-recommends \
-  ca-certificates curl git jq bc bash openssh-client gh \
+  git jq bc bash openssh-client gh \
   libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
   libcups2 libdrm2 libdbus-1-3 libxkbcommon0 \
   libatspi2.0-0 libxcomposite1 libxdamage1 libxfixes3 \
@@ -19,7 +23,7 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
   && rm -rf /var/lib/apt/lists/*
 
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-RUN npm install -g bun@1.3.13 @anthropic-ai/claude-code@2.1.209 undici@8.0.2 \
+RUN npm install -g bun@1.3.13 @anthropic-ai/claude-code@2.1.218 undici@8.0.2 \
     @modelcontextprotocol/server-sequential-thinking@2025.12.18 \
     @modelcontextprotocol/server-memory@2026.1.26 \
     @modelcontextprotocol/server-filesystem@2026.1.14 \
