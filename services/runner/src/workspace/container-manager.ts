@@ -116,7 +116,7 @@ const countZombieProcesses = (topResult: DockerTopResult): number => {
   }).length;
 };
 
-type ContainerManagerConfig = {
+export type ContainerManagerConfig = {
   dockerSocketPath: string;
   workerId: string;
   managedLabelKey?: string;

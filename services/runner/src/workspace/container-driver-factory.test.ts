@@ -1,9 +1,14 @@
-import { describe, expect, it } from "bun:test";
-import { createContainerDriver } from "./container-driver-factory";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import {
+  buildDockerContainerManagerConfig,
+  createContainerDriver,
+  registerContainerDriver,
+  type ContainerDriverEnv,
+} from "./container-driver-factory";
 import { ContainerManager } from "./container-manager";
 import type { ContainerDriver } from "./container-driver";
 
-const baseEnv = {
+const baseEnv: ContainerDriverEnv = {
   DOCKER_SOCKET: "/var/run/docker.sock",
   WORKER_ID: "worker-test",
   GHCR_USERNAME: undefined,
@@ -72,5 +77,70 @@ describe("createContainerDriver", () => {
     });
     expect(driver).toBeInstanceOf(ContainerManager);
     expect(driver.capabilities.workspace).toBe("host-bind");
+  });
+
+  it("falls back to the direct Docker socket when the configured socket is a remote proxy", () => {
+    // Archive/exec operations don't work through the Docker socket proxy
+    // (it blocks PUT/exec-hijack), so the config must keep a direct-socket
+    // fallback pointing at the local Docker socket.
+    const config = buildDockerContainerManagerConfig({
+      ...baseEnv,
+      DOCKER_SOCKET: "tcp://docker-proxy:2375",
+    });
+
+    expect(config.dockerSocketPath).toBe("tcp://docker-proxy:2375");
+    expect(config.directSocketPath).toBe("/var/run/docker.sock");
+  });
+
+  it("omits the direct-socket fallback when already talking to the local Docker socket", () => {
+    const config = buildDockerContainerManagerConfig(baseEnv);
+
+    expect(config.dockerSocketPath).toBe("/var/run/docker.sock");
+    expect(config.directSocketPath).toBeUndefined();
+  });
+});
+
+/**
+ * Locks the CONTAINER_DRIVER extension seam that lets a deployment (e.g. an
+ * enterprise Kubernetes driver) plug in an alternative container backend
+ * without patching this factory.
+ */
+describe("container-driver-factory CONTAINER_DRIVER seam", () => {
+  let previous: string | undefined;
+
+  beforeEach(() => {
+    previous = process.env.CONTAINER_DRIVER;
+  });
+
+  afterEach(() => {
+    if (previous === undefined) delete process.env.CONTAINER_DRIVER;
+    else process.env.CONTAINER_DRIVER = previous;
+  });
+
+  it("returns the Docker driver (host-bind) when CONTAINER_DRIVER is unset", () => {
+    delete process.env.CONTAINER_DRIVER;
+    const driver = createContainerDriver(baseEnv);
+    expect(driver.capabilities.workspace).toBe("host-bind");
+  });
+
+  it("returns the Docker driver when CONTAINER_DRIVER is explicitly \"docker\"", () => {
+    process.env.CONTAINER_DRIVER = "docker";
+    const driver = createContainerDriver(baseEnv);
+    expect(driver).toBeInstanceOf(ContainerManager);
+  });
+
+  it("returns a registered driver when CONTAINER_DRIVER selects it", () => {
+    const fake = {
+      capabilities: { workspace: "driver-managed", networking: "flat" },
+    } as unknown as ContainerDriver;
+    registerContainerDriver("fake-test-driver", () => fake);
+
+    process.env.CONTAINER_DRIVER = "fake-test-driver";
+    expect(createContainerDriver(baseEnv)).toBe(fake);
+  });
+
+  it("throws when CONTAINER_DRIVER names an unregistered backend", () => {
+    process.env.CONTAINER_DRIVER = "does-not-exist";
+    expect(() => createContainerDriver(baseEnv)).toThrow(/no driver is registered/);
   });
 });

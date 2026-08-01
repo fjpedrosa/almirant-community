@@ -83,11 +83,15 @@ export class OpenCodeSessionManager {
   }
 
   public async createSession(
-    input: OpenCodeCreateSessionInput
+    _input: OpenCodeCreateSessionInput
   ): Promise<OpenCodeSession> {
+    // opencode >=1.x rejects any extra fields on session create (cwd, model,
+    // provider → {"_tag":"BadRequest"}). The working directory comes from the
+    // serve process cwd and the model/provider from the injected opencode.json
+    // (buildOpenCodeConfig), so the create body must stay empty.
     const response = await this.request(this.paths.sessions, {
       method: "POST",
-      body: JSON.stringify(input),
+      body: JSON.stringify({}),
       headers: {
         "Content-Type": "application/json",
       },
