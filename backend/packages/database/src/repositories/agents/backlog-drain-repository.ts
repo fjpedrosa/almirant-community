@@ -176,6 +176,8 @@ const emptyCandidateResult = (): BacklogDrainCandidateResult => ({
     notDodRemediation: [],
     missingDodReport: [],
     humanReviewRequired: [],
+    scheduledForLater: [],
+    assignedToOtherAgent: [],
   },
 });
 
@@ -248,6 +250,8 @@ const selectBacklogDrainForWorkspace = async (params: {
   allProjects?: boolean;
   defaultMaxConcurrentJobs?: number | null;
   minAgeMinutes?: number | null;
+  /** Id of the scheduled agent config running this drain; see BacklogDrainSelectionInput. */
+  scheduledAgentConfigId?: string | null;
   fallbackRuntime?: {
     provider?: string | null;
     codingAgent?: string | null;
@@ -318,9 +322,11 @@ const selectBacklogDrainForWorkspace = async (params: {
         columnIsDone: boardColumns.isDone,
         columnOrder: boardColumns.order,
         updatedAt: workItems.updatedAt,
+        startDate: workItems.startDate,
         codingAgent: workItems.codingAgent,
         aiModel: workItems.aiModel,
         metadata: workItems.metadata,
+        scheduledAgentConfigId: workItems.scheduledAgentConfigId,
       })
       .from(workItems)
       .innerJoin(projects, eq(workItems.projectId, projects.id))
@@ -444,6 +450,7 @@ const selectBacklogDrainForWorkspace = async (params: {
     rules: effectiveRules,
     defaultMaxConcurrentJobs: params.defaultMaxConcurrentJobs,
     stabilizationWindowMs,
+    drainingAgentConfigId: params.scheduledAgentConfigId ?? null,
     projects: projectRows.map((project) => ({
       id: project.id,
       agentDefaults: project.agentDefaults as ProjectAgentDefaults | null,
@@ -482,6 +489,7 @@ export const getBacklogDrainCandidatesForScheduledConfig = async (
     allProjects,
     defaultMaxConcurrentJobs,
     minAgeMinutes,
+    scheduledAgentConfigId: config.id,
     fallbackRuntime: {
       provider: config.provider,
       codingAgent: config.codingAgent,
@@ -504,6 +512,7 @@ export const getDodRemediationCandidatesForScheduledConfig = async (
     allProjects,
     defaultMaxConcurrentJobs,
     minAgeMinutes,
+    scheduledAgentConfigId: config.id,
     fallbackRuntime: {
       provider: config.provider,
       codingAgent: config.codingAgent,
@@ -550,6 +559,13 @@ export const previewBacklogDrainCandidates = async (params: {
   aiProvider?: string | null;
   aiModel?: string | null;
   reasoningLevel?: string | null;
+  /**
+   * Id of the scheduled agent config being previewed. Left null for a config
+   * that hasn't been saved yet, which correctly limits the preview to
+   * currently-unassigned items — it can't match an assignment that names a
+   * real (different) config id.
+   */
+  scheduledAgentConfigId?: string | null;
 }): Promise<BacklogDrainCandidateResult> => {
   const isDodRemediation = isDodRemediationTargetConfig(params.targetConfig);
   const { rules, allProjects, defaultMaxConcurrentJobs, minAgeMinutes } = (isDodRemediation ? resolveDodRemediationRules : resolveBacklogDrainRules)({
@@ -564,6 +580,7 @@ export const previewBacklogDrainCandidates = async (params: {
     allProjects,
     defaultMaxConcurrentJobs,
     minAgeMinutes,
+    scheduledAgentConfigId: params.scheduledAgentConfigId ?? null,
     fallbackRuntime: {
       codingAgent: params.codingAgent,
       aiProvider: params.aiProvider,
