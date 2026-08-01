@@ -1,15 +1,41 @@
 import { Elysia, t } from "elysia";
 import { sessionContextTypes } from "../../../shared/middleware/session-context-types.plugin";
 import {
+  and,
   createApiKey,
+  db,
+  eq,
   listApiKeys,
   revokeApiKey,
+  schema,
 } from "@almirant/database";
 import {
   successResponse,
   errorResponse,
   notFoundResponse,
 } from "../../../shared/services/response";
+import {
+  ApiKeyWorkspaceError,
+  resolveApiKeyWorkspaceId,
+} from "./api-key-workspace";
+
+const isWorkspaceMember = async (
+  userId: string,
+  workspaceId: string,
+): Promise<boolean> => {
+  const rows = await db
+    .select({ id: schema.member.id })
+    .from(schema.member)
+    .where(
+      and(
+        eq(schema.member.userId, userId),
+        eq(schema.member.workspaceId, workspaceId),
+      ),
+    )
+    .limit(1);
+
+  return rows.length > 0;
+};
 
 export const apiKeysRoutes = new Elysia({ prefix: "/api-keys" })
   .use(sessionContextTypes)
@@ -21,19 +47,27 @@ export const apiKeysRoutes = new Elysia({ prefix: "/api-keys" })
     "/",
     async ({ body, set, user, activeWorkspace }) => {
       try {
-        const orgId = activeWorkspace!.id;
-
         if (!body.name || body.name.trim() === "") {
           set.status = 400;
           return errorResponse("Name is required");
         }
 
         const userId = (user as { id: string }).id;
+        const orgId = await resolveApiKeyWorkspaceId({
+          activeWorkspace,
+          requestedWorkspaceId: body.workspaceId,
+          userId,
+          isWorkspaceMember,
+        });
         const result = await createApiKey(orgId, body.name.trim(), { userId });
 
         set.status = 201;
         return successResponse(result);
       } catch (error) {
+        if (error instanceof ApiKeyWorkspaceError) {
+          set.status = error.status;
+          return errorResponse(error.message, error.status);
+        }
         set.status = 500;
         return errorResponse(
           error instanceof Error ? error.message : "Failed to create API key",
@@ -44,6 +78,7 @@ export const apiKeysRoutes = new Elysia({ prefix: "/api-keys" })
     {
       body: t.Object({
         name: t.String(),
+        workspaceId: t.Optional(t.String()),
       }),
     }
   )
