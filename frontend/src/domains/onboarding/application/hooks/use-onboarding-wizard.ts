@@ -17,6 +17,11 @@ import {
 } from "../../domain/gating";
 import { isCloudDeployment } from "@/lib/deployment-mode";
 import { completeFirstWorkspaceActivation } from "@/domains/auth/application/lib/signup-lifecycle";
+import {
+  clearStoredSignupAttribution,
+  getStoredSignupAttribution,
+} from "@/domains/auth/application/lib/signup-attribution";
+import { shouldTrackActivationCompleted } from "@/domains/auth/application/lib/signup-analytics";
 
 export const useOnboardingWizard = () => {
   const router = useRouter();
@@ -82,13 +87,23 @@ export const useOnboardingWizard = () => {
     setCurrentStep(step);
   }, []);
 
+  const handleActivationCompleted = useCallback(() => {
+    const attribution = getStoredSignupAttribution();
+    const trackedAttribution = shouldTrackActivationCompleted(isCloud, attribution)
+      ? attribution
+      : undefined;
+
+    completeFirstWorkspaceActivation(() => {
+      clearStoredSignupAttribution();
+      router.push("/board");
+    }, trackedAttribution);
+  }, [isCloud, router]);
+
   const handleComplete = useCallback(() => {
     completeMutation.mutate(undefined, {
-      onSuccess: () => {
-        completeFirstWorkspaceActivation(() => router.push("/board"));
-      },
+      onSuccess: handleActivationCompleted,
     });
-  }, [completeMutation, router]);
+  }, [completeMutation, handleActivationCompleted]);
 
   const handleSkipTailscale = useCallback(() => {
     skipMutation.mutate("tailscale");
@@ -106,12 +121,16 @@ export const useOnboardingWizard = () => {
     skipMutation.mutate("github", {
       onSuccess: () => {
         completeMutation.mutate(undefined, {
-          onSuccess: () =>
-            completeFirstWorkspaceActivation(() => router.push("/board")),
+          onSuccess: handleActivationCompleted,
         });
       },
     });
-  }, [isCloud, skipMutation, completeMutation, router]);
+  }, [
+    isCloud,
+    skipMutation,
+    completeMutation,
+    handleActivationCompleted,
+  ]);
 
   return {
     // Deployment / steps

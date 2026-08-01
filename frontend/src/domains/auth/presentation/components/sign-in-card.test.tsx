@@ -126,11 +126,11 @@ describe("SignInCard social providers", () => {
 
 describe("SignInCard registration link", () => {
   it("exposes Create account from sign-in when registration is allowed", async () => {
-    await renderCard({ showSignUpLink: true, signUpHref: "/signup" });
+    await renderCard({ showSignUpLink: true, signUpHref: "/signup?source=marketing" });
 
     expect(screen.getByRole("link", { name: "createAccount" })).toHaveAttribute(
       "href",
-      "/signup"
+      "/signup?source=marketing",
     );
   });
 
