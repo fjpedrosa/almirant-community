@@ -282,6 +282,14 @@ export const createDatabaseMocks = (overrides: Record<string, unknown> = {}) => 
   reorderNotes: async () => [],
   getRepositories: async () => [],
   createRepository: async () => ({ id: "repo-1" }),
+  attachRepositoryAtomically: async (...args: unknown[]) => ({
+    repository: {
+      id: "repo-1",
+      projectId: typeof args[1] === "string" ? args[1] : "project-1",
+      ...getLastObjectArg(args),
+    },
+    created: true,
+  }),
   updateRepository: async () => ({ id: "repo-1" }),
   deleteRepository: async () => true,
   reorderRepositories: async () => [],
@@ -295,6 +303,8 @@ export const createDatabaseMocks = (overrides: Record<string, unknown> = {}) => 
     return null;
   },
   getGithubConnectionForWorkspace: async () => null,
+  getActiveGithubConnectionsForWorkspace: async () => [],
+  getInstallationByRepoId: async () => ({ installationId: 1 }),
   linkRepoToInstallation: async () => ({ id: "repo-installation-link-1" }),
   getUnlinkedGithubRepos: async () => [],
   getAllGithubRepoUrls: async () => [],
