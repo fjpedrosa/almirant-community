@@ -1,10 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
+import { useCurrentUserTeams } from "@/domains/teams/application/hooks/use-current-user-teams";
+import {
+  buildCallbackUrl,
+  buildCliAuthCallbackParams,
+  buildCliAuthReturnPath,
+  resolveCliAuthWorkspace,
+  type CliAuthWorkspace,
+} from "./cli-auth-workspace";
 
-type Status = "auth_required" | "loading" | "success" | "error";
+type Status =
+  | "auth_required"
+  | "loading"
+  | "select_workspace"
+  | "success"
+  | "error";
 
 type CreateKeyResponse = {
   success?: boolean;
@@ -12,23 +25,24 @@ type CreateKeyResponse = {
   error?: string;
 };
 
-const buildCallbackUrl = (callback: string, params: Record<string, string>) => {
-  const url = new URL(callback);
-  Object.entries(params).forEach(([key, value]) => {
-    url.searchParams.set(key, value);
-  });
-  return url.toString();
-};
-
 export default function CliAuthPage() {
   const [status, setStatus] = useState<Status>("loading");
   const [message, setMessage] = useState("Checking session...");
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
+    null,
+  );
 
   const session = authClient.useSession();
+  const { teams, isLoading: isLoadingTeams } = useCurrentUserTeams();
   const searchParams = useSearchParams();
 
   const callback = searchParams.get("callback");
   const keyName = searchParams.get("name") || "Almirant CLI";
+  const workspaceHint = searchParams.get("workspace");
+  const workspaces = useMemo(
+    () => teams as CliAuthWorkspace[],
+    [teams],
+  );
 
   useEffect(() => {
     if (!callback) {
@@ -49,17 +63,49 @@ export default function CliAuthPage() {
       return;
     }
 
+    if (isLoadingTeams) {
+      setStatus("loading");
+      setMessage("Loading workspaces...");
+      return;
+    }
+
+    const workspaceResolution = resolveCliAuthWorkspace(
+      workspaces,
+      workspaceHint,
+      selectedWorkspaceId,
+    );
+
+    if (workspaceResolution.status === "needs_selection") {
+      setStatus("select_workspace");
+      setMessage("Choose the workspace this CLI account should use.");
+      return;
+    }
+
+    if (workspaceResolution.status === "error") {
+      setStatus("error");
+      setMessage(workspaceResolution.message);
+      window.location.href = buildCallbackUrl(callback, {
+        error: workspaceResolution.message,
+      });
+      return;
+    }
+
     const run = async () => {
       try {
         setStatus("loading");
-        setMessage("Generating API key for CLI...");
+        setMessage(
+          `Generating API key for ${workspaceResolution.workspace.name}...`,
+        );
 
         const response = await fetch("/api/api-keys", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ name: keyName }),
+          body: JSON.stringify({
+            name: keyName,
+            workspaceId: workspaceResolution.workspace.id,
+          }),
         });
 
         const data = (await response.json()) as CreateKeyResponse;
@@ -72,8 +118,10 @@ export default function CliAuthPage() {
         setMessage("Authentication complete. Redirecting back to CLI...");
 
         window.location.href = buildCallbackUrl(callback, {
-          apiKey: data.data.key,
-          keyId: data.data.id || "",
+          ...buildCliAuthCallbackParams(
+            { key: data.data.key, id: data.data.id },
+            workspaceResolution.workspace,
+          ),
         });
       } catch (error) {
         const reason = error instanceof Error ? error.message : "unknown error";
@@ -84,15 +132,21 @@ export default function CliAuthPage() {
     };
 
     void run();
-  }, [callback, keyName, session.data?.user, session.isPending]);
+  }, [
+    callback,
+    keyName,
+    isLoadingTeams,
+    selectedWorkspaceId,
+    session.data?.user,
+    session.isPending,
+    workspaceHint,
+    workspaces,
+  ]);
 
   const signIn = () => {
     if (!callback) return;
 
-    const callbackURL = `/cli-auth?${new URLSearchParams({
-      callback,
-      name: keyName,
-    }).toString()}`;
+    const callbackURL = buildCliAuthReturnPath(callback, keyName, workspaceHint);
 
     authClient.signIn.social({
       provider: "google",
@@ -106,6 +160,23 @@ export default function CliAuthPage() {
       <div className="w-full rounded-lg border bg-card p-6 text-center shadow-sm">
         <h1 className="text-xl font-semibold">Almirant CLI Auth</h1>
         <p className="mt-3 text-sm text-muted-foreground">{message}</p>
+        {status === "select_workspace" && (
+          <div className="mt-5 space-y-2">
+            {workspaces.map((workspace) => (
+              <button
+                key={workspace.id}
+                type="button"
+                onClick={() => setSelectedWorkspaceId(workspace.id)}
+                className="block w-full rounded-md border px-4 py-2 text-left text-sm hover:bg-muted"
+              >
+                <span className="font-medium">{workspace.name}</span>
+                <span className="ml-2 text-muted-foreground">
+                  {workspace.slug}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         {status === "auth_required" && (
           <button
             type="button"
