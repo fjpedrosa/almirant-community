@@ -1,6 +1,9 @@
 import { afterAll, describe, expect, it, mock } from "bun:test";
 import { restoreRealModules } from "../../../../test/mocks";
 
+const observedCutoffs: unknown[] = [];
+const observedLimits: number[] = [];
+
 // `mock.module` is sticky across bun test files in the same process; leaking
 // our stubs into sibling suites (particularly `feedback-cluster-repository`
 // which uses the real drizzle `sql` tagged template) would break them.
@@ -20,12 +23,43 @@ mock.module("@almirant/config", () => ({
 // `@almirant/database` import surface to the bare minimum the module reads
 // at import (no real DB connection).
 mock.module("@almirant/database", () => ({
-  db: {},
-  sql: () => null,
-  and: () => null,
-  isNotNull: () => null,
-  inArray: () => null,
-  bugFixAttempts: {},
+  db: {
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: async (value: number) => {
+            observedLimits.push(value);
+            return [];
+          },
+        }),
+      }),
+    }),
+  },
+  sql: () => {
+    throw new Error("Raw SQL must not receive the timestamp cutoff");
+  },
+  and: (...conditions: unknown[]) => conditions,
+  isNotNull: (column: unknown) => ({ kind: "is-not-null", column }),
+  inArray: (column: unknown, values: unknown[]) => ({
+    kind: "in-array",
+    column,
+    values,
+  }),
+  lt: (_column: unknown, value: unknown) => {
+    observedCutoffs.push(value);
+    return { kind: "less-than" };
+  },
+  bugFixAttempts: {
+    id: "id",
+    clusterId: "clusterId",
+    feedbackItemId: "feedbackItemId",
+    fixPrNumber: "fixPrNumber",
+    fixPrUrl: "fixPrUrl",
+    projectId: "projectId",
+    workspaceId: "workspaceId",
+    status: "status",
+    updatedAt: "updatedAt",
+  },
   getInstallationByRepoId: async () => null,
   getRepoIdByGithubFullName: async () => null,
 }));
@@ -37,6 +71,7 @@ afterAll(() => {
 
 import {
   decideFromPrState,
+  loadStuckBugFixAttempts,
   runBugFixAttemptPrReconciliationOnce,
   type BugFixAttemptReconcilerDeps,
   type PrRemoteState,
@@ -80,6 +115,27 @@ describe("decideFromPrState — pure decision (drift recovery)", () => {
     expect(decideFromPrState({ kind: "not_found" })).toEqual({
       kind: "skip_pr_not_found",
     });
+  });
+});
+
+describe("loadStuckBugFixAttempts", () => {
+  it("uses the typed timestamp comparator so the driver receives an encoded cutoff", async () => {
+    observedCutoffs.length = 0;
+    observedLimits.length = 0;
+    const startedAt = Date.now();
+
+    const attempts = await loadStuckBugFixAttempts({
+      olderThanMinutes: 10,
+      batchSize: 25,
+    });
+
+    expect(attempts).toEqual([]);
+    expect(observedLimits).toEqual([25]);
+    expect(observedCutoffs).toHaveLength(1);
+    expect(observedCutoffs[0]).toBeInstanceOf(Date);
+    const cutoff = (observedCutoffs[0] as Date).getTime();
+    expect(cutoff).toBeGreaterThanOrEqual(startedAt - 10 * 60_000);
+    expect(cutoff).toBeLessThanOrEqual(Date.now() - 10 * 60_000);
   });
 });
 
