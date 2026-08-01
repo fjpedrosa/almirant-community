@@ -428,6 +428,7 @@ export interface WorkItemFormData {
   priority: Priority;
   description: string;
   assignee: string;
+  startDate?: Date;
   dueDate?: Date;
   estimatedHours?: number;
   parentId?: string;

@@ -14,6 +14,7 @@ import { useProjects } from "@/domains/projects/application/hooks/use-projects";
 import { useCreateTag } from "@/domains/tags/application/hooks/use-tags";
 import { useAiFormatText } from "./use-ai-format-text";
 import { useAssigneeSelect } from "./use-assignee-select";
+import { toOptionalIsoString, toOptionalFormDate } from "../../domain/utils";
 import type { WorkItemFormData, WorkItemType, AiFieldContext } from "../../domain/types";
 
 const workItemFormSchema = z.object({
@@ -22,6 +23,7 @@ const workItemFormSchema = z.object({
   priority: z.enum(["low", "medium", "high", "urgent"]),
   description: z.string(),
   assignee: z.string(),
+  startDate: z.date().optional(),
   dueDate: z.date().optional(),
   estimatedHours: z.number().min(0).optional(),
   parentId: z.string().optional(),
@@ -67,6 +69,7 @@ export const useEditWorkItemForm = (boardId: string) => {
       priority: "medium",
       description: "",
       assignee: "",
+      startDate: undefined,
       dueDate: undefined,
       estimatedHours: undefined,
       parentId: undefined,
@@ -103,6 +106,7 @@ export const useEditWorkItemForm = (boardId: string) => {
         priority: workItem.priority,
         description: workItem.description || "",
         assignee: workItem.assignee || "",
+        startDate: toOptionalFormDate(workItem.startDate),
         dueDate: workItem.dueDate ? new Date(workItem.dueDate) : undefined,
         estimatedHours: workItem.estimatedHours ?? undefined,
         parentId: workItem.parentId ?? undefined,
@@ -263,6 +267,7 @@ export const useEditWorkItemForm = (boardId: string) => {
           priority: data.priority,
           description: data.description || null,
           assignee: data.assignee || null,
+          startDate: toOptionalIsoString(data.startDate),
           dueDate: data.dueDate ? data.dueDate.toISOString() : null,
           estimatedHours: data.estimatedHours ?? null,
           parentId: data.parentId || null,

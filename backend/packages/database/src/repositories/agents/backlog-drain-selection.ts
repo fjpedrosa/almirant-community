@@ -50,6 +50,7 @@ export interface BacklogDrainWorkItemInput {
   columnIsDone: boolean | null;
   columnOrder: number | null;
   updatedAt: Date | string | number | null;
+  startDate?: Date | string | number | null;
   codingAgent?: BacklogDrainCodingAgent | null;
   aiModel?: string | null;
   metadata?: Record<string, unknown> | null;
@@ -57,6 +58,8 @@ export interface BacklogDrainWorkItemInput {
   dodReport?: string | null;
   dodReviewedAt?: string | null;
   dodRemediationAttemptCount?: number | null;
+  /** Scheduled agent config this item is dedicated to, if any. Null/undefined means unassigned. */
+  scheduledAgentConfigId?: string | null;
 }
 
 export interface BacklogDrainDependencyInput {
@@ -85,6 +88,13 @@ export interface BacklogDrainSelectionInput {
   projects?: BacklogDrainProjectInput[];
   now?: Date | string | number;
   stabilizationWindowMs?: number | null;
+  /**
+   * Id of the scheduled agent config running this drain. Items already
+   * dedicated to a different agent config are never eligible for it; items
+   * with no assignment at all are eligible for any agent config, including
+   * one still unsaved (drainingAgentConfigId left null/undefined).
+   */
+  drainingAgentConfigId?: string | null;
   fallbackRuntime?: {
     provider?: BacklogDrainProvider | null;
     codingAgent?: BacklogDrainCodingAgent | null;
@@ -126,6 +136,10 @@ export interface BacklogDrainSelectionResult {
     notDodRemediation: string[];
     missingDodReport: string[];
     humanReviewRequired: string[];
+    /** start_date is set and still in the future. */
+    scheduledForLater: string[];
+    /** scheduled_agent_config_id is set to a different agent config than the one draining. */
+    assignedToOtherAgent: string[];
   };
 }
 
@@ -177,6 +191,26 @@ const getNumberMetadata = (
 
 const isDodIncomplete = (item: BacklogDrainWorkItemInput): boolean => {
   return item.dodIncompleted === true || item.metadata?.dod_incompleted === true;
+};
+
+// A null/undefined start_date, or one already in the past, leaves the item
+// eligible immediately — matching how the roadmap treats an empty start_date.
+const isScheduledForLater = (
+  item: BacklogDrainWorkItemInput,
+  currentTimeMs: number,
+): boolean => {
+  const startMs = toTimeMs(item.startDate);
+  return startMs !== null && startMs > currentTimeMs;
+};
+
+// An unassigned item (null/undefined) is eligible for any agent config's
+// drain; an assigned item is only eligible for the one it's assigned to.
+const isAssignedToOtherAgent = (
+  item: BacklogDrainWorkItemInput,
+  drainingAgentConfigId: string | null,
+): boolean => {
+  const assignedId = item.scheduledAgentConfigId ?? null;
+  return assignedId !== null && assignedId !== drainingAgentConfigId;
 };
 
 const getDodReport = (item: BacklogDrainWorkItemInput): string | null => {
@@ -454,7 +488,10 @@ export const selectBacklogDrainCandidates = (
     notDodRemediation: [],
     missingDodReport: [],
     humanReviewRequired: [],
+    scheduledForLater: [],
+    assignedToOtherAgent: [],
   };
+  const drainingAgentConfigId = input.drainingAgentConfigId ?? null;
 
   for (const rule of input.rules.filter((r) => isTruthyEnabled(r.enabled))) {
     const projectItems = input.workItems.filter((item) => item.projectId === rule.projectId);
@@ -488,6 +525,16 @@ export const selectBacklogDrainCandidates = (
         return false;
       })
       .filter((item) => statusById.get(item.id)?.role === "backlog")
+      .filter((item) => {
+        if (!isScheduledForLater(item, currentTimeMs)) return true;
+        skipped.scheduledForLater.push(item.id);
+        return false;
+      })
+      .filter((item) => {
+        if (!isAssignedToOtherAgent(item, drainingAgentConfigId)) return true;
+        skipped.assignedToOtherAgent.push(item.id);
+        return false;
+      })
       .filter((item) => {
         if (mode === "dod-remediation") {
           if (!isDodIncomplete(item)) {

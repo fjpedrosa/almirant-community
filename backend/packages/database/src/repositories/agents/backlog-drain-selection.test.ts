@@ -14,10 +14,12 @@ const item = (overrides: Partial<BacklogDrainWorkItemInput> & Pick<BacklogDrainW
   columnIsDone: overrides.columnIsDone ?? false,
   columnOrder: overrides.columnOrder ?? 0,
   updatedAt: overrides.updatedAt ?? new Date("2026-04-26T21:00:00.000Z"),
+  startDate: overrides.startDate ?? null,
   codingAgent: overrides.codingAgent ?? null,
   aiModel: overrides.aiModel ?? null,
   metadata: overrides.metadata ?? null,
   dodRemediationAttemptCount: overrides.dodRemediationAttemptCount ?? null,
+  scheduledAgentConfigId: overrides.scheduledAgentConfigId ?? null,
 });
 
 describe("selectBacklogDrainCandidates", () => {
@@ -606,5 +608,91 @@ describe("selectBacklogDrainCandidates", () => {
 
     expect(result.candidates).toEqual([]);
     expect(result.skipped.humanReviewRequired).toContain("external-validator");
+  });
+
+  test("skips a work item whose start_date is in the future", () => {
+    const workItems = [
+      item({ id: "F1", projectId: "p1", startDate: new Date("2026-05-01T00:00:00.000Z") }),
+      item({ id: "F2", projectId: "p1" }),
+    ];
+
+    const result = selectBacklogDrainCandidates({
+      rules: [{ projectId: "p1", maxConcurrentJobs: 10 }],
+      workItems,
+      dependencies: [],
+      activeJobs: [],
+      now: new Date("2026-04-26T21:00:00.000Z"),
+      stabilizationWindowMs: 0,
+    });
+
+    expect(result.candidates.map((candidate) => candidate.id)).toEqual(["F2"]);
+    expect(result.skipped.scheduledForLater).toEqual(["F1"]);
+  });
+
+  test("keeps items eligible when start_date is null or already in the past", () => {
+    const workItems = [
+      item({ id: "F1", projectId: "p1", startDate: null }),
+      item({ id: "F2", projectId: "p1", startDate: new Date("2026-04-20T00:00:00.000Z") }),
+    ];
+
+    const result = selectBacklogDrainCandidates({
+      rules: [{ projectId: "p1", maxConcurrentJobs: 10 }],
+      workItems,
+      dependencies: [],
+      activeJobs: [],
+      now: new Date("2026-04-26T21:00:00.000Z"),
+      stabilizationWindowMs: 0,
+    });
+
+    expect(result.candidates.map((candidate) => candidate.id).sort()).toEqual(["F1", "F2"]);
+    expect(result.skipped.scheduledForLater).toEqual([]);
+  });
+
+  test("keeps an unassigned item eligible for any agent config's drain", () => {
+    const workItems = [item({ id: "F1", projectId: "p1", scheduledAgentConfigId: null })];
+
+    const result = selectBacklogDrainCandidates({
+      rules: [{ projectId: "p1", maxConcurrentJobs: 10 }],
+      workItems,
+      dependencies: [],
+      activeJobs: [],
+      drainingAgentConfigId: "agent-a",
+    });
+
+    expect(result.candidates.map((candidate) => candidate.id)).toEqual(["F1"]);
+    expect(result.skipped.assignedToOtherAgent).toEqual([]);
+  });
+
+  test("keeps an item eligible when assigned to the agent config that is draining", () => {
+    const workItems = [item({ id: "F1", projectId: "p1", scheduledAgentConfigId: "agent-a" })];
+
+    const result = selectBacklogDrainCandidates({
+      rules: [{ projectId: "p1", maxConcurrentJobs: 10 }],
+      workItems,
+      dependencies: [],
+      activeJobs: [],
+      drainingAgentConfigId: "agent-a",
+    });
+
+    expect(result.candidates.map((candidate) => candidate.id)).toEqual(["F1"]);
+    expect(result.skipped.assignedToOtherAgent).toEqual([]);
+  });
+
+  test("skips an item assigned to a different agent config than the one draining", () => {
+    const workItems = [
+      item({ id: "F1", projectId: "p1", scheduledAgentConfigId: "agent-b" }),
+      item({ id: "F2", projectId: "p1", scheduledAgentConfigId: null }),
+    ];
+
+    const result = selectBacklogDrainCandidates({
+      rules: [{ projectId: "p1", maxConcurrentJobs: 10 }],
+      workItems,
+      dependencies: [],
+      activeJobs: [],
+      drainingAgentConfigId: "agent-a",
+    });
+
+    expect(result.candidates.map((candidate) => candidate.id)).toEqual(["F2"]);
+    expect(result.skipped.assignedToOtherAgent).toEqual(["F1"]);
   });
 });

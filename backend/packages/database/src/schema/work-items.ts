@@ -17,6 +17,7 @@ import { projects } from "./projects";
 import { boards, boardColumns } from "./boards";
 import { tags } from "./tags";
 import { user } from "./auth";
+import { scheduledAgentConfigs } from "./scheduled-agent-configs";
 
 // Work items
 export const workItems = pgTable(
@@ -48,6 +49,11 @@ export const workItems = pgTable(
     requestedByUserId: text("requested_by_user_id").references(() => user.id, { onDelete: "set null" }),
     codingAgent: codingAgentEnum("coding_agent"),
     aiModel: varchar("ai_model", { length: 100 }),
+    // When set, only the backlog drain of this scheduled agent may claim the item
+    // (in addition to any drain with no assignment at all). Null means any agent's
+    // backlog drain may pick it up.
+    scheduledAgentConfigId: uuid("scheduled_agent_config_id")
+      .references(() => scheduledAgentConfigs.id, { onDelete: "set null" }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -65,6 +71,7 @@ export const workItems = pgTable(
     index("work_items_archived_at_idx").on(table.archivedAt),
     index("work_items_task_id_idx").on(table.taskId),
     index("work_items_created_by_user_idx").on(table.createdByUserId),
+    index("work_items_scheduled_agent_config_id_idx").on(table.scheduledAgentConfigId),
     check(
       "work_items_type_board_column_check",
       sql`(

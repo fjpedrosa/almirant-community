@@ -211,6 +211,10 @@ export const workItemsRelations = relations(workItems, ({ one, many }) => ({
     references: [user.id],
     relationName: "requestedWorkItems",
   }),
+  scheduledAgentConfig: one(scheduledAgentConfigs, {
+    fields: [workItems.scheduledAgentConfigId],
+    references: [scheduledAgentConfigs.id],
+  }),
   children: many(workItems, { relationName: "parentChild" }),
   workItemTags: many(workItemTags),
   dependencies: many(workItemDependencies, { relationName: "workItemDependencies" }),
@@ -1413,6 +1417,7 @@ export const scheduledAgentConfigsRelations = relations(scheduledAgentConfigs, (
     references: [projects.id],
   }),
   runs: many(scheduledAgentRuns),
+  assignedWorkItems: many(workItems),
 }));
 
 // Scheduled Agent Run Relations

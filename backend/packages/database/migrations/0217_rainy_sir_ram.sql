@@ -1,0 +1,3 @@
+ALTER TABLE "work_items" ADD COLUMN "scheduled_agent_config_id" uuid;--> statement-breakpoint
+ALTER TABLE "work_items" ADD CONSTRAINT "work_items_scheduled_agent_config_id_scheduled_agent_configs_id_fk" FOREIGN KEY ("scheduled_agent_config_id") REFERENCES "public"."scheduled_agent_configs"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "work_items_scheduled_agent_config_id_idx" ON "work_items" USING btree ("scheduled_agent_config_id");

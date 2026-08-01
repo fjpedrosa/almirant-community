@@ -36,6 +36,10 @@ const countPendingWork = async (config: ScheduledAgentConfigDb): Promise<number>
       workspaceId: config.workspaceId,
       targetConfig,
       projectId: config.projectId,
+      // Without this the demand would exclude the items dedicated to this very
+      // agent, so an agent whose only work is assigned to it would report zero
+      // and never get a runner booted.
+      scheduledAgentConfigId: config.id,
       codingAgent: config.codingAgent,
       aiProvider: config.aiProvider,
       aiModel: config.aiModel,
