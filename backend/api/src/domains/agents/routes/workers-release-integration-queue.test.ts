@@ -7,7 +7,7 @@ import {
   createWsMock,
   restoreRealModules,
 } from "../../../test/mocks";
-import { testIntegrationBatch, testWorkspace, testProject, testRepository } from "../../../test/fixtures";
+import { testIntegrationBatch, testWorkspace, testWorkspaceB, testProject, testRepository } from "../../../test/fixtures";
 
 const __real_resolveAiKey = { ...(await import("../../ai/shared/services/resolve-ai-key")) };
 
@@ -27,6 +27,10 @@ const state = {
     string,
     Record<string, unknown> & { items: Array<Record<string, unknown>> }
   >(),
+  // scheduledConfigId resolution: id -> config (mirrors the real repository,
+  // which does not scope by workspace — see getScheduledAgentConfigByIdUnscoped).
+  scheduledConfigsById: new Map<string, { id: string; workspaceId: string }>(),
+  candidateWorkspaceIdCalls: [] as string[],
 };
 
 const parentBlockCandidate = {
@@ -50,14 +54,18 @@ mock.module("@almirant/database", () =>
       id: "worker-api-key",
       workspaceId: testWorkspace.id,
     }),
-    getValidatingReleaseCandidates: async () => ({
-      candidates: state.candidateResult?.candidates ?? [parentBlockCandidate],
-      skipped: state.candidateResult?.skipped ?? {
-        missingPullRequest: 0,
-        unresolvedRepository: 0,
-        alreadyBatched: 0,
-      },
-    }),
+    getValidatingReleaseCandidates: async (workspaceId: string) => {
+      state.candidateWorkspaceIdCalls.push(workspaceId);
+      return {
+        candidates: state.candidateResult?.candidates ?? [parentBlockCandidate],
+        skipped: state.candidateResult?.skipped ?? {
+          missingPullRequest: 0,
+          unresolvedRepository: 0,
+          alreadyBatched: 0,
+        },
+      };
+    },
+    getScheduledAgentConfigByIdUnscoped: async (id: string) => state.scheduledConfigsById.get(id),
     countActiveBatchItemsByProject: async () => state.activeBatchItemCount,
     getRecoverableReleaseBatchesWithoutActiveJob: async () => state.recoverableBatches,
     getGithubRepoFullNameByRepoId: async () => "example-org/example-repo",
@@ -128,6 +136,8 @@ describe("workersRoutes POST /workers/release-integration/queue", () => {
     state.recoverableBatches = [];
     state.openReleaseBatch = null;
     state.batchByIdWithItems = new Map();
+    state.scheduledConfigsById = new Map();
+    state.candidateWorkspaceIdCalls = [];
   });
 
   it("creates a numbered release batch from parent block PR candidates", async () => {
@@ -546,6 +556,44 @@ describe("workersRoutes POST /workers/release-integration/queue", () => {
     expect(state.updatedBatchStatuses).toEqual([
       { id: "batch-awaiting-release", status: "queued" },
     ]);
+  });
+
+  it("resolves the candidate search workspace from scheduledConfigId, not the worker key", async () => {
+    state.scheduledConfigsById.set("cfg-b", { id: "cfg-b", workspaceId: testWorkspaceB.id });
+    state.candidateResult = {
+      candidates: [],
+      skipped: { missingPullRequest: 0, unresolvedRepository: 0, alreadyBatched: 0 },
+    };
+
+    const { workersRoutes } = await import("./workers.routes");
+    const app = new Elysia().use(workersRoutes);
+
+    const res = await app.handle(
+      new Request(
+        `http://localhost/workers/release-integration/queue?scheduledConfigId=cfg-b`,
+        { method: "POST", headers: { authorization: "Bearer worker-secret" } },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    // The worker key belongs to testWorkspace, but the candidate search must
+    // run against the config's own workspace (testWorkspaceB).
+    expect(state.candidateWorkspaceIdCalls).toEqual([testWorkspaceB.id]);
+  });
+
+  it("404s when scheduledConfigId does not resolve to any config", async () => {
+    const { workersRoutes } = await import("./workers.routes");
+    const app = new Elysia().use(workersRoutes);
+
+    const res = await app.handle(
+      new Request(
+        `http://localhost/workers/release-integration/queue?scheduledConfigId=missing`,
+        { method: "POST", headers: { authorization: "Bearer worker-secret" } },
+      ),
+    );
+
+    expect(res.status).toBe(404);
+    expect(state.candidateWorkspaceIdCalls).toEqual([]);
   });
 });
 

@@ -559,6 +559,7 @@ export const createAlmirantWorkerClient = (
 
     getDodReviewCandidates: async (params?: {
       workspaceId?: string;
+      scheduledConfigId?: string;
       projectId?: string;
       limit?: number;
       maxActiveJobs?: number;
@@ -567,6 +568,9 @@ export const createAlmirantWorkerClient = (
       const queryParams = new URLSearchParams();
       if (params?.workspaceId) {
         queryParams.set("workspaceId", params.workspaceId);
+      }
+      if (params?.scheduledConfigId) {
+        queryParams.set("scheduledConfigId", params.scheduledConfigId);
       }
       if (params?.projectId) {
         queryParams.set("projectId", params.projectId);
@@ -634,6 +638,7 @@ export const createAlmirantWorkerClient = (
 
     queueReleaseIntegration: async (params?: {
       workspaceId?: string;
+      scheduledConfigId?: string;
       projectId?: string;
       limit?: number;
       maxActiveItems?: number;
@@ -642,6 +647,9 @@ export const createAlmirantWorkerClient = (
       const queryParams = new URLSearchParams();
       if (params?.workspaceId) {
         queryParams.set("workspaceId", params.workspaceId);
+      }
+      if (params?.scheduledConfigId) {
+        queryParams.set("scheduledConfigId", params.scheduledConfigId);
       }
       if (params?.projectId) {
         queryParams.set("projectId", params.projectId);

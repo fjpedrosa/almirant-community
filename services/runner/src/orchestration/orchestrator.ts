@@ -1288,6 +1288,7 @@ export class RunnerOrchestrator {
         const projectCandidates = await this.workerClient.getDodReviewCandidates({
           projectId: scope.projectId,
           workspaceId: config.workspaceId,
+          scheduledConfigId: config.id,
           limit: requestLimit,
           maxActiveJobs: scope.maxActiveItems,
           minAgeMinutes,
@@ -1366,6 +1367,7 @@ export class RunnerOrchestrator {
         const result = await this.workerClient.queueReleaseIntegration({
           projectId: scope.projectId,
           workspaceId: config.workspaceId,
+          scheduledConfigId: config.id,
           limit: requestLimit,
           maxActiveItems: scope.maxActiveItems,
           minAgeMinutes,

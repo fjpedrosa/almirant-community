@@ -7,7 +7,7 @@ import {
   createGithubServiceMock,
   restoreRealModules,
 } from "../../../test/mocks";
-import { testWorkspace, testWorkItem } from "../../../test/fixtures";
+import { testWorkspace, testWorkspaceB, testWorkItem } from "../../../test/fixtures";
 
 // ── Save real modules BEFORE mocking (prevents cross-file contamination) ──
 const __real_resolveAiKey = { ...(await import("../../ai/shared/services/resolve-ai-key")) };
@@ -19,6 +19,7 @@ const state = {
   backlogCandidates: [] as Array<Record<string, unknown>>,
   dodRemediationCandidates: [] as Array<Record<string, unknown>>,
   scheduledConfigLookups: [] as Array<{ id: string; workspaceId: string }>,
+  scheduledConfigUnscopedLookups: [] as string[],
 };
 
 const orgLookupChain = {
@@ -36,6 +37,12 @@ const dbMocks = createDatabaseMocks({
     return state.scheduledConfig?.id === id && state.scheduledConfig.workspaceId === workspaceId
       ? state.scheduledConfig
       : undefined;
+  },
+  // Standalone (no-workItem) branch: resolved by id alone, never scoped to
+  // the worker key's workspace — see workers.routes.ts POST /workers/jobs.
+  getScheduledAgentConfigByIdUnscoped: async (id: string) => {
+    state.scheduledConfigUnscopedLookups.push(id);
+    return state.scheduledConfig?.id === id ? state.scheduledConfig : undefined;
   },
   getBacklogDrainCandidatesForScheduledConfig: async () => ({
     candidates: state.backlogCandidates,
@@ -127,6 +134,7 @@ describe("workersRoutes POST /workers/jobs", () => {
     state.backlogCandidates = [];
     state.dodRemediationCandidates = [];
     state.scheduledConfigLookups = [];
+    state.scheduledConfigUnscopedLookups = [];
   });
 
   it("creates validation jobs for nightly scheduler with provider defaults", async () => {
@@ -310,6 +318,11 @@ describe("workersRoutes POST /workers/jobs", () => {
   });
 
   it("preserva el job standalone scheduled legítimo sin semántica backlog/DoD", async () => {
+    state.scheduledConfig = {
+      id: "scheduled-report-1",
+      workspaceId: testWorkspace.id,
+    };
+
     const { workersRoutes } = await import("./workers.routes");
     const app = new Elysia().use(workersRoutes);
 
@@ -336,6 +349,61 @@ describe("workersRoutes POST /workers/jobs", () => {
         source: "scheduled-config",
       },
     });
+  });
+
+  it("atribuye el job standalone al workspace del scheduled config, nunca al workspaceId del payload", async () => {
+    // The scheduled config lives in workspace B, but the request body claims
+    // workspace A (e.g. a shared runner forwarding whatever it was given).
+    // Attribution must come from the config, matching the workItemId branch
+    // above (resolveOrgIdFromWorkItem), not from the caller-supplied field.
+    state.scheduledConfig = {
+      id: "scheduled-report-cross-ws",
+      workspaceId: testWorkspaceB.id,
+    };
+
+    const { workersRoutes } = await import("./workers.routes");
+    const app = new Elysia().use(workersRoutes);
+
+    const res = await app.handle(makeRequest({
+      workspaceId: testWorkspace.id,
+      provider: "claude-code",
+      jobType: "scheduled",
+      prompt: "Genera el informe semanal",
+      config: {
+        scheduledConfigId: "scheduled-report-cross-ws",
+        scheduledConfigName: "Informe cross-workspace",
+        source: "scheduled-config",
+      },
+    }));
+
+    expect(res.status).toBe(201);
+    expect(state.createdJobInput).toMatchObject({
+      workspaceId: testWorkspaceB.id,
+    });
+    expect(state.scheduledConfigUnscopedLookups).toEqual(["scheduled-report-cross-ws"]);
+  });
+
+  it("rechaza un job standalone cuyo scheduledConfigId no existe en ningún workspace", async () => {
+    const { workersRoutes } = await import("./workers.routes");
+    const app = new Elysia().use(workersRoutes);
+
+    const res = await app.handle(makeRequest({
+      workspaceId: testWorkspace.id,
+      provider: "claude-code",
+      jobType: "scheduled",
+      prompt: "Genera el informe semanal",
+      config: {
+        scheduledConfigId: "scheduled-does-not-exist",
+        source: "scheduled-config",
+      },
+    }));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      success: false,
+      error: expect.stringMatching(/not found/i),
+    });
+    expect(state.createdJobInput).toBeNull();
   });
 
   it("rechaza un runtime adulterado al encolar un candidato de backlog y revalida la config server-side", async () => {

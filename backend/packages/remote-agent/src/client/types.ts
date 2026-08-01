@@ -726,6 +726,13 @@ export type AlmirantWorkerClient = {
   }) => Promise<ValidationCandidate[]>;
   getDodReviewCandidates: (params?: {
     workspaceId?: string;
+    /**
+     * Scheduled agent config driving this request. When set, the API
+     * resolves tenancy from the config itself (by id alone) instead of the
+     * worker key's workspace — required for configs that live in a
+     * different workspace than the runner's own API key.
+     */
+    scheduledConfigId?: string;
     projectId?: string;
     limit?: number;
     maxActiveJobs?: number;
@@ -736,6 +743,8 @@ export type AlmirantWorkerClient = {
   getDodRemediationCandidates: (params: { configId: string }) => Promise<BacklogDrainCandidatesResponse>;
   queueReleaseIntegration: (params?: {
     workspaceId?: string;
+    /** See getDodReviewCandidates — same cross-workspace resolution. */
+    scheduledConfigId?: string;
     projectId?: string;
     limit?: number;
     maxActiveItems?: number;
