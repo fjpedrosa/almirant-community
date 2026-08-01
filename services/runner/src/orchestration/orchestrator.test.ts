@@ -6,6 +6,7 @@ import type {
   ReleaseIntegrationQueueResult,
   ScheduledAgentConfig,
 } from "@almirant/remote-agent";
+import { isTimeWindowActive } from "@almirant/shared";
 import { RunnerOrchestrator } from "./orchestrator";
 
 afterEach(() => {
@@ -309,9 +310,7 @@ describe("RunnerOrchestrator scheduled backlog drain", () => {
       timezone: "Europe/Madrid",
     });
 
-    expect((orchestrator as unknown as {
-      isTimeWindowActive: (config: ScheduledAgentConfig, now: Date) => boolean;
-    }).isTimeWindowActive(config, now)).toBe(true);
+    expect(isTimeWindowActive(config, now)).toBe(true);
   });
 
   it("still applies the time-window cooldown to non-backlog scheduled jobs", () => {
@@ -342,9 +341,7 @@ describe("RunnerOrchestrator scheduled backlog drain", () => {
       timezone: "Europe/Madrid",
     });
 
-    expect((orchestrator as unknown as {
-      isTimeWindowActive: (config: ScheduledAgentConfig, now: Date) => boolean;
-    }).isTimeWindowActive(config, now)).toBe(false);
+    expect(isTimeWindowActive(config, now)).toBe(false);
   });
 });
 
