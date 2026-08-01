@@ -17,7 +17,7 @@ const refused = (): Promise<Response> => Promise.reject(new Error("ECONNREFUSED"
 describe("waitForServeReady", () => {
   it("returns as soon as the serve answers", async () => {
     await withFetch(
-      (async () => new Response("{}", { status: 200 })) as typeof fetch,
+      (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch,
       async () => {
         await waitForServeReady("http://container:4096");
       },
@@ -26,7 +26,7 @@ describe("waitForServeReady", () => {
 
   it("treats any HTTP status as listening, including 500", async () => {
     await withFetch(
-      (async () => new Response("boom", { status: 500 })) as typeof fetch,
+      (async () => new Response("boom", { status: 500 })) as unknown as typeof fetch,
       async () => {
         await waitForServeReady("http://container:4096");
       },
@@ -58,7 +58,7 @@ describe("waitForServeReady", () => {
         attempts += 1;
         if (attempts < 3) throw new Error("ECONNREFUSED");
         return new Response("{}", { status: 200 });
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
       async () => {
         await waitForServeReady("http://container:4096", { isContainerAlive });
       },
@@ -79,7 +79,7 @@ describe("waitForServeReady", () => {
         attempts += 1;
         if (attempts < 2) throw new Error("ECONNREFUSED");
         return new Response("{}", { status: 200 });
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
       async () => {
         // An inspect failure says nothing about the container, so it must not
         // be read as "exited" — that would abort healthy jobs on a daemon blip.
