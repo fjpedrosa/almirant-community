@@ -28,15 +28,15 @@ import { eq, desc, and, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 export const extractGithubRepoFullName = (url: string): string | null => {
   // Try HTTPS format: https://github.com/owner/repo(.git)?
   const httpsMatch = url.match(
-    /^https?:\/\/github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/
+    /^https:\/\/github\.com\/([A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9_-](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?)(?:\.git)?\/?$/
   );
-  if (httpsMatch) return httpsMatch[1]!;
+  if (httpsMatch) return httpsMatch[1]!.replace(/\.git$/i, "");
 
   // Try SSH format: git@github.com:owner/repo(.git)?
   const sshMatch = url.match(
-    /^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?\/?$/
+    /^git@github\.com:([A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9_-](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?)(?:\.git)?\/?$/
   );
-  if (sshMatch) return sshMatch[1]!;
+  if (sshMatch) return sshMatch[1]!.replace(/\.git$/i, "");
 
   return null;
 };
@@ -64,6 +64,22 @@ export const getGithubConnectionForWorkspace = async (
 
   return row ?? null;
 };
+
+/** Active organization-scoped GitHub connections available to a workspace. */
+export const getActiveGithubConnectionsForWorkspace = async (
+  workspaceId: string,
+) => db
+  .select()
+  .from(providerConnections)
+  .where(
+    and(
+      eq(providerConnections.provider, "github"),
+      eq(providerConnections.scope, "organization"),
+      eq(providerConnections.scopeId, workspaceId),
+      eq(providerConnections.isActive, true),
+    ),
+  )
+  .orderBy(desc(providerConnections.updatedAt));
 
 /**
  * Find all GitHub-provider project repositories across ALL projects of an
@@ -808,9 +824,16 @@ export const linkRepoToInstallation = async (data: {
       githubRepoFullName: data.githubRepoFullName,
       defaultBranch: data.defaultBranch ?? "main",
     })
+    .onConflictDoNothing({ target: repoInstallationLinks.repoId })
     .returning();
 
-  return row;
+  if (row) return row;
+  const [existing] = await db
+    .select()
+    .from(repoInstallationLinks)
+    .where(eq(repoInstallationLinks.repoId, data.repoId))
+    .limit(1);
+  return existing;
 };
 
 export const unlinkRepo = async (repoId: string): Promise<boolean> => {

@@ -1,6 +1,6 @@
 import { db } from "../../client";
 import { projectRepositories, projects } from "../../schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import type {
   ProjectRepository,
   CreateRepositoryRequest,
@@ -69,33 +69,53 @@ export const createRepository = async (
   projectId: string,
   data: CreateRepositoryRequest
 ): Promise<ProjectRepository | null> => {
-  // Verify the project belongs to the workspace
-  const [project] = await db
-    .select({ id: projects.id })
-    .from(projects)
-    .where(
-      and(
-        eq(projects.id, projectId),
-        eq(projects.workspaceId, workspaceId)
-      )
-    )
-    .limit(1);
+  const result = await attachRepositoryAtomically(workspaceId, projectId, data);
+  return result?.repository ?? null;
+};
 
-  if (!project) return null;
+export const attachRepositoryAtomically = async (
+  workspaceId: string,
+  projectId: string,
+  data: CreateRepositoryRequest
+): Promise<{ repository: ProjectRepository; created: boolean } | null> => {
+  return db.transaction(async (tx) => {
+    // Serialize this project+URL pair so concurrent attach requests cannot
+    // create duplicate rows even on installations without a unique index.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${projectId}:${data.url}`}))`);
 
-  const [newRepo] = await db
-    .insert(projectRepositories)
-    .values({
-      projectId,
-      name: data.name,
-      url: data.url,
-      provider: data.provider || "github",
-      isMonorepo: data.isMonorepo ?? false,
-      order: data.order ?? 0,
-    })
-    .returning();
+    const [project] = await tx
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.workspaceId, workspaceId)))
+      .limit(1);
+    if (!project) return null;
 
-  return newRepo as ProjectRepository;
+    const [existing] = await tx
+      .select()
+      .from(projectRepositories)
+      .where(and(eq(projectRepositories.projectId, projectId), eq(projectRepositories.url, data.url)))
+      .limit(1);
+    if (existing) {
+      return { repository: existing as ProjectRepository, created: false };
+    }
+
+    const [newRepo] = await tx
+      .insert(projectRepositories)
+      .values({
+        projectId,
+        name: data.name,
+        url: data.url,
+        provider: data.provider || "github",
+        isMonorepo: data.isMonorepo ?? false,
+        order: data.order ?? 0,
+      })
+      .returning();
+
+    return {
+      repository: newRepo as ProjectRepository,
+      created: true,
+    };
+  });
 };
 
 // Update a repository (org-scoped: verifies repo's project belongs to org)
