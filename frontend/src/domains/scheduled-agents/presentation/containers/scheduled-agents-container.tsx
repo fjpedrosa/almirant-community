@@ -76,6 +76,15 @@ export const ScheduledAgentsContainer = () => {
     setIsFormOpen(true);
   };
 
+  // Re-arming an executed 'once' agent requires a NEW future runAt — no
+  // magic re-enable from the list. Unlike cloud's tabbed wizard (which needs
+  // to jump straight to a "Trigger" step), this drawer already shows the
+  // Schedule section (with the runAt field) together with Details the
+  // moment it opens in edit mode, so re-arming is just opening the editor.
+  const handleRearm = (config: ScheduledAgentConfig) => {
+    handleEdit(config);
+  };
+
   const handleToggle = (config: ScheduledAgentConfig) => {
     toggleMutation.mutate({ id: config.id, enabled: !config.enabled });
   };
@@ -150,6 +159,8 @@ export const ScheduledAgentsContainer = () => {
     isLoadingBacklogDrainPreview,
     webhookProposal,
     isLoadingWebhookProposal,
+    onceRunAtPastWarning,
+    lastRunAt,
   } = useAgentFormDrawer({
     open: isFormOpen,
     config: editingConfig,
@@ -187,6 +198,7 @@ export const ScheduledAgentsContainer = () => {
         onEdit={handleEdit}
         onDelete={handleDelete}
         onTrigger={handleTrigger}
+        onRearm={handleRearm}
       />
 
       <AgentFormDrawer
@@ -225,6 +237,8 @@ export const ScheduledAgentsContainer = () => {
         isLoadingBacklogDrainWorkItems={isLoadingBacklogDrainWorkItems}
         backlogDrainPreview={backlogDrainPreview}
         isLoadingBacklogDrainPreview={isLoadingBacklogDrainPreview}
+        lastRunAt={lastRunAt}
+        onceRunAtPastWarning={onceRunAtPastWarning}
       />
 
       <AlertDialog

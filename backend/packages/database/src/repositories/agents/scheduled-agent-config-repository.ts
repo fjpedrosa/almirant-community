@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { db } from "../../client";
 import { scheduledAgentConfigs, projects, skills } from "../../schema";
-import { eq, and, ne } from "drizzle-orm";
+import { eq, and, ne, sql } from "drizzle-orm";
 import type {
   ScheduledAgentConfigDb,
   NewScheduledAgentConfig,
@@ -251,13 +251,81 @@ export const listEnabledScheduledAgentConfigs = async (): Promise<
   }));
 };
 
+/**
+ * Records that a dispatch attempt happened for this config. This is the
+ * SINGLE choke point every dispatch path funnels through — the dispatcher's
+ * five deterministic-mode branches call it directly
+ * (`scheduled-agent-dispatcher.ts`), and the standalone/candidate-based path
+ * calls it via `executeScheduledAgentConfigWithResult`. That makes it the one
+ * place that can auto-disable a one-shot ('once') config after its single
+ * dispatch, uniformly, regardless of which caller fired it.
+ *
+ * The `enabled` column is updated via a single atomic `CASE WHEN` in the SAME
+ * UPDATE statement as `lastRunAt` — not a read-then-write — so this stays
+ * correct under concurrent dispatch authorities (this backend's own
+ * dispatcher tick running on multiple replicas) without needing a
+ * transaction: whichever UPDATE lands, lands whole. The condition reads the
+ * row's OWN `schedule_type` column, so callers never need to know or pass
+ * the config's schedule type — every existing call site keeps its current
+ * `(id: string) => Promise<void>` signature unchanged.
+ */
 export const updateScheduledAgentConfigLastRunAt = async (
   id: string,
 ): Promise<void> => {
   await db
     .update(scheduledAgentConfigs)
-    .set({ lastRunAt: new Date(), updatedAt: new Date() })
+    .set({
+      lastRunAt: new Date(),
+      updatedAt: new Date(),
+      enabled: sql`CASE WHEN ${scheduledAgentConfigs.scheduleType} = 'once' THEN false ELSE ${scheduledAgentConfigs.enabled} END`,
+    })
     .where(eq(scheduledAgentConfigs.id, id));
+};
+
+/**
+ * At-most-once PRE-dispatch consumption for a `scheduleType='once'` config.
+ * Unlike `updateScheduledAgentConfigLastRunAt` (which auto-disables AFTER a
+ * job is created), this is the guard the dispatcher calls BEFORE routing to
+ * ANY dispatch branch — the 4 deterministic modes
+ * (backlogDrain/dodRemediation/dodReview/releaseIntegration) and the
+ * candidateBased path never went through a reservation (only the standalone
+ * `jobType='scheduled'` branch does, via `executeScheduledAgentConfigWithResult`),
+ * so a POST-dispatch-only disable left a window where two concurrent dispatch
+ * authorities (this backend's own dispatcher tick on two replicas) could both
+ * observe `isOnceDue()===true` and both create jobs before either one's
+ * disable landed.
+ *
+ * The single `UPDATE ... WHERE enabled=true AND schedule_type='once'
+ * RETURNING id` is the atomic compare-and-swap: only the replica whose
+ * UPDATE actually flips a row gets `true` back and is allowed to proceed to
+ * job creation. Every other concurrent caller (or a later tick, once the
+ * row is enabled=false) gets `false` and must skip without dispatching.
+ *
+ * Deliberately scoped to `schedule_type='once'` only — do NOT reuse this for
+ * cron/time_window configs, which must keep being re-evaluated on every
+ * tick by their own reconcilers; a one-time "consume" would break that.
+ *
+ * Semantics are pure at-most-once, not exactly-once: a crash between a
+ * successful consume here and the `createJob` call(s) in the caller's
+ * dispatch branch permanently loses that occurrence. That is intentional —
+ * the alternative (consuming AFTER job creation) is exactly the race this
+ * function exists to close. The lost occurrence stays visible/debuggable as
+ * `(enabled=false, lastRunAt=null)` on the row, rather than silently
+ * retried (which could double-dispatch) or silently hidden.
+ */
+export const consumeOnceScheduleOccurrence = async (id: string): Promise<boolean> => {
+  const [row] = await db
+    .update(scheduledAgentConfigs)
+    .set({ enabled: false, updatedAt: new Date() })
+    .where(
+      and(
+        eq(scheduledAgentConfigs.id, id),
+        eq(scheduledAgentConfigs.enabled, true),
+        eq(scheduledAgentConfigs.scheduleType, "once"),
+      ),
+    )
+    .returning({ id: scheduledAgentConfigs.id });
+  return row !== undefined;
 };
 
 // ---------------------------------------------------------------------------

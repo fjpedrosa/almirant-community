@@ -271,6 +271,93 @@ describe("scheduledAgentsRoutes POST /scheduled-agents", () => {
     });
   });
 
+  it("crea un agente con scheduleType='once' y persiste runAt tal cual", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+
+    const response = await app.handle(
+      makeRequest({
+        name: "Viernes 09:00 one-shot",
+        projectId: testProject.id,
+        jobType: "scheduled",
+        provider: "claude-code",
+        scheduleType: "once",
+        scheduleConfig: { runAt: "2026-08-07T09:00:00.000Z" },
+        enabled: true,
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(state.createdConfigInput).toMatchObject({
+      scheduleType: "once",
+      scheduleConfig: { runAt: "2026-08-07T09:00:00.000Z" },
+      enabled: true,
+    });
+  });
+
+  it("permite crear scheduleType='once' con runAt en el pasado — dispara en el siguiente tick, no se rechaza", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+
+    const response = await app.handle(
+      makeRequest({
+        name: "runAt ya pasado",
+        projectId: testProject.id,
+        jobType: "scheduled",
+        provider: "claude-code",
+        scheduleType: "once",
+        scheduleConfig: { runAt: "2020-01-01T00:00:00.000Z" },
+        enabled: true,
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(state.createdConfigInput).toMatchObject({
+      scheduleType: "once",
+      scheduleConfig: { runAt: "2020-01-01T00:00:00.000Z" },
+    });
+  });
+
+  it("rechaza scheduleType='once' sin scheduleConfig.runAt (422 — el schema exige runAt)", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+
+    const response = await app.handle(
+      makeRequest({
+        name: "Once sin runAt",
+        projectId: testProject.id,
+        jobType: "scheduled",
+        provider: "claude-code",
+        scheduleType: "once",
+        scheduleConfig: {},
+        enabled: true,
+      }),
+    );
+
+    expect(response.status).toBe(422);
+    expect(state.createdConfigInput).toBeNull();
+  });
+
+  it("rechaza scheduleType='once' con runAt que no es una fecha ISO-8601 válida (422)", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+
+    const response = await app.handle(
+      makeRequest({
+        name: "Once con runAt inválido",
+        projectId: testProject.id,
+        jobType: "scheduled",
+        provider: "claude-code",
+        scheduleType: "once",
+        scheduleConfig: { runAt: "not-a-date" },
+        enabled: true,
+      }),
+    );
+
+    expect(response.status).toBe(422);
+    expect(state.createdConfigInput).toBeNull();
+  });
+
   it("permite crear backlog automation multi-proyecto sin projectId base", async () => {
     const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
     const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
@@ -777,6 +864,102 @@ describe("scheduledAgentsRoutes PATCH /scheduled-agents/:id", () => {
       expect(response.status).toBe(200);
       expect(state.projectAiConfigCalls).toEqual([]);
       expect(state.updatedConfigInput).toMatchObject({ projectId: null });
+    } finally {
+      state.scheduledConfigOverride = null;
+    }
+  });
+
+  it("no reactiva un 'once' ya disparado al cambiar solo el runAt — sin enabled explícito no hay magia", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const firedOnce = {
+      ...scheduledConfig,
+      scheduleType: "once" as const,
+      scheduleConfig: { runAt: "2026-04-01T09:00:00.000Z" },
+      enabled: false,
+      lastRunAt: new Date("2026-04-01T09:00:05.000Z"),
+    };
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+    state.scheduledConfigOverride = firedOnce;
+
+    try {
+      const response = await app.handle(
+        new Request(`http://localhost/scheduled-agents/${scheduledConfig.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            scheduleConfig: { runAt: "2026-05-01T09:00:00.000Z" },
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(state.updatedConfigInput).toMatchObject({
+        scheduleType: "once",
+        scheduleConfig: { runAt: "2026-05-01T09:00:00.000Z" },
+        enabled: false,
+      });
+    } finally {
+      state.scheduledConfigOverride = null;
+    }
+  });
+
+  it("reactiva un 'once' ya disparado SOLO cuando el caller pone enabled:true explícito junto a un runAt futuro", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const firedOnce = {
+      ...scheduledConfig,
+      scheduleType: "once" as const,
+      scheduleConfig: { runAt: "2026-04-01T09:00:00.000Z" },
+      enabled: false,
+      lastRunAt: new Date("2026-04-01T09:00:05.000Z"),
+    };
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+    state.scheduledConfigOverride = firedOnce;
+
+    try {
+      const response = await app.handle(
+        new Request(`http://localhost/scheduled-agents/${scheduledConfig.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            scheduleConfig: { runAt: "2026-05-01T09:00:00.000Z" },
+            enabled: true,
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(state.updatedConfigInput).toMatchObject({
+        scheduleType: "once",
+        scheduleConfig: { runAt: "2026-05-01T09:00:00.000Z" },
+        enabled: true,
+        lastRunAt: null,
+      });
+    } finally {
+      state.scheduledConfigOverride = null;
+    }
+  });
+
+  it("rechaza PATCH scheduleConfig.runAt no-ISO en un 'once' existente (422)", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const onceConfig = {
+      ...scheduledConfig,
+      scheduleType: "once" as const,
+      scheduleConfig: { runAt: "2026-04-01T09:00:00.000Z" },
+    };
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+    state.scheduledConfigOverride = onceConfig;
+
+    try {
+      const response = await app.handle(
+        new Request(`http://localhost/scheduled-agents/${scheduledConfig.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ scheduleConfig: { runAt: "not-a-date" } }),
+        }),
+      );
+
+      expect(response.status).toBe(422);
+      expect(state.updatedConfigInput).toBeNull();
     } finally {
       state.scheduledConfigOverride = null;
     }

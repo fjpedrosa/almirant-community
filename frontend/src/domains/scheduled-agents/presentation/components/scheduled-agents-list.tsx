@@ -1,4 +1,17 @@
-import { MoreHorizontal, Pencil, Trash2, Clock, Webhook, Play, Loader2, Sparkles, Copy } from "lucide-react";
+import { useTranslations } from "next-intl";
+import {
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  Clock,
+  Webhook,
+  Play,
+  Loader2,
+  Sparkles,
+  Copy,
+  CheckCircle2,
+  RotateCcw,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -32,6 +45,8 @@ import type {
 import {
   isTimeWindowConfig,
   isCronConfig,
+  isOnceConfig,
+  isOnceScheduleExecuted,
   DAY_OF_WEEK_OPTIONS,
 } from "../../domain/types";
 import { findCronPreset } from "../../domain/cron-presets";
@@ -134,6 +149,42 @@ const formatLastRun = (lastRunAt: string | null): string => {
   }
 };
 
+/** Absolute date/time, e.g. "Aug 15, 2026, 2:30 PM" — used for the once "Executed" badge. */
+const formatDateTimeAbsolute = (iso: string): string => {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "Unknown";
+  }
+};
+
+const RELATIVE_TIME_UNITS: { unit: Intl.RelativeTimeFormatUnit; ms: number }[] = [
+  { unit: "year", ms: 365 * 24 * 60 * 60 * 1000 },
+  { unit: "month", ms: 30 * 24 * 60 * 60 * 1000 },
+  { unit: "week", ms: 7 * 24 * 60 * 60 * 1000 },
+  { unit: "day", ms: 24 * 60 * 60 * 1000 },
+  { unit: "hour", ms: 60 * 60 * 1000 },
+  { unit: "minute", ms: 60 * 1000 },
+];
+
+/** "in 3 days" / "2 hours ago" style relative label — used for a pending once schedule. */
+const formatRelativeFromNow = (iso: string, now: Date = new Date()): string => {
+  const target = new Date(iso);
+  if (Number.isNaN(target.getTime())) return "Unknown";
+  const diffMs = target.getTime() - now.getTime();
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  const unitEntry =
+    RELATIVE_TIME_UNITS.find((entry) => Math.abs(diffMs) >= entry.ms) ??
+    RELATIVE_TIME_UNITS[RELATIVE_TIME_UNITS.length - 1];
+  return rtf.format(Math.round(diffMs / unitEntry.ms), unitEntry.unit);
+};
+
 const getPublicWebhookRoot = (): string => {
   const base = API_BASE.replace(/\/$/, "");
   const root = base.endsWith("/api") ? base.slice(0, -"/api".length) : base;
@@ -183,6 +234,7 @@ interface ScheduledAgentRowProps {
   onEdit: (item: ScheduledAgentConfig) => void;
   onDelete: (item: ScheduledAgentConfig) => void;
   onTrigger: (item: ScheduledAgentConfig) => void;
+  onRearm: (item: ScheduledAgentConfig) => void;
 }
 
 const ScheduledAgentRow = ({
@@ -193,15 +245,20 @@ const ScheduledAgentRow = ({
   onEdit,
   onDelete,
   onTrigger,
+  onRearm,
 }: ScheduledAgentRowProps) => {
+  const t = useTranslations("scheduledAgents");
   const codingAgent = resolveCodingAgent(item);
   const codingAgentLabel = CODING_AGENT_LABELS[codingAgent];
   const model = item.aiModel ?? "—";
   const isWebhook = item.trigger === "webhook";
+  const isOnce = item.scheduleType === "once";
+  const isOnceExecuted = isOnceScheduleExecuted(item);
   // A non-webhook agent without a real cadence (manual / no schedule config) is
   // "run on demand" — it is NOT "Scheduled". Deriving the badge from `trigger`
   // alone mislabels these as Scheduled and contradicts the "Run on demand"
-  // detail below.
+  // detail below. A pending 'once' DOES have a real cadence (it fires exactly
+  // once), so it keeps the "Scheduled" badge too.
   const isManual =
     !isWebhook && (item.scheduleType === "manual" || !item.scheduleConfig);
   const webhookUrl = getWebhookUrl(item);
@@ -261,17 +318,35 @@ const ScheduledAgentRow = ({
       {/* Trigger */}
       <TableCell className="w-[15rem] max-w-[15rem]">
         <div className="space-y-1.5">
-          <Badge variant={isWebhook ? "default" : "secondary"} className="gap-1.5">
-            {isWebhook ? (
-              <Webhook className="h-3 w-3" />
-            ) : isManual ? (
-              <Play className="h-3 w-3" />
-            ) : (
-              <Clock className="h-3 w-3" />
-            )}
-            {isWebhook ? "Webhook" : isManual ? "Manual" : "Scheduled"}
-          </Badge>
-          {webhookUrl ? (
+          {isOnceExecuted ? (
+            <Badge variant="outline" className="gap-1.5">
+              <CheckCircle2 className="h-3 w-3" />
+              {t("once.executedBadge", { date: item.lastRunAt ? formatDateTimeAbsolute(item.lastRunAt) : "" })}
+            </Badge>
+          ) : (
+            <Badge variant={isWebhook ? "default" : "secondary"} className="gap-1.5">
+              {isWebhook ? (
+                <Webhook className="h-3 w-3" />
+              ) : isManual ? (
+                <Play className="h-3 w-3" />
+              ) : (
+                <Clock className="h-3 w-3" />
+              )}
+              {isWebhook ? "Webhook" : isManual ? "Manual" : "Scheduled"}
+            </Badge>
+          )}
+          {isOnceExecuted ? (
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto min-h-0 gap-1 p-0 text-xs"
+              onClick={() => onRearm(item)}
+            >
+              <RotateCcw className="size-3 shrink-0" />
+              {t("once.rearmAction")}
+            </Button>
+          ) : webhookUrl ? (
             <button
               type="button"
               className="flex max-w-full items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
@@ -284,7 +359,11 @@ const ScheduledAgentRow = ({
             </button>
           ) : (
             <p className="truncate text-xs text-muted-foreground">
-              {isWebhook ? "Save to generate token" : formatScheduleDetail(item)}
+              {isWebhook
+                ? "Save to generate token"
+                : isOnce && isOnceConfig(item.scheduleConfig)
+                  ? t("once.pendingLabel", { date: formatRelativeFromNow(item.scheduleConfig.runAt) })
+                  : formatScheduleDetail(item)}
             </p>
           )}
         </div>
@@ -361,6 +440,7 @@ export const ScheduledAgentsList = ({
   onEdit,
   onDelete,
   onTrigger,
+  onRearm,
 }: ScheduledAgentsListProps) => {
   return (
     <div className="overflow-x-auto">
@@ -402,6 +482,7 @@ export const ScheduledAgentsList = ({
                 onEdit={onEdit}
                 onDelete={onDelete}
                 onTrigger={onTrigger}
+                onRearm={onRearm}
               />
             ))
           )}

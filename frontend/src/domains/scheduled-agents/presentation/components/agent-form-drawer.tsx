@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import cronstrue from "cronstrue";
 import {
   Sheet,
@@ -326,7 +327,10 @@ export const AgentFormDrawer = ({
   isLoadingBacklogDrainPreview,
   webhookProposal,
   isLoadingWebhookProposal,
+  lastRunAt,
+  onceRunAtPastWarning,
 }: AgentFormDrawerProps) => {
+  const t = useTranslations("scheduledAgents");
   const [timezoneOpen, setTimezoneOpen] = useState(false);
   const [projectScopeOpen, setProjectScopeOpen] = useState(false);
   const [copiedWebhookUrl, setCopiedWebhookUrl] = useState<string | null>(null);
@@ -1499,6 +1503,7 @@ export const AgentFormDrawer = ({
                     <SelectItem value="manual">Manual</SelectItem>
                     <SelectItem value="time_window">Time Window</SelectItem>
                     <SelectItem value="cron">Cron Expression</SelectItem>
+                    <SelectItem value="once">{t("once.scheduleTypeOption")}</SelectItem>
                   </SelectContent>
                 </Select>
                 <FormMessage />
@@ -2037,6 +2042,33 @@ export const AgentFormDrawer = ({
                 </FormItem>
               );
             }}
+          />
+        )}
+
+        {scheduleType === "once" && (
+          <FormField
+            control={form.control}
+            name="onceRunAtLocal"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t("once.runAtLabel")}</FormLabel>
+                <FormControl>
+                  <Input type="datetime-local" {...field} value={field.value ?? ""} />
+                </FormControl>
+                <FormDescription>{t("once.runAtDescription")}</FormDescription>
+                {onceRunAtPastWarning && (
+                  <p className="text-xs text-amber-600 dark:text-amber-500">
+                    {t("once.pastWarning")}
+                  </p>
+                )}
+                {isEditing && lastRunAt && (
+                  <p className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                    {t("once.rearmHint")}
+                  </p>
+                )}
+                <FormMessage />
+              </FormItem>
+            )}
           />
         )}
       </div>

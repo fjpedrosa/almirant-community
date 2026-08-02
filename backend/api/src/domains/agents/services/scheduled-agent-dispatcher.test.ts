@@ -56,6 +56,8 @@ const state = {
     created: boolean;
   },
   standaloneCalls: [] as Array<{ configId: string; options: Record<string, unknown> }>,
+  consumeOnceResult: true,
+  consumeOnceCalls: [] as string[],
   workspaceOwnerUserId: null as string | null,
   workspaceOwnerCalls: [] as string[],
 };
@@ -84,6 +86,8 @@ const resetState = () => {
   state.releaseIntegrationCalls = [];
   state.standaloneResult = { job: { id: "job-standalone" }, created: true };
   state.standaloneCalls = [];
+  state.consumeOnceResult = true;
+  state.consumeOnceCalls = [];
   state.workspaceOwnerUserId = null;
   state.workspaceOwnerCalls = [];
 };
@@ -138,6 +142,10 @@ mock.module("@almirant/database", () =>
     },
     updateScheduledAgentConfigLastRunAt: async (id: string) => {
       state.lastRunUpdates.push(id);
+    },
+    consumeOnceScheduleOccurrence: async (id: string) => {
+      state.consumeOnceCalls.push(id);
+      return state.consumeOnceResult;
     },
     getWorkspaceOwnerUserId: async (workspaceId: string) => {
       state.workspaceOwnerCalls.push(workspaceId);
@@ -226,6 +234,186 @@ describe("runScheduledAgentDispatchOnce", () => {
     expect(state.createdJobs).toEqual([]);
     expect(state.lastRunUpdates).toEqual([]);
     expect(state.standaloneCalls).toEqual([]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // scheduleType='once' (community issue #91) — due-gate routing wiring. The
+  // auto-disable behavior itself lives in `updateScheduledAgentConfigLastRunAt`
+  // (repository layer, exercised in scheduled-agent-config-repository.test.ts
+  // against a real PGlite instance) — this mocked-DB suite only proves the
+  // dispatcher calls `isOnceDue` (not `isTimeWindowActive`) for 'once' configs.
+  // ---------------------------------------------------------------------------
+
+  it("skips a 'once' config whose runAt is still in the future", async () => {
+    state.configs = [
+      {
+        ...baseConfig,
+        scheduleType: "once",
+        scheduleConfig: { runAt: "2026-08-01T11:00:00.000Z" },
+      },
+    ];
+
+    const summary = await runScheduledAgentDispatchOnce(NOW);
+
+    expect(summary.skipped.notDue).toBe(1);
+    expect(summary.jobsCreated).toBe(0);
+    expect(state.standaloneCalls).toEqual([]);
+  });
+
+  it("dispatches a standalone 'once' config once runAt has passed, keyed by 'once:<runAt>'", async () => {
+    state.configs = [
+      {
+        ...baseConfig,
+        scheduleType: "once",
+        scheduleConfig: { runAt: "2026-08-01T09:00:00.000Z" },
+      },
+    ];
+
+    const summary = await runScheduledAgentDispatchOnce(NOW);
+
+    expect(summary.skipped.notDue).toBe(0);
+    expect(summary.jobsCreatedByMode.standalone).toBe(1);
+    expect(state.standaloneCalls).toHaveLength(1);
+    expect(state.standaloneCalls[0]?.options).toMatchObject({
+      dueKey: "once:2026-08-01T09:00:00.000Z",
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Fix 1 (review, CRITICAL): at-most-once PRE-dispatch consumption for
+  // 'once' configs. `consumeOnceScheduleOccurrence` must be called for EVERY
+  // dispatch mode (not just standalone), BEFORE the mode router, and a
+  // `false` return must skip without creating any job — the atomic UPDATE
+  // itself is exercised against a real PGlite instance in
+  // scheduled-agent-config-repository.test.ts; this mocked-DB suite only
+  // proves the dispatcher wiring: who gets called, in what order, and what
+  // happens on both outcomes.
+  // -------------------------------------------------------------------------
+  it("consumes the 'once' occurrence before routing to backlogDrain, and dispatches when consumption succeeds", async () => {
+    state.configs = [
+      {
+        ...baseConfig,
+        scheduleType: "once",
+        scheduleConfig: { runAt: "2026-08-01T09:00:00.000Z" },
+        targetConfig: { backlogDrain: { enabled: true } },
+      },
+    ];
+    state.consumeOnceResult = true;
+    state.backlogDrainResult = {
+      candidates: [
+        {
+          id: "wi-once-1",
+          projectId: "p1",
+          boardId: "b1",
+          provider: "claude-code",
+          codingAgent: "claude-code",
+          aiProvider: "anthropic",
+          model: "claude-opus-4-8",
+          reasoningLevel: null,
+        },
+      ],
+      skipped: { ...emptySkipped },
+    };
+
+    const summary = await runScheduledAgentDispatchOnce(NOW);
+
+    expect(state.consumeOnceCalls).toEqual(["config-1"]);
+    expect(state.backlogDrainCalls).toHaveLength(1);
+    expect(state.createdJobs).toHaveLength(1);
+    expect(summary.jobsCreatedByMode.backlogDrain).toBe(1);
+  });
+
+  it("skips a 'once' config without dispatching ANY mode when the occurrence was already consumed by another dispatch authority", async () => {
+    state.configs = [
+      {
+        ...baseConfig,
+        scheduleType: "once",
+        scheduleConfig: { runAt: "2026-08-01T09:00:00.000Z" },
+        targetConfig: { backlogDrain: { enabled: true } },
+      },
+    ];
+    // Simulates a concurrent replica (or a crashed-but-already-consumed
+    // occurrence) winning the atomic UPDATE first.
+    state.consumeOnceResult = false;
+
+    const summary = await runScheduledAgentDispatchOnce(NOW);
+
+    expect(state.consumeOnceCalls).toEqual(["config-1"]);
+    expect(state.backlogDrainCalls).toEqual([]);
+    expect(state.createdJobs).toEqual([]);
+    expect(summary.jobsCreated).toBe(0);
+    expect(summary.jobsCreatedByMode.backlogDrain).toBe(0);
+    expect(summary.skipped.onceAlreadyConsumed).toBe(1);
+  });
+
+  it("consumes the 'once' occurrence before routing to the standalone (jobType='scheduled') branch too", async () => {
+    state.configs = [
+      {
+        ...baseConfig,
+        scheduleType: "once",
+        scheduleConfig: { runAt: "2026-08-01T09:00:00.000Z" },
+      },
+    ];
+    state.consumeOnceResult = false;
+
+    const summary = await runScheduledAgentDispatchOnce(NOW);
+
+    expect(state.consumeOnceCalls).toEqual(["config-1"]);
+    expect(state.standaloneCalls).toEqual([]);
+    expect(summary.jobsCreatedByMode.standalone).toBe(0);
+    expect(summary.skipped.onceAlreadyConsumed).toBe(1);
+  });
+
+  it("consumes the 'once' occurrence before routing to candidate-based dispatch too", async () => {
+    state.configs = [
+      {
+        ...baseConfig,
+        scheduleType: "once",
+        scheduleConfig: { runAt: "2026-08-01T09:00:00.000Z" },
+        jobType: "validation",
+      },
+    ];
+    state.consumeOnceResult = false;
+    state.validationCandidatesResult = [{ id: "wi-once-2", projectId: "p1", boardId: "b1" }];
+
+    const summary = await runScheduledAgentDispatchOnce(NOW);
+
+    expect(state.consumeOnceCalls).toEqual(["config-1"]);
+    expect(state.validationCandidatesCalls).toEqual([]);
+    expect(state.createdJobs).toEqual([]);
+    expect(summary.skipped.onceAlreadyConsumed).toBe(1);
+  });
+
+  it("does NOT call consumeOnceScheduleOccurrence for cron/time_window configs — only 'once' gets pre-dispatch consumption", async () => {
+    state.configs = [
+      { ...baseConfig, scheduleType: "time_window" },
+      {
+        ...baseConfig,
+        id: "config-cron",
+        scheduleType: "cron",
+        scheduleConfig: { expression: "*/5 * * * *" },
+      },
+    ];
+
+    await runScheduledAgentDispatchOnce(NOW);
+
+    expect(state.consumeOnceCalls).toEqual([]);
+  });
+
+  it("does not consume the 'once' occurrence when the quota gate rejects it first — quota exhaustion must not permanently lose the occurrence", async () => {
+    state.configs = [
+      {
+        ...baseConfig,
+        scheduleType: "once",
+        scheduleConfig: { runAt: "2026-08-01T09:00:00.000Z" },
+      },
+    ];
+    state.quotaResult = { allowed: false, reason: "monthly token limit exceeded" };
+
+    const summary = await runScheduledAgentDispatchOnce(NOW);
+
+    expect(summary.skipped.noQuota).toBe(1);
+    expect(state.consumeOnceCalls).toEqual([]);
   });
 
   it("skips a due config without quota, and does NOT touch lastRunAt", async () => {

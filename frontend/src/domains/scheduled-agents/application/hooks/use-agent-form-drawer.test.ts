@@ -2,8 +2,10 @@ import { describe, expect, it } from "bun:test";
 import {
   buildAgentToolingSelection,
   buildBuiltinAutomationTargetConfig,
+  buildOnceScheduleConfig,
   mergeAgentToolingSelectionIntoTargetConfig,
   parseAgentToolingSelection,
+  resolveOnceRunAtDefault,
   resolveScheduledAgentSubmitJobType,
   resolveScheduledAgentSubmitProjectId,
   resolveScheduledAgentSubmitProvider,
@@ -476,6 +478,113 @@ describe("resolveScheduledAgentSubmitProvider", () => {
         aiProvider: "zai",
       }),
     ).toBe("zipu");
+  });
+});
+
+describe("scheduledAgentFormSchema — once", () => {
+  const onceValues = {
+    ...validScheduledAgentFormValues,
+    scheduleType: "once" as const,
+    agentKind: "repository" as const,
+  };
+
+  it("accepts a run-once schedule with a filled-in date/time", () => {
+    const result = scheduledAgentFormSchema.safeParse({
+      ...onceValues,
+      onceRunAtLocal: "2026-08-15T14:30",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a run-once schedule with no date/time picked", () => {
+    const result = scheduledAgentFormSchema.safeParse({
+      ...onceValues,
+      onceRunAtLocal: "",
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path.includes("onceRunAtLocal"))).toBe(true);
+    }
+  });
+
+  it("rejects a run-once schedule with a malformed date/time", () => {
+    const result = scheduledAgentFormSchema.safeParse({
+      ...onceValues,
+      onceRunAtLocal: "not-a-date",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("does NOT reject a run-once schedule whose date/time is in the past (non-blocking by design)", () => {
+    // The backend explicitly allows a past runAt — it just dispatches on the
+    // next tick instead of rejecting the config. The UI surfaces this as a
+    // warning, not a form validation error.
+    const result = scheduledAgentFormSchema.safeParse({
+      ...onceValues,
+      onceRunAtLocal: "2000-01-01T00:00",
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("buildOnceScheduleConfig", () => {
+  it("converts the local date/time picked in the agent's timezone into an absolute ISO runAt", () => {
+    expect(
+      buildOnceScheduleConfig({
+        onceRunAtLocal: "2026-08-15T14:30",
+        timezone: "Europe/Madrid",
+      }),
+    ).toEqual({ runAt: "2026-08-15T12:30:00.000Z" });
+  });
+
+  it("returns null when no date/time was picked", () => {
+    expect(
+      buildOnceScheduleConfig({
+        onceRunAtLocal: "",
+        timezone: "Europe/Madrid",
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null when the date/time is malformed", () => {
+    expect(
+      buildOnceScheduleConfig({
+        onceRunAtLocal: "not-a-date",
+        timezone: "Europe/Madrid",
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("resolveOnceRunAtDefault", () => {
+  it("returns an empty string when creating a new agent (no config)", () => {
+    expect(resolveOnceRunAtDefault(null)).toBe("");
+  });
+
+  it("returns an empty string when the edited config isn't a run-once schedule", () => {
+    expect(
+      resolveOnceRunAtDefault({
+        scheduleType: "cron",
+        scheduleConfig: { expression: "0 9 * * 1-5" },
+        timezone: "Europe/Madrid",
+      }),
+    ).toBe("");
+  });
+
+  it("round-trips a persisted runAt back into the agent's local wall-clock value", () => {
+    // Regression: editing a saved 'once' agent must show the SAME local date
+    // and time the user originally picked, not a UTC- or browser-shifted one.
+    expect(
+      resolveOnceRunAtDefault({
+        scheduleType: "once",
+        scheduleConfig: { runAt: "2026-08-15T12:30:00.000Z" },
+        timezone: "Europe/Madrid",
+      }),
+    ).toBe("2026-08-15T14:30");
   });
 });
 

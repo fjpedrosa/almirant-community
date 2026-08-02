@@ -1,8 +1,21 @@
 import { describe, expect, it, mock } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ScheduledAgentsList } from "./scheduled-agents-list";
 import type { ScheduledAgentConfig } from "../../domain/types";
+
+// This component has no i18n coverage today except for the new 'once'
+// strings introduced alongside this test — see messages/{en,es}.json under
+// the "scheduledAgents.once" namespace. Returning the raw key (with any
+// ICU-ish params inlined) keeps assertions readable without a real provider.
+mock.module("next-intl", () => ({
+  useTranslations: () =>
+    (key: string, values?: Record<string, string | number>) => {
+      if (!values) return key;
+      return `${key}:${JSON.stringify(values)}`;
+    },
+}));
+
+const { ScheduledAgentsList } = await import("./scheduled-agents-list");
 
 const noop = () => {};
 
@@ -51,6 +64,7 @@ describe("ScheduledAgentsList", () => {
         onEdit={noop}
         onDelete={noop}
         onTrigger={noop}
+        onRearm={noop}
       />,
     );
 
@@ -73,6 +87,7 @@ describe("ScheduledAgentsList", () => {
         onEdit={noop}
         onDelete={noop}
         onTrigger={noop}
+        onRearm={noop}
       />,
     );
 
@@ -107,6 +122,7 @@ describe("ScheduledAgentsList", () => {
         onEdit={noop}
         onDelete={noop}
         onTrigger={noop}
+        onRearm={noop}
       />,
     );
 
@@ -132,6 +148,7 @@ describe("ScheduledAgentsList", () => {
         onEdit={noop}
         onDelete={noop}
         onTrigger={noop}
+        onRearm={noop}
       />,
     );
 
@@ -151,6 +168,7 @@ describe("ScheduledAgentsList", () => {
         onEdit={noop}
         onDelete={noop}
         onTrigger={noop}
+        onRearm={noop}
       />,
     );
 
@@ -173,11 +191,75 @@ describe("ScheduledAgentsList", () => {
         onEdit={noop}
         onDelete={noop}
         onTrigger={noop}
+        onRearm={noop}
       />,
     );
 
     expect(
       screen.getByTitle(/add a .*schedule to enable/i),
     ).toBeInTheDocument();
+  });
+
+  it("muestra 'Runs once' con la fecha relativa para un once pendiente", () => {
+    const inThreeDays = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+
+    render(
+      <ScheduledAgentsList
+        items={[{
+          ...baseScheduledAgent,
+          scheduleType: "once",
+          scheduleConfig: { runAt: inThreeDays },
+          enabled: true,
+          lastRunAt: null,
+        }]}
+        isLoading={false}
+        triggeringId={null}
+        onToggle={noop}
+        onEdit={noop}
+        onDelete={noop}
+        onTrigger={noop}
+        onRearm={noop}
+      />,
+    );
+
+    // 'once.pendingLabel' takes a {date} param — the mocked next-intl
+    // renders key:JSON(values), so we just assert the right key fired with
+    // a date param roughly 3 days out (Intl.RelativeTimeFormat -> "in 3 days").
+    expect(screen.getByText(/^once\.pendingLabel:.*3 days/)).toBeInTheDocument();
+    // Pending once agents keep the ordinary 'Scheduled' badge — only an
+    // EXECUTED once gets a distinct badge (see the next test).
+    expect(screen.getByText("Scheduled")).toBeInTheDocument();
+  });
+
+  it("muestra el badge 'Executed' y una accion de re-armar para un once ya ejecutado", async () => {
+    const onRearm = mock(() => {});
+    const executedItem: ScheduledAgentConfig = {
+      ...baseScheduledAgent,
+      scheduleType: "once",
+      scheduleConfig: { runAt: "2026-04-10T09:00:00.000Z" },
+      enabled: false,
+      lastRunAt: "2026-04-10T09:00:05.000Z",
+    };
+
+    render(
+      <ScheduledAgentsList
+        items={[executedItem]}
+        isLoading={false}
+        triggeringId={null}
+        onToggle={noop}
+        onEdit={noop}
+        onDelete={noop}
+        onTrigger={noop}
+        onRearm={onRearm}
+      />,
+    );
+
+    expect(screen.getByText(/^once\.executedBadge:/)).toBeInTheDocument();
+    expect(screen.queryByText("Scheduled")).toBeNull();
+
+    const rearmButton = screen.getByRole("button", { name: "once.rearmAction" });
+    await userEvent.click(rearmButton);
+
+    expect(onRearm).toHaveBeenCalledWith(executedItem);
   });
 });

@@ -29,6 +29,10 @@ export type TimeWindowScheduleConfigLike = {
   daysOfWeek?: number[];
 };
 
+export type OnceScheduleConfigLike = {
+  runAt: string; // ISO-8601 timestamp
+};
+
 /** The four built-in-automation targetConfig flags — re-exported alias of
  *  the catalog's shape so this file's public types are unaffected. */
 type BuiltinTargetFlags = BuiltinAutomationTargetFlags;
@@ -130,8 +134,33 @@ export const isTimeWindowActive = (
   return true;
 };
 
+/**
+ * A one-shot ('once') config is due once `runAt` has passed. It never
+ * re-fires afterwards — that is enforced one layer up, by the config's own
+ * `enabled` flag: the dispatcher auto-disables a 'once' config immediately
+ * after its single successful dispatch (see
+ * `updateScheduledAgentConfigLastRunAt` in
+ * `scheduled-agent-config-repository.ts`), and `listEnabledScheduledAgentConfigs`
+ * only returns `enabled=true` rows, so a fired 'once' config simply stops
+ * being considered. This function intentionally does NOT read `lastRunAt` —
+ * unlike cron, a 'once' schedule has no "next occurrence" to compute from a
+ * prior run; idempotency across concurrent dispatch authorities comes from
+ * the stable `dueKey` ("once:" + runAt) each replay computes for the exact
+ * same `runAt`, not from this function.
+ */
+export const isOnceDue = (config: ScheduleEvaluationInput, now: Date): boolean => {
+  const onceConfig = config.scheduleConfig as OnceScheduleConfigLike | null;
+  if (!onceConfig?.runAt) return false;
+
+  const runAt = new Date(onceConfig.runAt);
+  if (Number.isNaN(runAt.getTime())) return false;
+
+  return now.getTime() >= runAt.getTime();
+};
+
 /** Whether the runner would fire this config right now. */
-export const isScheduleDue = (config: ScheduleEvaluationInput, now: Date): boolean =>
-  config.scheduleType === "cron"
-    ? isCronDue(config, now)
-    : isTimeWindowActive(config, now);
+export const isScheduleDue = (config: ScheduleEvaluationInput, now: Date): boolean => {
+  if (config.scheduleType === "cron") return isCronDue(config, now);
+  if (config.scheduleType === "once") return isOnceDue(config, now);
+  return isTimeWindowActive(config, now);
+};

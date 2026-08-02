@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   isCronDue,
+  isOnceDue,
   isScheduleDue,
   isTimeWindowActive,
   type ScheduleEvaluationInput,
@@ -196,10 +197,72 @@ describe("isTimeWindowActive", () => {
   });
 });
 
+const once = (runAt: string): ScheduleEvaluationInput => ({
+  scheduleType: "once",
+  scheduleConfig: { runAt },
+  timezone: "UTC",
+  lastRunAt: null,
+});
+
+describe("isOnceDue", () => {
+  test("is due once runAt has passed", () => {
+    expect(isOnceDue(once("2026-08-05T09:00:00Z"), WED_10H)).toBe(true);
+  });
+
+  test("is due exactly at runAt (boundary)", () => {
+    expect(isOnceDue(once("2026-08-05T10:00:00Z"), WED_10H)).toBe(true);
+  });
+
+  test("is not due while runAt is still in the future", () => {
+    expect(isOnceDue(once("2026-08-05T11:00:00Z"), WED_10H)).toBe(false);
+  });
+
+  test("a past runAt is due — creating with a past runAt is allowed and simply fires on the next tick", () => {
+    expect(isOnceDue(once("2020-01-01T00:00:00Z"), WED_10H)).toBe(true);
+  });
+
+  test("ignores lastRunAt entirely — unlike cron, there is no 'next occurrence' to compute", () => {
+    const config: ScheduleEvaluationInput = {
+      scheduleType: "once",
+      scheduleConfig: { runAt: "2026-08-05T09:00:00Z" },
+      timezone: "UTC",
+      lastRunAt: "2026-08-05T09:30:00Z",
+    };
+    expect(isOnceDue(config, WED_10H)).toBe(true);
+  });
+
+  test("a missing runAt is never due", () => {
+    expect(
+      isOnceDue(
+        { scheduleType: "once", scheduleConfig: {}, timezone: "UTC", lastRunAt: null },
+        WED_10H,
+      ),
+    ).toBe(false);
+  });
+
+  test("an unparseable runAt is never due rather than throwing", () => {
+    expect(isOnceDue(once("not-a-date"), WED_10H)).toBe(false);
+  });
+
+  test("a null scheduleConfig is never due", () => {
+    expect(
+      isOnceDue(
+        { scheduleType: "once", scheduleConfig: null, timezone: "UTC", lastRunAt: null },
+        WED_10H,
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("isScheduleDue", () => {
   test("routes by scheduleType", () => {
     expect(isScheduleDue(cron("*/5 * * * *"), WED_10H)).toBe(true);
     expect(isScheduleDue(window({ startHour: 9, endHour: 17 }), WED_10H)).toBe(true);
     expect(isScheduleDue(window({ startHour: 0, endHour: 1 }), WED_10H)).toBe(false);
+  });
+
+  test("routes 'once' to isOnceDue", () => {
+    expect(isScheduleDue(once("2026-08-05T09:00:00Z"), WED_10H)).toBe(true);
+    expect(isScheduleDue(once("2026-08-05T11:00:00Z"), WED_10H)).toBe(false);
   });
 });

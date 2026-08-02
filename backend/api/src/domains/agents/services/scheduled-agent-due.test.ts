@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   isCronDue,
+  isOnceDue,
   isScheduledAgentRunnable,
   isTimeWindowActive,
   resolveScheduledDispatchDueKey,
@@ -80,6 +81,51 @@ describe("resolveScheduledDispatchDueKey", () => {
       resolveScheduledDispatchDueKey(config, new Date("2026-07-24T10:47:00.000Z")),
     ).toEqual({ due: false });
   });
+
+  it("derives a 'once' due key from the canonicalized runAt, not from now", () => {
+    const config = baseConfig({
+      scheduleType: "once",
+      scheduleConfig: { runAt: "2026-07-24T10:00:00.000Z" },
+    });
+
+    expect(
+      resolveScheduledDispatchDueKey(config, new Date("2026-07-24T10:05:00.000Z")),
+    ).toEqual({ due: true, dueKey: "once:2026-07-24T10:00:00.000Z" });
+  });
+
+  it("computes the SAME 'once' due key on a replay — the idempotency property two concurrent dispatch authorities rely on", () => {
+    const config = baseConfig({
+      scheduleType: "once",
+      scheduleConfig: { runAt: "2026-07-24T10:00:00.000Z" },
+    });
+
+    const first = resolveScheduledDispatchDueKey(config, new Date("2026-07-24T10:00:01.000Z"));
+    const second = resolveScheduledDispatchDueKey(config, new Date("2026-07-24T10:00:02.000Z"));
+
+    expect(first).toEqual(second);
+  });
+
+  it("a 'once' config is not due while runAt is still in the future", () => {
+    const config = baseConfig({
+      scheduleType: "once",
+      scheduleConfig: { runAt: "2026-07-25T00:00:00.000Z" },
+    });
+
+    expect(
+      resolveScheduledDispatchDueKey(config, new Date("2026-07-24T10:47:00.000Z")),
+    ).toEqual({ due: false });
+  });
+
+  it("returns due:false instead of throwing for a 'once' config with a missing runAt", () => {
+    const config = baseConfig({ scheduleType: "once", scheduleConfig: {} });
+
+    expect(() =>
+      resolveScheduledDispatchDueKey(config, new Date("2026-07-24T10:47:00.000Z")),
+    ).not.toThrow();
+    expect(
+      resolveScheduledDispatchDueKey(config, new Date("2026-07-24T10:47:00.000Z")),
+    ).toEqual({ due: false });
+  });
 });
 
 // isCronDue / isTimeWindowActive are thin delegations to `@almirant/shared`'s
@@ -115,6 +161,18 @@ describe("isTimeWindowActive (adapter wiring to @almirant/shared)", () => {
   });
 });
 
+describe("isOnceDue (adapter wiring to @almirant/shared)", () => {
+  it("delegates to the shared once policy", () => {
+    const config = baseConfig({
+      scheduleType: "once",
+      scheduleConfig: { runAt: "2026-07-24T10:00:00.000Z" },
+    });
+
+    expect(isOnceDue(config, new Date("2026-07-24T10:00:00.000Z"))).toBe(true);
+    expect(isOnceDue(config, new Date("2026-07-24T09:59:59.999Z"))).toBe(false);
+  });
+});
+
 describe("isScheduledAgentRunnable", () => {
   const now = new Date("2026-07-24T10:47:00.000Z");
 
@@ -143,6 +201,15 @@ describe("isScheduledAgentRunnable", () => {
 
   it("treats a pausedUntil exactly equal to now as no longer paused", () => {
     const config = baseConfig({ pausedUntil: now.toISOString() });
+
+    expect(isScheduledAgentRunnable(config, now)).toBe(true);
+  });
+
+  it("is runnable when scheduleType='once' — only 'manual' is excluded", () => {
+    const config = baseConfig({
+      scheduleType: "once",
+      scheduleConfig: { runAt: "2026-07-24T10:00:00.000Z" },
+    });
 
     expect(isScheduledAgentRunnable(config, now)).toBe(true);
   });

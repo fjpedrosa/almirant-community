@@ -1,4 +1,5 @@
 import type { GuidedCronMode } from "../../domain/cron-builder";
+import type { ScheduleType } from "../../domain/types";
 
 export const DEFAULT_CRON_EXPRESSION = "0 9 * * 1,2,3,4,5";
 
@@ -20,7 +21,7 @@ export const resolveDefaultCronExpression = ({
   scheduleType,
   cronExpression,
 }: {
-  scheduleType: "manual" | "time_window" | "cron";
+  scheduleType: ScheduleType;
   cronExpression: string | null | undefined;
 }): string | null => {
   if (scheduleType !== "cron") {

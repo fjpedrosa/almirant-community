@@ -33,4 +33,13 @@ describe("resolveDefaultCronExpression", () => {
       }),
     ).toBe(DEFAULT_CRON_EXPRESSION);
   });
+
+  test("does not seed a cron default for a run-once schedule", () => {
+    expect(
+      resolveDefaultCronExpression({
+        scheduleType: "once",
+        cronExpression: "",
+      }),
+    ).toBeNull();
+  });
 });

@@ -20,11 +20,16 @@ import { user } from "./auth";
 import type { BacklogDrainConfig } from "../repositories/agents/backlog-drain-selection";
 import type { RunnerCustomMcpServersConfig } from "@almirant/shared";
 
-// Schedule type enum (only meaningful when trigger = 'scheduled')
+// Schedule type enum (only meaningful when trigger = 'scheduled').
+// 'once' (community issue #91) is a one-shot schedule: it fires exactly once
+// at scheduleConfig.runAt and the dispatcher auto-disables the config
+// (enabled=false) immediately after that single successful dispatch — see
+// `updateScheduledAgentConfigLastRunAt` in scheduled-agent-config-repository.ts.
 export const scheduleTypeEnum = pgEnum("schedule_type", [
   "manual",
   "time_window",
   "cron",
+  "once",
 ]);
 
 // Agent trigger discriminator: how the agent gets kicked off.
@@ -58,7 +63,15 @@ export interface CronConfig {
   expression: string; // Cron expression
 }
 
-export type ScheduleConfig = TimeWindowConfig | CronConfig;
+// One-shot schedule (scheduleType='once'): fires exactly once at `runAt`
+// (ISO-8601 timestamp) and the dispatcher auto-disables the config right
+// after that single dispatch. A past `runAt` is allowed at create/update
+// time — it simply dispatches on the next tick instead of being rejected.
+export interface OnceScheduleConfig {
+  runAt: string; // ISO-8601 timestamp
+}
+
+export type ScheduleConfig = TimeWindowConfig | CronConfig | OnceScheduleConfig;
 
 export interface TargetConfig {
   // Optional project scope for built-in automations. Empty/undefined means workspace-wide.

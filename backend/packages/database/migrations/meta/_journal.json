@@ -1527,6 +1527,13 @@
       "when": 1785660650758,
       "tag": "0223_sudden_shiver_man",
       "breakpoints": true
+    },
+    {
+      "idx": 224,
+      "version": "7",
+      "when": 1785663297779,
+      "tag": "0224_flat_meteorite",
+      "breakpoints": true
     }
   ]
 }
