@@ -61,6 +61,12 @@ const COMPATIBLE_MIGRATION_HASHES: Record<string, string[]> = {
   "0121_faithful_gideon": [
     "18dcd9ab58d5dd59ca7bc3e5d962c9fe19f3f2c9eb4a8e8238c3ee26a616a59a",
   ],
+  // #73: 0147 unconditionally re-added the oauth_states_user_id_user_id_fk FK
+  // that 0046 already creates, breaking a from-scratch install. Guarded with
+  // DROP CONSTRAINT IF EXISTS before the ADD CONSTRAINT (idempotent either way).
+  "0147_recreate_oauth_states": [
+    "87de2d6c15c40cbbfea5108ad53e66f83c702c1cb17baf4409a3b119e61f2930",
+  ],
 };
 
 // ── 1. Validate journal ordering ────────────────────────────────────────────
