@@ -19,6 +19,9 @@ import {
   DuplicateActiveJobError,
   claimJobs,
   updateJobStatus,
+  updateClaimedJobStatus,
+  updateLegacyClaimedJobStatus,
+  requestJobTerminalIntent,
   getJobById,
   getActiveJobForWorkItem,
   getWorkItemById,
@@ -32,6 +35,7 @@ import {
   updateConnectionLastUsedAt,
   decryptCredentials,
   createInteraction,
+  createFencedJobInteraction,
   createAgentJobLogBatch,
   getInteractionById,
   getAttachment,
@@ -74,6 +78,15 @@ import {
   insertSessionEventsBatch,
   insertAgentNativeEventsBatch,
   getAgentNativeEventsByJobId,
+  ensureClaimSequenceReservation,
+  prepareClaimSequenceHandoff,
+  persistFencedAgentJobLogs,
+  persistReceiptFreeLegacyAgentJobLogs,
+  persistFencedSessionEvents,
+  persistReceiptFreeLegacySessionEvents,
+  persistFencedNativeEvents,
+  persistReceiptFreeLegacyNativeEvents,
+  ClaimSequenceReceiptConflictError,
   getLeafTaskIdsUnder,
   getDodRemediationExpectedLeafTaskIdsUnder,
   getCompletedWorkItemIdsForJob,
@@ -96,6 +109,7 @@ import type {
   AiProvider,
   AgentJobConfig,
   NewAgentNativeEvent,
+  NewSessionEvent,
   ScheduledAgentConfigDb,
 } from "@almirant/database";
 import { env, logger } from "@almirant/config";
@@ -708,6 +722,33 @@ const normalizeJobResultPayload = (
 };
 
 const MAX_LOG_BATCH_SIZE = 1_000;
+
+// Receipts-protocol claim-ownership helpers. Genuinely generic (no
+// Shoutrz/workspace-scope dependency) — ported from cloud verbatim.
+const getCurrentClaimAttemptId = (
+  config: AgentJobConfig | null | undefined,
+): string | null =>
+  typeof config?.claimAttemptId === "string" &&
+  config.claimAttemptId.trim().length > 0
+    ? config.claimAttemptId
+    : null;
+
+/** Exact equality includes the legacy state: no current nonce accepts only no nonce. */
+const matchesCurrentClaimAttempt = (
+  config: AgentJobConfig | null | undefined,
+  provided: string | undefined,
+): boolean => getCurrentClaimAttemptId(config) === (provided?.trim() || null);
+
+const isLegacyUnclaimedSequenceEvent = (
+  config: AgentJobConfig | null | undefined,
+  event: {
+    sequenceProtocolVersion?: "durable.v2";
+    claimAttemptId?: string;
+  },
+): boolean =>
+  getCurrentClaimAttemptId(config) === null &&
+  event.sequenceProtocolVersion === undefined &&
+  event.claimAttemptId === undefined;
 
 const resourceEstimateSchema = t.Object({
   estimatedMemoryMb: t.Number(),
@@ -2547,6 +2588,118 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
     }
   )
 
+  // Extend a current claim's disjoint durable sequence reservation before a
+  // producer reaches its inclusive end. Receipt and job ownership are locked
+  // and checked atomically in the database repository.
+  //
+  // Ported from cloud without the workerApiKey workspace-scope check
+  // (canWorkerCredentialAccessWorkspace): that gate belongs to a separate
+  // cloud-only feature (shared-runner workspace isolation) that does not
+  // exist in community.
+  .post(
+    "/jobs/:jobId/sequence-reservations/:channel/ensure",
+    async ({ params, body, set }) => {
+      const existing = await getJobById(params.jobId);
+      if (!existing) {
+        set.status = 404;
+        return notFoundResponse("Agent job");
+      }
+
+      try {
+        return successResponse(
+          await ensureClaimSequenceReservation({
+            jobId: params.jobId,
+            workerId: body.workerId,
+            claimAttemptId: body.expectedClaimAttemptId,
+            channel: params.channel,
+            requiredThrough: body.requiredThrough,
+          }),
+        );
+      } catch (error) {
+        if (error instanceof ClaimSequenceReceiptConflictError) {
+          set.status = 409;
+          return errorResponse("Job claim is no longer active", 409);
+        }
+        throw error;
+      }
+    },
+    {
+      params: t.Object({
+        jobId: t.String(),
+        channel: t.Union([
+          t.Literal("jobLogs"),
+          t.Literal("sessionEvents"),
+          t.Literal("nativeEvents"),
+        ]),
+      }),
+      body: t.Object({
+        workerId: t.String({ minLength: 1 }),
+        expectedClaimAttemptId: t.String({ minLength: 1, maxLength: 100 }),
+        requiredThrough: t.Integer({ minimum: 0, maximum: 2_147_483_647 }),
+      }),
+    },
+  )
+
+  // Freeze exact producer high-water marks and report whether every durable
+  // row has reached the database. The runner must not release ownership until
+  // this endpoint returns ready=true.
+  //
+  // Ported from cloud without the workerApiKey workspace-scope check (see
+  // note above).
+  .post(
+    "/jobs/:jobId/sequence-handoff",
+    async ({ params, body, set }) => {
+      const existing = await getJobById(params.jobId);
+      if (!existing) {
+        set.status = 404;
+        return notFoundResponse("Agent job");
+      }
+
+      try {
+        const handoff = await prepareClaimSequenceHandoff({
+          jobId: params.jobId,
+          workerId: body.workerId,
+          claimAttemptId: body.expectedClaimAttemptId,
+          emittedThrough: body.emittedThrough,
+        });
+        if (!handoff.ready) {
+          // A job that waited minutes here used to leave no trace at all, so
+          // nobody could tell which channel was behind — or whether it was
+          // moving. One line per unready poll makes the backlog visible.
+          logger.debug(
+            {
+              jobId: params.jobId,
+              workerId: body.workerId,
+              inserted: handoff.insertedCount,
+              expected: handoff.expectedCount,
+            },
+            "sequence handoff not ready",
+          );
+        }
+        return successResponse(handoff);
+      } catch (error) {
+        if (error instanceof ClaimSequenceReceiptConflictError) {
+          set.status = 409;
+          return errorResponse("Job claim is no longer active", 409);
+        }
+        throw error;
+      }
+    },
+    {
+      params: t.Object({ jobId: t.String() }),
+      body: t.Object({
+        workerId: t.String({ minLength: 1 }),
+        expectedClaimAttemptId: t.String({ minLength: 1, maxLength: 100 }),
+        emittedThrough: t.Object({
+          protocolVersion: t.Literal(2),
+          jobLogs: t.Integer({ minimum: 0, maximum: 2_147_483_647 }),
+          sessionEvents: t.Integer({ minimum: 0, maximum: 2_147_483_647 }),
+          nativeEvents: t.Integer({ minimum: 0, maximum: 2_147_483_647 }),
+        }),
+      }),
+    },
+  )
+
   // POST /workers/jobs/:jobId/logs
   .post(
     "/jobs/:jobId/logs",
@@ -2555,6 +2708,21 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       if (!existing) {
         set.status = 404;
         return notFoundResponse("Agent job");
+      }
+
+      const hasDurableClaim =
+        typeof body.expectedClaimAttemptId === "string" &&
+        body.expectedClaimAttemptId.trim().length > 0;
+      if (
+        !hasDurableClaim &&
+        (!matchesCurrentClaimAttempt(existing.job.config, undefined) || body.workerId !== undefined)
+      ) {
+        set.status = 409;
+        return errorResponse("Job claim is no longer active", 409);
+      }
+      if (hasDurableClaim && !body.workerId) {
+        set.status = 409;
+        return errorResponse("Durable log batches require exact claim ownership", 409);
       }
 
       if (body.logs.length > MAX_LOG_BATCH_SIZE) {
@@ -2591,7 +2759,23 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         });
       }
 
-      const inserted = await createAgentJobLogBatch(preparedLogs);
+      let inserted;
+      try {
+        inserted = hasDurableClaim
+          ? await persistFencedAgentJobLogs({
+              jobId: params.jobId,
+              workerId: body.workerId!,
+              claimAttemptId: body.expectedClaimAttemptId!,
+              logs: preparedLogs,
+            })
+          : await persistReceiptFreeLegacyAgentJobLogs(preparedLogs);
+      } catch (error) {
+        if (error instanceof ClaimSequenceReceiptConflictError) {
+          set.status = 409;
+          return errorResponse("Job claim is no longer active", 409);
+        }
+        throw error;
+      }
 
       // Broadcast inserted chunks via WebSocket (omit payload field to reduce traffic)
       if (inserted.length > 0) {
@@ -2630,9 +2814,13 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         jobId: t.String(),
       }),
       body: t.Object({
+        workerId: t.Optional(t.String({ minLength: 1 })),
+        expectedClaimAttemptId: t.Optional(
+          t.String({ minLength: 1, maxLength: 100 }),
+        ),
         logs: t.Array(
           t.Object({
-            seq: t.Integer({ minimum: 0 }),
+            seq: t.Integer({ minimum: 0, maximum: 2_147_483_647 }),
             level: t.Optional(
               t.Union([
                 t.Literal("debug"),
