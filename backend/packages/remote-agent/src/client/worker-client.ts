@@ -37,6 +37,9 @@ import type {
   ScheduledAgentConfig,
   BacklogDrainCandidatesResponse,
   IntegrationBatchDto,
+  EnsureSequenceReservationResponse,
+  PrepareSequenceHandoffResponse,
+  WorkerClientRequestOptions,
 } from "./types";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -59,6 +62,18 @@ export class NotFoundError extends Error {
 
 export class ApiError extends Error {
   public override name = "ApiError";
+
+  public constructor(
+    message: string,
+    public readonly statusCode?: number,
+  ) {
+    super(message);
+  }
+}
+
+/** A non-retryable optimistic-ownership conflict (for example, a stale claim). */
+export class ConflictError extends ApiError {
+  public override name = "ConflictError";
 }
 
 const sleep = async (ms: number): Promise<void> => {
@@ -106,6 +121,7 @@ type RequestOptions = {
   method: "GET" | "POST" | "PATCH";
   json?: unknown;
   timeoutMs?: number;
+  signal?: AbortSignal;
 };
 
 const requestJson = async <T>(
@@ -136,7 +152,9 @@ const requestJson = async <T>(
         method: options.method,
         headers,
         body: options.json !== undefined ? JSON.stringify(options.json) : undefined,
-        signal: controller.signal,
+        signal: options.signal
+          ? AbortSignal.any([controller.signal, options.signal])
+          : controller.signal,
       });
 
       if (response.status === 401 || response.status === 403) {
@@ -147,6 +165,13 @@ const requestJson = async <T>(
 
       if (response.status === 404) {
         throw new NotFoundError(await toErrorMessage(response, "Resource not found"));
+      }
+
+      if (response.status === 409) {
+        throw new ConflictError(
+          await toErrorMessage(response, "Conflict"),
+          response.status,
+        );
       }
 
       if (!response.ok) {
@@ -181,6 +206,10 @@ const requestJson = async <T>(
         error instanceof ApiError
       ) {
         throw error;
+      }
+
+      if (options.signal?.aborted) {
+        throw options.signal.reason ?? new DOMException("Operation aborted", "AbortError");
       }
 
       if (error instanceof DOMException && error.name === "AbortError") {
@@ -348,6 +377,11 @@ const requestEvidenceArtifact = async (
 export const createAlmirantWorkerClient = (
   config: ApiClientConfig
 ): AlmirantWorkerClient => {
+  const claimOwnershipByJobId = new Map<
+    string,
+    { workerId: string; claimAttemptId: string }
+  >();
+
   return {
     heartbeat: async (payload: WorkerHeartbeatPayload) => {
       return requestJson<unknown>(config, "/workers/heartbeat", {
@@ -357,10 +391,44 @@ export const createAlmirantWorkerClient = (
     },
 
     claimJobs: async (payload: ClaimJobsPayload) => {
-      return requestJson<ClaimedJob[]>(config, "/workers/jobs/claim", {
-        method: "POST",
-        json: payload,
-      });
+      const capabilities = Array.from(
+        new Set([...(payload.capabilities ?? []), "durable.v2.receipts" as const]),
+      );
+      let jobs: ClaimedJob[];
+      try {
+        jobs = await requestJson<ClaimedJob[]>(config, "/workers/jobs/claim", {
+          method: "POST",
+          json: { ...payload, capabilities },
+        });
+      } catch (error) {
+        if (
+          !(error instanceof ApiError) ||
+          (error.statusCode !== 400 && error.statusCode !== 422)
+        ) {
+          throw error;
+        }
+
+        // During a server-first rolling upgrade, new APIs fence legacy workers.
+        // This one-shot fallback handles the reverse order too: an older API may
+        // reject the additive field, but only has receipt-free jobs to return.
+        const { capabilities: _unsupportedCapabilities, ...legacyPayload } = payload;
+        jobs = await requestJson<ClaimedJob[]>(config, "/workers/jobs/claim", {
+          method: "POST",
+          json: legacyPayload,
+        });
+      }
+      for (const job of jobs) {
+        if (
+          typeof job.claimAttemptId === "string" &&
+          job.claimAttemptId.length > 0
+        ) {
+          claimOwnershipByJobId.set(job.id, {
+            workerId: payload.workerId,
+            claimAttemptId: job.claimAttemptId,
+          });
+        }
+      }
+      return jobs;
     },
 
     createJob: async (payload: CreateWorkerJobPayload) => {
@@ -370,11 +438,88 @@ export const createAlmirantWorkerClient = (
       });
     },
 
-    updateJobStatus: async (jobId: string, payload: UpdateJobStatusPayload) => {
-      return requestJson<unknown>(config, `/workers/jobs/${jobId}/status`, {
-        method: "POST",
-        json: payload,
-      });
+    updateJobStatus: async (
+      jobId: string,
+      payload: UpdateJobStatusPayload,
+      requestOptions?: WorkerClientRequestOptions,
+    ) => {
+      const ownership = claimOwnershipByJobId.get(jobId);
+      const fencedPayload = ownership
+        ? {
+            ...payload,
+            workerId: payload.workerId ?? ownership.workerId,
+            expectedClaimAttemptId:
+              payload.expectedClaimAttemptId ?? ownership.claimAttemptId,
+          }
+        : payload;
+      const attemptedClaimAttemptId = fencedPayload.expectedClaimAttemptId;
+
+      try {
+        const result = await requestJson<unknown>(
+          config,
+          `/workers/jobs/${jobId}/status`,
+          {
+            method: "POST",
+            json: fencedPayload,
+            timeoutMs: requestOptions?.timeoutMs,
+            signal: requestOptions?.signal,
+          },
+        );
+        if (
+          ownership &&
+          ["queued", "paused", "completed", "incomplete", "failed", "cancelled"].includes(
+            payload.status,
+          ) &&
+          claimOwnershipByJobId.get(jobId)?.claimAttemptId ===
+            ownership.claimAttemptId &&
+          attemptedClaimAttemptId === ownership.claimAttemptId
+        ) {
+          claimOwnershipByJobId.delete(jobId);
+        }
+        return result;
+      } catch (error) {
+        if (
+          error instanceof ConflictError &&
+          ownership &&
+          claimOwnershipByJobId.get(jobId)?.claimAttemptId ===
+            ownership.claimAttemptId &&
+          attemptedClaimAttemptId === ownership.claimAttemptId
+        ) {
+          claimOwnershipByJobId.delete(jobId);
+        }
+        throw error;
+      }
+    },
+
+    ensureSequenceReservation: async (
+      jobId,
+      channel,
+      payload,
+      requestOptions,
+    ) => {
+      return requestJson<EnsureSequenceReservationResponse>(
+        config,
+        `/workers/jobs/${encodeURIComponent(jobId)}/sequence-reservations/${encodeURIComponent(channel)}/ensure`,
+        {
+          method: "POST",
+          json: payload,
+          timeoutMs: requestOptions?.timeoutMs,
+          signal: requestOptions?.signal,
+        },
+      );
+    },
+
+    prepareSequenceHandoff: async (jobId, payload, requestOptions) => {
+      return requestJson<PrepareSequenceHandoffResponse>(
+        config,
+        `/workers/jobs/${encodeURIComponent(jobId)}/sequence-handoff`,
+        {
+          method: "POST",
+          json: payload,
+          timeoutMs: requestOptions?.timeoutMs,
+          signal: requestOptions?.signal,
+        },
+      );
     },
 
     getProviderKeys: async (
@@ -447,13 +592,27 @@ export const createAlmirantWorkerClient = (
       });
     },
 
-    createInteraction: async (jobId: string, payload: CreateInteractionPayload) => {
+    createInteraction: async (
+      jobId: string,
+      payload: CreateInteractionPayload,
+      requestOptions?: WorkerClientRequestOptions,
+    ) => {
+      const ownership = claimOwnershipByJobId.get(jobId);
       return requestJson<WorkerInteraction>(
         config,
         `/workers/jobs/${jobId}/interactions`,
         {
           method: "POST",
-          json: payload,
+          json: ownership
+            ? {
+                ...payload,
+                workerId: payload.workerId ?? ownership.workerId,
+                expectedClaimAttemptId:
+                  payload.expectedClaimAttemptId ?? ownership.claimAttemptId,
+              }
+            : payload,
+          timeoutMs: requestOptions?.timeoutMs,
+          signal: requestOptions?.signal,
         }
       );
     },
@@ -468,24 +627,52 @@ export const createAlmirantWorkerClient = (
       );
     },
 
-    streamJobOutput: async (jobId: string, payload: StreamJobOutputPayload) => {
+    streamJobOutput: async (
+      jobId: string,
+      payload: StreamJobOutputPayload,
+      requestOptions?: WorkerClientRequestOptions,
+    ) => {
+      const ownership = claimOwnershipByJobId.get(jobId);
       return requestJson<StreamJobOutputResponse>(
         config,
         `/workers/jobs/${jobId}/stream`,
         {
           method: "POST",
-          json: payload,
+          json: ownership
+            ? {
+                ...payload,
+                workerId: payload.workerId ?? ownership.workerId,
+                expectedClaimAttemptId:
+                  payload.expectedClaimAttemptId ?? ownership.claimAttemptId,
+              }
+            : payload,
+          timeoutMs: requestOptions?.timeoutMs,
+          signal: requestOptions?.signal,
         }
       );
     },
 
-    sendJobLogs: async (jobId: string, payload: SendJobLogsPayload) => {
+    sendJobLogs: async (
+      jobId: string,
+      payload: SendJobLogsPayload,
+      requestOptions?: WorkerClientRequestOptions,
+    ) => {
+      const ownership = claimOwnershipByJobId.get(jobId);
       return requestJson<SendJobLogsResponse>(
         config,
         `/workers/jobs/${jobId}/logs`,
         {
           method: "POST",
-          json: payload,
+          json: ownership
+            ? {
+                ...payload,
+                workerId: payload.workerId ?? ownership.workerId,
+                expectedClaimAttemptId:
+                  payload.expectedClaimAttemptId ?? ownership.claimAttemptId,
+              }
+            : payload,
+          timeoutMs: requestOptions?.timeoutMs,
+          signal: requestOptions?.signal,
         }
       );
     },
