@@ -1,0 +1,3 @@
+ALTER TABLE "scheduled_agent_configs" ADD COLUMN "owner_user_id" text;--> statement-breakpoint
+ALTER TABLE "scheduled_agent_configs" ADD CONSTRAINT "scheduled_agent_configs_owner_user_id_user_id_fk" FOREIGN KEY ("owner_user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "scheduled_agent_configs_owner_user_id_idx" ON "scheduled_agent_configs" USING btree ("owner_user_id");

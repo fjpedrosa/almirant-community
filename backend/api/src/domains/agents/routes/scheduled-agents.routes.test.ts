@@ -504,7 +504,7 @@ describe("scheduledAgentsRoutes POST /scheduled-agents", () => {
     });
   });
 
-  it("normaliza y persiste MCP remoto adicional", async () => {
+  it("rechaza MCP remoto no gestionado para obligar a usar un perfil seguro", async () => {
     const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
     const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
 
@@ -524,17 +524,8 @@ describe("scheduledAgentsRoutes POST /scheduled-agents", () => {
       }),
     );
 
-    expect(response.status).toBe(201);
-    expect(state.createdConfigInput).toMatchObject({
-      mcpServers: {
-        "z-combinator": {
-          type: "remote",
-          url: "https://mcp.z-combinator.example/mcp",
-          enabled: true,
-          oauth: false,
-        },
-      },
-    });
+    expect(response.status).toBe(400);
+    expect(state.createdConfigInput).toBeNull();
   });
 
   it("rechaza MCP que intenta sobrescribir servidores reservados del runner", async () => {

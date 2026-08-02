@@ -13,6 +13,7 @@ import { assertValidScheduledAgentRuntime } from "../../domains/agents/services/
 import {
   resolveScheduledAgentEffectiveRuntimes,
 } from "../../domains/agents/services/scheduled-agent-effective-model-resolver";
+import { canAccessScheduledAgent } from "../../domains/agents/services/scheduled-agent-access";
 
 const TRIGGER_VALUES = ["scheduled", "webhook"] as const;
 const SCHEDULE_TYPE_VALUES = ["manual", "time_window", "cron"] as const;
@@ -216,6 +217,13 @@ export const registerAgentsTools = (server: McpServer) => {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
         const workspaceId = orgResult;
+        const ownerUserId = getUserIdFromExtra(extra);
+        if (!ownerUserId) {
+          return {
+            content: [{ type: "text" as const, text: "Error: could not resolve authenticated user" }],
+            isError: true,
+          };
+        }
 
         const triggerInput = buildAgentInput(params);
         const effectiveRuntimes = await resolveScheduledAgentEffectiveRuntimes({
@@ -241,6 +249,7 @@ export const registerAgentsTools = (server: McpServer) => {
 
         const agent = await createScheduledAgentConfig({
           workspaceId,
+          ownerUserId,
           name: params.name,
           prompt: params.prompt ?? null,
           description: params.description ?? null,
@@ -313,7 +322,13 @@ export const registerAgentsTools = (server: McpServer) => {
 
         const { id, ...rest } = params;
         const existing = await getScheduledAgentConfigById(id, workspaceId);
-        if (!existing) {
+        if (
+          !existing ||
+          !canAccessScheduledAgent({
+            ownerUserId: existing.ownerUserId,
+            actorUserId: getUserIdFromExtra(extra),
+          })
+        ) {
           return {
             content: [{ type: "text" as const, text: `Error: agent ${id} not found` }],
             isError: true,
@@ -370,6 +385,8 @@ export const registerAgentsTools = (server: McpServer) => {
 
         const updated = await updateScheduledAgentConfig(id, workspaceId, {
           ...rest,
+          // Ownership is derived from the persisted config, never tool input.
+          ownerUserId: existing.ownerUserId,
           ...(scheduleUpdate ?? {}),
         });
 

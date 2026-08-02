@@ -14,6 +14,8 @@ import { startMemoryGcSweeper } from "./domains/agents/services/memory-gc-sweepe
 import { startEffortEstimationSweeper } from "./domains/agents/services/effort-estimation-sweeper";
 import { startBugFixAttemptPrReconciler } from "./domains/integrations/github/services/bug-fix-attempt-pr-reconciler";
 import { startInvestigationTimeoutSweeper } from "./domains/observability/services/investigation-timeout-sweeper";
+import { startUserStorageDeletionSweeper } from "./domains/storage/services/user-storage-deletion-sweeper";
+import { startCloudBackgroundJobs } from "./cloud/background-jobs";
 
 interface BackgroundJobHandles {
   stop: () => Promise<void>;
@@ -47,6 +49,14 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
   });
   const stopUsageAggregation = startUsageAggregation({ intervalMs: 600_000 });
   const stopMemoryGcSweeper = startMemoryGcSweeper();
+  const stopUserStorageDeletionSweeper = startUserStorageDeletionSweeper({
+    intervalMs: 60_000,
+    batchSize: 100,
+  });
+  // Extension point for downstream distributions (e.g. Almirant Cloud) to
+  // start additional background jobs. Inert by default — see
+  // src/cloud/background-jobs.ts.
+  const stopCloudBackgroundJobs = startCloudBackgroundJobs();
   const stopEffortEstimationSweeper = startEffortEstimationSweeper({
     intervalMs: env.EFFORT_ESTIMATION_SWEEPER_INTERVAL_MS,
     batchSize: 5,
@@ -88,6 +98,8 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
       stopHealthCheckSweeper();
       stopUsageAggregation();
       stopMemoryGcSweeper();
+      stopUserStorageDeletionSweeper();
+      await stopCloudBackgroundJobs();
       stopEffortEstimationSweeper();
       if (stopBugFixAttemptPrReconciler) stopBugFixAttemptPrReconciler();
       if (stopInvestigationTimeoutSweeper) stopInvestigationTimeoutSweeper();

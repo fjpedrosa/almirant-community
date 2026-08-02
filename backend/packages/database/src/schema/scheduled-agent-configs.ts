@@ -15,6 +15,7 @@ import { agentJobTypeEnum, agentProviderEnum } from "./enums";
 import { workspace } from "./workspace";
 import { projects } from "./projects";
 import { skills } from "./skills";
+import { user } from "./auth";
 import type { BacklogDrainConfig } from "../repositories/agents/backlog-drain-selection";
 import type { RunnerCustomMcpServersConfig } from "@almirant/shared";
 
@@ -88,6 +89,14 @@ export const scheduledAgentConfigs = pgTable(
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
+    // Immutable ownership: set once at creation to the authenticated actor's
+    // user id (MCP tool or REST route). Nullable for backward compatibility
+    // with legacy configs created before ownership existed — a null owner
+    // means "accessible to any workspace member", matching the previous
+    // (ownerless) access model. See scheduled-agent-access.ts.
+    ownerUserId: text("owner_user_id").references(() => user.id, {
+      onDelete: "cascade",
+    }),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     name: varchar("name", { length: 255 }).notNull(),
     prompt: text("prompt"),
@@ -115,6 +124,7 @@ export const scheduledAgentConfigs = pgTable(
   },
   (table) => [
     index("scheduled_agent_configs_workspace_id_idx").on(table.workspaceId),
+    index("scheduled_agent_configs_owner_user_id_idx").on(table.ownerUserId),
     index("scheduled_agent_configs_enabled_idx").on(table.enabled),
     index("scheduled_agent_configs_project_id_idx").on(table.projectId),
     index("scheduled_agent_configs_skill_id_idx").on(table.skillId),
