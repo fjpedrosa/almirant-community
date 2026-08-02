@@ -920,6 +920,85 @@
         "removeAriaLabel": "Eliminar {email}",
         "empty": "Aún no hay colaboradores añadidos."
       }
+    },
+    "devFlow": {
+      "automationRow": {
+        "expand": "Expandir configuración de {name}",
+        "collapse": "Contraer configuración de {name}",
+        "neverRun": "Nunca ejecutado",
+        "lastRun": "Última ejecución: {time}",
+        "coveredByUserAgent": "Cubierto por un agente creado manualmente",
+        "notProvisioned": "Aún no provisionado",
+        "adopt": "Adoptar",
+        "adopting": "Adoptando…",
+        "adoptConfirmTitle": "¿Adoptar la automatización del sistema?",
+        "adoptConfirmBody": "Esto apaga tu agente creado manualmente para esta automatización y activa la automatización gestionada por el sistema.",
+        "adoptConfirmAction": "Sí, adoptar",
+        "adoptConfirmCancel": "Cancelar",
+        "fields": {
+          "enabled": "Activado",
+          "codingAgent": "Agente de código",
+          "aiProvider": "Proveedor de IA",
+          "model": "Modelo",
+          "reasoningEffort": "Esfuerzo de razonamiento",
+          "maxConcurrentJobs": "Trabajos concurrentes máximos",
+          "schedule": "Horario"
+        },
+        "toggleEnabledAria": "Activar {name}",
+        "inherited": "Sigue el valor por defecto de la tarjeta",
+        "overridden": "Personalizado",
+        "placeholderDefault": "Por defecto: {value}",
+        "defaultRuntimeBehavior": "Comportamiento por defecto",
+        "noLimit": "Sin límite",
+        "resetToDefaults": "Restablecer valores por defecto",
+        "save": "Guardar",
+        "saving": "Guardando…",
+        "discard": "Descartar",
+        "scheduleTimezoneLabel": "Zona horaria",
+        "scheduleTimezoneDefault": "Usar valor por defecto de la tarjeta",
+        "enabledBadge": "Activado",
+        "disabledBadge": "Desactivado",
+        "diagnose": "Diagnosticar",
+        "diagnosing": "Diagnosticando…",
+        "rediagnose": "Volver a diagnosticar",
+        "retryDiagnosis": "Reintentar diagnóstico",
+        "diagnoseAria": "Diagnosticar {name}",
+        "verdictWouldDispatch": "Se despacharía",
+        "verdictBlocked": "Bloqueado"
+      },
+      "card": {
+        "title": "Flujo de desarrollo automatizado",
+        "enableAria": "Activar el flujo de desarrollo automatizado",
+        "description": "Aprovisiona y mantiene sincronizadas las cuatro automatizaciones integradas (vaciado del backlog, corrección de DoD, revisión de DoD, integración de releases) para este proyecto, en lugar de crear cada agente programado a mano.",
+        "fields": {
+          "codingAgent": "Agente de código",
+          "aiProvider": "Proveedor de IA",
+          "model": "Modelo",
+          "reasoningEffort": "Esfuerzo de razonamiento",
+          "maxConcurrentJobs": "Trabajos concurrentes máximos"
+        },
+        "selectModelPlaceholder": "Seleccionar modelo",
+        "defaultRuntimeBehavior": "Comportamiento por defecto",
+        "maxConcurrentJobsPlaceholder": "Sin límite",
+        "saving": "Guardando…",
+        "discard": "Descartar",
+        "saveChanges": "Guardar cambios",
+        "conflictWarning": "{count, plural, one {# automatización ya está cubierta} other {# automatizaciones ya están cubiertas}} por un agente creado manualmente y no se han modificado.",
+        "viewScheduledAgents": "Ver agentes programados"
+      },
+      "runtimeOptions": {
+        "codingAgent": {
+          "claudeCode": "Claude Code",
+          "codex": "Codex",
+          "opencode": "OpenCode"
+        },
+        "aiProvider": {
+          "anthropic": "Anthropic",
+          "openai": "OpenAI",
+          "zai": "z.ai",
+          "xai": "xAI"
+        }
+      }
     }
   },
   "boards": {

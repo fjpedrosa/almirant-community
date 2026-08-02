@@ -22,6 +22,7 @@ export const projectKeys = {
   statsByType: (id: string) => [...projectKeys.all, "stats-by-type", id] as const,
   nightlyValidation: (id: string) => [...projectKeys.all, "nightly-validation", id] as const,
   aiConfig: (id: string) => [...projectKeys.all, "ai-config", id] as const,
+  devFlow: (id: string) => [...projectKeys.all, "dev-flow", id] as const,
   discordChannel: (projectId: string) => [...projectKeys.all, "discord-channel", projectId] as const,
   discordNotificationPrefs: (projectId: string) => [...projectKeys.all, "discord-notification-prefs", projectId] as const,
 };
