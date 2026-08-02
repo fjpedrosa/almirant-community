@@ -27,11 +27,15 @@ interface BackgroundJobHandles {
  * Pure gate predicate for the backend-native scheduled-agent dispatcher.
  * Ported from cloud's background.ts verbatim. Extracted out of
  * startBackgroundJobs() so the gate can be unit-tested directly instead of
- * exercising the full startBackgroundJobs() side-effect graph. Default MUST
- * stay disabled (SCHEDULED_AGENT_DISPATCHER_ENABLED defaults to "false" in
- * @almirant/config's env.ts): running this dispatcher alongside the
- * runner's own scheduler tick duplicates jobs for the deterministic
- * automation modes.
+ * exercising the full startBackgroundJobs() side-effect graph. As of
+ * 2026-08-02 the default is "true" (SCHEDULED_AGENT_DISPATCHER_ENABLED
+ * defaults to "true" in @almirant/config's env.ts): the backend is now the
+ * authoritative dispatcher for fresh self-hosted installs. The runner's own
+ * scheduler tick (services/runner) defaults OFF via RUNNER_SCHEDULER_ENABLED
+ * so the two authorities don't double-dispatch the deterministic automation
+ * modes. Explicitly setting this flag to "false" keeps the pre-2026-08-02
+ * runner-only behavior, and RUNNER_SCHEDULER_ENABLED's own default inverts
+ * to "true" in that case so the runner keeps dispatching automatically.
  */
 export const isScheduledAgentDispatcherEnabled = (
   flag: Env["SCHEDULED_AGENT_DISPATCHER_ENABLED"],
@@ -99,10 +103,11 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
           timeoutMinutes: env.ALMIRANT_INVESTIGATION_TIMEOUT_MINUTES,
         })
       : null;
-  // Kill switch, default OFF -- see SCHEDULED_AGENT_DISPATCHER_ENABLED's
-  // comment in packages/config/src/env.ts for why running this alongside
-  // the runner's own scheduler tick duplicates jobs and must not be
-  // enabled by default.
+  // Kill switch, default ON -- see SCHEDULED_AGENT_DISPATCHER_ENABLED's
+  // comment in packages/config/src/env.ts. The backend is the default
+  // dispatch authority for fresh installs; set the flag to "false" to fall
+  // back to the runner-only scheduler (services/runner's
+  // RUNNER_SCHEDULER_ENABLED mirrors this automatically).
   const stopScheduledAgentDispatcher = isScheduledAgentDispatcherEnabled(
     env.SCHEDULED_AGENT_DISPATCHER_ENABLED,
   )

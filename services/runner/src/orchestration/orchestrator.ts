@@ -38,6 +38,17 @@ type RunnerOrchestratorConfig = {
   retryBackoffMs?: number;
   /** Runner-local path to workspace directories (e.g. "/app/repos"). */
   repositoryPath?: string;
+  /**
+   * Master switch for the runner's own scheduling loop (nightly validation +
+   * scheduled_agent_configs dispatch). Defaults to `true` when omitted so
+   * callers that predate this option (and existing tests) keep the
+   * historical always-on behavior; index.ts always passes the resolved
+   * RUNNER_SCHEDULER_ENABLED value explicitly instead of relying on this
+   * fallback. See RUNNER_SCHEDULER_ENABLED's derivation in
+   * ../shared/config.ts for why the runner's *effective* default is OFF once
+   * the backend is the authoritative dispatcher.
+   */
+  schedulerEnabled?: boolean;
 };
 
 type RunnerOrchestratorDeps = {
@@ -111,6 +122,7 @@ export class RunnerOrchestrator {
   private claimTimer: ReturnType<typeof setInterval> | null = null;
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private scheduleTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly schedulerEnabled: boolean;
 
   private running = false;
   private draining = false;
@@ -184,6 +196,7 @@ export class RunnerOrchestrator {
     this.workerClient = deps.workerClient;
     this.containerManager = deps.containerManager;
     this.jobExecutor = deps.jobExecutor;
+    this.schedulerEnabled = config.schedulerEnabled ?? true;
 
     const hostTotalMb = Math.floor(os.totalmem() / (1024 * 1024));
     this.ramReservedMb = normalizeReservedMemoryMb(this.config.ramReservedMb);
@@ -227,12 +240,18 @@ export class RunnerOrchestrator {
       void this.cleanupOrphans();
     }, 5 * 60 * 1000);
 
-    void this.scheduleValidation();
-    void this.processScheduledConfigs();
-    this.scheduleTimer = setInterval(() => {
+    if (this.schedulerEnabled) {
       void this.scheduleValidation();
       void this.processScheduledConfigs();
-    }, this.config.nightlyCheckIntervalMs);
+      this.scheduleTimer = setInterval(() => {
+        void this.scheduleValidation();
+        void this.processScheduledConfigs();
+      }, this.config.nightlyCheckIntervalMs);
+    } else {
+      console.log(
+        "scheduler: disabled by RUNNER_SCHEDULER_ENABLED=false — dispatch is owned by the backend"
+      );
+    }
   }
 
   public async stop(): Promise<void> {

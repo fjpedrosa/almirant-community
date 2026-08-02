@@ -4,16 +4,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
-// SCHEDULED_AGENT_DISPATCHER_ENABLED is the kill switch that gates
-// backend/api/src/background.ts's startScheduledAgentDispatcher call — see
-// the comment on the field in ./env.ts for why the default MUST stay
-// "false": running the backend-native dispatcher alongside the runner's own
-// scheduler tick duplicates jobs for the deterministic automation modes.
+// SCHEDULED_AGENT_DISPATCHER_ENABLED gates backend/api/src/background.ts's
+// startScheduledAgentDispatcher call — see the comment on the field in
+// ./env.ts. As of 2026-08-02 the default is "true": the backend is the
+// authoritative dispatcher for fresh self-hosted installs, while
+// RUNNER_SCHEDULER_ENABLED (services/runner/src/shared/config.ts) defaults
+// OFF so the runner's own scheduler tick does not double-dispatch alongside
+// it. An existing self-hoster who explicitly set this to "false" keeps the
+// pre-2026-08-02 runner-only behavior unchanged (see
+// RUNNER_SCHEDULER_ENABLED's own default-inversion logic).
 //
 // Nothing in the repo pinned this default or the schema's rejection of
 // invalid values, so a future edit to the `.default(...)` call (e.g.
-// accidentally flipping it to "true") would silently change production
-// behavior with no test failing.
+// accidentally flipping it back to "false") would silently change
+// production behavior with no test failing.
 //
 // ./env.ts parses `process.env` at MODULE LOAD TIME and calls
 // `process.exit(1)` on a failed parse, so the schema cannot be exercised
@@ -74,13 +78,13 @@ async function readScheduledAgentDispatcherEnabled(
 }
 
 describe("env: SCHEDULED_AGENT_DISPATCHER_ENABLED", () => {
-  test('defaults to "false" when unset — the runner-side scheduler stays the only dispatcher', async () => {
+  test('defaults to "true" when unset — the backend is the authoritative dispatcher for fresh installs', async () => {
     const result = await readScheduledAgentDispatcherEnabled({
       SCHEDULED_AGENT_DISPATCHER_ENABLED: undefined,
     });
 
     expect(result.exitCode).toBe(0);
-    expect(JSON.parse(result.stdout.trim())).toEqual({ v: "false" });
+    expect(JSON.parse(result.stdout.trim())).toEqual({ v: "true" });
   });
 
   test('accepts an explicit "true"', async () => {
@@ -90,6 +94,15 @@ describe("env: SCHEDULED_AGENT_DISPATCHER_ENABLED", () => {
 
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout.trim())).toEqual({ v: "true" });
+  });
+
+  test('accepts an explicit "false" — the opt-out existing self-hosters use to keep the runner-only dispatch path', async () => {
+    const result = await readScheduledAgentDispatcherEnabled({
+      SCHEDULED_AGENT_DISPATCHER_ENABLED: "false",
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout.trim())).toEqual({ v: "false" });
   });
 
   test("rejects an invalid value and exits non-zero instead of silently falling back", async () => {

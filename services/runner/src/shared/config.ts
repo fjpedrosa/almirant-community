@@ -55,6 +55,29 @@ const envSchema = z.object({
   CHECKPOINT_INTERVAL_MS: z.coerce.number().int().min(30000).default(300000),
   CHECKPOINT_ENABLED: z.string().optional(),
   NIGHTLY_CHECK_INTERVAL_MS: z.coerce.number().int().min(60000).default(60000),
+  /**
+   * Master switch for the runner's own scheduling loop (nightly validation +
+   * scheduled_agent_configs dispatch). Mirrors cloud's runner-side flag of
+   * the same name (cloud's default is "true" there, since cloud's backend
+   * dispatcher is rolled out from PostHog rather than defaulting on).
+   *
+   * Community's default is computed, not static -- see the derivation in
+   * loadRunnerEnv() below, which reads the raw SCHEDULED_AGENT_DISPATCHER_ENABLED
+   * value from the SAME shared env file (docker-compose wires both `backend`
+   * and `runner` to `.env` / `.env.production`):
+   *   - SCHEDULED_AGENT_DISPATCHER_ENABLED unset or "true" (the backend's own
+   *     default as of 2026-08-02, see @almirant/config's env.ts) => this
+   *     defaults to "false": the backend owns dispatch, the runner must not
+   *     also dispatch or the deterministic modes (backlogDrain, dodReview,
+   *     releaseIntegration) double-create jobs.
+   *   - SCHEDULED_AGENT_DISPATCHER_ENABLED explicitly "false" (an existing
+   *     self-hoster's opt-out back to the pre-2026-08-02 behavior) => this
+   *     defaults to "true" automatically, with zero extra configuration, so
+   *     the runner keeps dispatching exactly like it always did.
+   * An explicit RUNNER_SCHEDULER_ENABLED value always wins over the derived
+   * default in both directions.
+   */
+  RUNNER_SCHEDULER_ENABLED: z.enum(["true", "false"]).optional(),
   RUNNER_RAM_BUDGET_ENABLED: z.enum(["true", "false"]).default("false"),
   /** RAM kept free for the host/VM outside runner job containers. */
   RUNNER_RAM_RESERVED_MB: z.coerce.number().int().min(0).default(2048),
@@ -89,6 +112,8 @@ export type RunnerEnv = z.infer<typeof envSchema> & {
   RUNNER_HOSTNAME: string;
   /** Resolved Docker connection path (TCP URL or socket path, always present). */
   DOCKER_SOCKET: string;
+  /** Always resolved -- see the derivation comment on the schema field above. */
+  RUNNER_SCHEDULER_ENABLED: "true" | "false";
 };
 
 export const loadRunnerEnv = (source: Record<string, string | undefined> = process.env): RunnerEnv => {
@@ -111,10 +136,23 @@ export const loadRunnerEnv = (source: Record<string, string | undefined> = proce
     parsed.data.DOCKER_SOCKET ??
     "/var/run/docker.sock";
 
+  // RUNNER_SCHEDULER_ENABLED default derivation -- see the schema field's
+  // comment for the full rationale. Read the RAW source value (not the
+  // backend's own parsed/validated default) because the runner has no
+  // dependency on @almirant/config; an invalid or garbage
+  // SCHEDULED_AGENT_DISPATCHER_ENABLED value is treated the same as "unset"
+  // here (defaults the runner scheduler OFF, the safe conservative choice),
+  // and the backend's own schema will separately reject that value at its
+  // own boot time.
+  const runnerSchedulerEnabled =
+    parsed.data.RUNNER_SCHEDULER_ENABLED ??
+    (source.SCHEDULED_AGENT_DISPATCHER_ENABLED === "false" ? "true" : "false");
+
   return {
     ...parsed.data,
     WORKER_ID: workerId,
     RUNNER_HOSTNAME: hostname,
     DOCKER_SOCKET: dockerSocket,
+    RUNNER_SCHEDULER_ENABLED: runnerSchedulerEnabled,
   };
 };

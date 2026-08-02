@@ -8,7 +8,11 @@ import { isScheduledAgentDispatcherEnabled } from "./background";
 // scheduler tick DUPLICATES jobs for the deterministic automation modes (see
 // the comment on the field in @almirant/config's env.ts) — so both "the
 // predicate itself" and "the predicate is actually wired to the dispatcher
-// call site" need to stay pinned.
+// call site" need to stay pinned. As of 2026-08-02 the schema default is
+// "true" (backend-authoritative dispatch for fresh installs); an explicit
+// "false" is the opt-out existing self-hosters use to keep the runner-only
+// path (see RUNNER_SCHEDULER_ENABLED's default-inversion in
+// services/runner/src/shared/config.ts).
 //
 // startBackgroundJobs() is not exercised directly here: it side-effects ~20
 // sweepers wired to real timers/DB-backed imports, and mocking all of them
@@ -28,7 +32,7 @@ describe("isScheduledAgentDispatcherEnabled", () => {
     expect(isScheduledAgentDispatcherEnabled("true")).toBe(true);
   });
 
-  it('defaults closed for "false" — the schema default env.ts ships', () => {
+  it('is false for "false" — the opt-out existing self-hosters use to keep the runner-only path', () => {
     expect(isScheduledAgentDispatcherEnabled("false")).toBe(false);
   });
 });

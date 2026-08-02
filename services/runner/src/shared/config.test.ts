@@ -201,4 +201,57 @@ describe("loadRunnerEnv", () => {
     const env = loadRunnerEnv({ ...MINIMAL_ENV, RUNNER_RAM_BUDGET_ENABLED: "true" });
     expect(env.RUNNER_RAM_BUDGET_ENABLED).toBe("true");
   });
+
+  // ---------------------------------------------------------------------
+  // RUNNER_SCHEDULER_ENABLED — derived default. See the schema comment in
+  // ./config.ts for the full rationale: the runner's own scheduler must
+  // default OFF once the backend is the authoritative dispatcher (its own
+  // 2026-08-02 default), but must default back ON automatically whenever an
+  // existing self-hoster has explicitly opted the backend dispatcher OUT,
+  // with zero extra configuration required from that self-hoster.
+  // ---------------------------------------------------------------------
+
+  it("defaults RUNNER_SCHEDULER_ENABLED to false when SCHEDULED_AGENT_DISPATCHER_ENABLED is unset (backend owns dispatch by default)", () => {
+    const env = loadRunnerEnv(MINIMAL_ENV);
+    expect(env.RUNNER_SCHEDULER_ENABLED).toBe("false");
+  });
+
+  it("defaults RUNNER_SCHEDULER_ENABLED to false when SCHEDULED_AGENT_DISPATCHER_ENABLED is explicitly true", () => {
+    const env = loadRunnerEnv({
+      ...MINIMAL_ENV,
+      SCHEDULED_AGENT_DISPATCHER_ENABLED: "true",
+    });
+    expect(env.RUNNER_SCHEDULER_ENABLED).toBe("false");
+  });
+
+  it("defaults RUNNER_SCHEDULER_ENABLED to true when SCHEDULED_AGENT_DISPATCHER_ENABLED is explicitly false (existing self-hoster opt-out keeps working automatically)", () => {
+    const env = loadRunnerEnv({
+      ...MINIMAL_ENV,
+      SCHEDULED_AGENT_DISPATCHER_ENABLED: "false",
+    });
+    expect(env.RUNNER_SCHEDULER_ENABLED).toBe("true");
+  });
+
+  it("an explicit RUNNER_SCHEDULER_ENABLED=true wins even when the backend dispatcher also defaults on", () => {
+    const env = loadRunnerEnv({
+      ...MINIMAL_ENV,
+      RUNNER_SCHEDULER_ENABLED: "true",
+    });
+    expect(env.RUNNER_SCHEDULER_ENABLED).toBe("true");
+  });
+
+  it("an explicit RUNNER_SCHEDULER_ENABLED=false wins even when SCHEDULED_AGENT_DISPATCHER_ENABLED is explicitly false", () => {
+    const env = loadRunnerEnv({
+      ...MINIMAL_ENV,
+      SCHEDULED_AGENT_DISPATCHER_ENABLED: "false",
+      RUNNER_SCHEDULER_ENABLED: "false",
+    });
+    expect(env.RUNNER_SCHEDULER_ENABLED).toBe("false");
+  });
+
+  it("throws on an invalid RUNNER_SCHEDULER_ENABLED value", () => {
+    expect(() =>
+      loadRunnerEnv({ ...MINIMAL_ENV, RUNNER_SCHEDULER_ENABLED: "yes" })
+    ).toThrow("Invalid runner environment");
+  });
 });

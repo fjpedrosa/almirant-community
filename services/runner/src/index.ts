@@ -92,6 +92,11 @@ const orchestrator = createRunnerOrchestrator(
     heartbeatIntervalMs: env.HEARTBEAT_INTERVAL_MS,
     claimIntervalMs: env.CLAIM_INTERVAL_MS,
     nightlyCheckIntervalMs: env.NIGHTLY_CHECK_INTERVAL_MS,
+    // RUNNER_SCHEDULER_ENABLED is always resolved by loadRunnerEnv() (see
+    // ./shared/config.ts) -- it derives an effective default from
+    // SCHEDULED_AGENT_DISPATCHER_ENABLED when unset, so this is never the
+    // orchestrator's own `schedulerEnabled ?? true` fallback in practice.
+    schedulerEnabled: env.RUNNER_SCHEDULER_ENABLED === "true",
     ramBudgetEnabled: env.RUNNER_RAM_BUDGET_ENABLED === "true",
     ramReservedMb: env.RUNNER_RAM_RESERVED_MB,
     apiUrl: env.ALMIRANT_API_URL,

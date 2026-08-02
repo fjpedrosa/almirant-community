@@ -101,6 +101,49 @@ These are the variables that matter for the self-hosted Docker stacks.
 > prefer `RUNNER_RAM_RESERVED_MB=4096` and drain/pause agent work before
 > upgrades if the instance is busy.
 
+## Scheduled agent dispatch authority
+
+Two authorities can dispatch `scheduled_agent_configs` (nightly validation,
+backlog drain, DoD review/remediation, release integration, and plain
+scheduled agents): the **backend**, in-process, on a timer; or the
+**runner**, polling the backend over HTTP on its own timer. Exactly one
+should be active per installation — running both duplicates jobs for the
+deterministic modes (backlog drain, DoD review, release integration), which
+create jobs directly without the idempotency guard that only protects the
+standalone "scheduled" job type. A pair of unique database indexes acts as a
+safety net against that race, not as a substitute for keeping one authority
+active.
+
+| Variable | Service | Default | Purpose |
+|---|---|---|---|
+| `SCHEDULED_AGENT_DISPATCHER_ENABLED` | `backend` | `true` | Backend-native dispatcher. `true` = the backend dispatches; `false` = the runner's own scheduler is the only dispatcher (pre-2026-08-02 behavior). |
+| `RUNNER_SCHEDULER_ENABLED` | `runner` | _derived_ | Runner-side scheduler loop. Unset: defaults to the OPPOSITE of `SCHEDULED_AGENT_DISPATCHER_ENABLED` — `false` when the backend flag is unset/`true` (backend owns dispatch), `true` when the backend flag is explicitly `false` (runner owns dispatch). Set explicitly to override either direction. |
+
+**Fresh installs** dispatch from the backend by default — no configuration
+needed.
+
+**To go back to the pre-2026-08-02 runner-only behavior** (e.g. you scaled
+runners independently of the backend and want the runner to keep deciding
+when to dispatch), set in `.env` / `.env.production`:
+
+```
+SCHEDULED_AGENT_DISPATCHER_ENABLED=false
+```
+
+Because both the `backend` and `runner` services read the same env file,
+the runner picks this up automatically and keeps dispatching — you do not
+need to also set `RUNNER_SCHEDULER_ENABLED`. Set it explicitly only if you
+want a configuration that the derived default does not cover (e.g. both
+authorities on at once, for a supervised migration window).
+
+> **Not part of the `.env.production.example` reconciliation manifest**:
+> unlike most variables in this reference, `almirant upgrade` never writes
+> either of these into your `.env.production` file. This is deliberate —
+> materializing a literal `RUNNER_SCHEDULER_ENABLED` value on every upgrade
+> would permanently pin it and defeat the derived default described above.
+> Only set these two variables by hand if you need to deviate from the
+> default for your installation.
+
 ## Optional providers / integrations
 
 These are only needed if you enable the corresponding feature:

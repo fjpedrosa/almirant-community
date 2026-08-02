@@ -1105,3 +1105,128 @@ describe("RunnerOrchestrator RAM budget claiming", () => {
     });
   });
 });
+
+
+describe("RunnerOrchestrator scheduler enable/disable", () => {
+  // reconcileOnStartup() hits a real fetch() during start(). Stub it so the
+  // test is fast and deterministic instead of depending on network/DNS.
+  const withStubbedFetch = async (run: () => Promise<void>) => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(null, { status: 503 })) as unknown as typeof fetch;
+    try {
+      await run();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  };
+
+  const buildOrchestrator = (
+    schedulerEnabled: boolean | undefined,
+    onScheduledConfigs: () => void,
+  ) =>
+    new RunnerOrchestrator(
+      {
+        workerId: "worker-1",
+        hostname: "runner.local",
+        maxConcurrent: 4,
+        heartbeatIntervalMs: 10_000,
+        claimIntervalMs: 10_000,
+        nightlyCheckIntervalMs: 60_000,
+        ramBudgetEnabled: false,
+        apiUrl: "https://api.local",
+        apiKey: "test-key",
+        schedulerEnabled,
+      },
+      {
+        workerClient: {
+          getScheduledConfigs: async () => {
+            onScheduledConfigs();
+            return [];
+          },
+          getAllNightlyValidationConfigs: async () => [],
+          heartbeat: async () => ({}),
+        } as never,
+        containerManager: {} as never,
+        jobExecutor: {} as never,
+      },
+    );
+
+  it("does not start the schedule timer or dispatch scheduled configs when schedulerEnabled is false", async () => {
+    let scheduledConfigCalls = 0;
+    const orchestrator = buildOrchestrator(false, () => {
+      scheduledConfigCalls += 1;
+    });
+
+    await withStubbedFetch(() => orchestrator.start());
+
+    expect(scheduledConfigCalls).toBe(0);
+    expect(
+      (orchestrator as unknown as { scheduleTimer: unknown }).scheduleTimer,
+    ).toBeNull();
+
+    // The scheduler switch must not touch heartbeat/claim/cleanup — the
+    // runner keeps claiming and executing jobs normally, it only stops
+    // scheduling new ones.
+    expect(
+      (orchestrator as unknown as { heartbeatTimer: unknown }).heartbeatTimer,
+    ).not.toBeNull();
+    expect(
+      (orchestrator as unknown as { claimTimer: unknown }).claimTimer,
+    ).not.toBeNull();
+    expect(
+      (orchestrator as unknown as { cleanupTimer: unknown }).cleanupTimer,
+    ).not.toBeNull();
+
+    await orchestrator.stop();
+  });
+
+  it("logs an unambiguous reason when the scheduler is disabled", async () => {
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = ((...args: unknown[]) => {
+      logs.push(args.map(String).join(" "));
+    }) as typeof console.log;
+
+    const orchestrator = buildOrchestrator(false, () => {});
+
+    try {
+      await withStubbedFetch(() => orchestrator.start());
+    } finally {
+      console.log = originalLog;
+    }
+
+    expect(
+      logs.some((line) =>
+        line.includes(
+          "scheduler: disabled by RUNNER_SCHEDULER_ENABLED=false — dispatch is owned by the backend",
+        ),
+      ),
+    ).toBe(true);
+
+    await orchestrator.stop();
+  });
+
+  it("keeps scheduling scheduled configs when schedulerEnabled defaults to true", async () => {
+    let scheduledConfigCalls = 0;
+    const orchestrator = buildOrchestrator(undefined, () => {
+      scheduledConfigCalls += 1;
+    });
+
+    await withStubbedFetch(() => orchestrator.start());
+
+    expect(scheduledConfigCalls).toBeGreaterThan(0);
+    expect(
+      (orchestrator as unknown as { scheduleTimer: unknown }).scheduleTimer,
+    ).not.toBeNull();
+
+    await orchestrator.stop();
+  });
+
+  it("stop() is a no-op for the schedule timer when the scheduler was never started", async () => {
+    const orchestrator = buildOrchestrator(false, () => {});
+
+    // stop() before start() — scheduleTimer (and every other timer) is null.
+    await expect(orchestrator.stop()).resolves.toBeUndefined();
+  });
+});
