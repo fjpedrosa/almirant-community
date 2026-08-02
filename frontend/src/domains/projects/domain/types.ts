@@ -1,6 +1,10 @@
 import type { PaginationMeta } from "@/domains/shared/domain/types";
 import type { SprintStatus } from "@/domains/sprints/domain/types";
 import type { GithubAvailableRepo, GithubInstallation } from "@/domains/github/domain/types";
+import type {
+  BuiltinAutomationId,
+  ScheduledAgentExplainResult,
+} from "@/domains/scheduled-agents/domain/types";
 import type { ITask, ILink, IScaleConfig, TID } from "@svar-ui/react-gantt";
 
 // Re-export library types for convenience
@@ -87,6 +91,128 @@ export type AiConfigProvider = "claude-code" | "codex" | "zipu" | "grok";
 export type ProjectImplementationCodingAgent = "claude-code" | "codex" | "opencode";
 export type ProjectImplementationAiProvider = "anthropic" | "openai" | "zai" | "xai";
 
+// ---------------------------------------------------------------------------
+// Automated dev flow (issue #230) — one switch + shared runtime defaults that
+// provision/update the four built-in automations (backlog drain, DoD
+// remediation, DoD review, release integration) instead of hand-creating four
+// scheduled agents with the wizard. See infra/lib/api/client.ts's `devFlowApi`
+// for the isolated API boundary — the wire shapes below are intentionally
+// loose (plain `string | null`) because the backend's runtime union can be a
+// superset of what this card's selects offer (e.g. it also accepts "google"
+// as an aiProvider for other API consumers).
+// ---------------------------------------------------------------------------
+
+/** Project-level dev-flow runtime settings — the shared defaults applied to all four automations. */
+export interface ProjectDevFlowSettings {
+  enabled: boolean;
+  codingAgent?: string | null;
+  aiProvider?: string | null;
+  model?: string | null;
+  reasoningLevel?: string | null;
+  maxConcurrentJobs?: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Per-automation runtime/schedule overrides (issue #235) — each of the four
+// automation rows can now override the card-level defaults individually
+// (model, reasoning effort, coding agent, concurrency, schedule) instead of
+// only inheriting them. `null` on any override field means "inherit the
+// card default"; `overrides: null` on the row itself means "no field is
+// overridden at all". See domain/dev-flow-automation-overrides.ts for the
+// pure inheritance/serialization logic built on top of these types.
+// ---------------------------------------------------------------------------
+
+/** A per-automation schedule override — always paired (both fields set) when present, cleared as a whole via `schedule: null`. */
+export interface ProjectDevFlowAutomationSchedule {
+  expression: string;
+  timezone: string | null;
+}
+
+/** Per-automation override of the card-level runtime defaults. Every field is independently nullable = "inherit". */
+export interface ProjectDevFlowAutomationOverride {
+  enabled: boolean | null;
+  codingAgent: string | null;
+  aiProvider: string | null;
+  model: string | null;
+  reasoningLevel: string | null;
+  maxConcurrentJobs: number | null;
+  schedule: ProjectDevFlowAutomationSchedule | null;
+}
+
+/** Server-resolved runtime for one automation — card defaults merged with any override, fully concrete (no nulls). */
+export interface ProjectDevFlowAutomationEffective {
+  codingAgent: string;
+  aiProvider: string;
+  model: string;
+  reasoningLevel: string;
+  maxConcurrentJobs: number;
+  schedule: {
+    expression: string;
+    timezone: string;
+  };
+}
+
+/**
+ * Wire shape for one automationId's entry in
+ * `PATCH /projects/:id/ai-config`'s `agentDefaults.devFlow.automations` map.
+ * Per the fixed contract: an ABSENT scalar key means "inherit" (so a field
+ * that should inherit must be omitted, never sent as `null`), while the
+ * object-valued `schedule` field uses an explicit `null` to mean "clear the
+ * schedule override". See `serializeDevFlowAutomationOverride`, the single
+ * place that encodes this asymmetry when going from the domain override
+ * shape (all-nullable) to this wire shape (all-optional + special-cased
+ * schedule).
+ */
+export interface DevFlowAutomationOverridePatchWire {
+  enabled?: boolean;
+  codingAgent?: string;
+  aiProvider?: string;
+  model?: string;
+  reasoningLevel?: string;
+  maxConcurrentJobs?: number;
+  schedule?: { expression: string; timezone?: string } | null;
+}
+
+/**
+ * One automation's provisioned status, as returned by GET /projects/:id/dev-flow's
+ * `automations` array — always exactly 4 entries, in catalog order, already
+ * carrying the catalog's `name`/`description` (the backend is the single
+ * source of truth for those now; the frontend no longer joins against a
+ * local BUILTIN_AUTOMATIONS copy — see domain/dev-flow.ts).
+ */
+export interface ProjectDevFlowAutomationStatus {
+  automationId: BuiltinAutomationId;
+  targetConfigKey: string;
+  name: string;
+  description: string;
+  configId: string | null;
+  managedBy: "system" | null;
+  enabled: boolean;
+  lastRunAt: string | null;
+  skippedForExistingUserAgent: boolean;
+  overrides: ProjectDevFlowAutomationOverride | null;
+  effective: ProjectDevFlowAutomationEffective;
+}
+
+/** An existing hand-created user agent that already covers a built-in automation mode for this project. */
+export interface ProjectDevFlowSkippedAgent {
+  configId: string;
+  automationId: string;
+}
+
+/** GET /projects/:id/dev-flow response payload. */
+export interface ProjectDevFlowConfigResponse {
+  devFlow: ProjectDevFlowSettings | null;
+  automations: ProjectDevFlowAutomationStatus[];
+  skippedExistingUserAgents: ProjectDevFlowSkippedAgent[];
+}
+
+/** POST /projects/:id/dev-flow/adopt response payload (issue #235). */
+export interface ProjectDevFlowAdoptResult {
+  disabledUserConfigIds: string[];
+  automation: ProjectDevFlowAutomationStatus;
+}
+
 export interface ProjectAgentDefaults {
   implementation?: {
     codingAgent?: ProjectImplementationCodingAgent | null;
@@ -94,11 +220,133 @@ export interface ProjectAgentDefaults {
     model?: string | null;
     reasoningLevel?: string | null;
   } | null;
+  devFlow?: ProjectDevFlowSettings | null;
 }
 
 export interface ProjectAiConfig {
   defaultProvider: AiConfigProvider | null;
   agentDefaults: ProjectAgentDefaults;
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /projects/:id/ai-config wire body for devFlow saves (review fixes
+// #1+#2, issue #235). The backend's schema requires `defaultProvider`
+// (Nullable, NOT Optional) and `devFlow.enabled` (Boolean, NOT Optional) —
+// see PROJECT_AGENT_DEFAULTS_SCHEMA in projects.routes.ts — and
+// `updateProjectAiConfig` wholesale-replaces the entire `agentDefaults` JSONB
+// column on every write. So a devFlow save can never send a partial body: it
+// must always resend `defaultProvider` + `implementation` (untouched by
+// either dev-flow hook, but still LIVING in that same JSONB) alongside the
+// devFlow scalars + the full `automations` override map (built by
+// `buildDevFlowAutomationsPatchPayload`), or it will either 400 (missing
+// required fields) or silently wipe out data it didn't mean to touch.
+// `useProjectDevFlow` and `useDevFlowAutomationOverrides` are the only two
+// builders of this shape — see their `mutationFn`s.
+// ---------------------------------------------------------------------------
+
+/** `agentDefaults.devFlow` as sent in a PATCH — the persisted settings shape
+ *  PLUS the optional per-automation overrides map (issue #235). */
+export interface ProjectDevFlowSettingsPatch extends ProjectDevFlowSettings {
+  automations?: Record<string, DevFlowAutomationOverridePatchWire>;
+}
+
+/** Full PATCH /projects/:id/ai-config request body a devFlow save must send. */
+export interface ProjectDevFlowPatchBody {
+  defaultProvider: AiConfigProvider | null;
+  agentDefaults: {
+    implementation?: ProjectAgentDefaults["implementation"];
+    devFlow: ProjectDevFlowSettingsPatch;
+  };
+}
+
+// Per-row lazy diagnosis state, driven by GET /scheduled-agents/:id/explain.
+export type DevFlowDiagnosisStatus = "idle" | "loading" | "loaded" | "error";
+
+export interface ProjectDevFlowDiagnosisState {
+  status: DevFlowDiagnosisStatus;
+  result: ScheduledAgentExplainResult | null;
+  error: string | null;
+}
+
+/** Scalar override fields a single automation row can set independently of the schedule. */
+export type ProjectDevFlowAutomationOverridableField =
+  | "enabled"
+  | "codingAgent"
+  | "aiProvider"
+  | "model"
+  | "reasoningLevel"
+  | "maxConcurrentJobs";
+
+/** One catalog automation merged with its provisioned status + lazy diagnosis — the presentational row shape. */
+export interface ProjectDevFlowAutomationRow {
+  automationId: BuiltinAutomationId;
+  name: string;
+  description: string;
+  configId: string | null;
+  enabled: boolean;
+  lastRunAt: string | null;
+  isSkippedForUserAgent: boolean;
+  diagnosis: ProjectDevFlowDiagnosisState;
+  /** Server-resolved runtime (card defaults + this row's override merged) — drives the collapsed summary and every field's placeholder. */
+  effective: ProjectDevFlowAutomationEffective;
+  /** Current override being edited — the server's `overrides` merged with any unsaved local draft (container's job, see `applyDevFlowAutomationDrafts`). */
+  override: ProjectDevFlowAutomationOverride;
+  /** True when this row's `override` differs from what the server last returned (unsaved local edits). */
+  hasChanges: boolean;
+  /** True while this row's own save/reset mutation is in flight (independent of the card-level `isSaving`). */
+  isSaving: boolean;
+  /** True while this row's adopt mutation is in flight. */
+  isAdopting: boolean;
+}
+
+// Presentational props for the "Automated dev flow" settings card.
+export interface ProjectDevFlowCardProps {
+  isLoading: boolean;
+  errorMessage: string | null;
+  settings: ProjectDevFlowSettings;
+  isSaving: boolean;
+  hasChanges: boolean;
+  automations: ProjectDevFlowAutomationRow[];
+  skippedExistingUserAgents: ProjectDevFlowSkippedAgent[];
+  onToggleEnabled: (enabled: boolean) => void;
+  onCodingAgentChange: (value: ProjectImplementationCodingAgent) => void;
+  onAiProviderChange: (value: ProjectImplementationAiProvider) => void;
+  onModelChange: (value: string | null) => void;
+  onReasoningLevelChange: (value: string | null) => void;
+  onMaxConcurrentJobsChange: (raw: string) => void;
+  onSave: () => void;
+  onDiscard: () => void;
+  onDiagnose: (configId: string) => void;
+  onAutomationFieldChange: (
+    automationId: string,
+    field: ProjectDevFlowAutomationOverridableField,
+    value: boolean | string | number | null,
+  ) => void;
+  onAutomationScheduleChange: (
+    automationId: string,
+    schedule: ProjectDevFlowAutomationSchedule | null,
+  ) => void;
+  onAutomationSave: (automationId: string) => void;
+  onAutomationDiscard: (automationId: string) => void;
+  onAutomationResetToDefaults: (automationId: string) => void;
+  onAutomationAdopt: (automationId: string) => void;
+}
+
+// Presentational props for one expandable automation row inside the
+// "Automated dev flow" card (issue #235).
+export interface DevFlowAutomationRowProps {
+  row: ProjectDevFlowAutomationRow;
+  onDiagnose: (configId: string) => void;
+  onFieldChange: (
+    automationId: string,
+    field: ProjectDevFlowAutomationOverridableField,
+    value: boolean | string | number | null,
+  ) => void;
+  onScheduleChange: (automationId: string, schedule: ProjectDevFlowAutomationSchedule | null) => void;
+  onSave: (automationId: string) => void;
+  onDiscard: (automationId: string) => void;
+  onResetToDefaults: (automationId: string) => void;
+  onAdopt: (automationId: string) => void;
 }
 
 export interface ProjectDiscordChannelData {

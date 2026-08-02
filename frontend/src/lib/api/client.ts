@@ -2760,6 +2760,77 @@ export const scheduledAgentsApi = {
     ),
 };
 
+// ---------------------------------------------------------------------------
+// Dev flow API (issue #230) — deliberately isolated in this single block.
+//   - GET  /projects/:id/dev-flow           -> ProjectDevFlowConfigResponse
+//   - PATCH /projects/:id/ai-config          -> accepts a FULL
+//     ProjectDevFlowPatchBody (see below), reusing the existing ai-config
+//     endpoint; response includes the provisioning result, but callers
+//     should treat it as opaque and just invalidate/refetch the dev-flow
+//     query instead of parsing it.
+//   - GET  /scheduled-agents/:id/explain     -> ScheduledAgentExplainResult
+//
+// Review fixes #1+#2 (issue #235): the backend's PATCH schema requires
+// `defaultProvider` (Nullable, NOT Optional) and `devFlow.enabled` (Boolean,
+// NOT Optional), and `updateProjectAiConfig` wholesale-replaces the ENTIRE
+// `agentDefaults` JSONB column on every write. Both `updateConfig` (the card
+// master switch) and `updateAutomationOverrides` (a single row) used to send
+// a body scoped to just what they touched — that either 400ed outright
+// (missing `defaultProvider`) or silently wiped `implementation`/whatever
+// devFlow scalars or automations the OTHER hook owned. Both methods now take
+// the FULL body — see `ProjectDevFlowPatchBody` in domain/types.ts — built by
+// the caller from the current server state (defaultProvider/implementation
+// via the shared ai-config query, devFlow scalars/automations via the
+// dev-flow query) merged with its own local draft. See
+// use-project-dev-flow.ts / use-dev-flow-automation-overrides.ts for the two
+// builders of this shape.
+// ---------------------------------------------------------------------------
+export const devFlowApi = {
+  getConfig: (projectId: string) =>
+    request<import("@/domains/projects/domain/types").ProjectDevFlowConfigResponse>(
+      `/projects/${projectId}/dev-flow`
+    ),
+
+  updateConfig: (
+    projectId: string,
+    body: import("@/domains/projects/domain/types").ProjectDevFlowPatchBody
+  ) =>
+    request<unknown>(`/projects/${projectId}/ai-config`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  // Per-automation override save (issue #235). Callers must pass a FULL
+  // ProjectDevFlowPatchBody — see the block comment above — whose
+  // `agentDefaults.devFlow.automations` carries the FULL desired override
+  // per automationId (see `serializeDevFlowAutomationOverride` in
+  // domain/dev-flow-automation-overrides.ts): the backend treats an absent
+  // scalar key as "inherit", so a partial/diff-only entry would silently
+  // clear whatever fields aren't included.
+  updateAutomationOverrides: (
+    projectId: string,
+    body: import("@/domains/projects/domain/types").ProjectDevFlowPatchBody
+  ) =>
+    request<unknown>(`/projects/${projectId}/ai-config`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  adoptAutomation: (projectId: string, automationId: string) =>
+    request<import("@/domains/projects/domain/types").ProjectDevFlowAdoptResult>(
+      `/projects/${projectId}/dev-flow/adopt`,
+      {
+        method: "POST",
+        body: JSON.stringify({ automationId }),
+      }
+    ),
+
+  explainAgent: (agentId: string) =>
+    request<import("@/domains/scheduled-agents/domain/types").ScheduledAgentExplainResult>(
+      `/scheduled-agents/${agentId}/explain`
+    ),
+};
+
 // Agent Tooling API (Agents v2: owner-aware MCP servers, plugins, marketplaces)
 export const agentToolingApi = {
   listMcpServers: () =>

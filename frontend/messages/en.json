@@ -920,6 +920,85 @@
         "removeAriaLabel": "Remove {email}",
         "empty": "No collaborators added yet."
       }
+    },
+    "devFlow": {
+      "automationRow": {
+        "expand": "Expand {name} settings",
+        "collapse": "Collapse {name} settings",
+        "neverRun": "Never run",
+        "lastRun": "Last run: {time}",
+        "coveredByUserAgent": "Covered by an existing hand-created agent",
+        "notProvisioned": "Not yet provisioned",
+        "adopt": "Adopt",
+        "adopting": "Adopting…",
+        "adoptConfirmTitle": "Adopt the system automation?",
+        "adoptConfirmBody": "This turns off your existing hand-created agent for this automation and activates the system-managed one instead.",
+        "adoptConfirmAction": "Yes, adopt",
+        "adoptConfirmCancel": "Cancel",
+        "fields": {
+          "enabled": "Enabled",
+          "codingAgent": "Coding agent",
+          "aiProvider": "AI provider",
+          "model": "Model",
+          "reasoningEffort": "Reasoning effort",
+          "maxConcurrentJobs": "Max concurrent jobs",
+          "schedule": "Schedule"
+        },
+        "toggleEnabledAria": "Enable {name}",
+        "inherited": "Following card default",
+        "overridden": "Overridden",
+        "placeholderDefault": "Default: {value}",
+        "defaultRuntimeBehavior": "Default runtime behavior",
+        "noLimit": "No limit",
+        "resetToDefaults": "Reset to defaults",
+        "save": "Save",
+        "saving": "Saving…",
+        "discard": "Discard",
+        "scheduleTimezoneLabel": "Timezone",
+        "scheduleTimezoneDefault": "Use card default",
+        "enabledBadge": "Enabled",
+        "disabledBadge": "Disabled",
+        "diagnose": "Diagnose",
+        "diagnosing": "Diagnosing…",
+        "rediagnose": "Re-diagnose",
+        "retryDiagnosis": "Retry diagnosis",
+        "diagnoseAria": "Diagnose {name}",
+        "verdictWouldDispatch": "Would dispatch",
+        "verdictBlocked": "Blocked"
+      },
+      "card": {
+        "title": "Automated dev flow",
+        "enableAria": "Enable automated dev flow",
+        "description": "Provisions and keeps in sync the four built-in automations below (backlog drain, DoD remediation, DoD review, release integration) for this project, instead of creating each scheduled agent by hand.",
+        "fields": {
+          "codingAgent": "Coding agent",
+          "aiProvider": "AI provider",
+          "model": "Model",
+          "reasoningEffort": "Reasoning effort",
+          "maxConcurrentJobs": "Max concurrent jobs"
+        },
+        "selectModelPlaceholder": "Select model",
+        "defaultRuntimeBehavior": "Default runtime behavior",
+        "maxConcurrentJobsPlaceholder": "No limit",
+        "saving": "Saving…",
+        "discard": "Discard",
+        "saveChanges": "Save Changes",
+        "conflictWarning": "{count, plural, one {# automation is} other {# automations are}} already covered by an existing hand-created agent and left untouched.",
+        "viewScheduledAgents": "View scheduled agents"
+      },
+      "runtimeOptions": {
+        "codingAgent": {
+          "claudeCode": "Claude Code",
+          "codex": "Codex",
+          "opencode": "OpenCode"
+        },
+        "aiProvider": {
+          "anthropic": "Anthropic",
+          "openai": "OpenAI",
+          "zai": "z.ai",
+          "xai": "xAI"
+        }
+      }
     }
   },
   "boards": {

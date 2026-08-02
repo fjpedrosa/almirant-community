@@ -50,6 +50,31 @@ globalThis.HTMLElement = window.HTMLElement as any;
 globalThis.Node = window.Node as any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 globalThis.Element = window.Element as any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+globalThis.NodeFilter = window.NodeFilter as any;
+// React DOM and Testing Library perform instanceof checks against concrete DOM
+// constructors, so expose the happy-dom equivalents as well. Needed by
+// interactive Radix UI components (e.g. Select's SelectContent, which
+// constructs a DocumentFragment in a useLayoutEffect) once a test actually
+// opens them via userEvent, not just renders them closed.
+for (const constructorName of [
+  "HTMLInputElement",
+  "HTMLSelectElement",
+  "HTMLButtonElement",
+  "HTMLAnchorElement",
+  "HTMLTextAreaElement",
+  "HTMLIFrameElement",
+  "SVGElement",
+  "DocumentFragment",
+  "Event",
+  "CustomEvent",
+  "MouseEvent",
+  "KeyboardEvent",
+  "FocusEvent",
+] as const) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any)[constructorName] = (window as any)[constructorName];
+}
 
 // Radix UI relies on these browser APIs for animations/focus management.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

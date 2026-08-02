@@ -23,6 +23,60 @@ const ensureWebhookToken = <T extends Partial<NewScheduledAgentConfig>>(data: T)
 };
 
 // ---------------------------------------------------------------------------
+// dev-flow (issue #230): duplicate system-provisioning guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when a `createScheduledAgentConfig` insert violates
+ * `scheduled_agent_configs_system_builtin_automation_uidx` (migration
+ * 0223, ports cloud's 0237) — i.e. a concurrent `provisionDevFlowForProject`
+ * call already created the system-managed config for this (projectId,
+ * builtinAutomationId) pair. Callers (dev-flow-provisioning.ts) treat this
+ * as "lost the race", re-read the winning row, and update it instead of
+ * failing the whole provisioning call.
+ */
+export class DuplicateSystemAutomationConfigError extends Error {
+  constructor(
+    public readonly projectId: string | null,
+    public readonly builtinAutomationId: string | null,
+  ) {
+    super(
+      `A system-managed scheduled agent config already exists for projectId=${projectId ?? "null"} builtinAutomationId=${builtinAutomationId ?? "null"}`,
+    );
+    this.name = "DuplicateSystemAutomationConfigError";
+  }
+}
+
+const SCHEDULED_AGENT_CONFIGS_SYSTEM_BUILTIN_AUTOMATION_UNIQUE_INDEX =
+  "scheduled_agent_configs_system_builtin_automation_uidx";
+
+/**
+ * Narrowed shape of a pg unique-violation error. We only care about the
+ * SQLSTATE code and the constraint name, and probe one level of `.cause`
+ * unwrap since drizzle/postgres-js wrap driver errors inconsistently
+ * across versions.
+ */
+interface PgUniqueViolationError {
+  code?: string;
+  constraint_name?: string;
+  cause?: unknown;
+}
+
+const isDuplicateSystemAutomationViolation = (err: unknown): boolean => {
+  const probe = (candidate: unknown): boolean => {
+    if (!candidate || typeof candidate !== "object") return false;
+    const pg = candidate as PgUniqueViolationError;
+    return (
+      pg.code === "23505" &&
+      pg.constraint_name === SCHEDULED_AGENT_CONFIGS_SYSTEM_BUILTIN_AUTOMATION_UNIQUE_INDEX
+    );
+  };
+  if (!err || typeof err !== "object") return false;
+  if (probe(err)) return true;
+  return probe((err as PgUniqueViolationError).cause);
+};
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -101,11 +155,19 @@ export const getScheduledAgentConfigByIdUnscoped = async (
 export const createScheduledAgentConfig = async (
   data: NewScheduledAgentConfig,
 ): Promise<ScheduledAgentConfigDb> => {
-  const [created] = await db
-    .insert(scheduledAgentConfigs)
-    .values(ensureWebhookToken(normalizeScheduledAgentConfigInput(data)))
-    .returning();
-  return normalizeScheduledAgentConfig(created!);
+  const values = ensureWebhookToken(normalizeScheduledAgentConfigInput(data));
+  try {
+    const [created] = await db.insert(scheduledAgentConfigs).values(values).returning();
+    return normalizeScheduledAgentConfig(created!);
+  } catch (error) {
+    if (isDuplicateSystemAutomationViolation(error)) {
+      throw new DuplicateSystemAutomationConfigError(
+        values.projectId ?? null,
+        values.builtinAutomationId ?? null,
+      );
+    }
+    throw error;
+  }
 };
 
 export const updateScheduledAgentConfig = async (

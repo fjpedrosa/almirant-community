@@ -7,6 +7,7 @@ import { useProjectDiscord } from "../../application/hooks/use-project-discord";
 import { useProjectDiscordNotificationPrefs } from "../../application/hooks/use-project-discord-notification-prefs";
 import { ProjectNightlyValidationCard } from "../components/project-nightly-validation-card";
 import { ProjectAiConfigCard } from "../components/project-ai-config-card";
+import { ProjectDevFlowContainer } from "./project-dev-flow-container";
 import { ProjectDiscordChannelCard } from "../components/project-discord-channel-card";
 import { ProjectDiscordNotificationPrefsCard } from "../components/project-discord-notification-prefs-card";
 import { ProjectDangerZoneCard } from "../components/project-danger-zone-card";
@@ -110,6 +111,10 @@ export const ProjectSettingsContainer: React.FC<ProjectSettingsContainerProps> =
         onSave={handleAiConfigSave}
         onDiscard={handleAiConfigDiscard}
       />
+
+      <Separator />
+
+      <ProjectDevFlowContainer projectId={projectId} />
 
       <Separator />
 

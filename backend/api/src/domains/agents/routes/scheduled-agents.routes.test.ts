@@ -26,6 +26,8 @@ const state = {
     url: string;
     projectId: string;
   } | null,
+  deletedConfigIds: [] as string[],
+  pausedConfigCalls: [] as Array<{ id: string; until: Date | null }>,
 };
 
 const scheduledConfig = {
@@ -50,6 +52,8 @@ const scheduledConfig = {
   maxJobsPerRun: 1,
   pausedUntil: null,
   lastRunAt: null,
+  managedBy: "user" as const,
+  builtinAutomationId: null,
   createdAt: new Date("2026-04-15T10:00:00.000Z"),
   updatedAt: new Date("2026-04-15T10:00:00.000Z"),
 };
@@ -99,6 +103,14 @@ const dbMocks = createDatabaseMocks({
     return { ...scheduledConfig, ...input };
   },
   getRepositories: async () => [],
+  deleteScheduledAgentConfig: async (id: string) => {
+    state.deletedConfigIds.push(id);
+    return true;
+  },
+  pauseScheduledAgentConfig: async (id: string, _workspaceId: string, until: Date | null) => {
+    state.pausedConfigCalls.push({ id, until });
+    return { ...scheduledConfig, pausedUntil: until };
+  },
   getOrgPrimaryRepository: async () => state.orgPrimaryRepositoryOverride,
   updateScheduledAgentConfigLastRunAt: async () => {},
   findActiveConnections: async () =>
@@ -1064,6 +1076,126 @@ describe("scheduledAgentsRoutes POST /scheduled-agents/:id/trigger", () => {
       expect(body.error).toMatch(testCase.error);
       expect(state.createdJobInput).toBeNull();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dev-flow (issue #230): system-managed configs (managedBy='system',
+// provisioned by dev-flow-provisioning.ts) must not be editable/deletable
+// through PATCH/DELETE/pause. Manual trigger stays allowed — see
+// scheduled-agent-access.ts's assertScheduledAgentConfigIsUserManaged.
+// ---------------------------------------------------------------------------
+describe("scheduledAgentsRoutes system-managed (dev-flow) guard", () => {
+  beforeEach(() => {
+    state.updatedConfigInput = null;
+    state.deletedConfigIds = [];
+    state.pausedConfigCalls = [];
+    state.scheduledConfigOverride = {
+      ...scheduledConfig,
+      managedBy: "system",
+      builtinAutomationId: "backlog-drain",
+    };
+  });
+
+  it("rejects PATCH on a system-managed config with 403", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+
+    const response = await app.handle(
+      new Request(`http://localhost/scheduled-agents/${scheduledConfig.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ description: "trying to edit a system agent" }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(state.updatedConfigInput).toBeNull();
+    const body = (await response.json()) as { success?: boolean; error?: string };
+    expect(body.success).toBe(false);
+    expect(body.error).toContain("dev-flow");
+  });
+
+  it("rejects DELETE on a system-managed config with 403", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+
+    const response = await app.handle(
+      new Request(`http://localhost/scheduled-agents/${scheduledConfig.id}`, {
+        method: "DELETE",
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(state.deletedConfigIds).toEqual([]);
+    const body = (await response.json()) as { success?: boolean; error?: string };
+    expect(body.success).toBe(false);
+    expect(body.error).toContain("dev-flow");
+  });
+
+  it("rejects POST /:id/pause on a system-managed config with 403 (Fix 3, review)", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+
+    const response = await app.handle(
+      new Request(`http://localhost/scheduled-agents/${scheduledConfig.id}/pause`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ until: null }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(state.pausedConfigCalls).toEqual([]);
+    const body = (await response.json()) as { success?: boolean; error?: string };
+    expect(body.success).toBe(false);
+    expect(body.error).toContain("dev-flow");
+  });
+
+  it("still allows manual trigger on a system-managed config", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+
+    const response = await app.handle(
+      new Request(`http://localhost/scheduled-agents/${scheduledConfig.id}/trigger`, {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it("still allows PATCH/DELETE/pause on a user-managed (managedBy='user') config", async () => {
+    state.scheduledConfigOverride = { ...scheduledConfig, managedBy: "user", builtinAutomationId: null };
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+
+    const patchResponse = await app.handle(
+      new Request(`http://localhost/scheduled-agents/${scheduledConfig.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ description: "still editable" }),
+      }),
+    );
+    expect(patchResponse.status).toBe(200);
+
+    const pauseResponse = await app.handle(
+      new Request(`http://localhost/scheduled-agents/${scheduledConfig.id}/pause`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ until: null }),
+      }),
+    );
+    expect(pauseResponse.status).toBe(200);
+    expect(state.pausedConfigCalls).toEqual([{ id: scheduledConfig.id, until: null }]);
+
+    const deleteResponse = await app.handle(
+      new Request(`http://localhost/scheduled-agents/${scheduledConfig.id}`, {
+        method: "DELETE",
+      }),
+    );
+    expect(deleteResponse.status).toBe(200);
+    expect(state.deletedConfigIds).toEqual([scheduledConfig.id]);
   });
 });
 

@@ -29,6 +29,24 @@ const defaultModelForAiProvider = (aiProvider: ProjectImplementationAiProvider):
   return "claude-opus-5";
 };
 
+/**
+ * Shared read-only query for GET /projects/:id/ai-config (review fixes
+ * #1+#2, issue #235). Extracted so the dev-flow hooks (`useProjectDevFlow`,
+ * `useDevFlowAutomationOverrides`) can read `defaultProvider`/
+ * `agentDefaults.implementation` — data GET /dev-flow doesn't carry — WITHOUT
+ * inventing a new endpoint. Because it's called with the SAME query key as
+ * this hook, React Query dedupes the fetch across every hook instance
+ * mounted under the same QueryClient (they all are, in
+ * project-settings-container.tsx), so mounting the dev-flow card alongside
+ * the AI config card never doubles the request.
+ */
+export const useProjectAiConfigQuery = (projectId: string) =>
+  useQuery({
+    queryKey: projectKeys.aiConfig(projectId),
+    queryFn: async (): Promise<ProjectAiConfig> => projectsApi.getAiConfig(projectId),
+    enabled: !!projectId,
+  });
+
 export const useProjectAiConfig = (projectId: string) => {
   const queryClient = useQueryClient();
 
@@ -36,11 +54,7 @@ export const useProjectAiConfig = (projectId: string) => {
     data: serverConfig,
     isLoading,
     error: queryError,
-  } = useQuery({
-    queryKey: projectKeys.aiConfig(projectId),
-    queryFn: async (): Promise<ProjectAiConfig> => projectsApi.getAiConfig(projectId),
-    enabled: !!projectId,
-  });
+  } = useProjectAiConfigQuery(projectId);
 
   const [localProvider, setLocalProvider] = useState<AiConfigProvider | null | undefined>(undefined);
   const [localAgentDefaults, setLocalAgentDefaults] = useState<ProjectAgentDefaults | undefined>(undefined);

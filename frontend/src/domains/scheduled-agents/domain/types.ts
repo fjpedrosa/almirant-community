@@ -508,6 +508,31 @@ export interface ScheduledAgentWebhookProposal {
   testWebhookUrl: string;
 }
 
+// ---------------------------------------------------------------------------
+// Dispatch explanation (GET /scheduled-agents/:id/explain). Read-only,
+// gate-by-gate diagnostic of whether a scheduled agent would dispatch right
+// now — mirrors backend's scheduled-agent-explain.ts types. Consumed by the
+// dev-flow card's per-automation "Diagnose" action (use-dev-flow-diagnostics.ts).
+// ---------------------------------------------------------------------------
+
+export type ScheduledAgentExplainVerdict = "would-dispatch" | "blocked";
+
+export interface ScheduledAgentExplainGate {
+  gate: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface ScheduledAgentExplainResult {
+  configId: string;
+  name: string;
+  projectId: string | null;
+  projectName: string | null;
+  verdict: ScheduledAgentExplainVerdict;
+  blockedBy: string | null;
+  gates: ScheduledAgentExplainGate[];
+}
+
 // Utility constants
 export const JOB_TYPE_OPTIONS: { value: AgentJobType; label: string }[] = [
   { value: "implementation", label: "Implementation" },
