@@ -1541,6 +1541,13 @@
       "when": 1785667234873,
       "tag": "0225_unique_session_event_sequence",
       "breakpoints": true
+    },
+    {
+      "idx": 226,
+      "version": "7",
+      "when": 1785667296722,
+      "tag": "0226_claim_sequence_receipts",
+      "breakpoints": true
     }
   ]
 }

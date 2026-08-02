@@ -38,6 +38,15 @@ import type {
   RunnerCustomMcpServersConfig,
 } from "@almirant/shared";
 
+export interface AgentJobPendingTerminalIntent {
+  status: "cancelled" | "failed";
+  requestedAt: string;
+  result?: Record<string, unknown>;
+  errorType?: string;
+  errorMessage?: string;
+  durationMs?: number;
+}
+
 export interface AgentJobConfig {
   repoPath: string;
   baseBranch: string;
@@ -186,6 +195,22 @@ export interface AgentJobConfig {
   batchId?: string;
   /** Sub-type for integration jobs: "process" (run replay) or "merge" (release approved batch) */
   integrationPhase?: "process" | "merge";
+  /**
+   * Producer high-water marks fenced into the same transition that releases a
+   * same-job retry. Claims take the greater of these values and durable rows.
+   */
+  sequenceHighWater?: {
+    protocolVersion: 2;
+    jobLogs: number;
+    sessionEvents: number;
+    nativeEvents: number;
+  };
+  /** Opt-in runtime contract: this job may only be claimed by receipt-capable workers. */
+  sequenceProtocolRequirement?: "durable.v2.receipts";
+  /** Unique server-owned fencing token for the current atomic claim attempt. */
+  claimAttemptId?: string;
+  /** External terminal request held until the current durable receipt is ready. */
+  pendingTerminalIntent?: AgentJobPendingTerminalIntent;
 }
 
 export interface AgentJobResult {

@@ -7,6 +7,7 @@ export * from "./projects";
 export * from "./boards";
 export * from "./work-items";
 export * from "./agent-jobs";
+export * from "./agent-job-claim-sequence-receipts";
 export * from "./agent-job-logs";
 export * from "./agent-native-events";
 export * from "./data-backfills";
