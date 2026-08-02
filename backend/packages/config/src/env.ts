@@ -79,15 +79,25 @@ const envSchema = z.object({
     .default(25),
   // Backend-native dispatcher for scheduled_agent_configs (see
   // backend/api/src/domains/agents/services/scheduled-agent-dispatcher.ts).
-  // DEFAULT MUST STAY "false": the runner (services/runner) still runs its
-  // own scheduler tick over HTTP. Running both at once DUPLICATES jobs for
-  // the deterministic modes (backlogDrain, dodReview, releaseIntegration) —
-  // those paths do not go through the idempotent dueKey reservation that
-  // guards the standalone "jobType === scheduled" path, so two dispatchers
-  // racing the same tick will both create jobs for the same candidates.
-  // Only flip this on once the runner's own scheduler tick has been
-  // disabled/retired for the target deployment.
-  SCHEDULED_AGENT_DISPATCHER_ENABLED: z.enum(["true", "false"]).default("false"),
+  // DEFAULT IS "true" as of 2026-08-02: the backend is now the authoritative
+  // dispatcher for fresh self-hosted installs. The runner's own scheduler
+  // tick (services/runner/src/shared/config.ts's RUNNER_SCHEDULER_ENABLED)
+  // mirrors this by defaulting OFF so the two authorities don't
+  // double-dispatch -- the deterministic modes (backlogDrain, dodReview,
+  // releaseIntegration) call createJob directly without the idempotent
+  // dueKey reservation that only guards the standalone "jobType ===
+  // scheduled" path, so two dispatchers racing the same tick would both
+  // create jobs for the same candidates. The unique indexes added in
+  // migration 0222 (agent_jobs_work_item_job_type_active_uidx,
+  // scheduled_agent_runs_config_due_key_idx) are a DB-level safety net for
+  // that race, not a substitute for keeping exactly one authority active.
+  //
+  // Existing self-hosted installs that explicitly set this to "false" (to
+  // keep the pre-2026-08-02 runner-only dispatch behavior) keep working
+  // unchanged: RUNNER_SCHEDULER_ENABLED's own default inverts to "true"
+  // whenever it reads this flag as explicitly "false", so the runner keeps
+  // dispatching without any extra configuration.
+  SCHEDULED_AGENT_DISPATCHER_ENABLED: z.enum(["true", "false"]).default("true"),
   SCHEDULED_AGENT_DISPATCHER_INTERVAL_MS: z.coerce
     .number()
     .int()
