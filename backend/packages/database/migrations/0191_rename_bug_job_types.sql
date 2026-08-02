@@ -12,7 +12,7 @@ UPDATE "scheduled_agent_configs" SET "job_type" = 'bug-fix' WHERE "job_type" = '
 
 -- Step 2: add `bug-analysis` as a new enum value so we can re-point `bug-triage` rows to it.
 -- This MUST live in its own statement because PG forbids using a newly-added enum value
--- in the same transaction. Drizzle uses `--> statement-breakpoint` to split statements.
+-- in the same transaction. Drizzle splits statements on a "statement-breakpoint" marker.
 ALTER TYPE "public"."agent_job_type" ADD VALUE IF NOT EXISTS 'bug-analysis';--> statement-breakpoint
 
 -- Step 3: migrate `bug-triage` rows to `bug-analysis`

@@ -67,6 +67,13 @@ const COMPATIBLE_MIGRATION_HASHES: Record<string, string[]> = {
   "0147_recreate_oauth_states": [
     "87de2d6c15c40cbbfea5108ad53e66f83c702c1cb17baf4409a3b119e61f2930",
   ],
+  // #88: 0191's comment literally contained the `--> statement-breakpoint`
+  // marker between backticks, which drizzle's naive string-split treats as a
+  // real breakpoint, breaking a from-scratch install. Comment reworded only —
+  // no executable SQL byte changed.
+  "0191_rename_bug_job_types": [
+    "95135b4ad3676835168d34c483d7882a4880da198c3af44651594217f0a615c4",
+  ],
 };
 
 // ── 1. Validate journal ordering ────────────────────────────────────────────
