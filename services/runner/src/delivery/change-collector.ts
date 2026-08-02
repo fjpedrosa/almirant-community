@@ -33,6 +33,11 @@ export interface CollectedChanges {
 
 type ExecResult = { exitCode: number; stdout: string; stderr: string };
 
+export type CollectChangesOptions = {
+  /** Exact approved base for trusted jobs, so local agent commits are included. */
+  trustedBaseCommitSha?: string;
+};
+
 type GitMetadata = {
   modifiedFiles: string[];
   trackedFiles: string[];
@@ -58,17 +63,18 @@ const collectGitMetadata = async (
   containerManager: ContainerDriver,
   containerId: string,
   workspacePath: string,
+  comparisonRef: string,
 ): Promise<GitMetadata> => {
   const nameResult = await containerManager.execInContainer(
     containerId,
-    ["git", "diff", "--name-only", "-z", "HEAD"],
+    ["git", "diff", "--name-only", "-z", comparisonRef],
     workspacePath,
   );
   assertExecSuccess(nameResult, "git diff --name-only");
 
   const diffResult = await containerManager.execInContainer(
     containerId,
-    ["git", "diff", "--binary", "HEAD"],
+    ["git", "diff", "--binary", comparisonRef],
     workspacePath,
   );
   assertExecSuccess(diffResult, "git diff --binary");
@@ -184,7 +190,16 @@ export const collectChanges = async (
   containerId: string,
   workspacePath = "/workspace/repo",
   archiveTimeoutMs = 60_000,
+  options: CollectChangesOptions = {},
 ): Promise<CollectedChanges> => {
+  const trustedBaseCommitSha = options.trustedBaseCommitSha;
+  if (
+    trustedBaseCommitSha !== undefined &&
+    !/^[a-f0-9]{40}$/i.test(trustedBaseCommitSha)
+  ) {
+    throw new Error("Trusted change collection requires an exact base commit SHA");
+  }
+  const comparisonRef = trustedBaseCommitSha ?? "HEAD";
   const { tmpdir } = await import("node:os");
   const { mkdtemp, writeFile } = await import("node:fs/promises");
   const { join } = await import("node:path");
@@ -194,7 +209,7 @@ export const collectChanges = async (
   let metadata: Partial<GitMetadata> = {};
 
   try {
-    metadata = await collectGitMetadata(containerManager, containerId, workspacePath);
+    metadata = await collectGitMetadata(containerManager, containerId, workspacePath, comparisonRef);
     const archiveBuffer = await createSelectiveArchive(
       containerManager,
       containerId,
@@ -210,7 +225,14 @@ export const collectChanges = async (
       archiveMode: "selective",
       archivePaths: metadata.untrackedFiles ?? [],
     };
-  } catch {
+  } catch (error) {
+    if (trustedBaseCommitSha) {
+      throw new Error(
+        `Exact trusted change collection failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
     collected = await collectFullArchiveFallback(
       containerManager,
       containerId,

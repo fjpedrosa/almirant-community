@@ -77,6 +77,72 @@ describe("collectChanges", () => {
     expect(manager.writeBufferCalls).toEqual([]);
   });
 
+  it("collects trusted changes against the approved base SHA instead of local HEAD", async () => {
+    const baseCommitSha = "a".repeat(40);
+    const manager = createMockContainerManager({
+      onExec: (cmd) => {
+        if (cmd.join(" ") === `git diff --name-only -z ${baseCommitSha}`) return ok("src/committed.ts\0");
+        if (cmd.join(" ") === `git diff --binary ${baseCommitSha}`) {
+          return ok("diff --git a/src/committed.ts b/src/committed.ts\n");
+        }
+        if (cmd.join(" ") === "git ls-files --others --exclude-standard -z") return ok("");
+        throw new Error(`unexpected exec: ${cmd.join(" ")}`);
+      },
+    });
+
+    const collected = await collectChanges(
+      manager,
+      "container-1",
+      "/workspace/repo",
+      5_000,
+      { trustedBaseCommitSha: baseCommitSha },
+    );
+    collectedToCleanup.push(collected);
+
+    expect(collected.archiveMode).toBe("selective");
+    expect(collected.modifiedFiles).toEqual(["src/committed.ts"]);
+    expect(collected.fullDiff).toContain("src/committed.ts");
+    expect(manager.archivePaths).toEqual([]);
+  });
+
+  it("fails closed instead of falling back to a full archive when trusted git metadata fails", async () => {
+    const baseCommitSha = "a".repeat(40);
+    const manager = createMockContainerManager({
+      archiveBuffer: Buffer.from("must-not-be-used"),
+      onExec: (cmd) => {
+        if (cmd.join(" ") === `git diff --name-only -z ${baseCommitSha}`) {
+          return fail("approved base is unavailable");
+        }
+        throw new Error(`unexpected exec: ${cmd.join(" ")}`);
+      },
+    });
+
+    await expect(collectChanges(
+      manager,
+      "container-1",
+      "/workspace/repo",
+      5_000,
+      { trustedBaseCommitSha: baseCommitSha },
+    )).rejects.toThrow("Exact trusted change collection failed");
+    expect(manager.archivePaths).toEqual([]);
+  });
+
+  it("rejects a non-exact trusted base commit SHA", async () => {
+    const manager = createMockContainerManager({
+      onExec: () => {
+        throw new Error("exec must not run before SHA validation");
+      },
+    });
+
+    await expect(collectChanges(
+      manager,
+      "container-1",
+      "/workspace/repo",
+      5_000,
+      { trustedBaseCommitSha: "not-a-sha" },
+    )).rejects.toThrow("requires an exact base commit SHA");
+  });
+
   it("archives only safe untracked files in selective mode", async () => {
     const manager = createMockContainerManager({
       archiveBuffer: Buffer.from("selective-tar"),
