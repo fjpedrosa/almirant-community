@@ -19,6 +19,7 @@ import {
 import { successResponse, errorResponse, notFoundResponse } from "../../../shared/services/response";
 import { getInstanceConfig } from "../../instance/services/instance-config-service";
 import { executeScheduledAgentConfig } from "../services/execute-scheduled-agent-config";
+import { explainScheduledAgentDispatch } from "../services/scheduled-agent-explain";
 import {
   assertScheduledAgentConfigIsUserManaged,
   ScheduledAgentConfigSystemManagedError,
@@ -378,6 +379,60 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
       query: t.Object({
         projectIds: t.String({ minLength: 1 }),
       }),
+    },
+  )
+
+  // GET /scheduled-agents/explain - Explain, gate by gate, why every scheduled
+  // agent in the active workspace would or would not dispatch right now.
+  // Read-only: creates no jobs, touches no lastRunAt.
+  .get(
+    "/explain",
+    async ({ activeWorkspace }) => {
+      try {
+        const orgId = activeWorkspace!.id;
+        const explanations = await explainScheduledAgentDispatch({ workspaceId: orgId });
+        return successResponse(explanations);
+      } catch (error) {
+        logger.error({ error }, "Failed to explain scheduled agent dispatch");
+        return errorResponse(
+          error instanceof Error ? error.message : "Failed to explain scheduled agent dispatch",
+        );
+      }
+    },
+  )
+
+  // GET /scheduled-agents/:id/explain - Explain, gate by gate, why THIS
+  // scheduled agent would or would not dispatch right now. Read-only.
+  .get(
+    "/:id/explain",
+    async ({ params, set, activeWorkspace }) => {
+      try {
+        const orgId = activeWorkspace!.id;
+        const config = await getScheduledAgentConfigById(params.id, orgId);
+        if (!config) {
+          set.status = 404;
+          return notFoundResponse("Scheduled agent config");
+        }
+
+        const [explanation] = await explainScheduledAgentDispatch({
+          workspaceId: orgId,
+          configId: params.id,
+        });
+        if (!explanation) {
+          set.status = 404;
+          return notFoundResponse("Scheduled agent config");
+        }
+
+        return successResponse(explanation);
+      } catch (error) {
+        logger.error({ error }, "Failed to explain scheduled agent dispatch");
+        return errorResponse(
+          error instanceof Error ? error.message : "Failed to explain scheduled agent dispatch",
+        );
+      }
+    },
+    {
+      params: t.Object({ id: t.String() }),
     },
   )
 
