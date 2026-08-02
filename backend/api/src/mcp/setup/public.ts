@@ -25,6 +25,8 @@ import { registerSeedMemoryTools } from "../tools/seed-memory.tools";
 import { registerHandbookTools } from "../tools/handbook.tools";
 import { registerIntegrationBatchesTools } from "../tools/integration-batches.tools";
 import { registerStorageTools } from "../tools/storage.tools";
+import { registerAgentOutputTools } from "../tools/agent-output.tools";
+import { agentOutputCapabilityService } from "../../domains/agents/services/agent-output-runtime";
 
 /**
  * Registers the public MCP tools (everything except debug/back-office tools).
@@ -60,4 +62,5 @@ export const setupPublicMcpServer = async (server: McpServer) => {
   registerHandbookTools(server);
   registerIntegrationBatchesTools(server);
   registerStorageTools(server);
+  registerAgentOutputTools(server, agentOutputCapabilityService);
 };
