@@ -1,5 +1,6 @@
 import {
   resolveScheduledRuntimePrecedence,
+  type BuiltinAutomationId,
   type ScheduledRuntimeSource,
 } from "@almirant/shared";
 
@@ -9,12 +10,71 @@ export type BacklogDrainProvider = "claude-code" | "codex" | "zipu" | "grok";
 export type BacklogDrainSelectionMode = "implementation" | "dod-remediation";
 export type BacklogDrainSkillName = "runner-implement" | "runner-fix-dod";
 
+/**
+ * Dev-flow (issue #230) per-automation config (issue #235): one automation's
+ * override entry under `devFlow.automations.<automationId>`. Every field is
+ * independently optional/nullable — absent (or explicitly null) means
+ * "inherit the card-level devFlow default for this field" (or, for
+ * `schedule`, "use the runtime's default cron expression/timezone"). See
+ * `dev-flow-provisioning.ts`'s `resolveEffectiveRuntime`/
+ * `resolveEffectiveSchedule` for the merge semantics.
+ */
+export interface DevFlowAutomationOverride {
+  enabled?: boolean | null;
+  codingAgent?: BacklogDrainCodingAgent | null;
+  aiProvider?: BacklogDrainAiProvider | null;
+  model?: string | null;
+  reasoningLevel?: string | null;
+  maxConcurrentJobs?: number | null;
+  /** `schedule: null` explicitly clears a previously-saved schedule
+   *  override (back to inheriting the runtime default). */
+  schedule?: { expression: string; timezone?: string | null } | null;
+}
+
 export interface ProjectAgentDefaults {
   implementation?: {
     codingAgent?: BacklogDrainCodingAgent | null;
     aiProvider?: BacklogDrainAiProvider | null;
     model?: string | null;
     reasoningLevel?: string | null;
+  } | null;
+  /**
+   * Dev-flow (issue #230): activates the four built-in automations
+   * (backlog drain, DoD remediation, DoD review, release integration) for
+   * this project with minimal configuration, instead of the user
+   * hand-creating four scheduled-agent configs. Persisted here (rather than
+   * a new column) so it follows the same PATCH /projects/:id/ai-config
+   * surface as `implementation`. Runtime overrides below are optional —
+   * omitted fields fall through to the normal scheduled-runtime precedence
+   * (project rule > scheduled config > work item > project defaults >
+   * active connection > provider default; see
+   * `scheduled-runtime-precedence.ts`) at dispatch time, exactly like
+   * `implementation`. See `dev-flow-provisioning.ts` for the idempotent
+   * upsert that turns this into four `scheduled_agent_configs` rows.
+   */
+  devFlow?: {
+    enabled: boolean;
+    codingAgent?: BacklogDrainCodingAgent | null;
+    aiProvider?: BacklogDrainAiProvider | null;
+    model?: string | null;
+    reasoningLevel?: string | null;
+    /**
+     * Optional per-project concurrency cap applied uniformly to all four
+     * automations' `targetConfig.<mode>.defaultMaxConcurrentJobs` (NOT
+     * `scheduled_agent_configs.maxJobsPerRun`, which stays at its normal
+     * default — see dev-flow-provisioning.ts), unless an automation has its
+     * own `maxConcurrentJobs` override below.
+     */
+    maxConcurrentJobs?: number | null;
+    /**
+     * Per-automation config (issue #235): each of the 4 built-ins can
+     * override its own runtime/concurrency/schedule/enabled flag,
+     * inheriting the card-level fields above when absent. Keyed by
+     * `BuiltinAutomationId` (`@almirant/shared`'s builtin-automations.ts
+     * catalog) — validated against the catalog at the route layer
+     * (PATCH /projects/:id/ai-config), not here.
+     */
+    automations?: Partial<Record<BuiltinAutomationId, DevFlowAutomationOverride | null>>;
   } | null;
 }
 
