@@ -29,6 +29,34 @@ type ErrorEnvelope = {
   error: string;
 };
 
+const throwIfAborted = (signal: AbortSignal): void => {
+  if (signal.aborted) {
+    throw signal.reason ?? new Error("Agent session API request aborted");
+  }
+};
+
+const raceWithAbort = async <T>(
+  operation: () => Promise<T>,
+  signal: AbortSignal,
+): Promise<T> => {
+  throwIfAborted(signal);
+  const pending = operation();
+  pending.catch(() => undefined);
+
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => {
+      reject(signal.reason ?? new Error("Agent session API request aborted"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([pending, aborted]);
+  } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+};
+
 const normalizeEnvelope = <T>(payload: unknown): T => {
   if (typeof payload === "object" && payload !== null && "success" in payload) {
     const envelope = payload as SuccessEnvelope<T> | ErrorEnvelope;
@@ -75,7 +103,12 @@ export class OpenCodeSessionManager {
 
   public async healthCheck(): Promise<boolean> {
     try {
-      const response = await this.request(this.paths.health, { method: "GET" });
+      const { response } = await this.request(
+        this.paths.health,
+        { method: "GET" },
+        undefined,
+        false,
+      );
       return response.ok;
     } catch {
       return false;
@@ -83,8 +116,8 @@ export class OpenCodeSessionManager {
   }
 
   public async listSessions(): Promise<OpenCodeSession[]> {
-    const response = await this.request(this.paths.sessions, { method: "GET" });
-    const json = await response.json();
+    const { body } = await this.request(this.paths.sessions, { method: "GET" });
+    const json = JSON.parse(body);
     return normalizeEnvelope<OpenCodeSession[]>(json);
   }
 
@@ -97,40 +130,44 @@ export class OpenCodeSessionManager {
   public async getMcpStatus(
     requestOptions?: OpenCodeSessionRequestOptions,
   ): Promise<OpenCodeMcpStatusMap> {
-    const response = await this.request(
+    const { body } = await this.request(
       this.paths.mcpStatus,
       { method: "GET" },
       requestOptions,
     );
-    const json = await response.json();
-    return normalizeEnvelope<OpenCodeMcpStatusMap>(json);
+    return normalizeEnvelope<OpenCodeMcpStatusMap>(JSON.parse(body));
   }
 
   public async createSession(
-    _input: OpenCodeCreateSessionInput
+    _input: OpenCodeCreateSessionInput,
+    requestOptions?: OpenCodeSessionRequestOptions,
   ): Promise<OpenCodeSession> {
     // opencode >=1.x rejects any extra fields on session create (cwd, model,
     // provider → {"_tag":"BadRequest"}). The working directory comes from the
     // serve process cwd and the model/provider from the injected opencode.json
     // (buildOpenCodeConfig), so the create body must stay empty.
-    const response = await this.request(this.paths.sessions, {
-      method: "POST",
-      body: JSON.stringify({}),
-      headers: {
-        "Content-Type": "application/json",
+    const { body } = await this.request(
+      this.paths.sessions,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+        headers: {
+          "Content-Type": "application/json",
+        },
       },
-    });
+      requestOptions,
+    );
 
-    const json = await response.json();
+    const json = JSON.parse(body);
     return normalizeEnvelope<OpenCodeSession>(json);
   }
 
   public async getSession(sessionId: string): Promise<OpenCodeSession> {
-    const response = await this.request(this.paths.sessionById(sessionId), {
+    const { body } = await this.request(this.paths.sessionById(sessionId), {
       method: "GET",
     });
 
-    const json = await response.json();
+    const json = JSON.parse(body);
     return normalizeEnvelope<OpenCodeSession>(json);
   }
 
@@ -143,13 +180,15 @@ export class OpenCodeSessionManager {
    * its KV cache / message history. Best-effort — callers should not
    * treat failures as fatal.
    */
-  public async deleteSession(sessionId: string): Promise<void> {
-    const response = await this.request(this.paths.sessionById(sessionId), {
-      method: "DELETE",
-    });
-
-    // Drain body to free the connection; ignore parse errors.
-    await response.text().catch(() => "");
+  public async deleteSession(
+    sessionId: string,
+    requestOptions?: OpenCodeSessionRequestOptions,
+  ): Promise<void> {
+    await this.request(
+      this.paths.sessionById(sessionId),
+      { method: "DELETE" },
+      requestOptions,
+    );
   }
 
   public async sendPrompt(
@@ -161,7 +200,7 @@ export class OpenCodeSessionManager {
       parts: [{ type: "text" as const, text: input.prompt }],
     };
 
-    const response = await this.request(this.paths.sessionPrompt(sessionId), {
+    const { body: text } = await this.request(this.paths.sessionPrompt(sessionId), {
       method: "POST",
       body: JSON.stringify(body),
       headers: {
@@ -169,7 +208,6 @@ export class OpenCodeSessionManager {
       },
     });
 
-    const text = await response.text();
     if (!text.trim()) {
       return { ok: true };
     }
@@ -183,20 +221,26 @@ export class OpenCodeSessionManager {
 
   public async sendPromptAsync(
     sessionId: string,
-    input: { prompt: string }
+    input: { prompt: string },
+    requestOptions?: OpenCodeSessionRequestOptions,
   ): Promise<void> {
     // Fire-and-forget: returns 204, response comes via SSE events
     const body = {
       parts: [{ type: "text" as const, text: input.prompt }],
     };
 
-    await this.request(this.paths.sessionPromptAsync(sessionId), {
-      method: "POST",
-      body: JSON.stringify(body),
-      headers: {
-        "Content-Type": "application/json",
+    await this.request(
+      this.paths.sessionPromptAsync(sessionId),
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers: {
+          "Content-Type": "application/json",
+        },
       },
-    });
+      requestOptions,
+      false,
+    );
   }
 
   public streamSessionEvents(
@@ -210,38 +254,64 @@ export class OpenCodeSessionManager {
     path: string,
     init: RequestInit,
     requestOptions?: OpenCodeSessionRequestOptions,
-  ): Promise<Response> {
+    readSuccessBody = true,
+  ): Promise<{ response: Response; body: string }> {
     const controller = new AbortController();
     const timeoutMs = requestOptions?.timeoutMs ?? this.timeoutMs;
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    const externalSignal = requestOptions?.signal;
-    const onExternalAbort = () => controller.abort();
-    if (externalSignal) {
-      if (externalSignal.aborted) controller.abort();
-      else externalSignal.addEventListener("abort", onExternalAbort, { once: true });
-    }
+    const timeout = setTimeout(
+      () =>
+        controller.abort(
+          new Error(`Agent session API timeout after ${timeoutMs}ms`),
+        ),
+      timeoutMs,
+    );
+    const externalSignals = [init.signal, requestOptions?.signal].filter(
+      (signal): signal is AbortSignal => signal != null,
+    );
+    const listeners = externalSignals.map((signal) => {
+      const listener = () => controller.abort(signal.reason);
+      if (signal.aborted) {
+        listener();
+      } else {
+        signal.addEventListener("abort", listener, { once: true });
+      }
+      return { signal, listener };
+    });
 
     try {
       const headers = new Headers(init.headers);
       this.applyAuthHeaders(headers);
 
-      const response = await this.fetchFn(`${this.baseUrl}${path}`, {
-        ...init,
-        headers,
-        signal: controller.signal,
-      });
+      const response = await raceWithAbort(
+        () => this.fetchFn(`${this.baseUrl}${path}`, {
+          ...init,
+          headers,
+          signal: controller.signal,
+        }),
+        controller.signal,
+      );
+      throwIfAborted(controller.signal);
 
+      let body = "";
+      if (!response.ok || readSuccessBody) {
+        body = await raceWithAbort(
+          () => response.text(),
+          controller.signal,
+        );
+        throwIfAborted(controller.signal);
+      }
       if (!response.ok) {
-        const body = await response.text().catch(() => "");
         throw new Error(
           `Agent session API error ${response.status}: ${body.slice(0, 300)}`
         );
       }
 
-      return response;
+      return { response, body };
     } finally {
       clearTimeout(timeout);
-      if (externalSignal) externalSignal.removeEventListener("abort", onExternalAbort);
+      for (const { signal, listener } of listeners) {
+        signal.removeEventListener("abort", listener);
+      }
     }
   }
 
