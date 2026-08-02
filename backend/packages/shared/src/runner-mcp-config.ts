@@ -3,9 +3,6 @@ export type RunnerCustomMcpServerConfig = {
   url: string;
   enabled?: boolean;
   oauth?: false;
-  headers?: Record<string, string>;
-  /** Internal profile id; the runner rewrites this server through Almirant's safe gateway. */
-  almirantServerId?: string;
 };
 
 export type RunnerCustomMcpServersConfig = Record<string, RunnerCustomMcpServerConfig>;
@@ -23,7 +20,6 @@ const RESERVED_MCP_SERVER_NAMES = new Set<string>(RUNNER_PLATFORM_MCP_SERVER_NAM
 const MCP_SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_CUSTOM_MCP_SERVERS = 20;
 const MAX_MCP_URL_LENGTH = 2048;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -89,15 +85,12 @@ export const normalizeRunnerCustomMcpServersConfig = (
       continue;
     }
 
-    if ("command" in rawServer || "args" in rawServer) {
-      errors.push(`mcpServers.${name}: local MCP commands are not supported for scheduled-agent MCP config`);
+    if ("headers" in rawServer) {
+      errors.push(`mcpServers.${name}: headers are not supported for scheduled-agent MCP config`);
     }
 
-    if (rawServer.headers != null) {
-      errors.push(
-        `mcpServers.${name}: inline headers are not supported; store secrets in an MCP profile`,
-      );
-      continue;
+    if ("command" in rawServer || "args" in rawServer) {
+      errors.push(`mcpServers.${name}: local MCP commands are not supported for scheduled-agent MCP config`);
     }
 
     if (rawServer.oauth === true) {
@@ -117,20 +110,11 @@ export const normalizeRunnerCustomMcpServersConfig = (
       continue;
     }
 
-    const almirantServerId = rawServer.almirantServerId;
-    if (typeof almirantServerId !== "string" || !UUID_RE.test(almirantServerId)) {
-      errors.push(
-        `mcpServers.${name}: unmanaged remote URLs are not supported; select an MCP profile`,
-      );
-      continue;
-    }
-
     servers[name] = {
       type: "remote",
       url,
       enabled: true,
       oauth: false,
-      almirantServerId,
     };
   }
 
