@@ -19,7 +19,7 @@ import {
 } from "../../domains/agents/services/scheduled-agent-access";
 
 const TRIGGER_VALUES = ["scheduled", "webhook"] as const;
-const SCHEDULE_TYPE_VALUES = ["manual", "time_window", "cron"] as const;
+const SCHEDULE_TYPE_VALUES = ["manual", "time_window", "cron", "once"] as const;
 const PROVIDER_VALUES = ["claude-code", "codex", "zipu", "grok"] as const;
 const CODING_AGENT_VALUES = ["claude-code", "codex", "opencode"] as const;
 const AI_PROVIDER_VALUES = ["anthropic", "openai", "zai", "xai"] as const;
@@ -42,7 +42,16 @@ const timeWindowConfigSchema = z.object({
   endHour: z.number().int().min(0).max(23),
   daysOfWeek: z.array(z.number().int().min(0).max(6)),
 });
-const scheduleConfigSchema = z.union([cronConfigSchema, timeWindowConfigSchema]);
+// One-shot schedule (scheduleType='once', community issue #91). `runAt`
+// must be a valid RFC3339/ISO-8601 date-time; `{ offset: true }` accepts
+// both a 'Z' suffix and a numeric offset (+01:00), matching the same
+// RFC3339 date-time format Elysia's `t.String({ format: "date-time" })`
+// enforces on the REST route (scheduled-agents.routes.ts) — the two
+// surfaces must agree on what counts as a valid `runAt`. A PAST `runAt` is
+// allowed: the config simply dispatches on the next tick instead of being
+// rejected.
+const onceConfigSchema = z.object({ runAt: z.string().datetime({ offset: true }) });
+export const scheduleConfigSchema = z.union([cronConfigSchema, timeWindowConfigSchema, onceConfigSchema]);
 const backlogDrainProjectRuleSchema = z.object({
   projectId: z.string().min(1),
   enabled: z.boolean().optional(),
@@ -86,12 +95,57 @@ const targetConfigSchema = z.object({
   releaseIntegration: releaseIntegrationConfigSchema.optional(),
 }).strict();
 
-const buildAgentInput = (params: {
-  trigger?: typeof TRIGGER_VALUES[number];
-  scheduleType?: typeof SCHEDULE_TYPE_VALUES[number];
-  scheduleConfig?: z.infer<typeof scheduleConfigSchema> | null;
-}) => {
-  const trigger = params.trigger ?? "scheduled";
+type TriggerValue = typeof TRIGGER_VALUES[number];
+type ScheduleTypeValue = typeof SCHEDULE_TYPE_VALUES[number];
+type ScheduleConfigValue = z.infer<typeof scheduleConfigSchema>;
+
+// Per-scheduleType shape, used to validate a `scheduleConfig` against a
+// scheduleType that buildAgentInput preserved from `existing` (i.e. the
+// caller didn't explicitly send scheduleType alongside it). 'manual' is
+// deliberately excluded — it always persists scheduleConfig=null.
+const SCHEDULE_CONFIG_SCHEMA_BY_TYPE: Record<Exclude<ScheduleTypeValue, "manual">, z.ZodTypeAny> = {
+  cron: cronConfigSchema,
+  time_window: timeWindowConfigSchema,
+  once: onceConfigSchema,
+};
+
+/**
+ * Builds the trigger/scheduleType/scheduleConfig triple to persist, for both
+ * create_agent (no `existing`) and update_agent (`existing` is the
+ * persisted config).
+ *
+ * On update, `existing` fills in whatever this call's payload didn't touch —
+ * mirroring the REST route's merge-against-existing
+ * (`nextScheduleType = body.scheduleType ?? existing.scheduleType`,
+ * `nextScheduleConfig = body.scheduleConfig !== undefined ? body.scheduleConfig : existing.scheduleConfig`
+ * in scheduled-agents.routes.ts). Without this, sending `scheduleConfig`
+ * alone (e.g. bumping a 'once' agent's `runAt`) — or `trigger` alone —
+ * silently reset the agent to scheduleType='manual'/scheduleConfig=null.
+ * See agents.tools.once-schedule.test.ts for the regression coverage.
+ *
+ * When the caller sends `scheduleConfig` WITHOUT an explicit `scheduleType`,
+ * we preserve `existing.scheduleType` but must verify the given
+ * `scheduleConfig`'s shape actually matches it (reject e.g. a cron-shaped
+ * `{ expression }` against a preserved scheduleType='once') — otherwise
+ * we'd silently persist a mismatched pair instead of the old silent reset.
+ * When the caller sends `scheduleType` explicitly, it always wins and no
+ * shape cross-check happens (pre-existing behavior, unchanged) — that's the
+ * legitimate "change the schedule type" flow, and the old scheduleConfig is
+ * never reused for a newly-chosen type.
+ */
+const buildAgentInput = (
+  params: {
+    trigger?: TriggerValue;
+    scheduleType?: ScheduleTypeValue;
+    scheduleConfig?: ScheduleConfigValue | null;
+  },
+  existing?: {
+    trigger: TriggerValue;
+    scheduleType: ScheduleTypeValue;
+    scheduleConfig: ScheduleConfigValue | null;
+  },
+) => {
+  const trigger: TriggerValue = params.trigger ?? existing?.trigger ?? "scheduled";
   if (trigger === "webhook") {
     return {
       trigger,
@@ -100,14 +154,38 @@ const buildAgentInput = (params: {
       enabled: false,
     };
   }
-  const scheduleType = params.scheduleType ?? "manual";
-  if (scheduleType !== "manual" && !params.scheduleConfig) {
-    throw new Error("scheduleConfig is required for time_window/cron scheduled agents");
+
+  const scheduleTypeExplicit = params.scheduleType !== undefined;
+  const scheduleType: ScheduleTypeValue = params.scheduleType ?? existing?.scheduleType ?? "manual";
+
+  // Only fall back to the existing scheduleConfig when scheduleType was ALSO
+  // preserved (not explicitly changed) — a config shaped for the OLD type
+  // must never leak into a newly-chosen type.
+  const scheduleConfig: ScheduleConfigValue | null =
+    params.scheduleConfig !== undefined
+      ? params.scheduleConfig
+      : !scheduleTypeExplicit
+        ? existing?.scheduleConfig ?? null
+        : null;
+
+  if (scheduleType !== "manual" && !scheduleConfig) {
+    throw new Error("scheduleConfig is required for time_window/cron/once scheduled agents");
   }
+
+  if (params.scheduleConfig !== undefined && !scheduleTypeExplicit && scheduleType !== "manual") {
+    const shapeCheck = SCHEDULE_CONFIG_SCHEMA_BY_TYPE[scheduleType].safeParse(scheduleConfig);
+    if (!shapeCheck.success) {
+      throw new Error(
+        `scheduleConfig does not match this agent's existing scheduleType '${scheduleType}'. ` +
+          "Pass scheduleType explicitly alongside scheduleConfig to change the schedule type.",
+      );
+    }
+  }
+
   return {
     trigger,
     scheduleType,
-    scheduleConfig: scheduleType === "manual" ? null : params.scheduleConfig ?? null,
+    scheduleConfig: scheduleType === "manual" ? null : scheduleConfig,
   };
 };
 
@@ -345,11 +423,18 @@ export const registerAgentsTools = (server: McpServer) => {
           rest.scheduleType !== undefined ||
           rest.scheduleConfig !== undefined;
         const scheduleUpdate = touchesScheduling
-          ? buildAgentInput({
-              trigger: rest.trigger,
-              scheduleType: rest.scheduleType,
-              scheduleConfig: rest.scheduleConfig,
-            })
+          ? buildAgentInput(
+              {
+                trigger: rest.trigger,
+                scheduleType: rest.scheduleType,
+                scheduleConfig: rest.scheduleConfig,
+              },
+              {
+                trigger: existing.trigger,
+                scheduleType: existing.scheduleType,
+                scheduleConfig: existing.scheduleConfig,
+              },
+            )
           : undefined;
         const touchesRuntime =
           rest.provider !== undefined ||
