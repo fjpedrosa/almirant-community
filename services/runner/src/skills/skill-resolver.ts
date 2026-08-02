@@ -5,8 +5,73 @@ import {
   augmentSkillContentForRuntime,
   buildRuntimeSkillAugmentation,
 } from "./runtime-augmentation";
+import type { AgentSelectedSkillReference } from "@almirant/shared";
+import { createHash } from "node:crypto";
 
 const WORKSPACE_REPO_PATH = "/workspace/repo";
+
+const SKILL_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const CONTENT_HASH_RE = /^[a-f0-9]{64}$/i;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const computeCanonicalSkillContentHash = (content: string): string =>
+  createHash("sha256")
+    .update(content.replace(/\r\n/g, "\n").trim())
+    .digest("hex");
+
+/**
+ * Parses the immutable auxiliary-skill snapshot copied into a claimed job.
+ *
+ * A malformed snapshot is a permanent configuration error. Silently dropping
+ * one entry would make a retry execute with a different capability set.
+ */
+export const parseSelectedSkillReferences = (
+  value: unknown,
+): AgentSelectedSkillReference[] => {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new Error("Invalid selected skill snapshot: selectedSkills must be an array");
+  }
+
+  const ids = new Set<string>();
+  const slugs = new Set<string>();
+  return value.map((candidate, index) => {
+    if (
+      !isRecord(candidate) ||
+      typeof candidate.id !== "string" ||
+      !UUID_RE.test(candidate.id) ||
+      typeof candidate.slug !== "string" ||
+      !SKILL_SLUG_RE.test(candidate.slug) ||
+      typeof candidate.version !== "number" ||
+      !Number.isSafeInteger(candidate.version) ||
+      candidate.version < 1 ||
+      typeof candidate.contentHash !== "string" ||
+      !CONTENT_HASH_RE.test(candidate.contentHash)
+    ) {
+      throw new Error(
+        `Invalid selected skill reference at index ${index}`,
+      );
+    }
+    if (ids.has(candidate.id)) {
+      throw new Error(`Duplicate selected skill id: ${candidate.id}`);
+    }
+    if (slugs.has(candidate.slug)) {
+      throw new Error(`Duplicate selected skill slug: ${candidate.slug}`);
+    }
+    ids.add(candidate.id);
+    slugs.add(candidate.slug);
+    return {
+      id: candidate.id,
+      slug: candidate.slug,
+      version: candidate.version,
+      contentHash: candidate.contentHash.toLowerCase(),
+    };
+  });
+};
 
 // ---------------------------------------------------------------------------
 // Dependency injection type
@@ -122,6 +187,8 @@ export const resolveSkillFromDb = async (
   params: {
     skillId?: string;
     skillSlug?: string;
+    expectedVersion?: number;
+    expectedContentHash?: string;
     projectId?: string;
     workspaceId?: string;
     containerId: string;
@@ -129,7 +196,17 @@ export const resolveSkillFromDb = async (
     eventLogger: RunnerJobEventLogger;
   },
 ): Promise<{ slug: string; content: string }> => {
-  const { skillId, skillSlug, projectId, workspaceId, containerId, runtimeType, eventLogger } = params;
+  const {
+    skillId,
+    skillSlug,
+    expectedVersion,
+    expectedContentHash,
+    projectId,
+    workspaceId,
+    containerId,
+    runtimeType,
+    eventLogger,
+  } = params;
 
   const identifier = skillId ?? skillSlug ?? "unknown";
 
@@ -145,6 +222,12 @@ export const resolveSkillFromDb = async (
   const resolveUrl = new URL(`${deps.apiBaseUrl.replace(/\/+$/, "")}/api/skills/resolve`);
   if (skillId) resolveUrl.searchParams.set("id", skillId);
   if (skillSlug) resolveUrl.searchParams.set("slug", skillSlug);
+  if (expectedVersion !== undefined) {
+    resolveUrl.searchParams.set("expectedVersion", String(expectedVersion));
+  }
+  if (expectedContentHash) {
+    resolveUrl.searchParams.set("expectedContentHash", expectedContentHash);
+  }
   if (projectId) resolveUrl.searchParams.set("projectId", projectId);
   if (workspaceId) resolveUrl.searchParams.set("workspaceId", workspaceId);
 
@@ -164,7 +247,14 @@ export const resolveSkillFromDb = async (
 
   const envelope = (await res.json()) as {
     success: boolean;
-    data?: { id: string; slug: string; content: string; source?: string };
+    data?: {
+      id: string;
+      slug: string;
+      content: string;
+      source?: string;
+      version?: number;
+      contentHash?: string;
+    };
     error?: string;
   };
 
@@ -174,7 +264,38 @@ export const resolveSkillFromDb = async (
     );
   }
 
-  const { slug, content } = envelope.data;
+  const { id, slug, content, version, contentHash } = envelope.data;
+  if (skillId && id !== skillId) {
+    throw new Error(
+      `Skill ${identifier} id mismatch: expected ${skillId}, received ${id ?? "missing"}`,
+    );
+  }
+  if (skillSlug && slug !== skillSlug) {
+    throw new Error(
+      `Skill ${identifier} slug mismatch: expected ${skillSlug}, received ${slug}`,
+    );
+  }
+  if (expectedVersion !== undefined && version !== expectedVersion) {
+    throw new Error(
+      `Skill ${identifier} version mismatch: expected ${expectedVersion}, received ${version ?? "missing"}`,
+    );
+  }
+  if (
+    expectedContentHash &&
+    contentHash?.toLowerCase() !== expectedContentHash.toLowerCase()
+  ) {
+    throw new Error(
+      `Skill ${identifier} content hash mismatch: expected ${expectedContentHash}, received ${contentHash ?? "missing"}`,
+    );
+  }
+  if (
+    contentHash &&
+    computeCanonicalSkillContentHash(content) !== contentHash.toLowerCase()
+  ) {
+    throw new Error(
+      `Skill ${identifier} content bytes and content hash mismatch`,
+    );
+  }
 
   // Determine the target path based on the runtime/provider
   const isClaudeCodeRuntime = runtimeType === "claude-shim";
@@ -214,4 +335,57 @@ export const resolveSkillFromDb = async (
   });
 
   return { slug, content };
+};
+
+// ---------------------------------------------------------------------------
+// materializeSelectedSkills
+// ---------------------------------------------------------------------------
+
+/**
+ * Materializes pinned auxiliary skills without changing the primary
+ * `skillId`/`skillName` used to build the model prompt.
+ */
+export const materializeSelectedSkills = async (
+  deps: SkillResolverDeps,
+  params: {
+    selectedSkills: AgentSelectedSkillReference[];
+    primarySkillId?: string;
+    primarySkillSlug?: string;
+    projectId?: string;
+    workspaceId?: string;
+    containerId: string;
+    runtimeType: string;
+    eventLogger: RunnerJobEventLogger;
+  },
+): Promise<Array<{ slug: string; content: string }>> => {
+  if (params.selectedSkills.length === 0) return [];
+
+  for (const selectedSkill of params.selectedSkills) {
+    if (
+      selectedSkill.id === params.primarySkillId ||
+      selectedSkill.slug === params.primarySkillSlug
+    ) {
+      throw new Error(
+        `Selected auxiliary skill ${selectedSkill.slug} conflicts with the primary skill`,
+      );
+    }
+  }
+
+  const materialized: Array<{ slug: string; content: string }> = [];
+  for (const selectedSkill of params.selectedSkills) {
+    materialized.push(
+      await resolveSkillFromDb(deps, {
+        skillId: selectedSkill.id,
+        skillSlug: selectedSkill.slug,
+        expectedVersion: selectedSkill.version,
+        expectedContentHash: selectedSkill.contentHash,
+        projectId: params.projectId,
+        workspaceId: params.workspaceId,
+        containerId: params.containerId,
+        runtimeType: params.runtimeType,
+        eventLogger: params.eventLogger,
+      }),
+    );
+  }
+  return materialized;
 };

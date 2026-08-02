@@ -17,6 +17,9 @@ import {
 import { resolveJobIntent } from "../orchestration/job-intent";
 import { resolveJobCodingAgent } from "../shared/job-helpers";
 import { resolveUltracode } from "./ultracode-preset";
+import type { JobSafeConsole } from "../security/job-secret-redactor";
+
+export const AGENT_MCP_SESSION_TOKEN_TTL_SECONDS = 2 * 60 * 60;
 
 type ConfigInjectorInput = {
   workerClient: Pick<
@@ -40,9 +43,11 @@ type ConfigInjectorInput = {
    * global API key -- limiting the blast radius if the container is compromised.
    */
   requestSessionToken?: (params: {
-    projectId: string;
+    /** Optional for independent agents whose token is scoped to the workspace. */
+    projectId?: string;
     workspaceId: string;
     jobId: string;
+    ttlSeconds: number;
     /**
      * Optional list of MCP permissions to request for the session token.
      * When omitted, the caller falls back to `["mcp:read", "mcp:write"]`.
@@ -51,6 +56,10 @@ type ConfigInjectorInput = {
      */
     permissions?: string[];
   }) => Promise<{ token: string; expiresAt: string }>;
+  /** Register exact values with the mutable per-job redactor before use. */
+  registerSensitiveValue?: (label: string, value: string) => void;
+  /** Job-scoped external console boundary. Production callers must provide it. */
+  safeConsole?: JobSafeConsole;
 };
 
 type RuntimeImageConfig = {
@@ -375,6 +384,7 @@ export const resolveRuntimeConfig = (
 export const buildInjectedEnv = async (
   input: ConfigInjectorInput
 ): Promise<InjectedEnvResult> => {
+  const safeConsole = input.safeConsole ?? console;
   const jobConfig = asObject(input.job.config) ?? {};
   const jobNeedsBrowser = resolveJobIntent(input.job).needsBrowser;
   const requestedProvider = String(input.job.provider || "codex");
@@ -453,6 +463,7 @@ export const buildInjectedEnv = async (
   // tokens we must use CLAUDE_CODE_OAUTH_TOKEN exclusively.
   let keyEnvName = baseKeyEnvName;
   const keyValue = baseKeyValue;
+  input.registerSensitiveValue?.("provider_api_key", keyValue);
 
   const isAnthropicSubscription =
     openCodeProviderName === "anthropic" && keys.anthropicAuthMethod === "subscription";
@@ -524,9 +535,63 @@ export const buildInjectedEnv = async (
   // Build MCP servers for the OpenCode config.
   // Prefer a scoped session token over the global API key when available.
   const mcpServers: Record<string, OpenCodeMcpServer> = {};
+  let containerApiBase: string | undefined;
+  let agentSessionToken: string | undefined;
+  const customMcpServersResult =
+    normalizeRunnerCustomMcpServersConfig(jobConfig.mcpServers);
+  const selectedMcpServerIds = (() => {
+    if (jobConfig.selectedMcpServerIds === undefined) return null;
+    if (
+      !Array.isArray(jobConfig.selectedMcpServerIds) ||
+      jobConfig.selectedMcpServerIds.some(
+        (candidate) => typeof candidate !== "string" || candidate.length === 0,
+      )
+    ) {
+      throw new Error(
+        "Required MCP snapshot is invalid: selectedMcpServerIds must be an array of ids",
+      );
+    }
+    const ids = jobConfig.selectedMcpServerIds as string[];
+    if (new Set(ids).size !== ids.length) {
+      throw new Error(
+        "Required MCP snapshot is invalid: selectedMcpServerIds contains duplicates",
+      );
+    }
+    return ids;
+  })();
+  const persistedMcpServerIds = customMcpServersResult.servers
+    ? Object.values(customMcpServersResult.servers).map(
+        (server) => server.almirantServerId!,
+      )
+    : [];
+  if (selectedMcpServerIds) {
+    const selectedSet = new Set(selectedMcpServerIds);
+    const persistedSet = new Set(persistedMcpServerIds);
+    if (
+      selectedSet.size !== persistedSet.size ||
+      [...selectedSet].some((id) => !persistedSet.has(id))
+    ) {
+      throw new Error(
+        "Required MCP snapshot mismatch between selected ids and persisted profiles",
+      );
+    }
+  }
+  const hasRequiredPersistedMcpProfiles =
+    persistedMcpServerIds.length > 0 || (selectedMcpServerIds?.length ?? 0) > 0;
+  if (
+    hasRequiredPersistedMcpProfiles &&
+    (!input.apiBaseUrl ||
+      !input.job.workspaceId ||
+      !input.requestSessionToken)
+  ) {
+    throw new Error(
+      "Required MCP profile cannot run because the gateway session token exchange is unavailable",
+    );
+  }
 
   // Resolve MCP URL dynamically from apiBaseUrl + projectId.
-  // MCP is only configured when both are available and a session token can be obtained.
+  // MCP is configured for either a project or an independent workspace scope
+  // when the API is available and a session token can be obtained.
   const jobProjectId = input.job.projectId
     ?? (typeof (input.job.config as Record<string, unknown>)?.projectId === "string"
       ? (input.job.config as Record<string, unknown>).projectId as string
@@ -541,18 +606,21 @@ export const buildInjectedEnv = async (
   // visual_judge consumes server-provisioned evidence files directly. It has
   // no reason to receive an MCP token or server, even read-only: keeping the
   // set empty makes --strict-mcp-config a meaningful, auditable boundary.
-  if (!isReadOnlyVisualJudge && input.apiBaseUrl && jobProjectId) {
+  if (!isReadOnlyVisualJudge && input.apiBaseUrl && input.job.workspaceId) {
     // Replace localhost with host.docker.internal for container access.
     // Inside Docker containers, localhost refers to the container itself,
     // not the host machine where the API server is running.
-    const containerApiBase = input.apiBaseUrl.replace(
+    containerApiBase = input.apiBaseUrl.replace(
       /localhost|127\.0\.0\.1/,
       "host.docker.internal",
     );
     const mcpPath = needsInternalMcp ? "/mcp/internal" : "/mcp";
     // Include jobId so that tools like complete_ai_task can persist
     // agent_job_id on ai_sessions without trusting tool-level params.
-    const mcpUrl = `${containerApiBase.replace(/\/+$/, "")}${mcpPath}?projectId=${jobProjectId}&jobId=${encodeURIComponent(input.job.id)}`;
+    const query = new URLSearchParams();
+    if (jobProjectId) query.set("projectId", jobProjectId);
+    query.set("jobId", input.job.id);
+    const mcpUrl = `${containerApiBase.replace(/\/+$/, "")}${mcpPath}?${query.toString()}`;
     const requestedPermissions = isReadOnlyWorkspace
       ? ["mcp:read"]
       : needsInternalMcp
@@ -568,11 +636,17 @@ export const buildInjectedEnv = async (
     if (input.requestSessionToken && input.job.workspaceId) {
       try {
         const sessionResult = await input.requestSessionToken({
-          projectId: jobProjectId,
+          ...(jobProjectId ? { projectId: jobProjectId } : {}),
           workspaceId: input.job.workspaceId,
           jobId: input.job.id,
+          ttlSeconds: AGENT_MCP_SESSION_TOKEN_TTL_SECONDS,
           permissions: requestedPermissions,
         });
+        input.registerSensitiveValue?.(
+          "mcp_session_token",
+          sessionResult.token,
+        );
+        agentSessionToken = sessionResult.token;
         mcpServers.almirant = {
           type: "remote",
           url: mcpUrl,
@@ -583,8 +657,15 @@ export const buildInjectedEnv = async (
           },
         };
       } catch (err) {
-        // Non-fatal: MCP will not be configured for this job
-        console.warn(`[config-injector] Failed to obtain MCP session token for project ${jobProjectId} (mount=${mcpPath}, non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+        if (hasRequiredPersistedMcpProfiles) {
+          throw new Error(
+            `Required MCP profile session token unavailable: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+        // Jobs without selected profiles may continue without the platform MCP.
+        safeConsole.warn(`[config-injector] Failed to obtain MCP session token for scope ${jobProjectId ?? input.job.workspaceId} (mount=${mcpPath}, non-fatal): ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
@@ -642,21 +723,48 @@ export const buildInjectedEnv = async (
   }
 
   if (!isReadOnlyVisualJudge) {
-    const customMcpServersResult = normalizeRunnerCustomMcpServersConfig(jobConfig.mcpServers);
     if (customMcpServersResult.errors.length > 0) {
-      console.warn(
+      if ((selectedMcpServerIds?.length ?? 0) > 0) {
+        throw new Error(
+          `Required MCP profile snapshot is invalid: ${customMcpServersResult.errors.join("; ")}`,
+        );
+      }
+      safeConsole.warn(
         `[config-injector] Ignoring invalid custom MCP servers for job ${input.job.id}: ${customMcpServersResult.errors.join("; ")}`,
       );
     } else if (customMcpServersResult.servers) {
       for (const [name, server] of Object.entries(customMcpServersResult.servers)) {
-        mcpServers[name] = server;
+        if (!containerApiBase || !agentSessionToken) {
+          if (hasRequiredPersistedMcpProfiles) {
+            throw new Error(
+              `Required MCP profile ${name} cannot run because its scoped gateway token is unavailable`,
+            );
+          }
+          safeConsole.warn(
+            `[config-injector] Ignoring persisted MCP profile ${name}: scoped gateway token is unavailable`,
+          );
+          continue;
+        }
+        mcpServers[name] = {
+          type: "remote",
+          url: `${containerApiBase.replace(/\/+$/, "")}/agent-mcp-gateway/${server.almirantServerId}`,
+          enabled: true,
+          oauth: false,
+          headers: { Authorization: `Bearer ${agentSessionToken}` },
+        };
       }
     }
   }
 
   const authenticatedMcpServers = Object.entries(mcpServers).filter(([_, s]) => 'headers' in s && (s as any).headers?.Authorization);
-  if (!isReadOnlyVisualJudge && authenticatedMcpServers.length === 0 && jobProjectId) {
-    console.warn(`[config-injector] No authenticated MCP servers configured despite projectId=${jobProjectId} being available — agent will not have access to Almirant MCP tools`);
+  if (
+    !isReadOnlyVisualJudge &&
+    authenticatedMcpServers.length === 0 &&
+    input.apiBaseUrl &&
+    input.requestSessionToken &&
+    input.job.workspaceId
+  ) {
+    safeConsole.warn(`[config-injector] No authenticated MCP servers configured for workspaceId=${input.job.workspaceId} — agent will not have access to Almirant MCP tools`);
   }
 
   const openCodeConfig = buildOpenCodeConfig({
@@ -696,6 +804,15 @@ export const buildInjectedEnv = async (
   })();
 
   const jobEnv = extractStringEnv(jobConfig.env);
+  for (const [name, value] of Object.entries(jobEnv)) {
+    if (
+      /(?:^|[_-])(?:api[_-]?key|auth|authorization|credential|password|passphrase|secret|token)(?:$|[_-])/i.test(
+        name,
+      )
+    ) {
+      input.registerSensitiveValue?.(`job_env_${name}`, value);
+    }
+  }
 
   const env: Record<string, string> = {
     // Job-specific env is intentionally applied first. Runner-controlled
@@ -755,6 +872,7 @@ export const buildInjectedEnv = async (
     );
     if (codexAuthJson) {
       env.CODEX_AUTH_JSON = codexAuthJson;
+      input.registerSensitiveValue?.("codex_auth_json", codexAuthJson);
     }
   }
 
@@ -787,17 +905,18 @@ export const buildInjectedEnv = async (
   if (input.repository.id) {
     try {
       const githubToken = await input.workerClient.getGithubToken(input.repository.id);
+      input.registerSensitiveValue?.("github_clone_token", githubToken.token);
       env.__GIT_CLONE_TOKEN = githubToken.token;
       cloneCredential = { status: "granted" };
-      console.log(`[config-injector] GitHub token obtained for repo ${input.repository.id}`);
+      safeConsole.log(`[config-injector] GitHub token obtained for repo ${input.repository.id}`);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       cloneCredential = { status: "unavailable", reason };
-      console.warn(`[config-injector] Failed to get GitHub token for repo ${input.repository.id}: ${reason}`);
+      safeConsole.warn(`[config-injector] Failed to get GitHub token for repo ${input.repository.id}: ${reason}`);
     }
   } else if (input.repository.url) {
     cloneCredential = { status: "unavailable", reason: "repository has no id" };
-    console.warn(`[config-injector] No repository.id — skipping GitHub token. repo.url=${input.repository.url}`);
+    safeConsole.warn(`[config-injector] No repository.id — skipping GitHub token. repo.url=${input.repository.url}`);
   }
 
   // Collect debug metadata about the resolved key for job logs

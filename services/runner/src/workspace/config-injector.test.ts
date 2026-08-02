@@ -8,7 +8,9 @@ let buildInjectedEnv: typeof import("./config-injector").buildInjectedEnv;
 let resolveRuntimeConfig: typeof import("./config-injector").resolveRuntimeConfig;
 
 beforeAll(async () => {
+  const actualRemoteAgent = await import("@almirant/remote-agent");
   mock.module("@almirant/remote-agent", () => ({
+    ...actualRemoteAgent,
     buildOpenCodeConfig: (config: Record<string, unknown>) => {
       const provider = String(config.provider ?? "openai");
       const apiKeyEnvVar = String(config.apiKeyEnvVar ?? "OPENAI_API_KEY");
@@ -58,7 +60,14 @@ beforeAll(async () => {
   ({ buildInjectedEnv, resolveRuntimeConfig } = await import("./config-injector"));
 });
 
-afterAll(() => {
+afterAll(async () => {
+  // mock.restore() only undoes mock()/spyOn() spies, not mock.module()
+  // replacements — re-register the untouched real module so later test
+  // files in the same bun test process (e.g. managed-mcp-readiness.test.ts,
+  // which imports createOpenCodeSessionManager as a value) do not resolve
+  // this file's narrowed buildOpenCodeConfig-only mock.
+  const actualRemoteAgent = await import("@almirant/remote-agent");
+  mock.module("@almirant/remote-agent", () => actualRemoteAgent);
   mock.restore();
 });
 
@@ -745,7 +754,7 @@ describe("buildInjectedEnv", () => {
     expect(result.env.ZAI_API_KEY).toBeUndefined();
   });
 
-  it("configura MCP autenticado con session token scoped cuando hay projectId y apiBaseUrl", async () => {
+  it("configura MCP con una capability efímera scoped por proyecto, workspace, job y permisos", async () => {
     const keys: ProviderKeysResponse = {
       openaiApiKey: "sk-openai-key",
       openaiAuthMethod: "api_key",
@@ -770,6 +779,7 @@ describe("buildInjectedEnv", () => {
       projectId: "project-1",
       workspaceId: "org-1",
       jobId: "job-1",
+      ttlSeconds: 7200,
       permissions: ["mcp:read", "mcp:write"],
     });
     expect(result.openCodeConfig.mcp.almirant).toMatchObject({
@@ -779,6 +789,83 @@ describe("buildInjectedEnv", () => {
       oauth: false,
       headers: {
         Authorization: "Bearer session-token",
+      },
+    });
+  });
+
+  it("registers provider, job-env and MCP session secrets as exact job-scoped values", async () => {
+    const registered: Array<[string, string]> = [];
+    const sessionToken = "mcp-session-token+/=exact";
+    await buildInjectedEnv({
+      workerClient: buildMockClient({
+        openaiApiKey: "sk-openai-exact-provider-key",
+        openaiAuthMethod: "api_key",
+      }),
+      job: baseJob("codex", {
+        projectId: "project-1",
+        workspaceId: "org-1",
+        config: {
+          env: {
+            SCRAPER_SESSION_TOKEN: "scraper-session-token-exact",
+            PUBLIC_SITE_URL: "https://public.example",
+          },
+        },
+      }),
+      repository: {},
+      apiBaseUrl: "http://127.0.0.1:3001",
+      requestSessionToken: async () => ({
+        token: sessionToken,
+        expiresAt: new Date().toISOString(),
+      }),
+      registerSensitiveValue: (label, value) => {
+        registered.push([label, value]);
+      },
+    });
+
+    expect(registered).toContainEqual([
+      "provider_api_key",
+      "sk-openai-exact-provider-key",
+    ]);
+    expect(registered).toContainEqual([
+      "job_env_SCRAPER_SESSION_TOKEN",
+      "scraper-session-token-exact",
+    ]);
+    expect(registered).toContainEqual(["mcp_session_token", sessionToken]);
+    expect(registered.flat()).not.toContain("https://public.example");
+  });
+
+  it("configura Almirant MCP con scope de workspace para agentes independientes sin projectId", async () => {
+    const keys: ProviderKeysResponse = {
+      openaiApiKey: "sk-openai-key",
+      openaiAuthMethod: "api_key",
+    };
+    const requestSessionToken = mock(async () => ({
+      token: "workspace-session-token",
+      expiresAt: new Date().toISOString(),
+    }));
+
+    const result = await buildInjectedEnv({
+      workerClient: buildMockClient(keys),
+      job: baseJob("codex", {
+        projectId: null,
+        workspaceId: "org-1",
+      }),
+      repository: {},
+      apiBaseUrl: "http://localhost:3001/",
+      requestSessionToken,
+    });
+
+    expect(requestSessionToken).toHaveBeenCalledWith({
+      workspaceId: "org-1",
+      jobId: "job-1",
+      ttlSeconds: 7200,
+      permissions: ["mcp:read", "mcp:write"],
+    });
+    expect(result.openCodeConfig.mcp.almirant).toMatchObject({
+      type: "remote",
+      url: "http://host.docker.internal:3001/mcp?jobId=job-1",
+      headers: {
+        Authorization: "Bearer workspace-session-token",
       },
     });
   });
@@ -811,6 +898,7 @@ describe("buildInjectedEnv", () => {
       projectId: "project-1",
       workspaceId: "org-1",
       jobId: "job-1",
+      ttlSeconds: 7200,
       permissions: ["mcp:read", "mcp:write", "mcp:internal"],
     });
     expect(result.openCodeConfig.mcp.almirant).toMatchObject({
@@ -860,6 +948,7 @@ describe("buildInjectedEnv", () => {
       projectId: "project-1",
       workspaceId: "org-1",
       jobId: "job-1",
+      ttlSeconds: 7200,
       permissions: ["mcp:read", "mcp:write", "mcp:internal"],
     });
     expect(result.openCodeConfig.mcp.almirant).toMatchObject({
@@ -898,6 +987,7 @@ describe("buildInjectedEnv", () => {
         projectId: "project-1",
         workspaceId: "org-1",
         jobId: "job-1",
+        ttlSeconds: 7200,
         permissions: ["mcp:read", "mcp:write", "mcp:internal"],
       });
       expect(result.openCodeConfig.mcp.almirant).toMatchObject({
@@ -930,7 +1020,7 @@ describe("buildInjectedEnv", () => {
     expect(result.env.OPENAI_API_KEY).toBe("sk-openai-key");
   });
 
-  it("inyecta MCP remoto adicional desde job.config.mcpServers sin sobrescribir servidores de plataforma", async () => {
+  it("ignora MCP remoto no gestionado para impedir que el runner eluda el gateway", async () => {
     const keys: ProviderKeysResponse = {
       openaiApiKey: "sk-openai-key",
       openaiAuthMethod: "api_key",
@@ -950,13 +1040,73 @@ describe("buildInjectedEnv", () => {
       repository: {},
     });
 
-    expect(result.openCodeConfig.mcp["z-combinator"]).toEqual({
+    expect(result.openCodeConfig.mcp["z-combinator"]).toBeUndefined();
+    expect(result.openCodeConfig.mcp.context7).toBeDefined();
+  });
+
+  it("routes persisted MCP profiles through the Almirant gateway with the job token", async () => {
+    const result = await buildInjectedEnv({
+      workerClient: buildMockClient({
+        openaiApiKey: "sk-openai-key",
+        openaiAuthMethod: "api_key",
+      }),
+      job: baseJob("codex", {
+        config: {
+          mcpServers: {
+            private_docs: {
+              url: "https://mcp.example.com/mcp",
+              almirantServerId: "6e9fa58b-3490-4e39-982f-444e5c697e55",
+            },
+          },
+        },
+      }),
+      repository: {},
+      apiBaseUrl: "https://api.almirant.ai",
+      requestSessionToken: async () => ({
+        token: "st_job_token",
+        expiresAt: "2026-07-10T15:00:00.000Z",
+      }),
+    });
+
+    expect(result.openCodeConfig.mcp.private_docs).toEqual({
       type: "remote",
-      url: "https://mcp.z-combinator.example/mcp",
+      url: "https://api.almirant.ai/agent-mcp-gateway/6e9fa58b-3490-4e39-982f-444e5c697e55",
       enabled: true,
       oauth: false,
+      headers: { Authorization: "Bearer st_job_token" },
     });
-    expect(result.openCodeConfig.mcp.context7).toBeDefined();
+  });
+
+  it("fails closed when a required persisted MCP profile cannot obtain a session token", async () => {
+    const requestSessionToken = mock(async () => {
+      throw new Error("session token unavailable");
+    });
+
+    await expect(buildInjectedEnv({
+      workerClient: buildMockClient({
+        openaiApiKey: "sk-openai-key",
+        openaiAuthMethod: "api_key",
+      }),
+      job: baseJob("codex", {
+        workspaceId: "org-1",
+        config: {
+          selectedMcpServerIds: [
+            "6e9fa58b-3490-4e39-982f-444e5c697e55",
+          ],
+          mcpServers: {
+            private_docs: {
+              url: "https://mcp.example.com/mcp",
+              almirantServerId: "6e9fa58b-3490-4e39-982f-444e5c697e55",
+            },
+          },
+        },
+      }),
+      repository: {},
+      apiBaseUrl: "https://api.almirant.ai",
+      requestSessionToken,
+    })).rejects.toThrow(/required mcp.*session token unavailable/i);
+
+    expect(requestSessionToken).toHaveBeenCalledTimes(1);
   });
 
   it("inyecta Playwright MCP y ENABLE_BROWSER cuando el job declara needsBrowser", async () => {

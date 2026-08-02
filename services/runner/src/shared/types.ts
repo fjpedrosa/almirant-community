@@ -169,6 +169,22 @@ const AUTH_PATTERNS = /\b401\b|\b403\b|unauthorized|forbidden/i;
 const CONFIG_PATTERNS = /invalid config|missing.*config|not found.*repo|repo.*not found|missing.*skill|skill.*not found/i;
 
 export const classifyError = (error: Error | string): ErrorClassification => {
+  if (typeof error !== "string") {
+    const explicitClassification = (
+      error as Error & { classification?: unknown }
+    ).classification;
+    if (
+      explicitClassification === "recoverable_oom" ||
+      explicitClassification === "recoverable_timeout" ||
+      explicitClassification === "recoverable_disconnect" ||
+      explicitClassification === "permanent_auth" ||
+      explicitClassification === "permanent_config" ||
+      explicitClassification === "permanent_unknown"
+    ) {
+      return explicitClassification;
+    }
+  }
+
   const message = typeof error === "string" ? error : error.message;
 
   if (OOM_PATTERNS.test(message)) return "recoverable_oom";
