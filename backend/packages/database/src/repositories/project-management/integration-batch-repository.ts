@@ -446,10 +446,67 @@ const parentBlockIsVirtuallyValidating = (
 // Batch CRUD
 // ---------------------------------------------------------------------------
 
+/**
+ * Thrown by `createIntegrationBatch` when the INSERT collides with
+ * `integration_batches_repository_open_uidx` (migration 0222, parity with
+ * cloud 0236) -- i.e. another transaction already created an open batch
+ * (queued, running, awaiting_release, merging) for the same (workspace_id,
+ * repository_id). This guards the race between two concurrent
+ * release-integration-queueing runs that both observed "no active batch"
+ * before either committed.
+ *
+ * Callers must treat this as a benign "lost the race" outcome -- never a
+ * hard failure -- and let the next tick pick up any still-unbatched
+ * candidates once it observes the winner's now-open batch.
+ */
+export class DuplicateOpenBatchError extends Error {
+  constructor(
+    public readonly workspaceId: string,
+    public readonly repositoryId: string,
+  ) {
+    super(
+      `An open integration batch already exists for workspace_id=${workspaceId} repository_id=${repositoryId}`,
+    );
+    this.name = "DuplicateOpenBatchError";
+  }
+}
+
+const INTEGRATION_BATCHES_REPOSITORY_OPEN_UNIQUE_INDEX =
+  "integration_batches_repository_open_uidx";
+
+/** Mirrors `isDuplicateActiveJobViolation` in agent-job-repository.ts. */
+interface PgUniqueViolationError {
+  code?: string;
+  constraint_name?: string;
+  cause?: unknown;
+}
+
+const isDuplicateOpenBatchViolation = (err: unknown): boolean => {
+  const probe = (candidate: unknown): boolean => {
+    if (!candidate || typeof candidate !== "object") return false;
+    const pg = candidate as PgUniqueViolationError;
+    return (
+      pg.code === "23505" &&
+      pg.constraint_name === INTEGRATION_BATCHES_REPOSITORY_OPEN_UNIQUE_INDEX
+    );
+  };
+  if (!err || typeof err !== "object") return false;
+  if (probe(err)) return true;
+  return probe((err as PgUniqueViolationError).cause);
+};
+
 export const createIntegrationBatch = async (
   input: Omit<NewIntegrationBatch, "id" | "createdAt" | "updatedAt">,
 ): Promise<IntegrationBatch> => {
-  const [created] = await db.insert(integrationBatches).values(input).returning();
+  let created: IntegrationBatch | undefined;
+  try {
+    [created] = await db.insert(integrationBatches).values(input).returning();
+  } catch (error) {
+    if (isDuplicateOpenBatchViolation(error)) {
+      throw new DuplicateOpenBatchError(input.workspaceId, input.repositoryId);
+    }
+    throw error;
+  }
   if (!created) throw new Error("Failed to create integration batch");
   return created;
 };
