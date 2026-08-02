@@ -24,6 +24,7 @@ import { registerTodoMemoryTools } from "../tools/todo-memory.tools";
 import { registerSeedMemoryTools } from "../tools/seed-memory.tools";
 import { registerHandbookTools } from "../tools/handbook.tools";
 import { registerIntegrationBatchesTools } from "../tools/integration-batches.tools";
+import { registerStorageTools } from "../tools/storage.tools";
 
 /**
  * Registers the public MCP tools (everything except debug/back-office tools).
@@ -58,4 +59,5 @@ export const setupPublicMcpServer = async (server: McpServer) => {
   registerSeedMemoryTools(server);
   registerHandbookTools(server);
   registerIntegrationBatchesTools(server);
+  registerStorageTools(server);
 };

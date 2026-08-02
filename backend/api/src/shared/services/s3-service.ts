@@ -35,7 +35,8 @@ export const uploadBufferToS3 = async (
   buffer: Uint8Array,
   key: string,
   contentType: string,
-  bucketOverride?: string
+  bucketOverride?: string,
+  options: { cacheControl?: string } = {}
 ): Promise<string> => {
   const client = getS3Client();
   const bucket = bucketOverride ?? env.S3_BUCKET!;
@@ -46,7 +47,7 @@ export const uploadBufferToS3 = async (
       Key: key,
       Body: buffer,
       ContentType: contentType,
-      CacheControl: "public, max-age=86400",
+      CacheControl: options.cacheControl ?? "public, max-age=86400",
     })
   );
 
@@ -90,9 +91,12 @@ export const downloadBufferFromS3 = async (
   return bodyBytes;
 };
 
-export const deleteFromS3 = async (key: string): Promise<void> => {
+export const deleteFromS3 = async (
+  key: string,
+  bucketOverride?: string
+): Promise<void> => {
   const client = getS3Client();
-  const bucket = env.S3_BUCKET!;
+  const bucket = bucketOverride ?? env.S3_BUCKET!;
 
   await client.send(
     new DeleteObjectCommand({

@@ -37,6 +37,7 @@ import { projectManagementModule } from "./domains/project-management";
 import { webhooksModule } from "./domains/webhooks";
 import { agentsModule } from "./domains/agents";
 import { instanceModule } from "./domains/instance";
+import { storageModule } from "./domains/storage";
 import { handbookModule } from "./domains/handbook";
 import { wsHandler } from "./shared/ws/ws-handler";
 import { startBackgroundJobs } from "./background";
@@ -247,6 +248,7 @@ const app = new Elysia({
       // user has selected/created a workspace (e.g. right after login).
       .use(authModule.authOnly())
       .use(projectManagementModule.authOnly())
+      .use(storageModule.authOnly())
       // Instance onboarding (admin-only, no org required)
       .use(instanceModule.protected())
       // ── Workspace-scoped routes ─────────────────────────────────────

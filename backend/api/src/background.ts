@@ -14,6 +14,7 @@ import { startMemoryGcSweeper } from "./domains/agents/services/memory-gc-sweepe
 import { startEffortEstimationSweeper } from "./domains/agents/services/effort-estimation-sweeper";
 import { startBugFixAttemptPrReconciler } from "./domains/integrations/github/services/bug-fix-attempt-pr-reconciler";
 import { startInvestigationTimeoutSweeper } from "./domains/observability/services/investigation-timeout-sweeper";
+import { startUserStorageDeletionSweeper } from "./domains/storage/services/user-storage-deletion-sweeper";
 
 interface BackgroundJobHandles {
   stop: () => Promise<void>;
@@ -47,6 +48,10 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
   });
   const stopUsageAggregation = startUsageAggregation({ intervalMs: 600_000 });
   const stopMemoryGcSweeper = startMemoryGcSweeper();
+  const stopUserStorageDeletionSweeper = startUserStorageDeletionSweeper({
+    intervalMs: 60_000,
+    batchSize: 100,
+  });
   const stopEffortEstimationSweeper = startEffortEstimationSweeper({
     intervalMs: env.EFFORT_ESTIMATION_SWEEPER_INTERVAL_MS,
     batchSize: 5,
@@ -88,6 +93,7 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
       stopHealthCheckSweeper();
       stopUsageAggregation();
       stopMemoryGcSweeper();
+      stopUserStorageDeletionSweeper();
       stopEffortEstimationSweeper();
       if (stopBugFixAttemptPrReconciler) stopBugFixAttemptPrReconciler();
       if (stopInvestigationTimeoutSweeper) stopInvestigationTimeoutSweeper();
