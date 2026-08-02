@@ -22,6 +22,7 @@ import type { EventAdapter } from "./adapter-types";
 import {
   QUEUE_PUBLISH_THROTTLE_MS,
   nextSequence,
+  nextNativeSequence,
   publishCanonicalEvent,
   publishNativeEvent,
 } from "./stream-events";
@@ -48,6 +49,11 @@ import {
   detectQuotaPauseFromText,
   type QuotaPauseRequest,
 } from "../shared/quota-pause";
+import {
+  resolveJobTerminalIntent,
+  resolveJobTerminalPresentation,
+  type JobTerminalIntent,
+} from "../orchestration/job-cancellation";
 
 // ---------------------------------------------------------------------------
 // Constants (previously in job-executor.ts, only used by these functions)
@@ -70,6 +76,10 @@ export type EventConsumerDeps = {
     overallTimeoutMs?: number;
     effortPointDurationMs?: number;
     webOutputEnabled?: boolean;
+    /** Testable cadence for the backend terminal-intent poll. */
+    jobStatusPollIntervalMs?: number;
+    /** Bounded cleanup wait for a terminal-intent poll already in flight. */
+    jobStatusPollJoinTimeoutMs?: number;
   };
 };
 
@@ -101,6 +111,8 @@ export async function consumeSseEvents(
   errorMessage?: string;
   cancelledByUser?: boolean;
   shutdownRequested?: boolean;
+  terminalIntent?: JobTerminalIntent;
+  terminalStatusIndeterminate?: boolean;
   timedOut?: boolean;
   backgroundAgentTimedOut?: boolean;
   sessionId: string;
@@ -129,9 +141,12 @@ export async function consumeSseEvents(
 
   const abortController = new AbortController();
   let shutdownRequested = false;
+  let terminalIntent: JobTerminalIntent | undefined;
+  let terminalStatusIndeterminate = false;
   let timedOut = false;
   let backgroundAgentTimedOut = false;
-  let cancelPollInFlight = false;
+  let terminalStatusPollPromise: Promise<void> | null = null;
+  let acceptTerminalStatusPollResults = true;
   let quotaPauseRequest: QuotaPauseRequest | undefined;
   const usageTracker = createSessionUsageTracker();
 
@@ -431,7 +446,7 @@ export async function consumeSseEvents(
         workspaceId: webWorkspaceId ?? "",
         threadId: threadId ?? "",
         timestamp: Date.now(),
-        sequenceNumber: nextSequence(),
+        sequenceNumber: nextNativeSequence(),
         nativeEventType,
         sourceFormat,
         provider: asOptionalString(args.props.provider),
@@ -449,7 +464,7 @@ export async function consumeSseEvents(
       workspaceId: webWorkspaceId ?? "",
       threadId: threadId ?? "",
       timestamp: Date.now(),
-      sequenceNumber: nextSequence(),
+      sequenceNumber: nextNativeSequence(),
       nativeEventType: args.eventType || "unknown",
       sourceFormat: "runtime-sse",
       runtimeSessionId:
@@ -536,18 +551,21 @@ export async function consumeSseEvents(
     }
   }, 3_000);
 
-  const cancelChecker = setInterval(() => {
-    if (cancelPollInFlight || abortController.signal.aborted) {
+  const terminalStatusChecker = setInterval(() => {
+    if (terminalStatusPollPromise || abortController.signal.aborted) {
       return;
     }
 
-    cancelPollInFlight = true;
-    void deps.workerClient
-      .getJobStatus(jobId)
+    const pollPromise = Promise.resolve()
+      .then(() => deps.workerClient.getJobStatus(jobId))
       .then((jobStatus) => {
-        if (jobStatus.status === "cancelled") {
-          ctx.cancelledByUser = true;
-          shutdownRequested = jobStatus.shutdownRequested === true;
+        if (!acceptTerminalStatusPollResults) return;
+
+        const resolvedIntent = resolveJobTerminalIntent(jobStatus);
+        if (resolvedIntent) {
+          terminalIntent = resolvedIntent;
+          ctx.cancelledByUser = resolvedIntent.status === "cancelled";
+          shutdownRequested = resolvedIntent.shutdownRequested;
           abortController.abort();
         }
       })
@@ -555,9 +573,13 @@ export async function consumeSseEvents(
         // Non-fatal: temporary API issues should not interrupt the session.
       })
       .finally(() => {
-        cancelPollInFlight = false;
+        if (terminalStatusPollPromise === pollPromise) {
+          terminalStatusPollPromise = null;
+        }
       });
-  }, 5_000);
+
+    terminalStatusPollPromise = pollPromise;
+  }, deps.config.jobStatusPollIntervalMs ?? 5_000);
 
   // Periodic publisher for pending stream updates
   const queuePublishInterval = setInterval(() => {
@@ -777,9 +799,38 @@ export async function consumeSseEvents(
     clearTimeout(overallTimer);
     clearInterval(idleChecker);
     tmpfsWatcher?.cleanup();
-    clearInterval(cancelChecker);
+    clearInterval(terminalStatusChecker);
     clearInterval(queuePublishInterval);
     clearPostIdleBackgroundGrace();
+
+    // Closing the SSE stream and clearing the interval does not cancel a
+    // request that already crossed the network boundary. Join that exact poll
+    // before deriving success so a delayed pending terminal intent cannot be
+    // projected as completion. Bound the join and reject late mutation after
+    // the deadline so a wedged control-plane request cannot deadlock cleanup.
+    const inFlightStatusPoll = terminalStatusPollPromise;
+    if (inFlightStatusPoll) {
+      const configuredJoinTimeoutMs =
+        deps.config.jobStatusPollJoinTimeoutMs ?? 5_000;
+      const joinTimeoutMs = Number.isFinite(configuredJoinTimeoutMs)
+        ? Math.max(1, configuredJoinTimeoutMs)
+        : 5_000;
+      let joinTimeout: ReturnType<typeof setTimeout> | undefined;
+
+      await Promise.race([
+        inFlightStatusPoll,
+        new Promise<void>((resolve) => {
+          joinTimeout = setTimeout(() => {
+            acceptTerminalStatusPollResults = false;
+            terminalStatusIndeterminate = true;
+            resolve();
+          }, joinTimeoutMs);
+        }),
+      ]);
+      if (joinTimeout) clearTimeout(joinTimeout);
+    }
+    acceptTerminalStatusPollResults = false;
+
     // Flush any remaining canonical adapter state through the coalescer so
     // a trailing text/thinking run is collapsed into a single aggregated
     // event. canonicalCoalescer.destroy() then forces any leftover buffer
@@ -794,8 +845,8 @@ export async function consumeSseEvents(
   }
 
   if (isPlanningJob && !deps.config.webOutputEnabled) {
-    const terminalMessage = ctx.errorMessage || ctx.cancelledByUser || timedOut
-      ? (ctx.errorMessage ?? (timedOut ? "Job timed out" : "Job cancelled"))
+    const terminalMessage = ctx.errorMessage || terminalIntent || timedOut
+      ? (ctx.errorMessage ?? terminalIntent?.errorMessage ?? (timedOut ? "Job timed out" : "Job cancelled"))
       : "Planning turn completed";
     await deps.workerClient.streamJobOutput(jobId, {
       content: `${terminalMessage}\n`,
@@ -805,15 +856,27 @@ export async function consumeSseEvents(
     }).catch(() => undefined);
   }
 
-  eventLogger.info(
-    "finish",
-    ctx.errorMessage ? "job.failed" : ctx.cancelledByUser ? "job.cancelled" : "job.completed",
-    ctx.errorMessage
-      ? "Session finished with error"
-      : ctx.cancelledByUser
-        ? "Session cancelled by user"
-        : "Session completed"
-  );
+  const terminalPresentation = terminalIntent
+    ? resolveJobTerminalPresentation(terminalIntent)
+    : null;
+  const terminalStatusIndeterminateMessage =
+    "Terminal status poll did not settle before cleanup deadline";
+  if (terminalStatusIndeterminate) {
+    eventLogger.warn(
+      "finish",
+      "job.terminal_status_indeterminate",
+      terminalStatusIndeterminateMessage,
+      { ownershipHeld: true },
+    );
+  } else {
+    eventLogger.info(
+      "finish",
+      ctx.errorMessage ? "job.failed" : terminalPresentation?.logCode ?? "job.completed",
+      ctx.errorMessage
+        ? "Session finished with error"
+        : terminalPresentation?.logMessage ?? "Session completed",
+    );
+  }
 
   // Terminal queue events (done/error) are published by the caller (executeJob)
   // to avoid duplicate embeds in Discord.
@@ -823,17 +886,29 @@ export async function consumeSseEvents(
   const hasUsage = usageSummary.tokensUsed > 0;
 
   return {
-    success: !ctx.errorMessage && !ctx.cancelledByUser && !timedOut,
+    success:
+      !ctx.errorMessage &&
+      !terminalIntent &&
+      !terminalStatusIndeterminate &&
+      !timedOut,
     // Prefer the accumulated text (which contains the full ## Summary block)
     // over the last text block (which may be a trailing comment after the summary).
     // Keep the summary even on error so post-session validation can inspect
     // transcripts that completed logically before a late failure/timeout.
     summary: timedOut
       ? (assistantSummary || "Job timed out before completing all tasks")
-      : (assistantSummary || (!ctx.errorMessage ? "completed" : undefined)),
-    errorMessage: timedOut ? `Overall timeout reached (${Math.round(overallTimeoutMs / 60_000)}min)` : ctx.errorMessage,
+      : terminalStatusIndeterminate
+        ? (assistantSummary || "terminal_status_indeterminate")
+        : (assistantSummary || (!ctx.errorMessage ? "completed" : undefined)),
+    errorMessage: terminalStatusIndeterminate
+      ? terminalStatusIndeterminateMessage
+      : timedOut
+        ? `Overall timeout reached (${Math.round(overallTimeoutMs / 60_000)}min)`
+        : ctx.errorMessage,
     cancelledByUser: ctx.cancelledByUser,
     shutdownRequested,
+    terminalIntent,
+    terminalStatusIndeterminate,
     timedOut,
     backgroundAgentTimedOut,
     sessionId,
