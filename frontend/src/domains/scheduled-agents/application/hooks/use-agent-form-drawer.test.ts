@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import {
+  buildAgentToolingSelection,
   buildBuiltinAutomationTargetConfig,
+  mergeAgentToolingSelectionIntoTargetConfig,
+  parseAgentToolingSelection,
   resolveScheduledAgentSubmitJobType,
   resolveScheduledAgentSubmitProjectId,
   resolveScheduledAgentSubmitProvider,
@@ -33,7 +36,8 @@ const validScheduledAgentFormValues = {
   aiProvider: "anthropic",
   aiModel: "",
   reasoningLevel: undefined,
-  mcpServersJson: "",
+  selectedPluginIds: [] as string[],
+  selectedMcpServerIds: [] as string[],
   agentKind: "automation" as const,
   automationTargetKind: "builtin" as const,
   builtinAutomationId: "dod-review" as const,
@@ -63,6 +67,71 @@ describe("scheduledAgentFormSchema", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+
+  it("defaults the Agents v2 tooling selection to empty arrays when omitted", () => {
+    const withoutSelection: Record<string, unknown> = {
+      ...validScheduledAgentFormValues,
+    };
+    delete withoutSelection.selectedPluginIds;
+    delete withoutSelection.selectedMcpServerIds;
+    const result = scheduledAgentFormSchema.parse(withoutSelection);
+
+    expect(result.selectedPluginIds).toEqual([]);
+    expect(result.selectedMcpServerIds).toEqual([]);
+  });
+});
+
+describe("agent tooling selection", () => {
+  const pluginId = "11111111-1111-1111-1111-111111111111";
+  const mcpServerId = "22222222-2222-2222-2222-222222222222";
+
+  it("normalizes and dedupes selected ids, dropping anything that is not a UUID", () => {
+    expect(
+      buildAgentToolingSelection({
+        selectedPluginIds: [pluginId, pluginId],
+        selectedMcpServerIds: [mcpServerId, "not-a-uuid"],
+      }),
+    ).toEqual({
+      selectedPluginIds: [pluginId],
+      selectedMcpServerIds: [mcpServerId],
+    });
+  });
+
+  it("merges the selection into targetConfig without deleting existing fields", () => {
+    const targetConfig = mergeAgentToolingSelectionIntoTargetConfig(
+      {
+        projectIds: ["project-1"],
+        customFilters: { keep: true },
+      },
+      { selectedPluginIds: [pluginId], selectedMcpServerIds: [mcpServerId] },
+    );
+
+    expect(targetConfig).toEqual({
+      projectIds: ["project-1"],
+      customFilters: {
+        keep: true,
+        __agentTooling: {
+          selectedPluginIds: [pluginId],
+          selectedMcpServerIds: [mcpServerId],
+        },
+      },
+    });
+    expect(parseAgentToolingSelection(targetConfig)).toEqual({
+      selectedPluginIds: [pluginId],
+      selectedMcpServerIds: [mcpServerId],
+    });
+  });
+
+  it("parses an empty selection for a config that never picked any tooling", () => {
+    expect(parseAgentToolingSelection(null)).toEqual({
+      selectedPluginIds: [],
+      selectedMcpServerIds: [],
+    });
+    expect(parseAgentToolingSelection({ customFilters: { keep: true } })).toEqual({
+      selectedPluginIds: [],
+      selectedMcpServerIds: [],
+    });
   });
 });
 

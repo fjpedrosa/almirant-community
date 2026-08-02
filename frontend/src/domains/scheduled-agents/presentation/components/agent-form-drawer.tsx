@@ -304,6 +304,10 @@ export const AgentFormDrawer = ({
   onSubmit,
   skills,
   userSkills,
+  plugins,
+  mcpServers,
+  selectedPluginIds,
+  selectedMcpServerIds,
   projects,
   scheduleType,
   trigger,
@@ -358,6 +362,8 @@ export const AgentFormDrawer = ({
   const backlogDrainConcurrency = (form.watch("backlogDrainProjectConcurrency") ?? {}) as Record<string, number>;
   const automationProjectIdSet = new Set(automationProjectIds);
   const selectedAutomationProjects = projects.filter((project) => automationProjectIdSet.has(project.id));
+  const selectedPluginSet = new Set(selectedPluginIds);
+  const selectedMcpServerSet = new Set(selectedMcpServerIds);
   const backlogDrainItemById = new Map(backlogDrainWorkItems.map((item) => [item.id, item]));
   const getBacklogDrainDepth = (itemId: string): number => {
     let depth = 0;
@@ -388,6 +394,20 @@ export const AgentFormDrawer = ({
   };
   const clearAutomationProjects = () => {
     form.setValue("automationProjectIds", [], { shouldDirty: true });
+  };
+  const toggleSelectedPlugin = (id: string) => {
+    const current = (form.getValues("selectedPluginIds") ?? []) as string[];
+    const next = current.includes(id)
+      ? current.filter((item) => item !== id)
+      : Array.from(new Set([...current, id]));
+    form.setValue("selectedPluginIds", next, { shouldDirty: true });
+  };
+  const toggleSelectedMcpServer = (id: string) => {
+    const current = (form.getValues("selectedMcpServerIds") ?? []) as string[];
+    const next = current.includes(id)
+      ? current.filter((item) => item !== id)
+      : Array.from(new Set([...current, id]));
+    form.setValue("selectedMcpServerIds", next, { shouldDirty: true });
   };
 
   const selectAgentKind = (kind: "repository" | "automation") => {
@@ -759,49 +779,113 @@ export const AgentFormDrawer = ({
     </div>
   );
 
-  const renderAdvancedMcpSettings = () => (
-    <div className="space-y-4">
+  const renderSelectedPluginsField = () => (
+    <div className="space-y-3">
       <div className="space-y-1">
-        <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-          Runner MCP
-        </h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+            Plugins
+          </h3>
+          <Badge variant="outline">{selectedPluginIds.length} selected</Badge>
+        </div>
         <p className="text-sm text-muted-foreground">
-          Optional extra remote MCP servers injected into the runner. Platform servers like
-          almirant, context7, memory, filesystem, playwright, and sequential-thinking are managed automatically.
+          Instruction plugins extend the system prompt; installed/uploaded packages are materialized in the isolated agent runtime. Manage both from the Plugins tab.
         </p>
       </div>
 
-      <FormField
-        control={form.control}
-        name="mcpServersJson"
-        render={({ field }) => (
-          <FormItem>
-            <div className="flex items-center gap-1">
-              <FormLabel>Additional MCP servers</FormLabel>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <HelpCircle className="size-4 text-muted-foreground cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent side="right" className="max-w-xs">
-                  Remote MCP only. Server names become tool prefixes, for example mcp__z_combinator__search.
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            <FormControl>
-              <Textarea
-                className="min-h-[140px] font-mono text-xs"
-                placeholder={'{\n  "z-combinator": {\n    "type": "remote",\n    "url": "https://mcp.example.com/mcp"\n  }\n}'}
-                {...field}
-                value={field.value ?? ""}
-              />
-            </FormControl>
-            <FormDescription>
-              Use JSON keyed by server name. Headers and local commands are intentionally blocked here; use a managed secret-backed integration for authenticated MCPs.
-            </FormDescription>
-            <FormMessage />
-          </FormItem>
+      {plugins.length === 0 ? (
+        <p className="rounded-md bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          No plugins yet. Add one from the Plugins tab, then select it here.
+        </p>
+      ) : (
+        <div className="grid gap-2">
+          {plugins.map((plugin) => {
+            const checked = selectedPluginSet.has(plugin.id);
+            return (
+              <label
+                key={plugin.id}
+                className={cn(
+                  "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50",
+                  checked && "border-primary bg-primary/5",
+                )}
+              >
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={() => toggleSelectedPlugin(plugin.id)}
+                  className="mt-0.5"
+                />
+                <span className="min-w-0 flex-1 space-y-1">
+                  <span className="flex items-center gap-2">
+                    <span className="font-medium">{plugin.name}</span>
+                    <span className="font-mono text-xs text-muted-foreground">{plugin.slug}</span>
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    {plugin.description ?? "No description provided."}
+                  </span>
+                </span>
+                {!plugin.enabled && <Badge variant="outline">Disabled</Badge>}
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderAdvancedMcpSettings = () => (
+    <div className="space-y-4">
+      {renderSelectedPluginsField()}
+
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              MCP servers
+            </h3>
+            <Badge variant="outline">{selectedMcpServerIds.length} selected</Badge>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Select your MCP connectors. Secrets stay server-side and are only decrypted for agents you own when they run. Platform servers like almirant, context7, memory, filesystem, playwright, and sequential-thinking are managed automatically.
+          </p>
+        </div>
+
+        {mcpServers.length === 0 ? (
+          <p className="rounded-md bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+            No MCP servers yet. Add one from the MCP tab, including its secret if required.
+          </p>
+        ) : (
+          <div className="grid gap-2">
+            {mcpServers.map((server) => {
+              const checked = selectedMcpServerSet.has(server.id);
+              return (
+                <label
+                  key={server.id}
+                  className={cn(
+                    "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50",
+                    checked && "border-primary bg-primary/5",
+                  )}
+                >
+                  <Checkbox
+                    checked={checked}
+                    onCheckedChange={() => toggleSelectedMcpServer(server.id)}
+                    className="mt-0.5"
+                  />
+                  <span className="min-w-0 flex-1 space-y-1">
+                    <span className="flex items-center gap-2">
+                      <span className="font-medium">{server.name}</span>
+                      <span className="font-mono text-xs text-muted-foreground">{server.slug}</span>
+                      {server.hasSecret && <Badge variant="secondary">Secret</Badge>}
+                    </span>
+                    <span className="block truncate text-sm text-muted-foreground">
+                      {server.url}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
         )}
-      />
+      </div>
     </div>
   );
 
