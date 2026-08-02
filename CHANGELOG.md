@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Scheduled agent dispatch is now backend-authoritative by default.**
+  `SCHEDULED_AGENT_DISPATCHER_ENABLED` now defaults to `true` (was `false`):
+  fresh self-hosted installs dispatch scheduled agents from the backend
+  instead of from the runner's own scheduler tick. The runner's new
+  `RUNNER_SCHEDULER_ENABLED` flag defaults OFF to match, deriving its
+  default from `SCHEDULED_AGENT_DISPATCHER_ENABLED` so an existing
+  self-hoster who has explicitly set the backend flag to `false` keeps the
+  pre-2026-08-02 runner-only behavior with no extra configuration. See
+  [`docs/self-hosting/environment.md` → Scheduled agent dispatch
+  authority](docs/self-hosting/environment.md#scheduled-agent-dispatch-authority)
+  for the full compatibility matrix and how to opt back out.
+
 ### Added
 
 - Initial repository bootstrap (LICENSE, CLA, CODE_OF_CONDUCT, SECURITY, README, CONTRIBUTING)
