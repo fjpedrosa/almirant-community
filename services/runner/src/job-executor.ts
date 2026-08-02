@@ -14,6 +14,8 @@ import {
   publishStreamEvent,
   publishCanonicalEvent,
   publishJobStarted,
+  createSequencedStreamPublisher,
+  runWithStreamSequenceBases,
 } from "./session/stream-events";
 import { createDiscordThreadWithRetry } from "./session/discord-thread";
 import { buildInjectedEnv, resolveRuntimeConfig } from "./workspace/config-injector";
@@ -103,6 +105,10 @@ import {
   getRequestedModel,
   resolveJobCodingAgent,
   extractRepositoryName,
+  resolveDurableSequenceBases,
+  resolveDurableSequenceReceipt,
+  type DurableSequenceBases,
+  type DurableSequenceReceipt,
 } from "./shared/job-helpers";
 import { DEFAULT_PRE_SESSION_TIMEOUT_MS } from "./shared/timeout";
 import type { QuotaPauseRequest } from "./shared/quota-pause";
@@ -113,6 +119,11 @@ import { runWithPreSessionWatchdog } from "./orchestration/pre-session-watchdog"
 // Session-related constants and functions extracted to ./session/session-runner.ts
 // and ./session/event-consumer.ts
 import { runServeSession as runServeSessionFn } from "./session/session-runner";
+import {
+  createJobSecretRedactor,
+  createRedactingStreamPublisher,
+  type JobSecretRedactor,
+} from "./security/job-secret-redactor";
 
 type JobExecutorConfig = {
   workerId: string;
@@ -227,6 +238,10 @@ type JobExecutionContext = {
   effectiveJobType: string;
   evidenceArtifacts: EvidenceArtifactDescriptor[];
   evidenceManifestPath?: string;
+  /** Mutable per-job redactor shared by the event consumer and job log persistence. */
+  secretRedactor: JobSecretRedactor;
+  /** Null in legacy mode (older API without receipt-capable claims). */
+  sequenceReceipt: DurableSequenceReceipt | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -308,7 +323,7 @@ export const createJobExecutor = (
   const runPreSessionGuarded = async <T>(
     ctx: JobExecutionContext,
     phase: string,
-    operation: () => Promise<T>,
+    operation: (signal: AbortSignal) => Promise<T>,
   ): Promise<T> => {
     const timeoutMs = getPreSessionTimeoutMs();
 
@@ -331,12 +346,24 @@ export const createJobExecutor = (
             baseUrl: ctx.containerServeBaseUrl,
           });
         },
-        onCancelled: (error) => {
-          ctx.cancelledByUser = true;
-          ctx.shutdownRequestedByUser = error.shutdownRequested;
-          ctx.eventLogger.warn("startup", "startup.pre_session_cancelled", "Pre-session phase cancelled by backend", {
+        onTerminalIntent: (error) => {
+          if (error.terminalStatus === "cancelled") {
+            ctx.cancelledByUser = true;
+            ctx.shutdownRequestedByUser = error.shutdownRequested;
+            ctx.eventLogger.warn("startup", "startup.pre_session_cancelled", "Pre-session phase cancelled by backend", {
+              phase: error.phase,
+              shutdownRequested: error.shutdownRequested,
+              containerId: ctx.containerId,
+            });
+            return;
+          }
+          // A pending "failed" terminal intent is NOT a user cancellation — leave
+          // ctx.cancelledByUser false so handleExecutionError's generic failure
+          // path (status=failed, errorMessage/errorType) runs for it below.
+          ctx.eventLogger.warn("startup", "startup.pre_session_failed", "Pre-session phase failed by backend terminal intent", {
             phase: error.phase,
-            shutdownRequested: error.shutdownRequested,
+            errorType: error.errorType,
+            errorMessage: error.errorMessage,
             containerId: ctx.containerId,
           });
         },
@@ -350,6 +377,65 @@ export const createJobExecutor = (
   // ---------------------------------------------------------------------------
 
   const execute = async (job: ClaimedJob): Promise<JobExecutionResult> => {
+    let sequenceBases: DurableSequenceBases;
+    let sequenceReceipt: DurableSequenceReceipt | null;
+    try {
+      sequenceBases = resolveDurableSequenceBases(job);
+      sequenceReceipt = resolveDurableSequenceReceipt(job);
+      if (
+        sequenceReceipt &&
+        (!workerClient.ensureSequenceReservation || !workerClient.prepareSequenceHandoff)
+      ) {
+        throw new Error("durable sequence receipt capability is unavailable in worker client");
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[job:${job.id}] Refusing execution without durable sequence bases: ${errorMessage}`);
+      await retryUpdateJobStatus(workerClient, job.id, {
+        status: "failed",
+        workerId: config.workerId,
+        errorMessage,
+        errorType: "invalid_durable_sequence_bases",
+      }).catch(() => undefined);
+      return {
+        jobId: job.id,
+        success: false,
+        errorMessage,
+      };
+    }
+
+    return runWithStreamSequenceBases(
+      {
+        canonical: sequenceBases.sessionEvents,
+        native: sequenceBases.nativeEvents,
+        canonicalEnd: sequenceReceipt?.sessionEventsEnd,
+        nativeEnd: sequenceReceipt?.nativeEventsEnd,
+        claimAttemptId: sequenceReceipt?.claimAttemptId,
+        ensureReservation: sequenceReceipt
+          ? async (channel, requiredThrough, requestOptions) => {
+              const result = await workerClient.ensureSequenceReservation!(
+                job.id,
+                channel,
+                {
+                  workerId: config.workerId,
+                  expectedClaimAttemptId: sequenceReceipt!.claimAttemptId,
+                  requiredThrough,
+                },
+                requestOptions,
+              );
+              return result.reservedThrough;
+            }
+          : undefined,
+      },
+      () => executeWithDurableSequences(job, sequenceBases, sequenceReceipt),
+    );
+  };
+
+  const executeWithDurableSequences = async (
+    job: ClaimedJob,
+    sequenceBases: DurableSequenceBases,
+    sequenceReceipt: DurableSequenceReceipt | null,
+  ): Promise<JobExecutionResult> => {
     injectedSkillPaths = [];
 
     // Integration batch jobs are driven by the **Release Integration agent**:
@@ -407,7 +493,7 @@ export const createJobExecutor = (
       job.config = cfg;
     }
 
-    const ctx = initializeContext(job);
+    const ctx = initializeContext(job, sequenceBases, sequenceReceipt);
 
     try {
       await claimAndResolve(ctx);
@@ -434,18 +520,48 @@ export const createJobExecutor = (
   // Phase 1: Initialize context — create loggers, resolve metadata
   // ---------------------------------------------------------------------------
 
-  const initializeContext = (job: ClaimedJob): JobExecutionContext => {
+  const initializeContext = (
+    job: ClaimedJob,
+    sequenceBases: DurableSequenceBases,
+    sequenceReceipt: DurableSequenceReceipt | null,
+  ): JobExecutionContext => {
     const initialJobConfig = normalizeJobConfig(job);
     const jobLocale = typeof initialJobConfig.locale === 'string' ? initialJobConfig.locale : 'es';
     const humanTaskId: string =
       typeof initialJobConfig.taskId === "string"
         ? initialJobConfig.taskId
         : job.id.slice(0, 8);
+
+    // Fresh per-job redactor. Secret *registration* (API keys, tokens) is
+    // wired separately (community issue #24/#26); this instance already
+    // carries every event-handler console call and job-log/stream entry
+    // through the redaction boundary instead of the raw fallback.
+    const secretRedactor = createJobSecretRedactor();
+
+    const ensureJobLogReservation = sequenceReceipt
+      ? async (requiredThrough: number, requestOptions?: Parameters<NonNullable<AlmirantWorkerClient["ensureSequenceReservation"]>>[3]) => {
+          const result = await workerClient.ensureSequenceReservation!(
+            job.id,
+            "jobLogs",
+            {
+              workerId: config.workerId,
+              expectedClaimAttemptId: sequenceReceipt.claimAttemptId,
+              requiredThrough,
+            },
+            requestOptions,
+          );
+          return result.reservedThrough;
+        }
+      : undefined;
+
     const eventLogger = createRunnerJobEventLogger({
       jobId: job.id,
       workerClient,
       debugEnabled: initialJobConfig.debugLogging === true,
-      seqOffset: (job.retryCount ?? 0) * 10_000,
+      seqOffset: sequenceBases.jobLogs,
+      sequenceEnd: sequenceReceipt?.jobLogsEnd,
+      ensureReservation: ensureJobLogReservation,
+      redactor: secretRedactor,
     });
 
     const threadId =
@@ -455,9 +571,12 @@ export const createJobExecutor = (
 
     let streamPublisher: StreamPublisher | undefined;
     if (config.redis?.url) {
-      streamPublisher = createStreamPublisher({
+      const rawStreamPublisher = createStreamPublisher({
         redisUrl: config.redis.url,
       });
+      streamPublisher = createSequencedStreamPublisher(
+        createRedactingStreamPublisher(rawStreamPublisher, secretRedactor),
+      );
     }
 
     const webSessionId =
@@ -505,6 +624,8 @@ export const createJobExecutor = (
       prFirstResult: null,
       effectiveJobType: job.jobType ?? "implementation",
       evidenceArtifacts: [],
+      secretRedactor,
+      sequenceReceipt,
     };
   };
 
@@ -1135,7 +1256,7 @@ export const createJobExecutor = (
       workspacePath: WORKSPACE_REPO_PATH,
     });
 
-    await runPreSessionGuarded(ctx, "post-serve setup", async () => {
+    await runPreSessionGuarded(ctx, "post-serve setup", async (_signal) => {
       // Restore checkpoint if a previous attempt left one (A-860: also check previousJobId).
       const previousJobId = typeof ctx.jobConfig.previousJobId === "string" ? ctx.jobConfig.previousJobId : undefined;
       if (
@@ -1594,6 +1715,7 @@ export const createJobExecutor = (
       runtimeConfig: ctx.runtimeConfig!,
       runtimeExecutor: ctx.runtimeExecutor!,
       evidenceManifestPath: ctx.evidenceManifestPath,
+      redactor: ctx.secretRedactor,
     });
   }
 
@@ -2241,6 +2363,7 @@ export const createJobExecutor = (
     runtimeConfig: RuntimeConfig;
     runtimeExecutor: RuntimeExecutor;
     evidenceManifestPath?: string;
+    redactor: JobSecretRedactor;
   }): Promise<SessionExecutionResult> => {
     return runServeSessionFn(
       {

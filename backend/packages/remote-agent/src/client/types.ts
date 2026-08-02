@@ -78,6 +78,8 @@ export type ClaimJobsPayload = {
   count: number;
   activeJobs?: number;
   acceptedCodingAgents?: string[];
+  /** Explicit mixed-version negotiation for the receipt-based durable protocol. */
+  capabilities?: Array<"durable.v2.receipts">;
 };
 
 export type ClaimedJob = {
@@ -95,6 +97,11 @@ export type ClaimedJob = {
   maxRetries: number;
   availableAt: string | null;
   config: Record<string, unknown> | null;
+  /** Durable result from the previous claim, used only through fenced handoffs. */
+  result?: Record<string, unknown> | null;
+  /** Exact delivery metadata persisted by the previous fenced claim. */
+  branchName?: string | null;
+  commitSha?: string | null;
   // New model fields (prompt + trigger)
   prompt?: string | null;
   promptTemplate?: string | null;
@@ -113,11 +120,68 @@ export type ClaimedJob = {
   // A-1945: count of direct child work items (parent_id = work_item_id).
   // Used by the runner alongside estimatedSubagents for resource sizing.
   childCount?: number;
+  /** Durable per-store sequence high-water marks captured by the atomic claim. */
+  jobLogSequenceBase?: number;
+  sessionEventSequenceBase?: number;
+  nativeEventSequenceBase?: number;
+  /** Inclusive ends of this exact claim's durable sequence reservations. */
+  jobLogSequenceEnd?: number;
+  sessionEventSequenceEnd?: number;
+  nativeEventSequenceEnd?: number;
+  /** Unique fencing token for this exact claim attempt. */
+  claimAttemptId?: string;
+};
+
+export type ProducerSequenceHighWater = {
+  protocolVersion: 2;
+  jobLogs: number;
+  sessionEvents: number;
+  nativeEvents: number;
+};
+
+export type ProducerSequenceChannel =
+  | "jobLogs"
+  | "sessionEvents"
+  | "nativeEvents";
+
+export type EnsureSequenceReservationPayload = {
+  workerId: string;
+  expectedClaimAttemptId: string;
+  requiredThrough: number;
+};
+
+export type EnsureSequenceReservationResponse = {
+  reservedThrough: number;
+};
+
+export type PrepareSequenceHandoffPayload = {
+  workerId: string;
+  expectedClaimAttemptId: string;
+  emittedThrough: ProducerSequenceHighWater;
+};
+
+export type SequenceHandoffCounts = {
+  jobLogs: number;
+  sessionEvents: number;
+  nativeEvents: number;
+};
+
+export type PrepareSequenceHandoffResponse = {
+  ready: boolean;
+  insertedCount: SequenceHandoffCounts;
+  expectedCount: SequenceHandoffCounts;
+};
+
+export type WorkerClientRequestOptions = {
+  signal?: AbortSignal;
+  timeoutMs?: number;
 };
 
 export type UpdateJobStatusPayload = {
   status: AgentJobStatus;
   workerId?: string;
+  /** Exact claim token expected to own this transition. */
+  expectedClaimAttemptId?: string;
   result?: Record<string, unknown>;
   errorMessage?: string;
   errorType?: string;
@@ -135,6 +199,8 @@ export type UpdateJobStatusPayload = {
   outputTokens?: number;
   sessionId?: string;
   model?: string;
+  /** Producer high-water marks fixed before a same-job release becomes claimable. */
+  sequenceHighWater?: ProducerSequenceHighWater;
 };
 
 export type ProviderKeyProvider = "anthropic" | "openai" | "zai" | "xai" | (string & {});
@@ -208,6 +274,8 @@ export type InteractionQuestionType =
   | "free_text";
 
 export type CreateInteractionPayload = {
+  workerId?: string;
+  expectedClaimAttemptId?: string;
   questionType: InteractionQuestionType;
   questionText: string;
   questionContext?: Record<string, unknown>;
@@ -318,6 +386,8 @@ export type EvidenceArtifactDownloadResponse = {
 };
 
 export type StreamJobOutputPayload = {
+  workerId?: string;
+  expectedClaimAttemptId?: string;
   content: string;
   stepIndex?: number;
   persistContent?: boolean;
@@ -345,6 +415,8 @@ export type JobLogEntryPayload = {
 
 export type SendJobLogsPayload = {
   logs: JobLogEntryPayload[];
+  workerId?: string;
+  expectedClaimAttemptId?: string;
 };
 
 export type SendJobLogsResponse = {
@@ -365,6 +437,10 @@ export type SessionEventRecord = {
 export type JobStatusResponse = {
   status: AgentJobStatus;
   shutdownRequested?: boolean;
+  /** Exact externally-requested failure classification while receipt handoff is pending. */
+  errorType?: string;
+  /** Exact externally-requested failure message while receipt handoff is pending. */
+  errorMessage?: string;
 };
 
 export type SuccessEnvelope<T> = {
@@ -707,7 +783,31 @@ export type AlmirantWorkerClient = {
   heartbeat: (payload: WorkerHeartbeatPayload) => Promise<unknown>;
   claimJobs: (payload: ClaimJobsPayload) => Promise<ClaimedJob[]>;
   createJob: (payload: CreateWorkerJobPayload) => Promise<ClaimedJob>;
-  updateJobStatus: (jobId: string, payload: UpdateJobStatusPayload) => Promise<unknown>;
+  updateJobStatus: (
+    jobId: string,
+    payload: UpdateJobStatusPayload,
+    requestOptions?: WorkerClientRequestOptions,
+  ) => Promise<unknown>;
+  /**
+   * Extend one inclusive durable reservation for an exact active claim.
+   * Optional only so old embedded worker-client implementations remain usable;
+   * a claim advertising reservation ends MUST have this capability.
+   */
+  ensureSequenceReservation?: (
+    jobId: string,
+    channel: ProducerSequenceChannel,
+    payload: EnsureSequenceReservationPayload,
+    requestOptions?: WorkerClientRequestOptions,
+  ) => Promise<EnsureSequenceReservationResponse>;
+  /**
+   * Freeze producer high-water marks and wait for database coverage.
+   * Optional for legacy APIs that do not advertise receipt reservations.
+   */
+  prepareSequenceHandoff?: (
+    jobId: string,
+    payload: PrepareSequenceHandoffPayload,
+    requestOptions?: WorkerClientRequestOptions,
+  ) => Promise<PrepareSequenceHandoffResponse>;
   getProviderKeys: (
     providers?: ProviderKeyProvider[],
     context?: {
@@ -725,13 +825,22 @@ export type AlmirantWorkerClient = {
   getGithubToken: (repositoryId: string) => Promise<InstallationTokenResponse>;
   getRepoConfig: (projectId: string) => Promise<RepoConfigResponse>;
   checkQuota: (provider: string, workspaceId?: string) => Promise<QuotaCheckResponse>;
-  createInteraction: (jobId: string, payload: CreateInteractionPayload) => Promise<WorkerInteraction>;
+  createInteraction: (
+    jobId: string,
+    payload: CreateInteractionPayload,
+    requestOptions?: WorkerClientRequestOptions,
+  ) => Promise<WorkerInteraction>;
   pollInteraction: (jobId: string, interactionId: string) => Promise<WorkerInteraction>;
   streamJobOutput: (
     jobId: string,
-    payload: StreamJobOutputPayload
+    payload: StreamJobOutputPayload,
+    requestOptions?: WorkerClientRequestOptions,
   ) => Promise<StreamJobOutputResponse>;
-  sendJobLogs: (jobId: string, payload: SendJobLogsPayload) => Promise<SendJobLogsResponse>;
+  sendJobLogs: (
+    jobId: string,
+    payload: SendJobLogsPayload,
+    requestOptions?: WorkerClientRequestOptions,
+  ) => Promise<SendJobLogsResponse>;
   getJobStatus: (jobId: string) => Promise<JobStatusResponse>;
   getJobConfig: (jobId: string) => Promise<{ jobType: string; config: Record<string, unknown> | null; status: string }>;
   getWorkspaceFile: (jobId: string, fileId: string) => Promise<WorkspaceFileDownloadResponse>;
@@ -779,7 +888,11 @@ export type AlmirantWorkerClient = {
   getNightlyValidationConfig: () => Promise<NightlyValidationConfig>;
   getAllNightlyValidationConfigs: () => Promise<NightlyProjectValidationConfig[]>;
   resetStaleChildTasks: (parentWorkItemId: string) => Promise<{ resetIds: string[] }>;
-  getJobTranscript: (jobId: string, params?: { limit?: number; tail?: boolean }) => Promise<{ transcript: string }>;
+  getJobTranscript: (
+    jobId: string,
+    params?: { limit?: number; tail?: boolean },
+    requestOptions?: WorkerClientRequestOptions,
+  ) => Promise<{ transcript: string }>;
   getJobSessionEvents: (
     jobId: string,
     params?: { after?: number; kinds?: string[]; limit?: number }

@@ -202,10 +202,11 @@ export const createRedactingStreamPublisher = (
   underlying: StreamPublisher,
   redactor: JobSecretRedactor,
 ): StreamPublisher => ({
-  publish: (event) => underlying.publish(redactor.redactValue(event)),
-  publishCanonicalEnvelope: (envelope) =>
-    underlying.publishCanonicalEnvelope(redactor.redactValue(envelope)),
-  publishNativeEnvelope: (envelope) =>
-    underlying.publishNativeEnvelope(redactor.redactValue(envelope)),
-  close: () => underlying.close(),
+  publish: (event, options) =>
+    underlying.publish(redactor.redactValue(event), options),
+  publishCanonicalEnvelope: (envelope, options) =>
+    underlying.publishCanonicalEnvelope(redactor.redactValue(envelope), options),
+  publishNativeEnvelope: (envelope, options) =>
+    underlying.publishNativeEnvelope(redactor.redactValue(envelope), options),
+  close: (options) => underlying.close(options),
 });

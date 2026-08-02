@@ -10,7 +10,18 @@ import type {
 } from "@almirant/stream-consumer";
 import type { RunnerJobEventLogger } from "../observability/job-event-logger";
 import { consumeSseEvents } from "./event-consumer";
+import { createJobSecretRedactor } from "../security/job-secret-redactor";
 import { runtimeEventFixtures } from "../../test/fixtures/runtime-event-contract-fixtures";
+
+const deferred = <T>() => {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+};
 
 const createWorkerClient = (): AlmirantWorkerClient =>
   ({
@@ -19,6 +30,22 @@ const createWorkerClient = (): AlmirantWorkerClient =>
     pollInteraction: async () => ({ status: "answered", response: "ok" }),
     streamJobOutput: async () => ({ processed: 0, stepIndex: 0 }),
   }) as unknown as AlmirantWorkerClient;
+
+const createBlockingSessionManager = (): OpenCodeSessionManager =>
+  ({
+    async *streamSessionEvents(_sessionId?: string, signal?: AbortSignal) {
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) {
+          resolve();
+          return;
+        }
+        signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+    },
+    async sendPromptAsync() {
+      return;
+    },
+  }) as unknown as OpenCodeSessionManager;
 
 const createSessionManager = (
   events: Array<{ event?: string; data: string }>,
@@ -84,6 +111,7 @@ describe("consumeSseEvents", () => {
           jobId: `${fixture.runtime}-job`,
           isPlanningJob: false,
           eventLogger: createEventLogger(),
+          redactor: createJobSecretRedactor(),
           streamPublisher: createStreamPublisher(published),
           threadId: `thread-${fixture.runtime}`,
           webSessionId: `web-${fixture.runtime}`,
@@ -110,6 +138,188 @@ describe("consumeSseEvents", () => {
       });
     });
   }
+
+  it("detiene la sesión y conserva pending failed sin convertirlo en cancelación", async () => {
+    const result = await consumeSseEvents(
+      {
+        workerClient: {
+          ...createWorkerClient(),
+          getJobStatus: async () => ({
+            status: "failed",
+            errorType: "interaction-timeout",
+            errorMessage: "Interaction timed out",
+          }),
+        } as AlmirantWorkerClient,
+        containerManager: {} as never,
+        config: {
+          overallTimeoutMs: 100,
+          jobStatusPollIntervalMs: 1,
+        },
+      },
+      {
+        sessionManager: createBlockingSessionManager(),
+        sessionId: "failed-session",
+        jobId: "failed-job",
+        isPlanningJob: false,
+        eventLogger: createEventLogger(),
+        redactor: createJobSecretRedactor(),
+      },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.cancelledByUser).toBe(false);
+    expect(result.terminalIntent).toEqual({
+      status: "failed",
+      shutdownRequested: false,
+      errorType: "interaction-timeout",
+      errorMessage: "Interaction timed out",
+    });
+  });
+
+  it("espera el status poll en vuelo cuando el SSE termina y conserva pending failed", async () => {
+    const statusRequested = deferred<void>();
+    const statusResponse = deferred<{
+      status: "failed";
+      errorType: string;
+      errorMessage: string;
+    }>();
+    const streamFinished = deferred<void>();
+    const finishLogCodes: string[] = [];
+    let resultSettled = false;
+
+    const sessionManager = {
+      async *streamSessionEvents() {
+        await statusRequested.promise;
+        streamFinished.resolve();
+      },
+      async sendPromptAsync() {
+        return;
+      },
+    } as unknown as OpenCodeSessionManager;
+
+    const eventLogger = {
+      ...createEventLogger(),
+      info: (phase: string, code: string) => {
+        if (phase === "finish") finishLogCodes.push(code);
+      },
+    } as unknown as RunnerJobEventLogger;
+
+    const resultPromise = consumeSseEvents(
+      {
+        workerClient: {
+          ...createWorkerClient(),
+          getJobStatus: async () => {
+            statusRequested.resolve();
+            return statusResponse.promise;
+          },
+        } as AlmirantWorkerClient,
+        containerManager: {} as never,
+        config: {
+          overallTimeoutMs: 1_000,
+          jobStatusPollIntervalMs: 1,
+        },
+      },
+      {
+        sessionManager,
+        sessionId: "late-failed-session",
+        jobId: "late-failed-job",
+        isPlanningJob: false,
+        eventLogger,
+        redactor: createJobSecretRedactor(),
+      },
+    ).finally(() => {
+      resultSettled = true;
+    });
+
+    await streamFinished.promise;
+    await Promise.resolve();
+    expect(resultSettled).toBe(false);
+
+    statusResponse.resolve({
+      status: "failed",
+      errorType: "interaction-timeout",
+      errorMessage: "Interaction timed out after SSE closed",
+    });
+
+    const result = await resultPromise;
+    expect(result.success).toBe(false);
+    expect(result.cancelledByUser).toBe(false);
+    expect(result.terminalIntent).toEqual({
+      status: "failed",
+      shutdownRequested: false,
+      errorType: "interaction-timeout",
+      errorMessage: "Interaction timed out after SSE closed",
+    });
+    expect(finishLogCodes).toContain("job.failed");
+    expect(finishLogCodes).not.toContain("job.completed");
+  });
+
+  it("acota el join de un status poll colgado para no bloquear el cleanup", async () => {
+    const statusRequested = deferred<void>();
+    const neverResponds = deferred<never>();
+    const finishLogCodes: string[] = [];
+
+    const sessionManager = {
+      async *streamSessionEvents() {
+        await statusRequested.promise;
+      },
+      async sendPromptAsync() {
+        return;
+      },
+    } as unknown as OpenCodeSessionManager;
+
+    const eventLogger = {
+      ...createEventLogger(),
+      info: (phase: string, code: string) => {
+        if (phase === "finish") finishLogCodes.push(code);
+      },
+      warn: (phase: string, code: string) => {
+        if (phase === "finish") finishLogCodes.push(code);
+      },
+    } as unknown as RunnerJobEventLogger;
+
+    const result = await Promise.race([
+      consumeSseEvents(
+        {
+          workerClient: {
+            ...createWorkerClient(),
+            getJobStatus: async () => {
+              statusRequested.resolve();
+              return neverResponds.promise;
+            },
+          } as AlmirantWorkerClient,
+          containerManager: {} as never,
+          config: {
+            overallTimeoutMs: 1_000,
+            jobStatusPollIntervalMs: 1,
+            jobStatusPollJoinTimeoutMs: 5,
+          },
+        },
+        {
+          sessionManager,
+          sessionId: "hung-status-session",
+          jobId: "hung-status-job",
+          isPlanningJob: false,
+          eventLogger,
+          redactor: createJobSecretRedactor(),
+        },
+      ),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("status poll cleanup deadlocked")), 100);
+      }),
+    ]);
+
+    expect(result.success).toBe(false);
+    expect(result.terminalIntent).toBeUndefined();
+    expect(result.terminalStatusIndeterminate).toBe(true);
+    expect(result.errorMessage).toBe(
+      "Terminal status poll did not settle before cleanup deadline",
+    );
+    expect(finishLogCodes).toContain("job.terminal_status_indeterminate");
+    expect(finishLogCodes).not.toContain("job.completed");
+    expect(finishLogCodes).not.toContain("job.failed");
+    expect(finishLogCodes).not.toContain("job.cancelled");
+  });
 
   it("propaga isPlanningJob en session.idle y emite texto final para planning sin web output", async () => {
     const streamed: Array<{ content: string }> = [];
@@ -151,6 +361,7 @@ describe("consumeSseEvents", () => {
         jobId: "planning-job",
         isPlanningJob: true,
         eventLogger: createEventLogger(),
+        redactor: createJobSecretRedactor(),
         streamPublisher: createStreamPublisher(published),
         threadId: "thread-planning",
         webSessionId: "web-planning",
@@ -210,6 +421,7 @@ describe("consumeSseEvents", () => {
         jobId: "error-job",
         isPlanningJob: false,
         eventLogger: createEventLogger(),
+        redactor: createJobSecretRedactor(),
       },
     );
 
@@ -247,6 +459,7 @@ describe("consumeSseEvents", () => {
         jobId: "quota-job",
         isPlanningJob: false,
         eventLogger: createEventLogger(),
+        redactor: createJobSecretRedactor(),
       },
     );
 
@@ -305,6 +518,7 @@ describe("consumeSseEvents", () => {
         jobId: "tool-output-job",
         isPlanningJob: false,
         eventLogger: createEventLogger(),
+        redactor: createJobSecretRedactor(),
       },
     );
 
@@ -342,6 +556,7 @@ describe("consumeSseEvents", () => {
         jobId: "status-error-job",
         isPlanningJob: false,
         eventLogger: createEventLogger(),
+        redactor: createJobSecretRedactor(),
       },
     );
 

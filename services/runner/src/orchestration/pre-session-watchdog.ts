@@ -1,29 +1,74 @@
 import {
-  withPhaseTimeout,
+  createPhaseTimeoutError,
   type PhaseTimeoutError,
 } from "../shared/timeout";
+import {
+  resolveJobTerminalIntent,
+  type BackendJobStatus,
+} from "./job-cancellation";
 
-export type PreSessionJobStatus = {
-  status: string;
-  shutdownRequested?: boolean;
-};
+export type PreSessionJobStatus = BackendJobStatus;
 
-export type PreSessionCancellationError = Error & {
-  code: "phase_cancelled";
+export type PreSessionTerminalIntentError = Error & {
+  code: "phase_terminal_intent";
   phase: string;
+  terminalStatus: "cancelled" | "failed";
   shutdownRequested: boolean;
+  errorType?: string;
+  errorMessage?: string;
 };
 
-export const createPreSessionCancellationError = (
+export const createPreSessionTerminalIntentError = (
   phase: string,
-  shutdownRequested: boolean,
-): PreSessionCancellationError => {
-  const reason = shutdownRequested ? "shutdown requested" : "job cancelled";
-  const error = new Error(`Pre-session phase "${phase}" interrupted: ${reason}`) as PreSessionCancellationError;
-  error.code = "phase_cancelled";
+  intent: NonNullable<ReturnType<typeof resolveJobTerminalIntent>>,
+): PreSessionTerminalIntentError => {
+  const reason =
+    intent.errorMessage ??
+    (intent.status === "failed"
+      ? "job failed by backend request"
+      : intent.shutdownRequested
+        ? "shutdown requested"
+        : "job cancelled");
+  const error = new Error(
+    `Pre-session phase "${phase}" interrupted: ${reason}`,
+  ) as PreSessionTerminalIntentError;
+  error.code = "phase_terminal_intent";
   error.phase = phase;
-  error.shutdownRequested = shutdownRequested;
+  error.terminalStatus = intent.status;
+  error.shutdownRequested = intent.shutdownRequested;
+  if (intent.errorType) error.errorType = intent.errorType;
+  if (intent.errorMessage) error.errorMessage = intent.errorMessage;
   return error;
+};
+
+/**
+ * Race an operation against an external interruption. When interruption wins,
+ * abort cooperatively and drain the loser without awaiting it. Cleanup and
+ * receipt handoff must not be retained forever by a non-cooperative dependency.
+ */
+export const runAbortableOperationUntilInterrupted = async <T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  interruption: Promise<never>,
+): Promise<T> => {
+  const abortController = new AbortController();
+  let interruptionWon = false;
+  const operationPromise = Promise.resolve().then(() =>
+    operation(abortController.signal),
+  );
+  operationPromise.catch(() => undefined);
+  const markedInterruption = interruption.catch((error) => {
+    interruptionWon = true;
+    throw error;
+  });
+
+  try {
+    return await Promise.race([operationPromise, markedInterruption]);
+  } catch (error) {
+    if (!interruptionWon) throw error;
+
+    abortController.abort(error);
+    throw error;
+  }
 };
 
 export const runWithPreSessionWatchdog = async <T>(
@@ -33,12 +78,13 @@ export const runWithPreSessionWatchdog = async <T>(
     pollIntervalMs?: number;
     getJobStatus: () => Promise<PreSessionJobStatus>;
     onTimeout?: (error: PhaseTimeoutError) => void;
-    onCancelled?: (error: PreSessionCancellationError) => void;
+    onTerminalIntent?: (error: PreSessionTerminalIntentError) => void;
   },
-  operation: () => Promise<T>,
+  operation: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> => {
   let stopped = false;
   let cancelTimer: ReturnType<typeof setTimeout> | undefined;
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
 
   const pollIntervalMs = Math.max(1, options.pollIntervalMs ?? 5_000);
 
@@ -48,12 +94,13 @@ export const runWithPreSessionWatchdog = async <T>(
 
       try {
         const status = await options.getJobStatus();
-        if (status.status === "cancelled") {
-          const error = createPreSessionCancellationError(
+        const terminalIntent = resolveJobTerminalIntent(status);
+        if (terminalIntent) {
+          const error = createPreSessionTerminalIntentError(
             options.phase,
-            status.shutdownRequested === true,
+            terminalIntent,
           );
-          options.onCancelled?.(error);
+          options.onTerminalIntent?.(error);
           reject(error);
           return;
         }
@@ -69,17 +116,22 @@ export const runWithPreSessionWatchdog = async <T>(
     cancelTimer = setTimeout(poll, pollIntervalMs);
   });
 
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutTimer = setTimeout(() => {
+      const error = createPhaseTimeoutError(options.phase, options.timeoutMs);
+      options.onTimeout?.(error);
+      reject(error);
+    }, options.timeoutMs);
+  });
+
   try {
-    return await withPhaseTimeout(
-      Promise.race([operation(), cancellationPromise]),
-      {
-        phase: options.phase,
-        timeoutMs: options.timeoutMs,
-        onTimeout: options.onTimeout,
-      },
+    return await runAbortableOperationUntilInterrupted(
+      operation,
+      Promise.race([cancellationPromise, timeoutPromise]),
     );
   } finally {
     stopped = true;
     if (cancelTimer) clearTimeout(cancelTimer);
+    if (timeoutTimer) clearTimeout(timeoutTimer);
   }
 };
