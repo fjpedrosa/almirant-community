@@ -113,6 +113,7 @@ import { runWithPreSessionWatchdog } from "./orchestration/pre-session-watchdog"
 // Session-related constants and functions extracted to ./session/session-runner.ts
 // and ./session/event-consumer.ts
 import { runServeSession as runServeSessionFn } from "./session/session-runner";
+import { createJobSecretRedactor } from "./security/job-secret-redactor";
 
 type JobExecutorConfig = {
   workerId: string;
@@ -2242,6 +2243,11 @@ export const createJobExecutor = (
     runtimeExecutor: RuntimeExecutor;
     evidenceManifestPath?: string;
   }): Promise<SessionExecutionResult> => {
+    // Fresh per-session redactor. Secret *registration* (API keys, tokens) is
+    // wired separately (community issue #24/#26); this instance already
+    // routes every event-handler console call through the redaction boundary
+    // instead of the raw console fallback.
+    const secretRedactor = createJobSecretRedactor();
     return runServeSessionFn(
       {
         workerClient,
@@ -2256,7 +2262,7 @@ export const createJobExecutor = (
           preSessionTimeoutMs: config.preSessionTimeoutMs,
         },
       },
-      params,
+      { ...params, redactor: secretRedactor },
     );
   };
 

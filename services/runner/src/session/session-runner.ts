@@ -22,6 +22,7 @@ import {
 import { buildSkillValidationCanonicalEvents } from "./skill-validation-events";
 import { consumeSseEvents, type EventConsumerDeps } from "./event-consumer";
 import type { QuotaPauseRequest } from "../shared/quota-pause";
+import type { JobSecretRedactor } from "../security/job-secret-redactor";
 import {
   buildPlanningPrompt,
   shouldInlinePlanningSkillContent,
@@ -83,6 +84,7 @@ export async function runServeSession(
     runtimeConfig: RuntimeConfig;
     runtimeExecutor: RuntimeExecutor;
     evidenceManifestPath?: string;
+    redactor: JobSecretRedactor;
   },
 ): Promise<{
   success: boolean;
@@ -98,7 +100,7 @@ export async function runServeSession(
   tokensUsed?: number;
   pausedForQuota?: QuotaPauseRequest;
 }> {
-  const { baseUrl, containerId, job, workItem, eventLogger, streamPublisher, threadId, resolvedModel, completedTaskIds, webSessionId, webWorkspaceId, runtimeConfig, runtimeExecutor, evidenceManifestPath } = params;
+  const { baseUrl, containerId, job, workItem, eventLogger, streamPublisher, threadId, resolvedModel, completedTaskIds, webSessionId, webWorkspaceId, runtimeConfig, runtimeExecutor, evidenceManifestPath, redactor } = params;
 
   const sessionManager = createOpenCodeSessionManager({
     baseUrl,
@@ -433,6 +435,7 @@ export async function runServeSession(
     webSessionId,
     webWorkspaceId,
     tmpfsWatcher,
+    redactor,
     onStreamReady: async () => {
       // Send the initial prompt once the SSE stream is connected
       await sessionManager.sendPromptAsync(session.id, { prompt });

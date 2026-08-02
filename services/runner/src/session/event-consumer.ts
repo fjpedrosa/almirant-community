@@ -34,6 +34,10 @@ import {
 } from "../shared/timeout";
 import { sleep } from "../shared/job-helpers";
 import {
+  createJobSafeConsole,
+  type JobSecretRedactor,
+} from "../security/job-secret-redactor";
+import {
   EVENT_HANDLERS,
   handleDefaultUnknown,
   type EventHandlerContext,
@@ -89,6 +93,7 @@ export async function consumeSseEvents(
     webSessionId?: string;
     webWorkspaceId?: string;
     tmpfsWatcher?: { cleanup: () => void; isCritical: () => boolean } | null;
+    redactor: JobSecretRedactor;
   },
 ): Promise<{
   success: boolean;
@@ -118,7 +123,9 @@ export async function consumeSseEvents(
     webSessionId,
     webWorkspaceId,
     tmpfsWatcher,
+    redactor,
   } = params;
+  const safeConsole = createJobSafeConsole(redactor);
 
   const abortController = new AbortController();
   let shutdownRequested = false;
@@ -231,7 +238,7 @@ export async function consumeSseEvents(
       if (!ctx.wasIdleWithBackgroundAgents) return;
 
       const pendingIds = [...ctx.activeBackgroundSubagentIds];
-      console.log(`[job:${jobId}] Post-idle background grace expired (${POST_IDLE_BACKGROUND_GRACE_MS}ms) — assuming ${pendingIds.length} background agent(s) completed`);
+      safeConsole.log(`[job:${jobId}] Post-idle background grace expired (${POST_IDLE_BACKGROUND_GRACE_MS}ms) — assuming ${pendingIds.length} background agent(s) completed`);
       eventLogger.info("session", "session.background_agents_grace_completed",
         `Background agents assumed complete after ${POST_IDLE_BACKGROUND_GRACE_MS}ms idle grace`, {
           assumedCompletedSubagentIds: pendingIds,
@@ -281,13 +288,13 @@ export async function consumeSseEvents(
     ctx.lastActivityAt = Date.now();
 
     if (reason === "resume") {
-      console.log(`[job:${jobId}] Agent resumed after background agent idle — flag reset`);
+      safeConsole.log(`[job:${jobId}] Agent resumed after background agent idle — flag reset`);
       eventLogger.info("session", "session.background_agent_resumed", "Agent resumed, background flag reset");
       return;
     }
 
     ctx.messageCompleted = true;
-    console.log(`[job:${jobId}] Background agents completed after idle — finishing session`);
+    safeConsole.log(`[job:${jobId}] Background agents completed after idle — finishing session`);
     eventLogger.info("session", "session.background_agents_completed", "Background agents completed after idle", {
       completedSubagentIds: completedSubagentId ? [completedSubagentId] : [],
     });
@@ -504,12 +511,12 @@ export async function consumeSseEvents(
     deps.config.overallTimeoutMs ?? DEFAULT_OVERALL_TIMEOUT_MS,
     deps.config.effortPointDurationMs ?? DEFAULT_EFFORT_POINT_DURATION_MS,
   );
-  console.log(
+  safeConsole.log(
     `[job:${jobId}] Overall timeout set to ${Math.round(overallTimeoutMs / 60_000)}min` +
       (estimatedHours ? ` (effort points: ${estimatedHours})` : ""),
   );
   const overallTimer = setTimeout(() => {
-    console.log(`[job:${jobId}] Overall timeout reached (${overallTimeoutMs}ms)`);
+    safeConsole.log(`[job:${jobId}] Overall timeout reached (${overallTimeoutMs}ms)`);
     timedOut = true;
     abortController.abort();
   }, overallTimeoutMs);
@@ -518,13 +525,13 @@ export async function consumeSseEvents(
   const idleChecker = setInterval(() => {
     // Abort if tmpfs is critically full
     if (tmpfsWatcher?.isCritical()) {
-      console.log(`[job:${jobId}] Tmpfs critical — aborting session`);
+      safeConsole.log(`[job:${jobId}] Tmpfs critical — aborting session`);
       ctx.messageCompleted = true;
       ctx.hasActiveBackgroundAgents = false;
       abortController.abort();
     }
     if (ctx.messageCompleted && Date.now() - ctx.lastActivityAt > IDLE_AFTER_COMPLETION_MS) {
-      console.log(`[job:${jobId}] Idle after completion, finishing`);
+      safeConsole.log(`[job:${jobId}] Idle after completion, finishing`);
       abortController.abort();
     }
   }, 3_000);
@@ -605,7 +612,7 @@ export async function consumeSseEvents(
       eventLogger,
     });
     if (!answer) {
-      console.log(`[job:${jobId}] User interaction unanswered — aborting job`);
+      safeConsole.log(`[job:${jobId}] User interaction unanswered — aborting job`);
       eventLogger.warn("interaction", "interaction.unanswered_abort", "Aborting job after unanswered user interaction", {
         interactionId,
       });
@@ -650,7 +657,7 @@ export async function consumeSseEvents(
 
     if (onStreamReady) {
       onStreamReady().catch((err) => {
-        console.error(`[job:${jobId}] Failed to send prompt: ${err}`);
+        safeConsole.error(`[job:${jobId}] Failed to send prompt: ${err}`);
         ctx.errorMessage = err instanceof Error ? err.message : String(err);
         abortController.abort();
       });
@@ -670,6 +677,7 @@ export async function consumeSseEvents(
       streamPublisher,
       relay,
       abortController,
+      safeConsole,
       extractToolMeta,
       publishStreamingUpdate,
       clearBackgroundAgentWaitState,
@@ -760,7 +768,7 @@ export async function consumeSseEvents(
     // SSE stream closed or aborted — not necessarily an error
     if (!abortController.signal.aborted) {
       ctx.errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[job:${jobId}] SSE stream error: ${ctx.errorMessage}`);
+      safeConsole.error(`[job:${jobId}] SSE stream error: ${ctx.errorMessage}`);
       eventLogger.error("session", "session.stream_error", "SSE stream error", {
         errorMessage: ctx.errorMessage,
       });

@@ -10,6 +10,7 @@ import type {
 } from "@almirant/stream-consumer";
 import type { RunnerJobEventLogger } from "../observability/job-event-logger";
 import { consumeSseEvents } from "./event-consumer";
+import { createJobSecretRedactor } from "../security/job-secret-redactor";
 import { runtimeEventFixtures } from "../../test/fixtures/runtime-event-contract-fixtures";
 
 const createWorkerClient = (): AlmirantWorkerClient =>
@@ -84,6 +85,7 @@ describe("consumeSseEvents", () => {
           jobId: `${fixture.runtime}-job`,
           isPlanningJob: false,
           eventLogger: createEventLogger(),
+          redactor: createJobSecretRedactor(),
           streamPublisher: createStreamPublisher(published),
           threadId: `thread-${fixture.runtime}`,
           webSessionId: `web-${fixture.runtime}`,
@@ -151,6 +153,7 @@ describe("consumeSseEvents", () => {
         jobId: "planning-job",
         isPlanningJob: true,
         eventLogger: createEventLogger(),
+        redactor: createJobSecretRedactor(),
         streamPublisher: createStreamPublisher(published),
         threadId: "thread-planning",
         webSessionId: "web-planning",
@@ -210,6 +213,7 @@ describe("consumeSseEvents", () => {
         jobId: "error-job",
         isPlanningJob: false,
         eventLogger: createEventLogger(),
+        redactor: createJobSecretRedactor(),
       },
     );
 
@@ -247,6 +251,7 @@ describe("consumeSseEvents", () => {
         jobId: "quota-job",
         isPlanningJob: false,
         eventLogger: createEventLogger(),
+        redactor: createJobSecretRedactor(),
       },
     );
 
@@ -305,6 +310,7 @@ describe("consumeSseEvents", () => {
         jobId: "tool-output-job",
         isPlanningJob: false,
         eventLogger: createEventLogger(),
+        redactor: createJobSecretRedactor(),
       },
     );
 
@@ -342,6 +348,7 @@ describe("consumeSseEvents", () => {
         jobId: "status-error-job",
         isPlanningJob: false,
         eventLogger: createEventLogger(),
+        redactor: createJobSecretRedactor(),
       },
     );
 
