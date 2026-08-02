@@ -17,6 +17,7 @@ import {
 import { resolveJobIntent } from "../orchestration/job-intent";
 import { resolveJobCodingAgent } from "../shared/job-helpers";
 import { resolveUltracode } from "./ultracode-preset";
+import { resolveDeliveryGitIdentity } from "../delivery/github-identity";
 import type { JobSafeConsole } from "../security/job-secret-redactor";
 
 export const AGENT_MCP_SESSION_TOKEN_TTL_SECONDS = 2 * 60 * 60;
@@ -98,6 +99,12 @@ const ZAI_CODING_PLAN_BASE_URL = "https://api.z.ai/api/coding/paas/v4";
 const ZAI_CLAUDE_BASE_URL = "https://api.z.ai/api/anthropic";
 const XAI_OPENAI_BASE_URL = "https://api.x.ai/v1";
 const runtimeExecutorRegistry = createRuntimeExecutorRegistry();
+
+// Trusted bootstrap proves the immutable scaffold commit is an ancestor of
+// HEAD. A depth-1 checkout contains only HEAD, so valid iteration branches
+// cannot satisfy that check. Keep the history window finite and runner-owned:
+// neither workspace.depth nor config.env may increase the checkout cost.
+const TRUSTED_SITE_CLONE_DEPTH = 512;
 
 const asObject = (value: unknown): Record<string, unknown> | null => {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -386,6 +393,7 @@ export const buildInjectedEnv = async (
 ): Promise<InjectedEnvResult> => {
   const safeConsole = input.safeConsole ?? console;
   const jobConfig = asObject(input.job.config) ?? {};
+  const deliveryGitIdentity = resolveDeliveryGitIdentity(jobConfig);
   const jobNeedsBrowser = resolveJobIntent(input.job).needsBrowser;
   const requestedProvider = String(input.job.provider || "codex");
   const explicitAiProvider =
@@ -897,8 +905,11 @@ export const buildInjectedEnv = async (
     env.REPO_BRANCH = input.repository.branch;
   }
 
-  if (input.repository.depth) {
-    env.GIT_CLONE_DEPTH = String(input.repository.depth);
+  const cloneDepth = deliveryGitIdentity.trustedSiteBuild
+    ? TRUSTED_SITE_CLONE_DEPTH
+    : input.repository.depth;
+  if (cloneDepth) {
+    env.GIT_CLONE_DEPTH = String(cloneDepth);
   }
 
   let cloneCredential: CloneCredentialOutcome = { status: "not_needed" };

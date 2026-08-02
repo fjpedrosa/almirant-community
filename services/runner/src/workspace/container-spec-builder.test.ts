@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import type { ClaimedJob, OpenCodeConfig } from "@almirant/remote-agent";
 import { DEFAULT_MEMORY_MB } from "@almirant/shared";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildContainerSpec } from "./container-spec-builder";
 
 const createJob = (overrides: Partial<ClaimedJob> = {}): ClaimedJob => ({
@@ -22,6 +25,144 @@ const createJob = (overrides: Partial<ClaimedJob> = {}): ClaimedJob => ({
 });
 
 describe("buildContainerSpec", () => {
+  it("does not inject a custom author into ordinary job containers", () => {
+    const spec = buildContainerSpec({
+      job: createJob(),
+      workItem: null,
+      runtimeConfig: { type: "claude-shim", image: "shim:test", envVars: {} },
+      injectedEnv: {},
+      openCodeConfig: { mcp: {} } as never,
+      workspaceMountMode: "bind",
+      reposHostPath: "/repos",
+    });
+
+    expect(spec.env.ALMIRANT_GIT_AUTHOR_NAME).toBeUndefined();
+    expect(spec.env.ALMIRANT_GIT_AUTHOR_EMAIL).toBeUndefined();
+  });
+
+  it.each([
+    "ALMIRANT_GIT_AUTHOR_NAME",
+    "ALMIRANT_GIT_AUTHOR_EMAIL",
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+    "GIT_CONFIG",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_KEY_0",
+    "GIT_CONFIG_VALUE_0",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_CONFIG_NOSYSTEM",
+    "GIT_CONFIG_ARBITRARY_FUTURE_KEY",
+    "XDG_CONFIG_HOME",
+  ])("fails closed when caller-controlled environment tries to override %s", (key) => {
+    for (const source of ["injected", "runtime"] as const) {
+      expect(() => buildContainerSpec({
+        job: createJob(),
+        workItem: null,
+        runtimeConfig: {
+          type: "claude-shim",
+          image: "shim:test",
+          envVars: source === "runtime" ? { [key]: "Untrusted Author" } : {},
+        },
+        injectedEnv: source === "injected" ? { [key]: "Untrusted Author" } : {},
+        openCodeConfig: { mcp: {} } as never,
+        workspaceMountMode: "bind",
+        reposHostPath: "/repos",
+      })).toThrow("Git author environment override is restricted");
+    }
+  });
+
+  it("rejects the real Git config-count author bypass before container start", async () => {
+    const root = await mkdtemp(join(tmpdir(), "almirant-git-config-bypass-"));
+    const repo = join(root, "repo");
+    const home = join(root, "home");
+    const bypassEnv = {
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: "user.name",
+      GIT_CONFIG_VALUE_0: "Attacker",
+      GIT_CONFIG_KEY_1: "user.email",
+      GIT_CONFIG_VALUE_1: "attacker@example.com",
+    };
+    const runGit = async (args: string[], env: Record<string, string> = {}) => {
+      const process = Bun.spawn(["git", ...args], {
+        cwd: repo,
+        env: { ...Bun.env, HOME: home, ...env },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(process.stdout).text(),
+        new Response(process.stderr).text(),
+        process.exited,
+      ]);
+      if (exitCode !== 0) throw new Error(stderr || stdout || `git ${args[0]} failed`);
+      return stdout;
+    };
+
+    try {
+      await mkdir(repo, { recursive: true });
+      await mkdir(home, { recursive: true });
+      await runGit(["init", "-b", "main"]);
+      await runGit(["config", "--global", "user.name", "Trusted Server Author"]);
+      await runGit(["config", "--global", "user.email", "trusted@example.com"]);
+      await writeFile(join(repo, "proof.txt"), "proof\n");
+      await runGit(["add", "proof.txt"]);
+      await runGit(["commit", "-m", "proof"], bypassEnv);
+      const actualAuthor = await runGit(["log", "-1", "--format=%an <%ae>"]);
+      expect(actualAuthor.trim()).toBe("Attacker <attacker@example.com>");
+
+      expect(() => buildContainerSpec({
+        job: createJob(),
+        workItem: null,
+        runtimeConfig: {
+          type: "claude-shim",
+          image: "shim:test",
+          envVars: bypassEnv,
+        },
+        injectedEnv: {},
+        openCodeConfig: { mcp: {} } as never,
+        workspaceMountMode: "bind",
+        reposHostPath: "/repos",
+      })).toThrow("Git author environment override is restricted");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("starts disconnected and routes all agent egress through the allowlisted proxy", () => {
+    const spec = buildContainerSpec({
+      job: createJob(),
+      workItem: null,
+      runtimeConfig: {
+        type: "claude-shim",
+        image: "shim:test",
+        envVars: { HTTPS_PROXY: "http://runner-internal:8080", NO_PROXY: "*" },
+      },
+      injectedEnv: {
+        HTTP_PROXY: "http://docker-proxy:2375",
+        ALL_PROXY: "socks5://runner-internal:1080",
+      },
+      openCodeConfig: { mcp: {} } as never,
+      workspaceMountMode: "bind",
+      reposHostPath: "/repos",
+      egressProxyUrl: "http://egress-proxy:3128",
+    });
+
+    expect(spec.networkMode).toBe("none");
+    expect(spec.env).toMatchObject({
+      HTTP_PROXY: "http://egress-proxy:3128",
+      HTTPS_PROXY: "http://egress-proxy:3128",
+      NO_PROXY: "127.0.0.1,localhost,::1",
+    });
+    expect(spec.env.ALL_PROXY).toBeUndefined();
+    expect(spec.dnsServers).toEqual(["127.0.0.1"]);
+    expect(spec.env.NO_PROXY).not.toContain("docker-proxy");
+    expect(spec.env.NO_PROXY).not.toContain("runner-internal");
+  });
+
   it("uses the persisted RAM forecast plus provider bump as the container limit", () => {
     const spec = buildContainerSpec({
       job: createJob({

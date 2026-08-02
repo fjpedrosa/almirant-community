@@ -230,6 +230,29 @@ services:
     networks:
       - almirant-prod
 
+  # Squid is the only application-layer gateway from the internal agent
+  # network. It resolves destination DNS and applies the checked-in allowlist;
+  # agent containers never join almirant-prod or the Docker control plane.
+  egress-proxy:
+    image: ubuntu/squid:7.2-26.04_edge@sha256:ceec14e15ca37b18f19827d2ae6d86dd297bc161f78ced839b7d29b25724cc2c
+    restart: unless-stopped
+    labels:
+      com.almirant.network.role: egress-proxy
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./services/runner/docker/squid.conf:/etc/squid/squid.conf:ro
+      - ./services/runner/docker/pebble-egress-check.yaml:/var/lib/pebble/default/layers/002-almirant-egress.yaml:ro
+    networks:
+      - almirant-prod
+      - agent-egress
+    healthcheck:
+      test: ["CMD", "/usr/bin/pebble", "health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   runner:
     build:
       context: .
@@ -242,6 +265,9 @@ services:
       PORT: "3002"
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DOCKER_HOST: tcp://docker-proxy:2375
+      AGENT_EGRESS_NETWORK: ${AGENT_EGRESS_NETWORK:-almirant-agent-egress}
+      AGENT_CONTROL_NETWORK: ${AGENT_CONTROL_NETWORK:-almirant-agent-control}
+      AGENT_EGRESS_PROXY_URL: http://egress-proxy:3128
       ALMIRANT_API_URL: http://backend:3001
       ALMIRANT_API_KEY: "${ALMIRANT_API_KEY:?Set ALMIRANT_API_KEY in .env.production}"
       REDIS_URL: redis://redis:6379
@@ -266,9 +292,12 @@ services:
       - ${REPOS_HOST_PATH:-${PWD}/data/repos}:/app/repos
     networks:
       - almirant-prod
+      - agent-control
     depends_on:
       docker-proxy:
         condition: service_started
+      egress-proxy:
+        condition: service_healthy
       redis:
         condition: service_healthy
       backend:
@@ -401,6 +430,18 @@ services:
 networks:
   almirant-prod:
     driver: bridge
+  agent-egress:
+    name: ${AGENT_EGRESS_NETWORK:-almirant-agent-egress}
+    driver: bridge
+    internal: true
+    labels:
+      com.almirant.network.role: agent-egress
+  agent-control:
+    name: ${AGENT_CONTROL_NETWORK:-almirant-agent-control}
+    driver: bridge
+    internal: true
+    labels:
+      com.almirant.network.role: agent-control
 
 volumes:
   postgres_prod_data:
