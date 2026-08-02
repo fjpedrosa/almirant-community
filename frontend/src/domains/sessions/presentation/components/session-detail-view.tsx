@@ -39,7 +39,7 @@ import type {
 } from '@/domains/agents/domain/types';
 import type { ResolvedTaskId } from '../../application/hooks/use-task-id-resolution';
 
-interface SessionDetailViewProps {
+export interface SessionDetailViewProps {
   detail: AgentSessionDetail;
   chunks: AgentLogChunk[];
   isLive: boolean;
