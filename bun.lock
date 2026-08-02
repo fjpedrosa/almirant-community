@@ -134,6 +134,7 @@
         "zod": "^4.3.5",
       },
       "devDependencies": {
+        "@types/bun": "^1.3.8",
         "typescript": "^5.8.0",
       },
     },
