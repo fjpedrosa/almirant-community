@@ -4036,6 +4036,16 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   // POST /workers/agent-jobs/:id/session-events — batch persist session events (API key auth)
   // Mirror of /api/agent-jobs/:id/session-events for services that authenticate
   // via API key (e.g. web-bridge) instead of user session cookies.
+  //
+  // Ported from cloud without the workerApiKey workspace-scope check (see the
+  // "sequence-reservations" endpoint comment above). A batch must be either
+  // fully durable.v2 (every event carries sequenceProtocolVersion +
+  // claimAttemptId, routed through persistFencedSessionEvents) or fully
+  // legacy-unclaimed (routed through persistReceiptFreeLegacySessionEvents,
+  // isLegacyUnclaimedSequenceEvent / getCurrentClaimAttemptId ported
+  // verbatim) — a mixed batch, or a batch that doesn't match the job's
+  // current claim state, is rejected with 409 rather than silently
+  // persisted through the old unconditional insertSessionEventsBatch.
   .post(
     "/agent-jobs/:id/session-events",
     async ({ params, body, set }) => {
@@ -4045,16 +4055,52 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         return notFoundResponse("Agent job");
       }
 
+      const hasDurableFields = body.events.some(
+        (event) =>
+          event.sequenceProtocolVersion !== undefined ||
+          event.claimAttemptId !== undefined,
+      );
+      const isFullyDurable = body.events.every(
+        (event) =>
+          event.sequenceProtocolVersion === "durable.v2" &&
+          typeof event.claimAttemptId === "string" &&
+          event.claimAttemptId.trim().length > 0,
+      );
+      const isFullyLegacy = body.events.every((event) =>
+        isLegacyUnclaimedSequenceEvent(existing.job.config, event),
+      );
+      if ((hasDurableFields && !isFullyDurable) || (!hasDurableFields && !isFullyLegacy)) {
+        set.status = 409;
+        return errorResponse("Job claim is no longer active", 409);
+      }
+
       const events = body.events.map((e) => ({
         agentJobId: params.id,
         planningSessionId: existing.job.planningSessionId ?? undefined,
         sequenceNum: e.sequenceNum,
+        sequenceProtocolVersion: e.sequenceProtocolVersion,
         kind: e.kind,
         payload: e.payload as Record<string, unknown>,
         provider: e.provider ?? null,
       }));
 
-      const inserted = await insertSessionEventsBatch(events);
+      let inserted: number;
+      try {
+        inserted = isFullyDurable
+          ? await persistFencedSessionEvents(
+              events.map((event, index) => ({
+                claimAttemptId: body.events[index]!.claimAttemptId!,
+                event,
+              })),
+            )
+          : await persistReceiptFreeLegacySessionEvents(events);
+      } catch (error) {
+        if (error instanceof ClaimSequenceReceiptConflictError) {
+          set.status = 409;
+          return errorResponse("Job claim is no longer active", 409);
+        }
+        throw error;
+      }
       if (existing.job.planningSessionId) {
         await refreshCanonicalSessionProjection({
           planningSessionId: existing.job.planningSessionId,
@@ -4073,7 +4119,11 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       body: t.Object({
         events: t.Array(
           t.Object({
-            sequenceNum: t.Number(),
+            sequenceNum: t.Integer({ minimum: 0, maximum: 2_147_483_647 }),
+            sequenceProtocolVersion: t.Optional(t.Literal("durable.v2")),
+            claimAttemptId: t.Optional(
+              t.String({ minLength: 1, maxLength: 100 }),
+            ),
             kind: t.String(),
             payload: t.Any(),
             provider: t.Optional(t.String()),
@@ -4159,6 +4209,10 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // POST /workers/agent-jobs/:id/native-events — batch persist native runtime events (API key auth)
+  //
+  // Ported from cloud without the workerApiKey workspace-scope check (see the
+  // "sequence-reservations" endpoint comment above). Same fully-durable/
+  // fully-legacy batch fencing as the session-events endpoint above.
   .post(
     "/agent-jobs/:id/native-events",
     async ({ params, body, set }) => {
@@ -4166,6 +4220,25 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       if (!existing) {
         set.status = 404;
         return notFoundResponse("Agent job");
+      }
+
+      const hasDurableFields = body.events.some(
+        (event) =>
+          event.sequenceProtocolVersion !== undefined ||
+          event.claimAttemptId !== undefined,
+      );
+      const isFullyDurable = body.events.every(
+        (event) =>
+          event.sequenceProtocolVersion === "durable.v2" &&
+          typeof event.claimAttemptId === "string" &&
+          event.claimAttemptId.trim().length > 0,
+      );
+      const isFullyLegacy = body.events.every((event) =>
+        isLegacyUnclaimedSequenceEvent(existing.job.config, event),
+      );
+      if ((hasDurableFields && !isFullyDurable) || (!hasDurableFields && !isFullyLegacy)) {
+        set.status = 409;
+        return errorResponse("Job claim is no longer active", 409);
       }
 
       const events = body.events.map((e) => ({
@@ -4181,7 +4254,23 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         emittedAt: e.emittedAt ? new Date(e.emittedAt) : null,
       }));
 
-      const inserted = await insertAgentNativeEventsBatch(events);
+      let inserted: number;
+      try {
+        inserted = isFullyDurable
+          ? await persistFencedNativeEvents(
+              events.map((event, index) => ({
+                claimAttemptId: body.events[index]!.claimAttemptId!,
+                event,
+              })),
+            )
+          : await persistReceiptFreeLegacyNativeEvents(events);
+      } catch (error) {
+        if (error instanceof ClaimSequenceReceiptConflictError) {
+          set.status = 409;
+          return errorResponse("Job claim is no longer active", 409);
+        }
+        throw error;
+      }
       return successResponse({ inserted });
     },
     {
@@ -4189,7 +4278,11 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       body: t.Object({
         events: t.Array(
           t.Object({
-            sequenceNum: t.Number(),
+            sequenceNum: t.Integer({ minimum: 0, maximum: 2_147_483_647 }),
+            sequenceProtocolVersion: t.Optional(t.Literal("durable.v2")),
+            claimAttemptId: t.Optional(
+              t.String({ minLength: 1, maxLength: 100 }),
+            ),
             nativeEventType: t.String(),
             sourceFormat: t.String(),
             payload: t.Any(),
