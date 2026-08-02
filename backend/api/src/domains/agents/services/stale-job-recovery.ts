@@ -1,5 +1,6 @@
 import {
   agentJobs,
+  agentJobClaimSequenceReceipts,
   agentJobLogs,
   db,
   and,
@@ -22,12 +23,15 @@ import {
   getPlanningSessionById,
   getWorkItemsBySession,
   getSeedsBySession,
+  failActiveAttemptForCancelledJob,
   failActiveAttemptForFailedJob,
 } from "@almirant/database";
 import type { AgentJobConfig, InterruptionContext } from "@almirant/database";
+import { getTableColumns, type SQL } from "drizzle-orm";
 import { wsConnectionManager } from "../../../shared/ws/ws-connection-manager";
 import { logger } from "@almirant/config";
 import { isPreSessionStartupStuck } from "./agent-job-startup-watchdog";
+import { resolveStaleRecoveryTerminalIntent } from "./stale-job-terminal-intent";
 
 const JOB_TIMEOUT_MS = 4 * 60 * 60 * 1000; // 4 hours (must exceed runner's max overall timeout)
 const PRE_SESSION_STARTUP_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes — backend safety net; runner should kill earlier
@@ -49,6 +53,35 @@ type StaleJobRecoveryConfig = {
   intervalMs?: number;
   offlineThresholdMs?: number;
 };
+
+type RecoveryJobSnapshot = typeof agentJobs.$inferSelect & {
+  recoveryXmin: string;
+  recoveryUpdatedAt: string;
+};
+
+type StaleRecoveryPatch = Partial<
+  Omit<typeof agentJobs.$inferInsert, "config">
+> & {
+  config?: AgentJobConfig | SQL;
+};
+
+const recoveryJobSelection = {
+  job: agentJobs,
+  recoveryXmin: sql<string>`${agentJobs}.xmin::text`.as("recovery_xmin"),
+  recoveryUpdatedAt: sql<string>`${agentJobs}."updated_at"::text`.as(
+    "recovery_updated_at",
+  ),
+};
+
+const toRecoveryJobSnapshot = (row: {
+  job: typeof agentJobs.$inferSelect;
+  recoveryXmin: string;
+  recoveryUpdatedAt: string;
+}): RecoveryJobSnapshot => ({
+  ...row.job,
+  recoveryXmin: row.recoveryXmin,
+  recoveryUpdatedAt: row.recoveryUpdatedAt,
+});
 
 /** Resolve workspaceId from a workItemId via the work item's project. */
 const resolveOrgIdFromWorkItem = async (workItemId: string | null): Promise<string | null> => {
@@ -147,39 +180,59 @@ const clearAiProcessingFlagForJob = async (
 };
 
 const requeueRecoveredJob = async (
-  job: typeof agentJobs.$inferSelect,
+  job: RecoveryJobSnapshot,
   now: Date,
   reason: string,
 ): Promise<void> => {
-  const updatedConfig = {
-    ...(job.config as AgentJobConfig),
-    previousJobId: job.id,
-  };
-
   const segmentMs = job.startedAt instanceof Date
     ? Math.max(0, now.getTime() - job.startedAt.getTime())
     : 0;
   const newCumulative = (job.cumulativeDurationMs ?? 0) + segmentMs;
 
-  const [updated] = await db
-    .update(agentJobs)
-    .set({
-      status: "queued",
-      retryCount: job.retryCount + 1,
-      workerId: null,
-      startedAt: null,
-      completedAt: null,
-      failedAt: null,
-      errorMessage: null,
-      errorType: null,
-      config: updatedConfig,
-      cumulativeDurationMs: newCumulative,
-      updatedAt: now,
-    })
-    .where(eq(agentJobs.id, job.id))
-    .returning();
+  const updated = await recoverStaleJobWithReceipt(job, {
+    status: "queued",
+    retryCount: job.retryCount + 1,
+    workerId: null,
+    startedAt: null,
+    completedAt: null,
+    failedAt: null,
+    errorMessage: null,
+    errorType: null,
+    config: sql`jsonb_set(
+      ${agentJobs.config} - 'claimAttemptId',
+      '{previousJobId}',
+      to_jsonb(${job.id}::text),
+      true
+    )`,
+    cumulativeDurationMs: newCumulative,
+    updatedAt: now,
+  });
 
   if (!updated) return;
+
+  if (updated.status === "cancelled" || updated.status === "failed") {
+    await cascadeRecoveredTerminalJob(updated);
+    void broadcastStatusChanged({
+      jobId: updated.id,
+      status: updated.status,
+      workItemId: updated.workItemId ?? null,
+      workspaceId: updated.workspaceId,
+    });
+    logger.warn(
+      {
+        jobId: updated.id,
+        prevWorkerId: job.workerId,
+        terminalStatus: updated.status,
+        reason,
+      },
+      "Stale job recovery: applied pending terminal intent instead of re-queueing",
+    );
+    await clearAiProcessingFlagForJob(
+      updated,
+      "Failed to clear AI processing flag after pending terminal recovery",
+    );
+    return;
+  }
 
   void broadcastStatusChanged({ jobId: updated.id, status: updated.status, workItemId: updated.workItemId ?? null, workspaceId: updated.workspaceId });
   logger.warn(
@@ -191,32 +244,55 @@ const requeueRecoveredJob = async (
 };
 
 const resumePausedQuotaJob = async (
-  job: typeof agentJobs.$inferSelect,
+  job: RecoveryJobSnapshot,
   now: Date,
 ): Promise<void> => {
-  const updatedConfig = {
-    ...(job.config as AgentJobConfig),
-    previousJobId: (job.config as AgentJobConfig | null | undefined)?.previousJobId ?? job.id,
-  };
-
-  const [updated] = await db
-    .update(agentJobs)
-    .set({
-      status: "queued",
-      workerId: null,
-      startedAt: null,
-      completedAt: null,
-      failedAt: null,
-      availableAt: null,
-      errorMessage: null,
-      errorType: null,
-      config: updatedConfig,
-      updatedAt: now,
-    })
-    .where(eq(agentJobs.id, job.id))
-    .returning();
+  const updated = await recoverStaleJobWithReceipt(job, {
+    status: "queued",
+    workerId: null,
+    startedAt: null,
+    completedAt: null,
+    failedAt: null,
+    availableAt: null,
+    errorMessage: null,
+    errorType: null,
+    config: sql`jsonb_set(
+      ${agentJobs.config} - 'claimAttemptId',
+      '{previousJobId}',
+      to_jsonb(COALESCE(
+        ${agentJobs.config} ->> 'previousJobId',
+        ${job.id}::text
+      )),
+      true
+    )`,
+    updatedAt: now,
+  });
 
   if (!updated) return;
+
+  if (updated.status === "cancelled" || updated.status === "failed") {
+    await cascadeRecoveredTerminalJob(updated);
+    void broadcastStatusChanged({
+      jobId: updated.id,
+      status: updated.status,
+      workItemId: updated.workItemId ?? null,
+      workspaceId: updated.workspaceId,
+    });
+    logger.warn(
+      {
+        jobId: updated.id,
+        terminalStatus: updated.status,
+        workItemId: updated.workItemId,
+        workspaceId: updated.workspaceId,
+      },
+      "Stale job recovery: terminalized quota-paused job instead of re-queueing",
+    );
+    await clearAiProcessingFlagForJob(
+      updated,
+      "Failed to clear AI processing flag after terminal quota recovery",
+    );
+    return;
+  }
 
   void broadcastStatusChanged({
     jobId: updated.id,
@@ -232,25 +308,189 @@ const resumePausedQuotaJob = async (
 };
 
 /**
- * CRÍTICO 1(a): the stale-recovery sweeps fail jobs via direct
- * `db.update(agentJobs)` writes that bypass `updateJobStatus`, so they must
- * cascade to the linked bug_fix_attempt themselves — otherwise an attempt whose
- * job dies `failed` stays active ("implementing") forever and the cluster never
- * reopens. Fire-and-log: a cascade hiccup must never mask the job recovery.
+ * Fence a sweeper write to the exact row generation it selected. The explicit
+ * "no nonce" predicate is as important as matching a nonce: otherwise a
+ * legacy snapshot could overwrite a newly claimed durable generation.
+ *
+ * Ported from cloud (agent-job-repository.ts's sibling stale-job-recovery.ts)
+ * unchanged — no Shoutrz dependency.
  */
-const cascadeFailedJobToBugFixAttempt = async (jobId: string): Promise<void> => {
+const selectedJobFence = (job: RecoveryJobSnapshot) => {
+  const claimAttemptId = (job.config as AgentJobConfig | null | undefined)
+    ?.claimAttemptId;
+  return and(
+    eq(agentJobs.id, job.id),
+    eq(agentJobs.status, job.status),
+    sql`${agentJobs}.xmin::text = ${job.recoveryXmin}`,
+    sql`${agentJobs}."updated_at"::text = ${job.recoveryUpdatedAt}`,
+    job.workerId === null
+      ? isNull(agentJobs.workerId)
+      : eq(agentJobs.workerId, job.workerId),
+    job.sessionId === null
+      ? isNull(agentJobs.sessionId)
+      : eq(agentJobs.sessionId, job.sessionId),
+    job.availableAt === null
+      ? isNull(agentJobs.availableAt)
+      : eq(agentJobs.availableAt, job.availableAt),
+    typeof claimAttemptId === "string" && claimAttemptId.length > 0
+      ? sql`${agentJobs.config} ->> 'claimAttemptId' = ${claimAttemptId}`
+      : sql`COALESCE(${agentJobs.config} ->> 'claimAttemptId', '') = ''`,
+  );
+};
+
+/**
+ * Apply one stale-recovery transition to the exact selected snapshot. Durable
+ * claims lock receipt then job, and mark the immutable reservation crashed in
+ * the same transaction so a later claim always reserves above its range.
+ *
+ * Ported from cloud with the site-build execution-deadline authorization
+ * layer removed (Shoutrz only, no `site_build_runs` table in community):
+ * cloud's `authorizeStaleRecoverySuccessorAfterLock` races a `queued` patch
+ * against the deadline and can downgrade it to `failed`; here, locking the
+ * selected row generation is the only authorization a requeue needs.
+ */
+const recoverStaleJobWithReceipt = async (
+  job: RecoveryJobSnapshot,
+  patch: StaleRecoveryPatch,
+): Promise<typeof agentJobs.$inferSelect | null> => {
+  const claimAttemptId = (job.config as AgentJobConfig | null | undefined)
+    ?.claimAttemptId;
+
+  return db.transaction(async (tx) => {
+    let locked: boolean;
+    if (typeof claimAttemptId === "string" && claimAttemptId.length > 0) {
+      const [row] = await tx
+        .select({ state: agentJobClaimSequenceReceipts.state })
+        .from(agentJobClaimSequenceReceipts)
+        .innerJoin(
+          agentJobs,
+          eq(agentJobs.id, agentJobClaimSequenceReceipts.jobId),
+        )
+        .where(
+          and(
+            selectedJobFence(job),
+            eq(agentJobClaimSequenceReceipts.jobId, job.id),
+            eq(agentJobClaimSequenceReceipts.claimAttemptId, claimAttemptId),
+            job.workerId === null
+              ? isNull(agentJobClaimSequenceReceipts.workerId)
+              : eq(agentJobClaimSequenceReceipts.workerId, job.workerId),
+            inArray(agentJobClaimSequenceReceipts.state, [
+              "active",
+              "draining",
+              "ready",
+            ]),
+          ),
+        )
+        .for("update");
+      locked = Boolean(row);
+    } else {
+      const [row] = await tx
+        .select({ id: agentJobs.id })
+        .from(agentJobs)
+        .where(selectedJobFence(job))
+        .for("update");
+      locked = Boolean(row);
+    }
+    if (!locked) return null;
+
+    const terminalIntent = resolveStaleRecoveryTerminalIntent(job.config, {
+      result:
+        patch.result &&
+        typeof patch.result === "object" &&
+        !Array.isArray(patch.result)
+          ? patch.result as unknown as Record<string, unknown>
+          : undefined,
+      errorType: typeof patch.errorType === "string" ? patch.errorType : undefined,
+      errorMessage:
+        typeof patch.errorMessage === "string" ? patch.errorMessage : undefined,
+      durationMs:
+        typeof patch.durationMs === "number" ? patch.durationMs : undefined,
+    });
+    const effectivePatch = terminalIntent
+      ? {
+          ...patch,
+          status: terminalIntent.status,
+          workerId: null,
+          result: terminalIntent.result as never,
+          errorType: terminalIntent.errorType ?? null,
+          errorMessage: terminalIntent.errorMessage ?? null,
+          durationMs: terminalIntent.durationMs,
+          completedAt: terminalIntent.completedAt,
+          failedAt: terminalIntent.failedAt,
+          config: sql`${agentJobs.config} - 'claimAttemptId' - 'pendingTerminalIntent'`,
+          updatedAt: new Date(),
+        }
+      : patch;
+
+    const [updated] = await tx
+      .update(agentJobs)
+      .set(effectivePatch)
+      .where(selectedJobFence(job))
+      .returning(getTableColumns(agentJobs));
+    if (!updated) return null;
+
+    if (typeof claimAttemptId === "string" && claimAttemptId.length > 0) {
+      const [crashedReceipt] = await tx
+        .update(agentJobClaimSequenceReceipts)
+        .set({
+          state: "crashed",
+          finalizedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(agentJobClaimSequenceReceipts.jobId, job.id),
+            eq(agentJobClaimSequenceReceipts.claimAttemptId, claimAttemptId),
+            inArray(agentJobClaimSequenceReceipts.state, [
+              "active",
+              "draining",
+              "ready",
+            ]),
+          ),
+        )
+        .returning({ claimAttemptId: agentJobClaimSequenceReceipts.claimAttemptId });
+      if (!crashedReceipt) {
+        throw new Error("Claim sequence receipt changed during stale recovery");
+      }
+    }
+
+    return updated;
+  });
+};
+
+/**
+ * CRÍTICO 1(a): the stale-recovery sweeps fail/cancel jobs via
+ * `recoverStaleJobWithReceipt`, which bypasses `updateJobStatus`/
+ * `requestJobTerminalIntent`, so they must cascade to the linked
+ * bug_fix_attempt themselves — otherwise an attempt whose job dies
+ * `failed`/`cancelled` stays active ("implementing") forever and the cluster
+ * never reopens. Fire-and-log: a cascade hiccup must never mask the job
+ * recovery. Extended (community#16c) to also cascade `cancelled`, since a
+ * held `pendingTerminalIntent` applied by `recoverStaleJobWithReceipt` can
+ * now terminalize a job as `cancelled` instead of the sweep's own requested
+ * status.
+ */
+const cascadeRecoveredTerminalJob = async (
+  job: Pick<typeof agentJobs.$inferSelect, "id" | "status">,
+): Promise<void> => {
+  if (job.status !== "cancelled" && job.status !== "failed") return;
+
   try {
-    await failActiveAttemptForFailedJob(jobId);
+    if (job.status === "cancelled") {
+      await failActiveAttemptForCancelledJob(job.id);
+    } else {
+      await failActiveAttemptForFailedJob(job.id);
+    }
   } catch (err) {
     logger.warn(
-      { err, jobId },
-      "Stale job recovery: failed to cascade job failure to bug_fix_attempts"
+      { err, jobId: job.id, terminalStatus: job.status },
+      "Stale job recovery: failed to cascade terminal job to bug_fix_attempts"
     );
   }
 };
 
 const failRecoveredJob = async (
-  job: typeof agentJobs.$inferSelect,
+  job: RecoveryJobSnapshot,
   now: Date,
   params: {
     errorType: string;
@@ -265,22 +505,19 @@ const failRecoveredJob = async (
     : 0;
   const totalDuration = (job.cumulativeDurationMs ?? 0) + segmentMs;
 
-  const [updated] = await db
-    .update(agentJobs)
-    .set({
-      status: "failed",
-      failedAt: now,
-      durationMs: totalDuration > 0 ? totalDuration : undefined,
-      errorType: params.errorType,
-      errorMessage: job.errorMessage ?? params.errorMessage,
-      updatedAt: now,
-    })
-    .where(eq(agentJobs.id, job.id))
-    .returning();
+  const updated = await recoverStaleJobWithReceipt(job, {
+    status: "failed",
+    failedAt: now,
+    durationMs: totalDuration > 0 ? totalDuration : undefined,
+    errorType: params.errorType,
+    errorMessage: job.errorMessage ?? params.errorMessage,
+    config: sql`${agentJobs.config} - 'claimAttemptId'`,
+    updatedAt: now,
+  });
 
   if (!updated) return;
 
-  await cascadeFailedJobToBugFixAttempt(updated.id);
+  await cascadeRecoveredTerminalJob(updated);
 
   void broadcastStatusChanged({ jobId: updated.id, status: updated.status, workItemId: updated.workItemId ?? null, workspaceId: updated.workspaceId });
 
@@ -298,7 +535,7 @@ const failRecoveredJob = async (
 };
 
 const recoverWorkerBoundJob = async (
-  job: typeof agentJobs.$inferSelect,
+  job: RecoveryJobSnapshot,
   now: Date,
   reason: string,
 ): Promise<void> => {
@@ -336,7 +573,7 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
   // --- Offline-worker sweep: recover orphaned jobs from workers that went offline ---
   if (offlineWorkerIds.length > 0) {
     const orphaned = await db
-      .select()
+      .select(recoveryJobSelection)
       .from(agentJobs)
       .where(
         and(
@@ -348,7 +585,8 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
 
     const now = new Date();
 
-    for (const job of orphaned) {
+    for (const row of orphaned) {
+      const job = toRecoveryJobSnapshot(row);
       try {
         await recoverWorkerBoundJob(job, now, "worker registration is offline");
       } catch (err) {
@@ -361,7 +599,7 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
   try {
     const now = new Date();
     const resumablePausedJobs = await db
-      .select()
+      .select(recoveryJobSelection)
       .from(agentJobs)
       .where(
         and(
@@ -371,7 +609,8 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
         )
       );
 
-    for (const job of resumablePausedJobs) {
+    for (const row of resumablePausedJobs) {
+      const job = toRecoveryJobSnapshot(row);
       try {
         await resumePausedQuotaJob(job, now);
       } catch (err) {
@@ -386,7 +625,7 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
   try {
     const missingWorkerCutoff = new Date(Date.now() - Math.max(offlineThresholdMs, MISSING_WORKER_GRACE_MS));
     const orphaned = await db
-      .select({ job: agentJobs })
+      .select(recoveryJobSelection)
       .from(agentJobs)
       .leftJoin(workerRegistrations, eq(agentJobs.workerId, workerRegistrations.workerId))
       .where(
@@ -400,7 +639,8 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
 
     const now = new Date();
 
-    for (const { job } of orphaned) {
+    for (const row of orphaned) {
+      const job = toRecoveryJobSnapshot(row);
       try {
         await recoverWorkerBoundJob(job, now, "worker registration disappeared");
       } catch (err) {
@@ -421,8 +661,8 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
     // encoder that Drizzle's `lt()` applies. postgres-js cannot bind a Date as
     // an untyped raw parameter, so pass the ISO representation explicitly.
     const cutoffIso = cutoff.toISOString();
-    const candidateJobs = await db
-      .select()
+    const candidateJobRows = await db
+      .select(recoveryJobSelection)
       .from(agentJobs)
       .where(
         and(
@@ -439,6 +679,7 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
           )`,
         ),
       );
+    const candidateJobs = candidateJobRows.map(toRecoveryJobSnapshot);
 
     const candidateLogStates = candidateJobs.length === 0
       ? []
@@ -523,8 +764,8 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
   // --- Timeout sweep: fail jobs running longer than 4 hours ---
   try {
     const cutoff = new Date(Date.now() - JOB_TIMEOUT_MS);
-    const timedOutJobs = await db
-      .select()
+    const timedOutJobRows = await db
+      .select(recoveryJobSelection)
       .from(agentJobs)
       .where(
         and(
@@ -534,7 +775,8 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
         )
       );
 
-    for (const job of timedOutJobs) {
+    for (const row of timedOutJobRows) {
+      const job = toRecoveryJobSnapshot(row);
       try {
         const now = new Date();
         const segmentMs = job.startedAt instanceof Date
@@ -542,21 +784,18 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
           : 0;
         const totalDuration = (job.cumulativeDurationMs ?? 0) + segmentMs;
 
-        const [updated] = await db
-          .update(agentJobs)
-          .set({
-            status: "failed",
-            failedAt: now,
-            durationMs: totalDuration > 0 ? totalDuration : undefined,
-            errorType: "timeout",
-            errorMessage: `Job timed out after ${Math.round(totalDuration / 60000)} minutes`,
-            updatedAt: now,
-          })
-          .where(eq(agentJobs.id, job.id))
-          .returning();
+        const updated = await recoverStaleJobWithReceipt(job, {
+          status: "failed",
+          failedAt: now,
+          durationMs: totalDuration > 0 ? totalDuration : undefined,
+          errorType: "timeout",
+          errorMessage: `Job timed out after ${Math.round(totalDuration / 60000)} minutes`,
+          config: sql`${agentJobs.config} - 'claimAttemptId'`,
+          updatedAt: now,
+        });
 
         if (updated) {
-          await cascadeFailedJobToBugFixAttempt(updated.id);
+          await cascadeRecoveredTerminalJob(updated);
           void broadcastStatusChanged({ jobId: updated.id, status: updated.status, workItemId: updated.workItemId ?? null, workspaceId: updated.workspaceId });
           const orgId = job.workspaceId ?? await resolveOrgIdFromWorkItem(job.workItemId);
           if (orgId) {
@@ -587,8 +826,8 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
   // --- Finalizing watchdog: fail jobs stuck in post-processing too long ---
   try {
     const cutoff = new Date(Date.now() - FINALIZING_TIMEOUT_MS);
-    const stuckFinalizingJobs = await db
-      .select()
+    const stuckFinalizingJobRows = await db
+      .select(recoveryJobSelection)
       .from(agentJobs)
       .where(
         and(
@@ -597,7 +836,8 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
         )
       );
 
-    for (const job of stuckFinalizingJobs) {
+    for (const row of stuckFinalizingJobRows) {
+      const job = toRecoveryJobSnapshot(row);
       try {
         const stuckMinutes = Math.max(1, Math.round((Date.now() - job.updatedAt.getTime()) / 60000));
         await failRecoveredJob(job, new Date(), {
@@ -625,12 +865,14 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
     for (const stuckJob of stuckJobs) {
       try {
         const now = new Date();
-        const jobRow = await db
-          .select()
+        const selectedJob = await db
+          .select(recoveryJobSelection)
           .from(agentJobs)
           .where(eq(agentJobs.id, stuckJob.jobId))
           .limit(1)
           .then((rows) => rows[0]);
+
+        const jobRow = selectedJob ? toRecoveryJobSnapshot(selectedJob) : undefined;
 
         if (!jobRow || jobRow.status !== "waiting_for_input") continue;
 
@@ -641,21 +883,18 @@ export const runStaleJobRecoveryOnce = async (cfg?: StaleJobRecoveryConfig): Pro
 
         const stuckDurationMs = now.getTime() - new Date(stuckJob.latestInteractionUpdatedAt).getTime();
 
-        const [updated] = await db
-          .update(agentJobs)
-          .set({
-            status: "failed",
-            failedAt: now,
-            durationMs: totalDuration > 0 ? totalDuration : undefined,
-            errorType: "interaction-mismatch",
-            errorMessage: `Job stuck in waiting_for_input for ${Math.round(stuckDurationMs / 60000)} minutes with all interactions resolved`,
-            updatedAt: now,
-          })
-          .where(eq(agentJobs.id, stuckJob.jobId))
-          .returning();
+        const updated = await recoverStaleJobWithReceipt(jobRow, {
+          status: "failed",
+          failedAt: now,
+          durationMs: totalDuration > 0 ? totalDuration : undefined,
+          errorType: "interaction-mismatch",
+          errorMessage: `Job stuck in waiting_for_input for ${Math.round(stuckDurationMs / 60000)} minutes with all interactions resolved`,
+          config: sql`${agentJobs.config} - 'claimAttemptId'`,
+          updatedAt: now,
+        });
 
         if (updated) {
-          await cascadeFailedJobToBugFixAttempt(updated.id);
+          await cascadeRecoveredTerminalJob(updated);
           void broadcastStatusChanged({ jobId: updated.id, status: updated.status, workItemId: updated.workItemId ?? null, workspaceId: updated.workspaceId });
           const orgId = jobRow.workspaceId ?? await resolveOrgIdFromWorkItem(jobRow.workItemId);
           if (orgId) {

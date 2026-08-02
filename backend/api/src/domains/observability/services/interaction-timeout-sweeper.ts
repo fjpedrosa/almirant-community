@@ -1,6 +1,7 @@
 import {
   expireInteractions,
   updateJobStatus,
+  requestJobTerminalIntent,
   getJobById,
   cancelInteractionsByJobId,
   db,
@@ -94,7 +95,7 @@ const handleExpiredInteraction = async (interaction: ExpiredInteraction): Promis
       // Cancel any remaining pending interactions for this job
       await cancelInteractionsByJobId(jobId);
 
-      const updated = await updateJobStatus(jobId, "failed", {
+      const updated = await requestJobTerminalIntent(jobId, "failed", {
         failedAt: now,
         durationMs: durationMs ?? undefined,
         errorType: "interaction-timeout",
@@ -202,7 +203,7 @@ const handleExpiredInteraction = async (interaction: ExpiredInteraction): Promis
         "Interaction timeout: unknown action, defaulting to fail"
       );
       await cancelInteractionsByJobId(jobId);
-      const updated = await updateJobStatus(jobId, "failed", {
+      const updated = await requestJobTerminalIntent(jobId, "failed", {
         errorType: "interaction-timeout",
         errorMessage: `Interaction timed out (unknown action: ${action})`,
       });

@@ -129,6 +129,36 @@ d("stale-job-recovery → bug_fix_attempt cascade (direct-update paths)", () => 
     return id;
   };
 
+  const createPreSessionTimedOutJob = async (): Promise<string> => {
+    const id = randomUUID();
+    // max_retries: 0 forces recoverWorkerBoundJob's fail path (not requeue) —
+    // exercises the fenced-fail branch of recoverStaleJobWithReceipt, distinct
+    // from createPreSessionStuckJob's requeue-path coverage above.
+    await db.execute(sql`
+      INSERT INTO agent_jobs (
+        id, workspace_id, project_id, job_type, provider, priority,
+        status, config, coding_agent, ai_provider, model, started_at,
+        max_retries
+      )
+      VALUES (
+        ${id}, ${workspaceId}, ${projectId}, 'bug-analysis', 'claude-code',
+        'medium', 'running', '{}'::jsonb, 'claude-code', 'anthropic',
+        'claude-opus-4-7', NOW() - INTERVAL '20 minutes', 0
+      )
+    `);
+    await db.execute(sql`
+      INSERT INTO agent_job_logs (
+        job_id, org_id, seq, level, phase, event_type, message, timestamp
+      )
+      VALUES (
+        ${id}, ${workspaceId}, 1, 'info', 'serve', 'serve.ready',
+        'serve ready', NOW() - INTERVAL '20 minutes'
+      )
+    `);
+    createdIds.jobs.push(id);
+    return id;
+  };
+
   const getStatus = async (
     table: "agent_jobs" | "bug_fix_attempts",
     id: string
@@ -157,5 +187,13 @@ d("stale-job-recovery → bug_fix_attempt cascade (direct-update paths)", () => 
     await runStaleJobRecoveryOnce();
 
     expect(await getStatus("agent_jobs", jobId)).toBe("queued");
+  });
+
+  test("pre-session watchdog reads the correlated serve timestamp and recovers the job", async () => {
+    const jobId = await createPreSessionTimedOutJob();
+
+    await runStaleJobRecoveryOnce();
+
+    expect(await getStatus("agent_jobs", jobId)).toBe("failed");
   });
 });

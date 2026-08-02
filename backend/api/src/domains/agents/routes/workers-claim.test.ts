@@ -10,12 +10,19 @@ import {
 
 // ── Save real modules BEFORE mocking (prevents cross-file contamination) ──
 const __real_resolveAiKey = { ...(await import("../../ai/shared/services/resolve-ai-key")) };
+const __real_config = { ...(await import("@almirant/config")) };
+
+const configEnv = {
+  ...__real_config.env,
+  DURABLE_SEQUENCE_RECEIPTS_ENABLED: "false" as "true" | "false",
+};
 
 const state = {
   claimArgs: null as {
     workerId: string;
     count: number;
     acceptedCodingAgents?: string[];
+    protocol?: { durableSequenceReceipts: boolean };
   } | null,
   heartbeatArgs: null as {
     workerId: string;
@@ -34,8 +41,13 @@ const claimedJob = {
 
 const dbMocks = createDatabaseMocks({
   validateApiKey: async () => ({ id: "worker-api-key" }),
-  claimJobs: async (workerId: string, count: number, acceptedCodingAgents?: string[]) => {
-    state.claimArgs = { workerId, count, acceptedCodingAgents };
+  claimJobs: async (
+    workerId: string,
+    count: number,
+    acceptedCodingAgents?: string[],
+    protocol?: { durableSequenceReceipts: boolean },
+  ) => {
+    state.claimArgs = { workerId, count, acceptedCodingAgents, protocol };
     return [claimedJob];
   },
   updateHeartbeat: async (workerId: string, data: Record<string, unknown>) => {
@@ -44,6 +56,7 @@ const dbMocks = createDatabaseMocks({
 });
 
 mock.module("@almirant/database", () => dbMocks);
+mock.module("@almirant/config", () => ({ ...__real_config, env: configEnv }));
 mock.module("../../../shared/services/response", () => createResponseMocks());
 mock.module("../../../shared/ws/ws-connection-manager", () => createWsMock());
 mock.module("../../ai/shared/services/resolve-ai-key", () => ({
@@ -73,6 +86,7 @@ describe("workersRoutes POST /workers/jobs/claim", () => {
   beforeEach(() => {
     state.claimArgs = null;
     state.heartbeatArgs = null;
+    configEnv.DURABLE_SEQUENCE_RECEIPTS_ENABLED = "false";
   });
 
   it("claims jobs without acceptedCodingAgents (legacy behavior)", async () => {
@@ -101,6 +115,40 @@ describe("workersRoutes POST /workers/jobs/claim", () => {
     expect(state.claimArgs!.workerId).toBe("worker-1");
     expect(state.claimArgs!.count).toBe(3);
     expect(state.claimArgs!.acceptedCodingAgents).toBeUndefined();
+    expect(state.claimArgs!.protocol).toEqual({ durableSequenceReceipts: false });
+  });
+
+  it("keeps durable receipts disabled until the server rollout gate is enabled", async () => {
+    const { workersRoutes } = await import("./workers.routes");
+    const app = new Elysia().use(workersRoutes);
+
+    const res = await app.handle(
+      makeClaimRequest({
+        workerId: "worker-modern",
+        count: 1,
+        capabilities: ["durable.v2.receipts"],
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(state.claimArgs?.protocol).toEqual({ durableSequenceReceipts: false });
+  });
+
+  it("negotiates durable.v2.receipts only when worker capability and server gate are both enabled", async () => {
+    configEnv.DURABLE_SEQUENCE_RECEIPTS_ENABLED = "true";
+    const { workersRoutes } = await import("./workers.routes");
+    const app = new Elysia().use(workersRoutes);
+
+    const res = await app.handle(
+      makeClaimRequest({
+        workerId: "worker-modern",
+        count: 1,
+        capabilities: ["durable.v2.receipts"],
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(state.claimArgs?.protocol).toEqual({ durableSequenceReceipts: true });
   });
 
   it("forwards acceptedCodingAgents to claimJobs when provided", async () => {
@@ -186,5 +234,6 @@ describe("workersRoutes POST /workers/jobs/claim", () => {
 afterAll(() => {
   mock.restore();
   restoreRealModules();
+  mock.module("@almirant/config", () => __real_config);
   mock.module("../../ai/shared/services/resolve-ai-key", () => __real_resolveAiKey);
 });

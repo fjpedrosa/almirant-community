@@ -11,16 +11,20 @@ import {
 
 // ── Save real modules BEFORE mocking (prevents cross-file contamination) ──
 const __real_resolveAiKey = { ...(await import("../../ai/shared/services/resolve-ai-key")) };
+const __real_database = { ...(await import("@almirant/database")) };
 
 const state = {
   capturedBatch: [] as Array<Record<string, unknown>>,
   capturedTranscriptFilters: null as Record<string, unknown> | null,
+  legacyReceiptExists: false,
   job: {
     job: {
       id: "job-1",
       workItemId: "work-item-1",
       planningSessionId: null,
       workspaceId: "org-1",
+      workerId: null as string | null,
+      config: {} as Record<string, unknown>,
     },
     workItem: null,
     project: null,
@@ -32,6 +36,8 @@ const state = {
       workItemId: string | null;
       planningSessionId: string | null;
       workspaceId: string | null;
+      workerId: string | null;
+      config: Record<string, unknown>;
     };
     workItem: null;
     project: null;
@@ -53,6 +59,38 @@ const dbMocks = createDatabaseMocks({
   createAgentJobLogBatch: async (logs: Array<Record<string, unknown>>) => {
     state.capturedBatch = logs;
     return logs.map((entry, idx) => ({
+      id: `log-${idx + 1}`,
+      ...entry,
+      createdAt: new Date(),
+    }));
+  },
+  persistReceiptFreeLegacyAgentJobLogs: async (
+    logs: Array<Record<string, unknown>>,
+  ) => {
+    if (state.legacyReceiptExists) {
+      throw new __real_database.ClaimSequenceReceiptConflictError();
+    }
+    state.capturedBatch = logs;
+    return logs.map((entry, idx) => ({
+      id: `legacy-log-${idx + 1}`,
+      ...entry,
+      createdAt: new Date(),
+    }));
+  },
+  persistFencedAgentJobLogs: async (input: {
+    workerId: string;
+    claimAttemptId: string;
+    logs: Array<Record<string, unknown>>;
+  }) => {
+    if (
+      !state.job ||
+      state.job.job.workerId !== input.workerId ||
+      state.job.job.config.claimAttemptId !== input.claimAttemptId
+    ) {
+      throw new __real_database.ClaimSequenceReceiptConflictError();
+    }
+    state.capturedBatch = input.logs;
+    return input.logs.map((entry, idx) => ({
       id: `log-${idx + 1}`,
       ...entry,
       createdAt: new Date(),
@@ -108,12 +146,15 @@ describe("workersRoutes /jobs/:jobId/logs", () => {
   beforeEach(() => {
     state.capturedBatch = [];
     state.capturedTranscriptFilters = null;
+    state.legacyReceiptExists = false;
     state.job = {
       job: {
         id: "job-1",
         workItemId: "work-item-1",
         planningSessionId: null,
         workspaceId: "org-1",
+        workerId: null,
+        config: {},
       },
       workItem: null,
       project: null,
@@ -170,6 +211,33 @@ describe("workersRoutes /jobs/:jobId/logs", () => {
     expect(nested.safe).toBe("ok");
   });
 
+  it("rejects logs from a stale claim generation", async () => {
+    if (!state.job) throw new Error("expected job fixture");
+    state.job.job.workerId = "worker-1";
+    state.job.job.config = { claimAttemptId: "attempt-current" };
+    const { workersRoutes } = await import("./workers.routes");
+    const app = new Elysia().use(workersRoutes);
+
+    const res = await app.handle(
+      makeRequest({
+        workerId: "worker-1",
+        expectedClaimAttemptId: "attempt-stale",
+        logs: [
+          {
+            seq: 11,
+            phase: "session",
+            eventType: "agent.text",
+            message: "stale",
+            timestamp: "2026-03-05T01:00:00.000Z",
+          },
+        ],
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    expect(state.capturedBatch).toEqual([]);
+  });
+
   it("returns 400 when a log timestamp is invalid", async () => {
     const { workersRoutes } = await import("./workers.routes");
     const app = new Elysia().use(workersRoutes);
@@ -191,6 +259,27 @@ describe("workersRoutes /jobs/:jobId/logs", () => {
 
     expect(res.status).toBe(400);
     expect(state.capturedBatch).toHaveLength(0);
+  });
+
+  it("rejects a legacy log batch once a durable receipt exists", async () => {
+    state.legacyReceiptExists = true;
+    const { workersRoutes } = await import("./workers.routes");
+    const app = new Elysia().use(workersRoutes);
+
+    const res = await app.handle(
+      makeRequest({
+        logs: [{
+          seq: 2,
+          phase: "legacy",
+          eventType: "legacy.log",
+          message: "must be fenced",
+          timestamp: "2026-03-05T01:00:00.000Z",
+        }],
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    expect(state.capturedBatch).toEqual([]);
   });
 
   it("returns 400 when batch size exceeds max limit", async () => {
