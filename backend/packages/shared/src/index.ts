@@ -15,4 +15,5 @@ export * from "./cluster-investigation-context";
 export * from "./debug-context";
 export * from "./internal-skills";
 export * from "./runner-mcp-config";
+export * from "./agent-plugin-bundle";
 export * from "./extensions";
