@@ -35,6 +35,7 @@ export * from "./ideation/planning-session-repository";
 // ── agents ──
 export * from "./agents/agent-job-repository";
 export * from "./agents/agent-job-log-repository";
+export * from "./agents/claim-sequence-receipt-repository";
 export * from "./agents/agent-observation-repository";
 export * from "./agents/agent-memory-telemetry-repository";
 export * from "./agents/worker-interaction-repository";

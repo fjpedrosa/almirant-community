@@ -16,14 +16,15 @@ export const insertAgentNativeEventsBatch = async (
 ): Promise<number> => {
   if (events.length === 0) return 0;
 
-  await db
+  const inserted = await db
     .insert(agentNativeEvents)
     .values(events)
     .onConflictDoNothing({
       target: [agentNativeEvents.agentJobId, agentNativeEvents.sequenceNum],
-    });
+    })
+    .returning({ id: agentNativeEvents.id });
 
-  return events.length;
+  return inserted.length;
 };
 
 export const getAgentNativeEventsByJobId = async (

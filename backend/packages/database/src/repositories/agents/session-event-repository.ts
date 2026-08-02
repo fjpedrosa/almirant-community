@@ -1,5 +1,8 @@
 import { db } from "../../client";
-import { sessionEvents } from "../../schema";
+import {
+  DURABLE_SESSION_EVENT_CONFLICT_PREDICATE,
+  sessionEvents,
+} from "../../schema";
 import { eq, and, gt, inArray, asc } from "drizzle-orm";
 import type { NewSessionEvent, SessionEventDb } from "../../schema/session-events";
 
@@ -20,53 +23,37 @@ export const insertSessionEvent = async (
 };
 
 /**
- * Batch-insert session events, deduplicating by (agentJobId, sequenceNum)
- * within the batch and against existing rows. Only the first occurrence of
- * each sequence number is kept.
+ * Batch-insert session events. Legacy producer sequences were process-local,
+ * so repeated (agentJobId, sequenceNum) values are preserved. Explicit
+ * durable.v2 events are deduplicated within the batch and PostgreSQL atomically
+ * suppresses concurrent redelivery through the matching partial unique index.
  */
 export const insertSessionEventsBatch = async (
   events: NewSessionEvent[],
 ): Promise<number> => {
   if (events.length === 0) return 0;
 
-  // Deduplicate within the batch: keep the first event per (agentJobId, sequenceNum)
-  const seen = new Set<string>();
+  const seenDurableSequences = new Set<string>();
   const deduplicated: NewSessionEvent[] = [];
   for (const event of events) {
-    const key = `${event.agentJobId}:${event.sequenceNum}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      deduplicated.push(event);
+    if (event.sequenceProtocolVersion === "durable.v2") {
+      const key = `${event.agentJobId}:${event.sequenceNum}`;
+      if (seenDurableSequences.has(key)) continue;
+      seenDurableSequences.add(key);
     }
+    deduplicated.push(event);
   }
 
-  const byJob = new Map<string, NewSessionEvent[]>();
-  for (const event of deduplicated) {
-    const existing = byJob.get(event.agentJobId) ?? [];
-    existing.push(event);
-    byJob.set(event.agentJobId, existing);
-  }
+  const inserted = await db
+    .insert(sessionEvents)
+    .values(deduplicated)
+    .onConflictDoNothing({
+      target: [sessionEvents.agentJobId, sessionEvents.sequenceNum],
+      where: DURABLE_SESSION_EVENT_CONFLICT_PREDICATE,
+    })
+    .returning({ id: sessionEvents.id });
 
-  const insertable: NewSessionEvent[] = [];
-  for (const [agentJobId, jobEvents] of byJob.entries()) {
-    const sequences = jobEvents.map((event) => event.sequenceNum);
-    const existingRows = await db
-      .select({ sequenceNum: sessionEvents.sequenceNum })
-      .from(sessionEvents)
-      .where(and(
-        eq(sessionEvents.agentJobId, agentJobId),
-        inArray(sessionEvents.sequenceNum, sequences),
-      ));
-    const existingSequences = new Set(existingRows.map((row) => row.sequenceNum));
-    insertable.push(
-      ...jobEvents.filter((event) => !existingSequences.has(event.sequenceNum)),
-    );
-  }
-
-  if (insertable.length === 0) return 0;
-
-  await db.insert(sessionEvents).values(insertable);
-  return insertable.length;
+  return inserted.length;
 };
 
 export const getSessionEventsByJobId = async (

@@ -36,6 +36,7 @@ const canonicalEvents = [
     agentJobId: "job-1",
     planningSessionId: completedSession.id,
     sequenceNum: 1,
+    sequenceProtocolVersion: null,
     kind: "agent.text",
     payload: { kind: "agent.text", content: "hola" },
     provider: "codex",
