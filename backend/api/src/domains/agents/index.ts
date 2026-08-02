@@ -10,6 +10,7 @@ import { skillsRoutes } from "./routes/skills.routes";
 import { skillsSyncRoutes } from "./routes/skills-sync.routes";
 import { memoryRoutes } from "./routes/memory.routes";
 import { agentConnectionsRoutes } from "./routes/agent-connections.routes";
+import { agentToolingRoutes } from "./routes/agent-tooling.routes";
 
 export const agentsModule = {
   /** API key auth routes — mounted at root level (no session auth) */
@@ -26,6 +27,7 @@ export const agentsModule = {
     new Elysia()
       .use(agentJobsRoutes)
       .use(scheduledAgentRunsRoutes)
+      .use(agentToolingRoutes)
       .use(scheduledAgentsRoutes)
       .use(skillsRoutes)
       .use(memoryRoutes)

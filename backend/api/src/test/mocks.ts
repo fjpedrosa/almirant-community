@@ -544,6 +544,14 @@ export const createResponseMocks = () => ({
     ...(code ? { code } : {}),
   }),
   notFoundResponse: (resource: string = "Resource") => ({ success: false, error: `${resource} not found` }),
+  // Mirrors the real `internalErrorResponse`: never echoes the caught error's
+  // message into the body, regardless of what the test's mocked dependency
+  // throws — this is the behavior the sanitization fix (issue #55) relies on.
+  internalErrorResponse: (
+    _error: unknown,
+    _logContext: Record<string, unknown>,
+    fallback: string = "Internal server error",
+  ) => ({ success: false, error: fallback }),
   parsePaginationParams: (query: Record<string, string | undefined>) => ({
     page: Math.max(1, parseInt(query.page || "1")),
     limit: Math.min(100, Math.max(1, parseInt(query.limit || "50"))),
