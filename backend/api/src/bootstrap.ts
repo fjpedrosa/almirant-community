@@ -23,6 +23,7 @@ import { defaultActivityLogger } from "./infrastructure/extensions/default-activ
 import { scalerMetricsRunnerOrchestrator } from "./infrastructure/extensions/scaler-metrics-runner-orchestrator";
 import { defaultAuthProviderRegistry } from "./infrastructure/extensions/default-auth-provider-registry";
 import { defaultFeedbackProcessor } from "./infrastructure/extensions/default-feedback-processor";
+import { registerCloudExtensions } from "./cloud/bootstrap-extensions";
 
 export function bootstrapExtensions(): void {
   setPermissionChecker(defaultPermissionChecker);
@@ -30,6 +31,10 @@ export function bootstrapExtensions(): void {
   setRunnerOrchestrator(scalerMetricsRunnerOrchestrator);
   setAuthProviders(defaultAuthProviderRegistry);
   setFeedbackProcessor(defaultFeedbackProcessor);
+  // Extension point for downstream distributions (e.g. Almirant Cloud) to
+  // register additional implementations. Inert by default — see
+  // src/cloud/bootstrap-extensions.ts.
+  registerCloudExtensions();
 }
 
 /**

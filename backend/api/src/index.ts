@@ -38,6 +38,7 @@ import { webhooksModule } from "./domains/webhooks";
 import { agentsModule } from "./domains/agents";
 import { instanceModule } from "./domains/instance";
 import { storageModule } from "./domains/storage";
+import { cloudRoutes } from "./cloud/route-registration";
 import { handbookModule } from "./domains/handbook";
 import { wsHandler } from "./shared/ws/ws-handler";
 import { startBackgroundJobs } from "./background";
@@ -271,6 +272,10 @@ const app = new Elysia({
       .use(billingModule.protected())
       .use(documentsModule.uploads())
   )
+  // Extension point for downstream distributions (e.g. Almirant Cloud) to
+  // mount additional routes. Inert by default — see
+  // src/cloud/route-registration.ts.
+  .use(cloudRoutes)
   // ─── MCP request tracking & timeout middleware ──────────────────────────────
   // Tracks active MCP requests for the /mcp/health diagnostic endpoint
   // and enforces a request-level timeout to prevent hung tool calls from
