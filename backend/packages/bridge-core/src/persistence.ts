@@ -129,10 +129,30 @@ type ApiPersistenceStrategyConfig = {
   log: PersistenceLogger;
   persistSessionEvents?: boolean;
   persistNativeEvents?: boolean;
+  /** Overridable for tests; 0 flushes on the next macrotask. */
+  durableNativeWindowMs?: number;
+  durableNativeMaxEvents?: number;
+  durableNativeMaxBytes?: number;
 };
 
 const EVENT_FLUSH_INTERVAL_MS = 500;
 const EVENT_BATCH_SIZE = 20;
+
+// Durable native batching. The window is two orders of magnitude below
+// EVENT_FLUSH_INTERVAL_MS on purpose: the last partial batch of a job delays its
+// finalization, and the real budget there is the slack the runner leaves before
+// the control plane's finalizing watchdog fires — not the watchdog itself, which
+// measures a column no event write refreshes. With page concurrency the window is
+// rarely the trigger anyway, because a page's native events arrive within a
+// millisecond or two of each other and the size cap fires first.
+const DURABLE_NATIVE_WINDOW_MS = 10;
+const DURABLE_NATIVE_MAX_EVENTS = 250;
+// Measured on live jobs: the largest native payload seen is ~37 KB, p99.9 is
+// ~2.3 KB. A 1 MiB cap is far above the largest event ever observed and far below
+// the server's body limit, so a batch can never turn a slow write into a 413 —
+// which is not retryable, and would mean the DLQ plus a receipt parity the runner
+// can never reach.
+const DURABLE_NATIVE_MAX_BYTES = 1_048_576;
 
 const wait = (ms: number) =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -540,6 +560,156 @@ export const createNativeEventBatcher = (
   };
 };
 
+type DurableNativeWaiter = {
+  event: NativeEventPayload;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+};
+
+type DurableNativeBuffer = {
+  waiters: DurableNativeWaiter[];
+  bytes: number;
+  timer: ReturnType<typeof setTimeout> | null;
+};
+
+const estimateNativeEventBytes = (event: NativeEventPayload): number => {
+  try {
+    return JSON.stringify(event.payload).length;
+  } catch {
+    return DURABLE_NATIVE_MAX_BYTES;
+  }
+};
+
+/**
+ * Batch-and-await collector for durable.v2 native events.
+ *
+ * An in-memory batch is still not durability: every caller stays parked until the
+ * API confirms the insert for the batch carrying ITS event, so the
+ * reader-owned ACK continues to follow the database write. The only thing that
+ * changes is how many rows travel per request — and that is the entire cost.
+ * Measured on a live job: ~49ms fixed per request against ~0.3-0.9ms per row, so
+ * 34,935 one-row requests took 441s of draining after the agent had finished.
+ *
+ * Grouping is per (jobId, claimAttemptId) because the route rejects a batch that
+ * mixes durable and legacy events and the repository rejects one that crosses
+ * jobs. A badly grouped batch would not degrade gracefully — it would go to the
+ * dead-letter queue whole, with no retry.
+ */
+const createDurableNativeCollector = (config: {
+  apiClient: BridgeApiClient;
+  log: PersistenceLogger;
+  windowMs: number;
+  maxEvents: number;
+  maxBytes: number;
+}) => {
+  const { apiClient, log, windowMs, maxEvents, maxBytes } = config;
+  const buffers = new Map<string, DurableNativeBuffer>();
+
+  const flush = async (key: string, jobId: string): Promise<void> => {
+    const buffer = buffers.get(key);
+    if (!buffer) return;
+    // Detach before the first await. A concurrent add() then starts a fresh
+    // buffer with its own timer, so no event can be appended to a batch already
+    // in flight and none can be dropped between the two.
+    buffers.delete(key);
+    if (buffer.timer) clearTimeout(buffer.timer);
+    const waiters = buffer.waiters;
+    if (waiters.length === 0) return;
+
+    const pending = new Set(waiters);
+    const settle = (
+      group: Iterable<DurableNativeWaiter>,
+      error?: unknown,
+    ): void => {
+      for (const waiter of [...group]) {
+        if (!pending.delete(waiter)) continue;
+        if (error === undefined) waiter.resolve();
+        else waiter.reject(error);
+      }
+    };
+
+    try {
+      // Two entries can carry the same sequence: recovery feeds the same
+      // processing path and a reclaimed redelivery can land beside its original.
+      // Send one row per sequence — mirroring what the session path already does
+      // in the repository and the native path does not — and settle every waiter
+      // for that sequence with the outcome of that single row. The receipt
+      // counter stays exact because it comes from the INSERT's RETURNING, never
+      // from the length of the batch we sent.
+      const bySequence = new Map<number, DurableNativeWaiter[]>();
+      for (const waiter of waiters) {
+        const group = bySequence.get(waiter.event.sequenceNum);
+        if (group) group.push(waiter);
+        else bySequence.set(waiter.event.sequenceNum, [waiter]);
+      }
+      const events = [...bySequence.values()].map((group) => group[0]!.event);
+
+      try {
+        await apiClient.persistNativeEvents(jobId, events);
+        settle(waiters);
+        return;
+      } catch (error) {
+        if (events.length === 1 || isRetryablePersistenceError(error)) {
+          // Retryable: reject everyone. The entries stay pending in Redis and
+          // recovery redelivers them. A batch that committed but whose response
+          // was lost re-inserts zero rows and adds zero to the counter, so the
+          // retry is idempotent in the direction that matters.
+          settle(waiters, error);
+          return;
+        }
+        // The fence is all-or-nothing, so a non-retryable batch rejection says
+        // nothing about WHICH event was refused. Re-send one row at a time so
+        // only the offending event is quarantined: the dead-letter blast radius
+        // stays exactly what it is today, one event, instead of taking N-1
+        // healthy siblings down with it.
+        log("warn", "durable native batch rejected; isolating per event", {
+          jobId,
+          count: events.length,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        for (const group of bySequence.values()) {
+          try {
+            await apiClient.persistNativeEvents(jobId, [group[0]!.event]);
+            settle(group);
+          } catch (individualError) {
+            settle(group, individualError);
+          }
+        }
+      }
+    } finally {
+      // No waiter may be left parked. The reader would never ACK its entry and
+      // drain() would never return, hanging shutdown until it is killed.
+      settle(pending, new Error("durable native batch flush did not settle"));
+    }
+  };
+
+  return {
+    add: (
+      jobId: string,
+      claimAttemptId: string,
+      event: NativeEventPayload,
+    ): Promise<void> =>
+      new Promise<void>((resolve, reject) => {
+        const key = `${jobId} ${claimAttemptId}`;
+        let buffer = buffers.get(key);
+        if (!buffer) {
+          buffer = { waiters: [], bytes: 0, timer: null };
+          buffers.set(key, buffer);
+        }
+        buffer.waiters.push({ event, resolve, reject });
+        buffer.bytes += estimateNativeEventBytes(event);
+
+        if (buffer.waiters.length >= maxEvents || buffer.bytes >= maxBytes) {
+          void flush(key, jobId);
+          return;
+        }
+        if (!buffer.timer) {
+          buffer.timer = setTimeout(() => void flush(key, jobId), windowMs);
+        }
+      }),
+  };
+};
+
 export const createApiPersistenceStrategy = (
   config: ApiPersistenceStrategyConfig,
 ): EventPersistenceStrategy => {
@@ -549,6 +719,15 @@ export const createApiPersistenceStrategy = (
     : null;
   const nativeEventBatcher = persistNativeEvents
     ? createNativeEventBatcher(apiClient, log)
+    : null;
+  const durableNativeCollector = persistNativeEvents
+    ? createDurableNativeCollector({
+        apiClient,
+        log,
+        windowMs: config.durableNativeWindowMs ?? DURABLE_NATIVE_WINDOW_MS,
+        maxEvents: config.durableNativeMaxEvents ?? DURABLE_NATIVE_MAX_EVENTS,
+        maxBytes: config.durableNativeMaxBytes ?? DURABLE_NATIVE_MAX_BYTES,
+      })
     : null;
 
   return {
@@ -626,7 +805,18 @@ export const createApiPersistenceStrategy = (
     persistNativeEvent: async (event, context) => {
       if (!nativeEventBatcher) return;
       if (event.sequenceProtocolVersion === "durable.v2") {
-        await apiClient.persistNativeEvents(context.jobId, [event]);
+        const claimAttemptId = event.claimAttemptId?.trim();
+        if (!claimAttemptId || !durableNativeCollector) {
+          // The route refuses a durable event without a claim attempt id. Keep
+          // it on the single-event path so a malformed envelope behaves exactly
+          // as it does today and can never poison a healthy batch.
+          await apiClient.persistNativeEvents(context.jobId, [event]);
+          return;
+        }
+        // Still one awaited round trip from the handler's point of view: this
+        // resolves only once the API has confirmed the batch carrying THIS
+        // event, so the reader-owned ACK still follows the database write.
+        await durableNativeCollector.add(context.jobId, claimAttemptId, event);
         return;
       }
       nativeEventBatcher.add(context.jobId, event);

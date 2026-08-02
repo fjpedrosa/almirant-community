@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  PersistenceRequestError,
   createBridgeApiClient,
   createApiPersistenceStrategy,
   type BridgeApiClient,
@@ -232,6 +233,9 @@ describe("durable canonical persistence", () => {
       apiClient,
       log: () => undefined,
       persistNativeEvents: true,
+      // The batch window is what makes several events share one request; 0 sends
+      // it on the next macrotask so the test does not wait on a real timer.
+      durableNativeWindowMs: 0,
     });
     const event: NativeEventPayload = {
       sequenceNum: 2,
@@ -248,7 +252,7 @@ describe("durable canonical persistence", () => {
     }).then(() => {
       settled = true;
     });
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(persisted).toEqual([event]);
     expect(settled).toBe(false);
 
@@ -347,5 +351,216 @@ describe("durable canonical persistence", () => {
       ]),
     ).rejects.toMatchObject({ retryable: false, status: 409 });
     expect(calls).toBe(1);
+  });
+});
+
+describe("durable native batching", () => {
+  const nativeEvent = (
+    overrides: Partial<NativeEventPayload> = {},
+  ): NativeEventPayload => ({
+    sequenceNum: 1,
+    sequenceProtocolVersion: "durable.v2",
+    claimAttemptId: "attempt-1",
+    nativeEventType: "message.part.updated",
+    sourceFormat: "sse",
+    payload: { type: "message.part.updated" },
+    ...overrides,
+  });
+
+  const collectingClient = (
+    onPersist?: (events: NativeEventPayload[]) => void,
+  ): { apiClient: BridgeApiClient; calls: number[][] } => {
+    const calls: number[][] = [];
+    const apiClient: BridgeApiClient = {
+      checkCredential: async () => undefined,
+      updateJobStatus: async () => undefined,
+      persistSessionEvents: async () => ({ inserted: 0 }),
+      persistNativeEvents: async (_jobId, events) => {
+        calls.push(events.map((event) => event.sequenceNum));
+        onPersist?.(events);
+      },
+    };
+    return { apiClient, calls };
+  };
+
+  const strategyFor = (apiClient: BridgeApiClient) =>
+    createApiPersistenceStrategy({
+      apiClient,
+      log: () => undefined,
+      persistNativeEvents: true,
+      durableNativeWindowMs: 0,
+    });
+
+  it("carries a whole page of native events in one request", async () => {
+    // This is the entire point: 34,935 one-row requests cost 441s of draining
+    // after the agent had already finished, at ~49ms fixed per request.
+    const { apiClient, calls } = collectingClient();
+    const strategy = strategyFor(apiClient);
+
+    await Promise.all(
+      [1, 2, 3, 4, 5].map((sequenceNum) =>
+        strategy.persistNativeEvent(nativeEvent({ sequenceNum }), {
+          jobId: "job-1",
+        }),
+      ),
+    );
+
+    expect(calls).toEqual([[1, 2, 3, 4, 5]]);
+  });
+
+  it("isolates a non-retryable batch rejection to the offending event", async () => {
+    // The fence is all-or-nothing, so a rejected batch does not say which event
+    // was refused. Without per-event isolation one poisoned event would drag its
+    // healthy siblings to the dead-letter queue with it.
+    const calls: number[][] = [];
+    const apiClient: BridgeApiClient = {
+      checkCredential: async () => undefined,
+      updateJobStatus: async () => undefined,
+      persistSessionEvents: async () => ({ inserted: 0 }),
+      persistNativeEvents: async (_jobId, events) => {
+        calls.push(events.map((event) => event.sequenceNum));
+        if (events.length > 1 || events[0]!.sequenceNum === 2) {
+          throw new PersistenceRequestError("Job claim is no longer active", {
+            retryable: false,
+            status: 409,
+          });
+        }
+      },
+    };
+    const strategy = strategyFor(apiClient);
+
+    const results = await Promise.allSettled(
+      [1, 2, 3].map((sequenceNum) =>
+        strategy.persistNativeEvent(nativeEvent({ sequenceNum }), {
+          jobId: "job-1",
+        }),
+      ),
+    );
+
+    expect(calls).toEqual([[1, 2, 3], [1], [2], [3]]);
+    // Only the refused event rejects, so only its entry is quarantined; the
+    // other two resolve and the reader acknowledges them as it does today.
+    expect(results.map((result) => result.status)).toEqual([
+      "fulfilled",
+      "rejected",
+      "fulfilled",
+    ]);
+  });
+
+  it("sends one row per sequence and resolves every waiter for it", async () => {
+    // Recovery and a reclaimed redelivery can both present the same sequence.
+    // Duplicated rows insert nothing and add nothing to the receipt counter, so
+    // sending them would be waste; failing to settle their waiters would hang
+    // the reader instead.
+    const { apiClient, calls } = collectingClient();
+    const strategy = strategyFor(apiClient);
+
+    await Promise.all([
+      strategy.persistNativeEvent(nativeEvent({ sequenceNum: 5 }), {
+        jobId: "job-1",
+      }),
+      strategy.persistNativeEvent(nativeEvent({ sequenceNum: 5 }), {
+        jobId: "job-1",
+      }),
+      strategy.persistNativeEvent(nativeEvent({ sequenceNum: 6 }), {
+        jobId: "job-1",
+      }),
+    ]);
+
+    expect(calls).toEqual([[5, 6]]);
+  });
+
+  it("never mixes jobs or claim attempts in one request", async () => {
+    // The route refuses a batch mixing durable and legacy, and the repository
+    // refuses one crossing jobs — both non-retryable, so a mixed body would go
+    // to the dead-letter queue whole.
+    const { apiClient, calls } = collectingClient();
+    const strategy = strategyFor(apiClient);
+
+    await Promise.all([
+      strategy.persistNativeEvent(nativeEvent({ sequenceNum: 1 }), {
+        jobId: "job-1",
+      }),
+      strategy.persistNativeEvent(
+        nativeEvent({ sequenceNum: 2, claimAttemptId: "attempt-2" }),
+        { jobId: "job-1" },
+      ),
+      strategy.persistNativeEvent(nativeEvent({ sequenceNum: 3 }), {
+        jobId: "job-2",
+      }),
+    ]);
+
+    expect(calls).toHaveLength(3);
+    expect(calls.flat().sort()).toEqual([1, 2, 3]);
+  });
+
+  it("does not retry per event when the batch failure is retryable", async () => {
+    // A retryable failure leaves every entry pending in Redis, which is the
+    // durable retry ledger. Retrying inside the flush would spend requests on
+    // work the reader is already going to redeliver.
+    const calls: number[][] = [];
+    const apiClient: BridgeApiClient = {
+      checkCredential: async () => undefined,
+      updateJobStatus: async () => undefined,
+      persistSessionEvents: async () => ({ inserted: 0 }),
+      persistNativeEvents: async (_jobId, events) => {
+        calls.push(events.map((event) => event.sequenceNum));
+        throw new PersistenceRequestError("upstream unavailable", {
+          retryable: true,
+          status: 503,
+        });
+      },
+    };
+    const strategy = strategyFor(apiClient);
+
+    const results = await Promise.allSettled(
+      [1, 2, 3].map((sequenceNum) =>
+        strategy.persistNativeEvent(nativeEvent({ sequenceNum }), {
+          jobId: "job-1",
+        }),
+      ),
+    );
+
+    expect(calls).toEqual([[1, 2, 3]]);
+    expect(results.every((result) => result.status === "rejected")).toBe(true);
+  });
+
+  it("keeps an envelope without a claim attempt id on the single-event path", async () => {
+    // The route refuses such an event. Batching it would let one malformed
+    // envelope reject a body full of healthy siblings.
+    const { apiClient, calls } = collectingClient();
+    const strategy = strategyFor(apiClient);
+
+    await Promise.all([
+      strategy.persistNativeEvent(
+        nativeEvent({ sequenceNum: 1, claimAttemptId: undefined }),
+        { jobId: "job-1" },
+      ),
+      strategy.persistNativeEvent(nativeEvent({ sequenceNum: 2 }), {
+        jobId: "job-1",
+      }),
+    ]);
+
+    expect(calls).toContainEqual([1]);
+    expect(calls).toContainEqual([2]);
+  });
+
+  it("flushes on the byte ceiling before the window elapses", async () => {
+    const { apiClient, calls } = collectingClient();
+    const strategy = createApiPersistenceStrategy({
+      apiClient,
+      log: () => undefined,
+      persistNativeEvents: true,
+      // A window long enough that only the ceiling can be what flushed.
+      durableNativeWindowMs: 10_000,
+      durableNativeMaxBytes: 64,
+    });
+
+    await strategy.persistNativeEvent(
+      nativeEvent({ sequenceNum: 1, payload: { blob: "x".repeat(256) } }),
+      { jobId: "job-1" },
+    );
+
+    expect(calls).toEqual([[1]]);
   });
 });
