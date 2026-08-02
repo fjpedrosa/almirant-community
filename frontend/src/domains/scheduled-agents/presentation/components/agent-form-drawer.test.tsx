@@ -1,9 +1,22 @@
-import { describe, expect, it, beforeAll } from "bun:test";
+import { describe, expect, it, beforeAll, mock } from "bun:test";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Window } from "happy-dom";
 import { useForm, useWatch } from "react-hook-form";
-import { AgentFormDrawer } from "./agent-form-drawer";
+
+// This drawer has no i18n coverage today except for the 'once' strings
+// introduced alongside this test — see messages/{en,es}.json under
+// "scheduledAgents.once". Returning the raw key (with any params inlined)
+// keeps assertions readable without a real NextIntlClientProvider.
+mock.module("next-intl", () => ({
+  useTranslations: () =>
+    (key: string, values?: Record<string, string | number>) => {
+      if (!values) return key;
+      return `${key}:${JSON.stringify(values)}`;
+    },
+}));
+
+const { AgentFormDrawer } = await import("./agent-form-drawer");
 import type {
   AgentFormDrawerProps,
   AgentMcpServer,
@@ -98,11 +111,19 @@ const Harness = ({
   mcpServers = [],
   selectedPluginIds = [],
   selectedMcpServerIds = [],
+  scheduleType = "manual",
+  onceRunAtLocal = "",
+  lastRunAt = null,
+  onceRunAtPastWarning = false,
 }: {
   plugins?: AgentPlugin[];
   mcpServers?: AgentMcpServer[];
   selectedPluginIds?: string[];
   selectedMcpServerIds?: string[];
+  scheduleType?: "manual" | "time_window" | "cron" | "once";
+  onceRunAtLocal?: string;
+  lastRunAt?: string | null;
+  onceRunAtPastWarning?: boolean;
 } = {}) => {
   const form = useForm({
     defaultValues: {
@@ -113,7 +134,8 @@ const Harness = ({
       aiProvider: "",
       aiModel: "",
       reasoningLevel: undefined,
-      scheduleType: "manual",
+      scheduleType,
+      onceRunAtLocal,
       trigger: "scheduled",
       selectedPluginIds,
       selectedMcpServerIds,
@@ -143,7 +165,7 @@ const Harness = ({
     selectedPluginIds: watchedSelectedPluginIds,
     selectedMcpServerIds: watchedSelectedMcpServerIds,
     projects: [],
-    scheduleType: "manual",
+    scheduleType,
     trigger: "scheduled",
     availableProviders: [],
     availableModels: [],
@@ -161,6 +183,8 @@ const Harness = ({
     isLoadingBacklogDrainPreview: false,
     webhookProposal: null,
     isLoadingWebhookProposal: false,
+    lastRunAt,
+    onceRunAtPastWarning,
   };
 
   return <AgentFormDrawer {...props} />;
@@ -303,5 +327,36 @@ describe("AgentFormDrawer MCP servers and plugins selection", () => {
 
     fireEvent.click(checkbox);
     expect(checkbox.getAttribute("aria-checked")).toBe("false");
+  });
+});
+
+describe("AgentFormDrawer once schedule", () => {
+  it("shows the 'Run at' picker when the schedule type is 'once'", async () => {
+    const user = userEvent.setup();
+    render(<Harness scheduleType="once" />);
+
+    expect(screen.getByText("once.runAtLabel")).toBeInTheDocument();
+    expect(screen.getByText("once.runAtDescription")).toBeInTheDocument();
+    // No lastRunAt / past-date warning by default.
+    expect(screen.queryByText("once.rearmHint")).not.toBeInTheDocument();
+    expect(screen.queryByText("once.pastWarning")).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("once.runAtLabel"), "2026-08-15T14:30");
+    expect(screen.getByLabelText("once.runAtLabel")).toHaveValue("2026-08-15T14:30");
+  });
+
+  it("shows a NON-blocking warning when the picked date/time has already passed", () => {
+    render(<Harness scheduleType="once" onceRunAtPastWarning />);
+    expect(screen.getByText("once.pastWarning")).toBeInTheDocument();
+  });
+
+  it("shows the re-arm hint when editing an already-executed 'once' agent (lastRunAt is set)", () => {
+    render(<Harness scheduleType="once" lastRunAt="2026-04-10T09:00:05.000Z" />);
+    expect(screen.getByText("once.rearmHint")).toBeInTheDocument();
+  });
+
+  it("does NOT show the re-arm hint when the 'once' agent has not run yet", () => {
+    render(<Harness scheduleType="once" lastRunAt={null} />);
+    expect(screen.queryByText("once.rearmHint")).not.toBeInTheDocument();
   });
 });

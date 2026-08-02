@@ -3,10 +3,6 @@ import { getReasoningEffortOptions } from "@/lib/ai-model-reasoning";
 
 // Enums / literals
 export type ScheduleType = "manual" | "time_window" | "cron" | "once";
-
-// Steps of the New/Edit Agent wizard drawer. Shared between the drawer's
-// props (initialStep, to jump straight to a step) and the drawer itself.
-export type AgentWizardStep = "base" | "prompt" | "mcp" | "trigger";
 export type AgentTrigger = "scheduled" | "webhook";
 
 export type AgentJobType =
@@ -522,8 +518,6 @@ export interface AgentFormDrawerProps {
   lastRunAt: string | null;
   /** True when the picked 'once' date/time is already in the past — a non-blocking warning, never a validation error. */
   onceRunAtPastWarning: boolean;
-  /** Step the drawer opens on. Defaults to "base"; the list's re-arm action opens directly on "trigger". */
-  initialStep?: AgentWizardStep;
 }
 
 export interface ScheduledAgentWebhookProposal {
