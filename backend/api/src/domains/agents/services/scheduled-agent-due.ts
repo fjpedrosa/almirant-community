@@ -4,10 +4,10 @@
  *   - resolveScheduledDispatchDueKey (~line 130)
  *   - isCronDue / isTimeWindowActive — no longer ported here. Both now live in
  *     `@almirant/shared` (`backend/packages/shared/src/agents/schedule-evaluation.ts`),
- *     which the runner itself imports. This module re-exports thin wrappers
- *     around those shared functions instead of keeping a second copy of the
- *     policy — two divergent implementations of "is this due" in the same
- *     product is a bug generator.
+ *     which the runner itself imports (`orchestrator.ts:12`). This module
+ *     re-exports thin wrappers around those shared functions instead of
+ *     keeping a second copy of the policy — two divergent implementations of
+ *     "is this due" in the same product is a bug generator.
  *
  * What stays local, and why:
  *   - `resolveScheduledDispatchDueKey`: shared only answers "is it due"
@@ -21,16 +21,6 @@
  *     !== "manual"`, `pausedUntil`) that shared's `ScheduleEvaluationInput`
  *     doesn't model at all — shared only knows about schedule *timing*, not
  *     the config's runnability.
- *
- * DIVERGENCE FROM CLOUD — no 'once' schedule type: cloud's version also
- * ports a scheduleType='once' one-shot occurrence (community issue #85's
- * exclusion list; tracked separately as community's own future batch).
- * community's `schedule_type` enum has no 'once' value (only manual,
- * time_window, cron), so `resolveScheduledDispatchDueKey` cannot ever
- * receive one — that branch, and the `isOnceDue` shared-policy delegate
- * (which `@almirant/shared` does not export here either), are omitted
- * rather than kept as untriggerable dead code referencing a nonexistent
- * export.
  *
  * Every function here is pure: `now` is always passed in explicitly, nothing
  * reaches for `new Date()` or any other ambient state, and nothing throws for
@@ -47,6 +37,7 @@
 import { Cron } from "croner";
 import {
   isCronDue as sharedIsCronDue,
+  isOnceDue as sharedIsOnceDue,
   isTimeWindowActive as sharedIsTimeWindowActive,
   type ScheduleEvaluationInput,
 } from "@almirant/shared";
@@ -54,7 +45,7 @@ import {
 const SCHEDULED_TIME_WINDOW_BUCKET_MS = 5 * 60 * 1000;
 
 export type ScheduledAgentDueTrigger = "scheduled" | "webhook" | (string & {});
-export type ScheduledAgentDueScheduleType = "cron" | "time_window" | "manual" | (string & {});
+export type ScheduledAgentDueScheduleType = "cron" | "time_window" | "once" | "manual" | (string & {});
 
 export type CronScheduleConfigLike = {
   expression: string;
@@ -64,6 +55,10 @@ export type TimeWindowScheduleConfigLike = {
   startHour: number;
   endHour: number;
   daysOfWeek?: number[] | null;
+};
+
+export type OnceScheduleConfigLike = {
+  runAt: string; // ISO-8601 timestamp
 };
 
 /**
@@ -96,6 +91,7 @@ export type ScheduledAgentDueConfig = {
   scheduleConfig:
     | CronScheduleConfigLike
     | TimeWindowScheduleConfigLike
+    | OnceScheduleConfigLike
     | Record<string, unknown>
     | null;
   timezone: string;
@@ -141,11 +137,23 @@ export const isCronDue = (config: ScheduledAgentDueConfig, now: Date): boolean =
 export const isTimeWindowActive = (config: ScheduledAgentDueConfig, now: Date): boolean =>
   sharedIsTimeWindowActive(toScheduleEvaluationInput(config), now);
 
+/** Delegates to `@almirant/shared`'s `isOnceDue` — see that module for the policy itself. */
+export const isOnceDue = (config: ScheduledAgentDueConfig, now: Date): boolean =>
+  sharedIsOnceDue(toScheduleEvaluationInput(config), now);
+
 /**
  * Port of `resolveScheduledDispatchDueKey` (orchestrator.ts:121). Unlike the
  * origin, this NEVER throws when no occurrence is due — it returns
  * `{ due: false }` instead, since a sweeper iterating many configs should not
  * have one bad config abort the batch.
+ *
+ * 'once' (community issue #91): the due key is derived from the canonicalized
+ * `runAt` timestamp itself, not from `now` — every replay of the SAME
+ * occurrence (concurrent dispatch authorities, or a retried tick before the
+ * auto-disable lands) computes the identical `dueKey`, so the existing
+ * (configId, dueKey) reservation in `reserveScheduledAgentRun` makes two
+ * concurrent dispatches collapse into one job, exactly like `cron:<occurrence>`
+ * does for cron.
  */
 export const resolveScheduledDispatchDueKey = (
   config: ScheduledAgentDueConfig,
@@ -166,6 +174,15 @@ export const resolveScheduledDispatchDueKey = (
     } catch {
       return { due: false };
     }
+  }
+
+  if (config.scheduleType === "once") {
+    const onceConfig = config.scheduleConfig as OnceScheduleConfigLike | null;
+    const runAt = onceConfig ? toDate(onceConfig.runAt) : null;
+    if (!runAt || runAt.getTime() > now.getTime()) {
+      return { due: false };
+    }
+    return { due: true, dueKey: `once:${runAt.toISOString()}` };
   }
 
   const bucketStart =

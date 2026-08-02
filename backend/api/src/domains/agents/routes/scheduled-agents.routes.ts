@@ -58,7 +58,7 @@ const VALID_JOB_TYPES = [
 const VALID_PROVIDERS = ["claude-code", "codex", "zipu", "grok"] as const;
 const VALID_AI_PROVIDERS = ["anthropic", "openai", "zai", "xai"] as const;
 const VALID_CODING_AGENTS = ["claude-code", "codex", "opencode", "codex-cli"] as const;
-const VALID_SCHEDULE_TYPES = ["manual", "time_window", "cron"] as const;
+const VALID_SCHEDULE_TYPES = ["manual", "time_window", "cron", "once"] as const;
 const VALID_BACKLOG_DRAIN_CODING_AGENTS = ["claude-code", "codex", "opencode"] as const;
 const VALID_BACKLOG_DRAIN_AI_PROVIDERS = ["anthropic", "openai", "google", "zai", "xai"] as const;
 
@@ -74,6 +74,14 @@ const timeWindowConfigSchema = t.Object({
 
 const cronConfigSchema = t.Object({
   expression: t.String({ minLength: 1 }),
+});
+
+// One-shot schedule (scheduleType='once', community issue #91). `runAt` must
+// be a valid RFC3339/ISO-8601 date-time — Elysia enforces the `date-time`
+// format at the schema level. A PAST `runAt` is allowed: the config simply
+// dispatches on the next tick instead of being rejected.
+const onceConfigSchema = t.Object({
+  runAt: t.String({ format: "date-time" }),
 });
 
 const backlogDrainProjectRuleSchema = t.Object(
@@ -162,7 +170,7 @@ const createBodySchema = t.Object({
   webhookToken: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
   skillId: t.Optional(t.Nullable(t.String())),
   scheduleType: t.Optional(t.Union(VALID_SCHEDULE_TYPES.map((scheduleType) => t.Literal(scheduleType)))),
-  scheduleConfig: t.Optional(t.Nullable(t.Union([timeWindowConfigSchema, cronConfigSchema]))),
+  scheduleConfig: t.Optional(t.Nullable(t.Union([timeWindowConfigSchema, cronConfigSchema, onceConfigSchema]))),
   timezone: t.Optional(t.String({ minLength: 1 })),
   enabled: t.Optional(t.Boolean()),
   targetConfig: t.Optional(targetConfigSchema),
@@ -185,7 +193,7 @@ const updateBodySchema = t.Object({
   webhookToken: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
   skillId: t.Optional(t.Nullable(t.String())),
   scheduleType: t.Optional(t.Union(VALID_SCHEDULE_TYPES.map((scheduleType) => t.Literal(scheduleType)))),
-  scheduleConfig: t.Optional(t.Nullable(t.Union([timeWindowConfigSchema, cronConfigSchema]))),
+  scheduleConfig: t.Optional(t.Nullable(t.Union([timeWindowConfigSchema, cronConfigSchema, onceConfigSchema]))),
   timezone: t.Optional(t.String({ minLength: 1 })),
   enabled: t.Optional(t.Boolean()),
   targetConfig: t.Optional(targetConfigSchema),
@@ -204,6 +212,7 @@ type RouteTrigger = (typeof VALID_TRIGGERS)[number];
 type RouteScheduleConfig =
   | { startHour: number; endHour: number; daysOfWeek: number[] }
   | { expression: string }
+  | { runAt: string }
   | null
   | undefined;
 
