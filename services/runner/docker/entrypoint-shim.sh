@@ -135,9 +135,9 @@ if [ "${ENABLE_BROWSER:-false}" = "true" ]; then
   export DISPLAY=:99
 fi
 
-# Configure git identity as the GitHub App bot
-git config --global user.name "almirant-ai[bot]"
-git config --global user.email "263330516+almirant-ai[bot]@users.noreply.github.com"
+# Configure the server-resolved identity before the coding agent starts.
+git config --global user.name "${ALMIRANT_GIT_AUTHOR_NAME:-almirant-ai[bot]}"
+git config --global user.email "${ALMIRANT_GIT_AUTHOR_EMAIL:-263330516+almirant-ai[bot]@users.noreply.github.com}"
 
 # Write Codex auth.json from env var (subscription tokens)
 if [[ -n "${CODEX_AUTH_JSON:-}" ]]; then
