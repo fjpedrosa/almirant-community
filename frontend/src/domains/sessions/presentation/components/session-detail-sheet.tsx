@@ -70,7 +70,7 @@ export const SessionDetailSheet: React.FC<SessionDetailSheetProps> = ({
         onPointerDownOutside={handleFeedbackWidgetOutsideEvent}
         onFocusOutside={handleFeedbackWidgetOutsideEvent}
         onInteractOutside={handleFeedbackWidgetOutsideEvent}
-        className="z-40 flex h-dvh w-full max-w-none flex-col overflow-hidden rounded-l-2xl p-0 shadow-2xl sm:w-[94vw] sm:max-w-[94vw] 2xl:w-[1600px] 2xl:max-w-[1600px]"
+        className="z-40 flex h-dvh w-full max-w-none flex-col overflow-hidden rounded-l-2xl p-0 shadow-2xl sm:w-[92vw] sm:max-w-[92vw] xl:w-[1240px] xl:max-w-[1240px]"
       >
         <SheetHeader className="flex h-14 shrink-0 flex-row items-center gap-2 border-b pl-10 pr-4 py-0 space-y-0 sm:gap-3 sm:pr-6">
           <SheetTitle className="truncate text-base sm:text-lg">{title}</SheetTitle>

@@ -1,4 +1,4 @@
-import { describe, expect, it, mock, beforeAll } from "bun:test";
+import { describe, expect, it, mock, beforeAll, afterAll } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import { Window } from "happy-dom";
 
@@ -33,6 +33,41 @@ let capturedHandlers: {
   onFocusOutside?: (event: Event) => void;
   onInteractOutside?: (event: Event) => void;
 } = {};
+
+// ─── Capture the real modules BEFORE mocking them ──────────────────────
+// `mock.module()` replaces the module in Bun's shared, process-global
+// registry, and — confirmed against Bun 1.3.14 — `mock.restore()` does NOT
+// undo it. Left un-restored, these two overrides leak into every test file
+// that runs afterward in the same `bun test` process: `@/components/ui/sheet`
+// would leak an INCOMPLETE stub (it only re-exports Sheet/SheetContent/
+// SheetHeader/SheetTitle/SheetDescription — missing SheetTrigger, SheetClose
+// and SheetFooter, which the real module exports) into whichever file runs
+// next and imports one of those missing names — the same class of bug that
+// broke agent-form-drawer.test.tsx via a different file's incomplete Sheet
+// stub. `agent-job-status-badge` would similarly leak a status-only stub
+// into sessions-table.test.tsx and any other consumer.
+//
+// The exports are captured via object spread (a plain, one-time property
+// copy), NOT by holding on to the `await import(...)` namespace object
+// itself — an ES module namespace object is a live view, so its properties
+// keep reflecting whatever the LATEST `mock.module()` call for that
+// specifier returned, even for code that ran before the mock existed.
+// Spreading into a fresh plain object breaks that live link and gives a
+// true point-in-time snapshot, which is what afterAll needs to restore.
+const realSheetExports = { ...(await import("@/components/ui/sheet")) };
+const realAgentJobStatusBadgeExports = {
+  ...(await import(
+    "@/domains/agents/presentation/components/agent-job-status-badge"
+  )),
+};
+
+afterAll(() => {
+  mock.module("@/components/ui/sheet", () => realSheetExports);
+  mock.module(
+    "@/domains/agents/presentation/components/agent-job-status-badge",
+    () => realAgentJobStatusBadgeExports,
+  );
+});
 
 // Mock the Sheet components to capture handlers while avoiding Radix focus-scope issues
 mock.module("@/components/ui/sheet", () => ({
