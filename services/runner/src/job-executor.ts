@@ -309,7 +309,7 @@ export const createJobExecutor = (
   const runPreSessionGuarded = async <T>(
     ctx: JobExecutionContext,
     phase: string,
-    operation: () => Promise<T>,
+    operation: (signal: AbortSignal) => Promise<T>,
   ): Promise<T> => {
     const timeoutMs = getPreSessionTimeoutMs();
 
@@ -332,12 +332,24 @@ export const createJobExecutor = (
             baseUrl: ctx.containerServeBaseUrl,
           });
         },
-        onCancelled: (error) => {
-          ctx.cancelledByUser = true;
-          ctx.shutdownRequestedByUser = error.shutdownRequested;
-          ctx.eventLogger.warn("startup", "startup.pre_session_cancelled", "Pre-session phase cancelled by backend", {
+        onTerminalIntent: (error) => {
+          if (error.terminalStatus === "cancelled") {
+            ctx.cancelledByUser = true;
+            ctx.shutdownRequestedByUser = error.shutdownRequested;
+            ctx.eventLogger.warn("startup", "startup.pre_session_cancelled", "Pre-session phase cancelled by backend", {
+              phase: error.phase,
+              shutdownRequested: error.shutdownRequested,
+              containerId: ctx.containerId,
+            });
+            return;
+          }
+          // A pending "failed" terminal intent is NOT a user cancellation — leave
+          // ctx.cancelledByUser false so handleExecutionError's generic failure
+          // path (status=failed, errorMessage/errorType) runs for it below.
+          ctx.eventLogger.warn("startup", "startup.pre_session_failed", "Pre-session phase failed by backend terminal intent", {
             phase: error.phase,
-            shutdownRequested: error.shutdownRequested,
+            errorType: error.errorType,
+            errorMessage: error.errorMessage,
             containerId: ctx.containerId,
           });
         },
@@ -1136,7 +1148,7 @@ export const createJobExecutor = (
       workspacePath: WORKSPACE_REPO_PATH,
     });
 
-    await runPreSessionGuarded(ctx, "post-serve setup", async () => {
+    await runPreSessionGuarded(ctx, "post-serve setup", async (_signal) => {
       // Restore checkpoint if a previous attempt left one (A-860: also check previousJobId).
       const previousJobId = typeof ctx.jobConfig.previousJobId === "string" ? ctx.jobConfig.previousJobId : undefined;
       if (
