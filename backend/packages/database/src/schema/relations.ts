@@ -79,6 +79,10 @@ import { userViewPreferences } from "./user-view-preferences";
 import { scheduledAgentConfigs } from "./scheduled-agent-configs";
 import { scheduledAgentRuns } from "./scheduled-agent-runs";
 import { skills } from "./skills";
+import { mcpServers, scheduledAgentMcpServers } from "./mcp-servers";
+import { agentPlugins } from "./agent-plugins";
+import { pluginMarketplaces } from "./plugin-marketplaces";
+import { userStorageObjects, userStorageUsage } from "./user-storage";
 import { projectMembers } from "./project-members";
 import { agentObservations } from "./agent-observations";
 import { workItemEffortEstimates } from "./work-item-effort-estimates";
@@ -134,6 +138,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   skills: many(skills),
   discordNotificationPreferences: many(discordNotificationPreferences),
   projectMembers: many(projectMembers),
+  mcpServers: many(mcpServers),
 }));
 
 export const projectDocLinksRelations = relations(projectDocLinks, ({ one }) => ({
@@ -1164,6 +1169,10 @@ export const workspaceRelations = relations(workspace, ({ one, many }) => ({
   seeds: many(seeds),
   scheduledAgentConfigs: many(scheduledAgentConfigs),
   skills: many(skills),
+  mcpServers: many(mcpServers),
+  agentPlugins: many(agentPlugins),
+  pluginMarketplaces: many(pluginMarketplaces),
+  userStorageObjects: many(userStorageObjects),
 }));
 
 export const memberRelations = relations(member, ({ one }) => ({
@@ -1417,6 +1426,7 @@ export const scheduledAgentConfigsRelations = relations(scheduledAgentConfigs, (
     references: [projects.id],
   }),
   runs: many(scheduledAgentRuns),
+  mcpServers: many(scheduledAgentMcpServers),
   assignedWorkItems: many(workItems),
 }));
 
@@ -1445,6 +1455,100 @@ export const skillsRelations = relations(skills, ({ one }) => ({
   createdByUser: one(user, {
     fields: [skills.createdByUserId],
     references: [user.id],
+  }),
+}));
+
+export const mcpServersRelations = relations(mcpServers, ({ one, many }) => ({
+  workspace: one(workspace, {
+    fields: [mcpServers.workspaceId],
+    references: [workspace.id],
+  }),
+  project: one(projects, {
+    fields: [mcpServers.projectId],
+    references: [projects.id],
+  }),
+  owner: one(user, {
+    fields: [mcpServers.ownerUserId],
+    references: [user.id],
+  }),
+  createdByUser: one(user, {
+    fields: [mcpServers.createdByUserId],
+    references: [user.id],
+  }),
+  scheduledAgents: many(scheduledAgentMcpServers),
+}));
+
+export const scheduledAgentMcpServersRelations = relations(
+  scheduledAgentMcpServers,
+  ({ one }) => ({
+    agent: one(scheduledAgentConfigs, {
+      fields: [scheduledAgentMcpServers.agentId],
+      references: [scheduledAgentConfigs.id],
+    }),
+    mcpServer: one(mcpServers, {
+      fields: [scheduledAgentMcpServers.mcpServerId],
+      references: [mcpServers.id],
+    }),
+  }),
+);
+
+export const pluginMarketplacesRelations = relations(
+  pluginMarketplaces,
+  ({ one, many }) => ({
+    workspace: one(workspace, {
+      fields: [pluginMarketplaces.workspaceId],
+      references: [workspace.id],
+    }),
+    owner: one(user, {
+      fields: [pluginMarketplaces.ownerUserId],
+      references: [user.id],
+    }),
+    createdByUser: one(user, {
+      fields: [pluginMarketplaces.createdByUserId],
+      references: [user.id],
+    }),
+    plugins: many(agentPlugins),
+  }),
+);
+
+export const agentPluginsRelations = relations(agentPlugins, ({ one }) => ({
+  workspace: one(workspace, {
+    fields: [agentPlugins.workspaceId],
+    references: [workspace.id],
+  }),
+  owner: one(user, {
+    fields: [agentPlugins.ownerUserId],
+    references: [user.id],
+  }),
+  createdByUser: one(user, {
+    fields: [agentPlugins.createdByUserId],
+    references: [user.id],
+  }),
+  marketplace: one(pluginMarketplaces, {
+    fields: [agentPlugins.marketplaceId],
+    references: [pluginMarketplaces.id],
+  }),
+  storageObject: one(userStorageObjects, {
+    fields: [agentPlugins.storageObjectId],
+    references: [userStorageObjects.id],
+  }),
+}));
+
+export const userStorageUsageRelations = relations(userStorageUsage, ({ one }) => ({
+  owner: one(user, {
+    fields: [userStorageUsage.ownerUserId],
+    references: [user.id],
+  }),
+}));
+
+export const userStorageObjectsRelations = relations(userStorageObjects, ({ one }) => ({
+  owner: one(user, {
+    fields: [userStorageObjects.ownerUserId],
+    references: [user.id],
+  }),
+  workspace: one(workspace, {
+    fields: [userStorageObjects.workspaceId],
+    references: [workspace.id],
   }),
 }));
 
