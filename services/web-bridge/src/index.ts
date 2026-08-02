@@ -51,19 +51,16 @@ const log = (
 // Consumer
 // ---------------------------------------------------------------------------
 
-const apiClient =
-  env.BACKEND_API_URL && env.BRIDGE_API_KEY
-    ? createApiClient({
-        baseUrl: env.BACKEND_API_URL,
-        apiKey: env.BRIDGE_API_KEY,
-        log,
-      })
-    : null;
-
-if (apiClient) {
-  await apiClient.checkCredential();
-  log("info", "Backend service-account credential preflight passed");
+if (!env.BACKEND_API_URL || !env.BRIDGE_API_KEY) {
+  throw new Error("Web bridge persistence configuration is unavailable");
 }
+const apiClient = createApiClient({
+  baseUrl: env.BACKEND_API_URL,
+  apiKey: env.BRIDGE_API_KEY,
+  log,
+});
+await apiClient.checkCredential();
+log("info", "Backend service-account credential preflight passed");
 
 const consumer = createWebBridgeConsumer({
   env,
@@ -110,9 +107,17 @@ log("info", `web-bridge listening on port ${env.PORT}`, {
 
 const shutdown = async (signal: string): Promise<void> => {
   log("info", `Received ${signal}, shutting down web-bridge...`);
-  await consumer.stop();
-  server.stop();
-  process.exit(0);
+  try {
+    await consumer.stop();
+    server.stop();
+    process.exit(0);
+  } catch (error) {
+    log("error", "web-bridge shutdown failed with pending persistence", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    server.stop();
+    process.exit(1);
+  }
 };
 
 process.on("SIGINT", () => {

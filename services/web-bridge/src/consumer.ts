@@ -93,6 +93,38 @@ export const buildOutboundCanonicalEnvelope = (
   });
 };
 
+/**
+ * Per-job turnstile: at most one holder per jobId, granted in arrival order.
+ *
+ * Page concurrency exists for the native channel, which is never rendered and has
+ * no ordering requirement. Canonical events have both: they are published to the
+ * user in sequence order and their inserts all contend on one agent_jobs row.
+ * Serializing them per job keeps render order, insert order and the lock
+ * contention profile exactly as they are under the sequential loop.
+ *
+ * Handlers enter in dispatch order because Redis replies are FIFO per connection
+ * and every idempotency check goes through the reader's single client, so dispatch
+ * order is stream order. A check that fails leaves its entry pending for
+ * redelivery, which is already what happens today.
+ */
+export const createJobTurnstile = () => {
+  const tails = new Map<string, Promise<void>>();
+  return async (jobId: string): Promise<() => void> => {
+    const previous = tails.get(jobId) ?? Promise.resolve();
+    let release: () => void = () => undefined;
+    const mine = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => mine);
+    tails.set(jobId, tail);
+    await previous;
+    return () => {
+      release();
+      if (tails.get(jobId) === tail) tails.delete(jobId);
+    };
+  };
+};
+
 export const createWebBridgeConsumer = (
   deps: ConsumerDeps
 ): WebBridgeConsumer => {
@@ -207,6 +239,7 @@ export const createWebBridgeConsumer = (
 
       // Per-job monotonic sequence tracking and dedup guard
       const seqGuard = createSequenceGuard();
+      const acquireCanonicalTurn = createJobTurnstile();
 
       reader = createStreamReader({
         redisUrl: redisConnectionString,
@@ -214,6 +247,7 @@ export const createWebBridgeConsumer = (
         consumerGroup: env.CONSUMER_GROUP,
         consumerId: env.CONSUMER_ID,
         batchSize: env.BATCH_SIZE,
+        pageConcurrency: env.PAGE_CONCURRENCY,
         retry: {
           maxRetries: 5,
           baseDelayMs: 200,
@@ -224,8 +258,15 @@ export const createWebBridgeConsumer = (
       // The handler receives raw fields from Redis — we detect the format
       // and route accordingly.
       reader.start(async (event: AgentOutputEvent, ack) => {
+        let releaseCanonicalTurn: (() => void) | undefined;
         try {
           const streamEvent = readStreamEvent(event);
+
+          // Native events batch freely across the page. Canonical events are
+          // re-serialized per job so ordering and lock contention are unchanged.
+          if (streamEvent.format === "canonical") {
+            releaseCanonicalTurn = await acquireCanonicalTurn(event.jobId);
+          }
 
           if (streamEvent.format === "native") {
             if (
@@ -401,6 +442,8 @@ export const createWebBridgeConsumer = (
             error: error instanceof Error ? error.message : String(error),
           });
           throw error; // Re-throw so StreamReader records the failure for retry
+        } finally {
+          releaseCanonicalTurn?.();
         }
       });
 

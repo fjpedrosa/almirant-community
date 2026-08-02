@@ -11,6 +11,7 @@ export type IdempotencyGuard = {
     eventId: string,
     ttlSeconds?: number
   ) => Promise<void>;
+  clearProcessed: (consumerGroup: string, eventId: string) => Promise<void>;
 };
 
 const DEFAULT_TTL_SECONDS = 86_400; // 24 hours
@@ -36,5 +37,12 @@ export const createIdempotencyGuard = (redis: Redis): IdempotencyGuard => {
     await redis.set(buildKey(consumerGroup, eventId), "1", "EX", ttlSeconds, "NX");
   };
 
-  return { isProcessed, markProcessed };
+  const clearProcessed = async (
+    consumerGroup: string,
+    eventId: string
+  ): Promise<void> => {
+    await redis.del(buildKey(consumerGroup, eventId));
+  };
+
+  return { isProcessed, markProcessed, clearProcessed };
 };

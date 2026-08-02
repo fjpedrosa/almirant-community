@@ -52,6 +52,7 @@ export type {
 } from "@almirant/canonical-events";
 
 export {
+  DURABLE_SEQUENCE_PROTOCOL_VERSION,
   CANONICAL_PROJECTOR_VERSION,
   CANONICAL_PROTOCOL_VERSION,
   buildCanonicalSessionProjection,

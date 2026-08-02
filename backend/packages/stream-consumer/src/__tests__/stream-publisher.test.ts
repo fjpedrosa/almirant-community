@@ -1,6 +1,10 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import Redis from "ioredis";
-import { createStreamPublisher } from "../stream-publisher";
+import {
+  buildXAddArguments,
+  createStreamPublisher,
+  flattenEvent,
+} from "../stream-publisher";
 import type { AgentOutputEvent } from "../types";
 
 const REDIS_URL = process.env.REDIS_URL;
@@ -19,6 +23,43 @@ const makeEvent = (overrides: Partial<AgentOutputEvent> = {}): AgentOutputEvent 
   type: "message",
   content: "Hello, world!",
   ...overrides,
+});
+
+test("flattenEvent preserves durable claim fencing metadata", () => {
+  const fields = flattenEvent(makeEvent({
+    sequenceProtocolVersion: "durable.v2",
+    claimAttemptId: "attempt-transport",
+  }));
+  const fieldMap = new Map<string, string>();
+  for (let index = 0; index < fields.length; index += 2) {
+    fieldMap.set(fields[index]!, fields[index + 1]!);
+  }
+
+  expect(fieldMap.get("sequenceProtocolVersion")).toBe("durable.v2");
+  expect(fieldMap.get("claimAttemptId")).toBe("attempt-transport");
+});
+
+test("durable stream XADD never carries destructive MAXLEN retention", () => {
+  const args = buildXAddArguments(makeEvent({
+    sequenceProtocolVersion: "durable.v2",
+    claimAttemptId: "attempt-no-trim",
+  }));
+
+  expect(args[0]).toBe("*");
+  expect(args).not.toContain("MAXLEN");
+  expect(args).not.toContain("~");
+});
+
+test("publisher fails closed instead of downgrading an unknown durable marker", () => {
+  const malformed = {
+    ...makeEvent(),
+    sequenceProtocolVersion: "durable.v3",
+    claimAttemptId: "attempt-unknown",
+  } as unknown as AgentOutputEvent;
+
+  expect(() => flattenEvent(malformed)).toThrow(
+    "unsupported sequence protocol",
+  );
 });
 
 describeWithRedis("StreamPublisher", () => {
@@ -178,7 +219,7 @@ describeWithRedis("StreamPublisher", () => {
     await publisher.close();
   });
 
-  test("MAXLEN trimming prevents unbounded growth", async () => {
+  test("publisher never trims unread or pending entries", async () => {
     const maxLen = 50;
     const totalPublished = 200;
     const publisher = createStreamPublisher({
@@ -195,10 +236,10 @@ describeWithRedis("StreamPublisher", () => {
     await Promise.all(promises);
 
     const len = await redis.xlen(TEST_STREAM);
-    // With MAXLEN ~ (approximate), Redis trims at the radix tree node level
-    // so it may keep somewhat more than maxLen, but far fewer than totalPublished
-    expect(len).toBeLessThan(totalPublished);
-    expect(len).toBeGreaterThan(0);
+    // maxLen remains a legacy config field, but automatic trimming is disabled:
+    // an XADD from any producer can otherwise delete another group's unread or
+    // pending durable entry.
+    expect(len).toBe(totalPublished);
 
     await publisher.close();
   }, 30_000);
