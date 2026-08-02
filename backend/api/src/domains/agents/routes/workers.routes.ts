@@ -1416,6 +1416,18 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // POST /workers/jobs/claim
+  //
+  // Ported from cloud without the assertWorkerIdentity check and the
+  // scope/activeJobIds params to claimJobs (workspace-scoped runner
+  // credentials + an unrelated active-claim-exclusion feature — neither is
+  // part of the receipts protocol; see the "sequence-reservations" endpoint
+  // comment above). The `capabilities` -> `protocol` negotiation IS part of
+  // the receipts protocol: a worker opts in by declaring
+  // "durable.v2.receipts", but the server-owned DURABLE_SEQUENCE_RECEIPTS_ENABLED
+  // rollout gate must independently be "true" — a worker capability alone
+  // must never activate the protocol (coordinated rollout: every Redis
+  // bridge consumer must be upgraded and the old consumer group drained
+  // first).
   .post(
     "/jobs/claim",
     async ({ body }) => {
@@ -1423,7 +1435,16 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         activeJobs: body.activeJobs ?? undefined,
       });
 
-      const jobs = await claimJobs(body.workerId, body.count, body.acceptedCodingAgents);
+      const jobs = await claimJobs(
+        body.workerId,
+        body.count,
+        body.acceptedCodingAgents,
+        {
+          durableSequenceReceipts:
+            env.DURABLE_SEQUENCE_RECEIPTS_ENABLED === "true" &&
+            body.capabilities?.includes("durable.v2.receipts") === true,
+        },
+      );
       return successResponse(jobs);
     },
     {
@@ -1432,6 +1453,12 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         count: t.Number(),
         activeJobs: t.Optional(t.Number()),
         acceptedCodingAgents: t.Optional(t.Array(t.String())),
+        capabilities: t.Optional(
+          t.Array(t.Literal("durable.v2.receipts"), {
+            maxItems: 1,
+            uniqueItems: true,
+          }),
+        ),
       }),
     }
   )

@@ -49,6 +49,11 @@ const envSchema = z.object({
     .positive()
     .default(25),
   BUG_FIX_PR_RECONCILER_ENABLED: z.enum(["true", "false"]).default("true"),
+  // Coordinated rollout gate for the receipt protocol (community#16 / cloud#64).
+  // Keep OFF until every Redis bridge consumer has been upgraded and the old
+  // consumer group has been drained; a worker capability alone must never
+  // activate the protocol.
+  DURABLE_SEQUENCE_RECEIPTS_ENABLED: z.enum(["true", "false"]).default("false"),
   // Backend-native dispatcher for scheduled_agent_configs (see
   // backend/api/src/domains/agents/services/scheduled-agent-dispatcher.ts).
   // DEFAULT MUST STAY "false": the runner (services/runner) still runs its
