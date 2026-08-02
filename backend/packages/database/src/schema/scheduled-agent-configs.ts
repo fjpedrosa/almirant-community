@@ -11,6 +11,7 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { agentJobTypeEnum, agentProviderEnum } from "./enums";
 import { workspace } from "./workspace";
 import { projects } from "./projects";
@@ -32,6 +33,19 @@ export const agentTriggerEnum = pgEnum("agent_trigger", [
   "scheduled",
   "webhook",
 ]);
+
+// Ownership discriminator for the dev-flow feature (issue #230): 'user' is a
+// normal hand-created config (the default, preserving every existing row's
+// behavior); 'system' marks a config provisioned by
+// `provisionDevFlowForProject` for one of the four catalog built-in
+// automations (see `@almirant/shared`'s builtin-automations.ts). System
+// configs are not user-editable/deletable through the generic scheduled-agent
+// routes/MCP tools — see `scheduled-agent-access.ts`'s
+// `assertScheduledAgentConfigIsUserManaged`.
+export const scheduledAgentConfigManagedByEnum = pgEnum(
+  "scheduled_agent_config_managed_by",
+  ["user", "system"],
+);
 
 // TypeScript interfaces for JSONB columns
 export interface TimeWindowConfig {
@@ -119,6 +133,14 @@ export const scheduledAgentConfigs = pgTable(
     maxJobsPerRun: integer("max_jobs_per_run").notNull().default(10),
     pausedUntil: timestamp("paused_until", { withTimezone: true }),
     lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    // dev-flow (issue #230): see scheduledAgentConfigManagedByEnum above.
+    managedBy: scheduledAgentConfigManagedByEnum("managed_by").notNull().default("user"),
+    // Kebab-case id from @almirant/shared's BUILTIN_AUTOMATIONS catalog
+    // (e.g. "backlog-drain"). No FK — the catalog is a static in-code list,
+    // not a table; validated against BUILTIN_AUTOMATION_IDS at the service
+    // layer (dev-flow-provisioning.ts). Only meaningful when managedBy is
+    // 'system'.
+    builtinAutomationId: text("builtin_automation_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -130,6 +152,16 @@ export const scheduledAgentConfigs = pgTable(
     index("scheduled_agent_configs_skill_id_idx").on(table.skillId),
     index("scheduled_agent_configs_trigger_idx").on(table.trigger),
     uniqueIndex("scheduled_agent_configs_webhook_token_idx").on(table.webhookToken),
+    // dev-flow provisioning identity (issue #230): at most one system-managed
+    // config per (project, built-in automation) — see
+    // dev-flow-provisioning.ts's upsert-by-identity + duplicate-violation
+    // retry, mirroring migration 0222's partial-unique-index + typed-error
+    // pattern for concurrent dispatch authorities.
+    uniqueIndex("scheduled_agent_configs_system_builtin_automation_uidx")
+      .on(table.projectId, table.builtinAutomationId)
+      .where(
+        sql`${table.managedBy} = 'system' AND ${table.builtinAutomationId} IS NOT NULL`,
+      ),
   ]
 );
 

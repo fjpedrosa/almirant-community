@@ -1520,6 +1520,13 @@
       "when": 1785633781203,
       "tag": "0222_yielding_iron_lad",
       "breakpoints": true
+    },
+    {
+      "idx": 223,
+      "version": "7",
+      "when": 1785660650758,
+      "tag": "0223_sudden_shiver_man",
+      "breakpoints": true
     }
   ]
 }

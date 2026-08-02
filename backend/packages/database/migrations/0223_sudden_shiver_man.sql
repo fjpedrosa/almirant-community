@@ -1,0 +1,4 @@
+CREATE TYPE "public"."scheduled_agent_config_managed_by" AS ENUM('user', 'system');--> statement-breakpoint
+ALTER TABLE "scheduled_agent_configs" ADD COLUMN "managed_by" "scheduled_agent_config_managed_by" DEFAULT 'user' NOT NULL;--> statement-breakpoint
+ALTER TABLE "scheduled_agent_configs" ADD COLUMN "builtin_automation_id" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "scheduled_agent_configs_system_builtin_automation_uidx" ON "scheduled_agent_configs" USING btree ("project_id","builtin_automation_id") WHERE "scheduled_agent_configs"."managed_by" = 'system' AND "scheduled_agent_configs"."builtin_automation_id" IS NOT NULL;
