@@ -1848,6 +1848,12 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // GET /workers/jobs/:jobId/status
+  //
+  // Ported from cloud without the workerApiKey workspace-scope check (see
+  // the "sequence-reservations" endpoint comment above for why). Exposes the
+  // effective status/error, preferring a held pendingTerminalIntent over the
+  // job's own (still finalizing) row so a polling runner sees the outcome
+  // that will apply once the receipt drains, not a stale "running".
   .get(
     "/jobs/:jobId/status",
     async ({ params, set }) => {
@@ -1861,10 +1867,24 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         typeof existing.job.result === "object" && existing.job.result !== null
           ? (existing.job.result as unknown as Record<string, unknown>)
           : null;
+      const pendingTerminalIntent = existing.job.config?.pendingTerminalIntent;
+      const pendingResult =
+        pendingTerminalIntent?.result &&
+        typeof pendingTerminalIntent.result === "object"
+          ? pendingTerminalIntent.result
+          : null;
+      const effectiveErrorType =
+        pendingTerminalIntent?.errorType ?? existing.job.errorType ?? undefined;
+      const effectiveErrorMessage =
+        pendingTerminalIntent?.errorMessage ?? existing.job.errorMessage ?? undefined;
 
       return successResponse({
-        status: existing.job.status,
-        shutdownRequested: resultPayload?.shutdownRequested === true,
+        status: pendingTerminalIntent?.status ?? existing.job.status,
+        shutdownRequested:
+          pendingResult?.shutdownRequested === true ||
+          resultPayload?.shutdownRequested === true,
+        ...(effectiveErrorType ? { errorType: effectiveErrorType } : {}),
+        ...(effectiveErrorMessage ? { errorMessage: effectiveErrorMessage } : {}),
       });
     },
     {
@@ -2161,6 +2181,19 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // POST /workers/jobs/:jobId/status
+  //
+  // Ported from cloud without the workerApiKey workspace-scope check (see the
+  // "sequence-reservations" endpoint comment above). Adds claim-ownership
+  // fencing: a request carrying (or whose job config already carries) a
+  // claimAttemptId routes through updateClaimedJobStatus (requires the exact
+  // receipt to be ready before a terminal/release transition, applies a held
+  // pendingTerminalIntent, and short-circuits side effects on idempotent
+  // replay); a receipt-free request routes through updateLegacyClaimedJobStatus
+  // (CAS on the exact row generation the route observed, replacing the prior
+  // unconditional updateJobStatus write). Bundled with cloud's own fallback
+  // fixes for result/branchName/prUrl/prNumber/commitSha (preserve the
+  // existing value when the runner's partial update omits the field) since
+  // they live in the same handler rewrite as the receipts wiring.
   .post(
     "/jobs/:jobId/status",
     async ({ params, body, set }) => {
@@ -2173,6 +2206,31 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       const now = new Date();
       const status = body.status;
       const releasesWorkerResources = status === "queued" || status === "paused";
+      const currentClaimAttemptId = getCurrentClaimAttemptId(existing.job.config);
+      const expectedClaimAttemptId = body.expectedClaimAttemptId?.trim();
+      const usesClaimOwnership = Boolean(
+        currentClaimAttemptId || expectedClaimAttemptId,
+      );
+
+      if (
+        usesClaimOwnership &&
+        (!body.workerId?.trim() || !expectedClaimAttemptId)
+      ) {
+        set.status = 409;
+        return errorResponse("Job claim is no longer active", 409);
+      }
+
+      if (
+        usesClaimOwnership &&
+        releasesWorkerResources &&
+        !body.sequenceHighWater
+      ) {
+        set.status = 400;
+        return errorResponse(
+          "A fenced release requires producer sequence high-water marks",
+          400,
+        );
+      }
 
       const availableAt =
         body.availableAt && body.availableAt.trim()
@@ -2191,33 +2249,79 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         outputTokens: body.outputTokens,
       });
 
+      const previousSequenceHighWater = existing.job.config?.sequenceHighWater;
+      const hasValidPreviousSequenceHighWater =
+        previousSequenceHighWater?.protocolVersion === 2 &&
+        [
+          previousSequenceHighWater.jobLogs,
+          previousSequenceHighWater.sessionEvents,
+          previousSequenceHighWater.nativeEvents,
+        ].every(
+          (value) =>
+            Number.isInteger(value) && value >= 0 && value <= 2_147_483_647,
+        );
+      const monotonicSequenceHighWater = body.sequenceHighWater
+        ? {
+            protocolVersion: 2 as const,
+            jobLogs: Math.max(
+              body.sequenceHighWater.jobLogs,
+              hasValidPreviousSequenceHighWater
+                ? previousSequenceHighWater.jobLogs
+                : 0,
+            ),
+            sessionEvents: Math.max(
+              body.sequenceHighWater.sessionEvents,
+              hasValidPreviousSequenceHighWater
+                ? previousSequenceHighWater.sessionEvents
+                : 0,
+            ),
+            nativeEvents: Math.max(
+              body.sequenceHighWater.nativeEvents,
+              hasValidPreviousSequenceHighWater
+                ? previousSequenceHighWater.nativeEvents
+                : 0,
+            ),
+          }
+        : undefined;
+
       const updatedConfig =
-        status === "paused"
+        releasesWorkerResources && (status === "paused" || body.sequenceHighWater)
           ? {
               ...existing.job.config,
-              previousJobId: existing.job.config?.previousJobId ?? existing.job.id,
+              ...(status === "paused"
+                ? { previousJobId: existing.job.config?.previousJobId ?? existing.job.id }
+                : {}),
+              ...(monotonicSequenceHighWater
+                ? { sequenceHighWater: monotonicSequenceHighWater }
+                : {}),
             } satisfies AgentJobConfig
           : undefined;
 
-      const updated = await updateJobStatus(params.jobId, status, {
+      const updateData = {
         workerId:
           releasesWorkerResources
             ? null
             : body.workerId ?? existing.job.workerId ?? null,
-        result: normalizeJobResultPayload(body.result),
+        result:
+          body.result === undefined
+            ? normalizeJobResultPayload(existing.job.result)
+            : normalizeJobResultPayload(body.result),
         errorMessage: body.errorMessage ?? null,
         errorType: body.errorType ?? null,
         retryCount: body.retryCount ?? null,
         availableAt,
-        branchName: releasesWorkerResources ? null : body.branchName ?? null,
+        branchName:
+          releasesWorkerResources
+            ? null
+            : body.branchName ?? existing.job.branchName ?? null,
         worktreePath: releasesWorkerResources ? null : body.worktreePath ?? null,
-        prUrl: body.prUrl ?? null,
-        prNumber: body.prNumber ?? null,
-        commitSha: body.commitSha ?? null,
+        prUrl: body.prUrl ?? existing.job.prUrl ?? null,
+        prNumber: body.prNumber ?? existing.job.prNumber ?? null,
+        commitSha: body.commitSha ?? existing.job.commitSha ?? null,
         cost: usageMetrics.cost,
         tokensUsed: usageMetrics.tokensUsed,
         sessionId: body.sessionId ?? undefined,
-        config: updatedConfig,
+        config: usesClaimOwnership ? undefined : updatedConfig,
         model: body.model ?? undefined,
         startedAt:
           status === "running"
@@ -2262,11 +2366,50 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
                 return cumulative;
               })()
             : undefined,
-      });
+      };
+
+      const updated = usesClaimOwnership
+        ? await updateClaimedJobStatus(
+            params.jobId,
+            status,
+            {
+              workerId: body.workerId!,
+              claimAttemptId: expectedClaimAttemptId!,
+            },
+            updateData,
+            releasesWorkerResources
+              ? {
+                  ...(status === "paused"
+                    ? { previousJobId: existing.job.id }
+                    : {}),
+                  ...(body.sequenceHighWater
+                    ? { sequenceHighWater: body.sequenceHighWater }
+                    : {}),
+                }
+              : undefined,
+          )
+        : await updateLegacyClaimedJobStatus(
+            params.jobId,
+            status,
+            {
+              workerId: body.workerId?.trim() || existing.job.workerId,
+              expectedStatus: existing.job.status,
+              expectedUpdatedAt: existing.job.updatedAt,
+            },
+            updateData,
+          );
 
       if (!updated) {
-        set.status = 404;
-        return notFoundResponse("Agent job");
+        set.status = 409;
+        return errorResponse("Job claim is no longer active", 409);
+      }
+
+      if (
+        "claimStatusOutcome" in updated &&
+        updated.claimStatusOutcome === "idempotent-replay"
+      ) {
+        const { claimStatusOutcome: _claimStatusOutcome, ...publicUpdated } = updated;
+        return successResponse(publicUpdated);
       }
 
       void broadcastStatusChanged(updated, {
@@ -2567,6 +2710,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           t.Literal("paused"),
         ]),
         workerId: t.Optional(t.String()),
+        expectedClaimAttemptId: t.Optional(t.String({ minLength: 1, maxLength: 100 })),
         result: t.Optional(t.Union([t.Record(t.String(), t.Any()), t.String()])),
         errorMessage: t.Optional(t.String()),
         errorType: t.Optional(t.String()),
@@ -2584,6 +2728,14 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         outputTokens: t.Optional(t.Number()),
         sessionId: t.Optional(t.String()),
         model: t.Optional(t.String()),
+        sequenceHighWater: t.Optional(
+          t.Object({
+            protocolVersion: t.Literal(2),
+            jobLogs: t.Integer({ minimum: 0, maximum: 2_147_483_647 }),
+            sessionEvents: t.Integer({ minimum: 0, maximum: 2_147_483_647 }),
+            nativeEvents: t.Integer({ minimum: 0, maximum: 2_147_483_647 }),
+          }),
+        ),
       }),
     }
   )
