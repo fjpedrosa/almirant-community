@@ -2760,6 +2760,148 @@ export const scheduledAgentsApi = {
     ),
 };
 
+// Agent Tooling API (Agents v2: owner-aware MCP servers, plugins, marketplaces)
+export const agentToolingApi = {
+  listMcpServers: () =>
+    request<import("@/domains/scheduled-agents/domain/types").AgentMcpServer[]>(
+      "/scheduled-agents/mcp-servers",
+    ),
+
+  listMcpTemplates: () =>
+    request<import("@/domains/scheduled-agents/domain/types").McpConnectorTemplate[]>(
+      "/scheduled-agents/mcp-servers/templates",
+    ),
+
+  createMcpServerFromTemplate: (data: {
+    templateKey: import("@/domains/scheduled-agents/domain/types").McpConnectorTemplateKey;
+    name?: string;
+    slug?: string;
+    description?: string | null;
+    secret?: string | null;
+    configuration?: Record<string, unknown>;
+  }) =>
+    request<import("@/domains/scheduled-agents/domain/types").AgentMcpServer>(
+      "/scheduled-agents/mcp-servers/from-template",
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+
+  testMcpServer: (data: {
+    templateKey?: import("@/domains/scheduled-agents/domain/types").McpConnectorTemplateKey;
+    url?: string;
+    authType?: import("@/domains/scheduled-agents/domain/types").McpAuthType;
+    authHeaderName?: string | null;
+    secret?: string | null;
+    configuration?: Record<string, unknown>;
+  }) =>
+    request<import("@/domains/scheduled-agents/domain/types").McpConnectionTestResult>(
+      "/scheduled-agents/mcp-servers/test",
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+
+  testSavedMcpServer: (id: string) =>
+    request<import("@/domains/scheduled-agents/domain/types").McpConnectionTestResult>(
+      `/scheduled-agents/mcp-servers/${id}/test`,
+      { method: "POST", body: JSON.stringify({}) },
+    ),
+
+  createMcpServer: (
+    data: import("@/domains/scheduled-agents/domain/types").CreateAgentMcpServerData,
+  ) =>
+    request<import("@/domains/scheduled-agents/domain/types").AgentMcpServer>(
+      "/scheduled-agents/mcp-servers",
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+
+  updateMcpServer: (
+    id: string,
+    data: import("@/domains/scheduled-agents/domain/types").UpdateAgentMcpServerData,
+  ) =>
+    request<import("@/domains/scheduled-agents/domain/types").AgentMcpServer>(
+      `/scheduled-agents/mcp-servers/${id}`,
+      { method: "PATCH", body: JSON.stringify(data) },
+    ),
+
+  deleteMcpServer: (id: string) =>
+    request<{ deleted: boolean }>(`/scheduled-agents/mcp-servers/${id}`, {
+      method: "DELETE",
+    }),
+
+  listPlugins: () =>
+    request<import("@/domains/scheduled-agents/domain/types").AgentPlugin[]>(
+      "/scheduled-agents/plugins",
+    ),
+
+  createPlugin: (
+    data: import("@/domains/scheduled-agents/domain/types").CreateAgentPluginData,
+  ) =>
+    request<import("@/domains/scheduled-agents/domain/types").AgentPlugin>(
+      "/scheduled-agents/plugins",
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+
+  updatePlugin: (
+    id: string,
+    data: import("@/domains/scheduled-agents/domain/types").UpdateAgentPluginData,
+  ) =>
+    request<import("@/domains/scheduled-agents/domain/types").AgentPlugin>(
+      `/scheduled-agents/plugins/${id}`,
+      { method: "PATCH", body: JSON.stringify(data) },
+    ),
+
+  deletePlugin: (id: string) =>
+    request<{ deleted: boolean }>(`/scheduled-agents/plugins/${id}`, {
+      method: "DELETE",
+    }),
+
+  listPluginMarketplaces: () =>
+    request<import("@/domains/scheduled-agents/domain/types").PluginMarketplace[]>(
+      "/scheduled-agents/plugin-marketplaces",
+    ),
+
+  addPluginMarketplace: (data: { source: string; name?: string | null }) =>
+    request<import("@/domains/scheduled-agents/domain/types").PluginMarketplace>(
+      "/scheduled-agents/plugin-marketplaces",
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+
+  syncPluginMarketplace: (id: string) =>
+    request<import("@/domains/scheduled-agents/domain/types").PluginMarketplace>(
+      `/scheduled-agents/plugin-marketplaces/${id}/sync`,
+      { method: "POST" },
+    ),
+
+  deletePluginMarketplace: (id: string) =>
+    request<{ deleted: boolean }>(`/scheduled-agents/plugin-marketplaces/${id}`, {
+      method: "DELETE",
+    }),
+
+  installMarketplacePlugin: (marketplaceId: string, externalId: string) =>
+    request<import("@/domains/scheduled-agents/domain/types").AgentPlugin>(
+      `/scheduled-agents/plugin-marketplaces/${encodeURIComponent(marketplaceId)}/plugins/${encodeURIComponent(externalId)}/install`,
+      { method: "POST" },
+    ),
+
+  listPluginPackages: () =>
+    request<import("@/domains/scheduled-agents/domain/types").AgentPlugin[]>(
+      "/scheduled-agents/plugin-packages",
+    ),
+
+  uploadPluginPackage: (data: {
+    file: File;
+    name?: string;
+    description?: string;
+  }) => {
+    const form = new FormData();
+    form.set("file", data.file);
+    if (data.name?.trim()) form.set("name", data.name.trim());
+    if (data.description?.trim()) form.set("description", data.description.trim());
+    return request<import("@/domains/scheduled-agents/domain/types").AgentPlugin>(
+      "/scheduled-agents/plugin-packages/upload",
+      { method: "POST", body: form },
+    );
+  },
+};
+
 // Ask API
 export const askApi = {
   query: (data: import("@/domains/ask/domain/types").AskRequest) =>

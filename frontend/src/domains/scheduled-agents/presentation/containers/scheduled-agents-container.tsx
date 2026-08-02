@@ -22,6 +22,7 @@ import {
   useTriggerScheduledAgent,
 } from "../../application/hooks/use-scheduled-agent-mutations";
 import { useAgentFormDrawer } from "../../application/hooks/use-agent-form-drawer";
+import { useAgentMcpServers, useAgentPlugins } from "../../application/hooks/use-agent-tooling";
 import { useSkillsForSelector } from "@/domains/skills/application/hooks/use-skills";
 import { useProjects } from "@/domains/projects/application/hooks/use-projects";
 import type { ProjectOption } from "../../domain/types";
@@ -41,6 +42,8 @@ export const ScheduledAgentsContainer = () => {
 
   const { data: configs = [], isLoading } = useScheduledAgents();
   const { data: skills = [] } = useSkillsForSelector();
+  const { data: plugins = [] } = useAgentPlugins();
+  const { data: mcpServers = [] } = useAgentMcpServers();
   const { data: rawProjects = [] } = useProjects();
 
   const projects: ProjectOption[] = rawProjects.map((p) => ({
@@ -124,6 +127,10 @@ export const ScheduledAgentsContainer = () => {
     onSubmit,
     skills: flatSkills,
     userSkills,
+    plugins: agentPlugins,
+    mcpServers: agentMcpServers,
+    selectedPluginIds,
+    selectedMcpServerIds,
     scheduleType,
     trigger,
     isEditing,
@@ -149,6 +156,8 @@ export const ScheduledAgentsContainer = () => {
     onSubmit: handleFormSubmit,
     skills,
     projects,
+    plugins,
+    mcpServers,
   });
 
   return (
@@ -193,6 +202,10 @@ export const ScheduledAgentsContainer = () => {
         onSubmit={onSubmit}
         skills={flatSkills}
         userSkills={userSkills}
+        plugins={agentPlugins}
+        mcpServers={agentMcpServers}
+        selectedPluginIds={selectedPluginIds}
+        selectedMcpServerIds={selectedMcpServerIds}
         projects={projects}
         scheduleType={scheduleType}
         trigger={trigger}

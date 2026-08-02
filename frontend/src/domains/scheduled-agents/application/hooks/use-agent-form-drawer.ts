@@ -20,10 +20,11 @@ import type {
   AutomationTargetKind,
   BuiltinAutomationId,
   UserSkillOption,
-  ScheduledAgentMcpServers,
   ScheduledAgentWebhookProposal,
   TargetConfig,
   ProjectOption,
+  AgentPlugin,
+  AgentMcpServer,
 } from "../../domain/types";
 import {
   isTimeWindowConfig,
@@ -70,7 +71,13 @@ export const scheduledAgentFormSchema = z
     aiProvider: z.string().optional(),
     aiModel: z.string().optional(),
     reasoningLevel: z.string().optional(),
-    mcpServersJson: z.string().max(20000, "MCP config is too large").optional(),
+    // Agents v2 tooling selection (MCP servers + plugins picked from the
+    // owner-aware catalog). Replaces the old raw mcpServersJson textarea,
+    // which the backend now rejects outright: unmanaged remote MCP URLs
+    // without an almirantServerId fail normalizeRunnerCustomMcpServersConfig
+    // at CREATE/PATCH time (see backend/packages/shared/src/runner-mcp-config.ts).
+    selectedPluginIds: z.array(z.string()).default([]),
+    selectedMcpServerIds: z.array(z.string()).default([]),
     // Wizard discriminators (frontend-only — derived from persisted shape)
     agentKind: z.enum(["repository", "automation"]).default("repository"),
     automationTargetKind: z.enum(["builtin", "user-skill"]).default("builtin"),
@@ -100,22 +107,6 @@ export const scheduledAgentFormSchema = z
     {
       message: "Time window requires start hour, end hour, and at least one day",
       path: ["daysOfWeek"],
-    }
-  )
-  .refine(
-    (data) => {
-      const trimmed = data.mcpServersJson?.trim();
-      if (!trimmed) return true;
-      try {
-        const parsed = JSON.parse(trimmed);
-        return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
-      } catch {
-        return false;
-      }
-    },
-    {
-      message: "MCP servers must be a valid JSON object",
-      path: ["mcpServersJson"],
     }
   )
   .refine(
@@ -318,29 +309,83 @@ interface UseAgentFormDrawerParams {
   onSubmit: (data: CreateScheduledAgentData | UpdateScheduledAgentData) => void;
   skills: SkillSelectorItem[];
   projects: ProjectOption[];
+  plugins: AgentPlugin[];
+  mcpServers: AgentMcpServer[];
 }
 
 const SLASH_SKILL_PROMPT_REGEX = /^\/([a-zA-Z0-9_-]+)\s*$/;
 
-const formatMcpServersJson = (
-  mcpServers: ScheduledAgentMcpServers | null | undefined,
-): string => {
-  if (!mcpServers || Object.keys(mcpServers).length === 0) {
-    return "";
-  }
+// Key under targetConfig.customFilters that persists this agent's Agents v2
+// tooling selection (MCP servers + plugins picked from the owner-aware
+// catalog). Frontend-only bookkeeping, same mechanism the pre-existing
+// AgentKind classification above already relies on. Materializing a selected
+// MCP server into a running job's actual mcpServers config (with its
+// almirantServerId) happens server-side at dispatch, not here.
+export const AGENT_TOOLING_SELECTION_KEY = "__agentTooling";
 
-  return JSON.stringify(mcpServers, null, 2);
+export interface AgentToolingSelection {
+  selectedPluginIds: string[];
+  selectedMcpServerIds: string[];
+}
+
+const UUID_RE = /^[0-9a-fA-F-]{36}$/;
+
+const normalizeSelectedIds = (selectedIds: unknown): string[] => {
+  if (!Array.isArray(selectedIds)) return [];
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const id of selectedIds) {
+    if (typeof id !== "string") continue;
+    const trimmed = id.trim();
+    if (!UUID_RE.test(trimmed)) continue;
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
 };
 
-const parseMcpServersJson = (
-  value: string | undefined,
-): ScheduledAgentMcpServers | null => {
-  const trimmed = value?.trim();
-  if (!trimmed) {
-    return null;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+export const buildAgentToolingSelection = (
+  values: Pick<FormValues, "selectedPluginIds" | "selectedMcpServerIds">,
+): AgentToolingSelection => ({
+  selectedPluginIds: normalizeSelectedIds(values.selectedPluginIds),
+  selectedMcpServerIds: normalizeSelectedIds(values.selectedMcpServerIds),
+});
+
+export const mergeAgentToolingSelectionIntoTargetConfig = (
+  targetConfig: TargetConfig | null | undefined,
+  selection: AgentToolingSelection,
+): TargetConfig => {
+  const existing = targetConfig?.customFilters?.[AGENT_TOOLING_SELECTION_KEY];
+
+  return {
+    ...(targetConfig ?? {}),
+    customFilters: {
+      ...(targetConfig?.customFilters ?? {}),
+      [AGENT_TOOLING_SELECTION_KEY]: {
+        ...(isRecord(existing) ? existing : {}),
+        ...selection,
+      },
+    },
+  };
+};
+
+export const parseAgentToolingSelection = (
+  targetConfig: TargetConfig | null | undefined,
+): AgentToolingSelection => {
+  const raw = targetConfig?.customFilters?.[AGENT_TOOLING_SELECTION_KEY];
+  if (!isRecord(raw)) {
+    return { selectedPluginIds: [], selectedMcpServerIds: [] };
   }
 
-  return JSON.parse(trimmed) as ScheduledAgentMcpServers;
+  return {
+    selectedPluginIds: normalizeSelectedIds(raw.selectedPluginIds),
+    selectedMcpServerIds: normalizeSelectedIds(raw.selectedMcpServerIds),
+  };
 };
 
 const inferAutomationTargetFromConfig = (
@@ -378,6 +423,8 @@ export const useAgentFormDrawer = ({
   onSubmit,
   skills,
   projects,
+  plugins,
+  mcpServers,
 }: UseAgentFormDrawerParams) => {
   const isEditing = config !== null;
 
@@ -397,6 +444,7 @@ export const useAgentFormDrawer = ({
         : null;
 
       const inferred = inferAutomationTargetFromConfig(config, knownSkillSlugs);
+      const toolingSelection = parseAgentToolingSelection(config.targetConfig);
       const backlogStyleTarget = config.targetConfig?.backlogDrain ?? config.targetConfig?.dodRemediation;
       const projectQueueTarget =
         backlogStyleTarget ??
@@ -435,7 +483,8 @@ export const useAgentFormDrawer = ({
         // option; fall back to the raw value rather than dropping it.
         aiModel: resolveCanonicalModelId(config.aiModel) ?? config.aiModel ?? "",
         reasoningLevel: (config.reasoningLevel as FormValues["reasoningLevel"]) ?? undefined,
-        mcpServersJson: formatMcpServersJson(config.mcpServers),
+        selectedPluginIds: toolingSelection.selectedPluginIds,
+        selectedMcpServerIds: toolingSelection.selectedMcpServerIds,
         agentKind: inferred.agentKind,
         automationTargetKind: inferred.automationTargetKind,
         builtinAutomationId: inferred.builtinAutomationId,
@@ -486,7 +535,8 @@ export const useAgentFormDrawer = ({
       aiProvider: "anthropic",
       aiModel: "",
       reasoningLevel: undefined,
-      mcpServersJson: "",
+      selectedPluginIds: [],
+      selectedMcpServerIds: [],
       agentKind: "repository",
       automationTargetKind: "builtin",
       builtinAutomationId: "backlog-drain",
@@ -560,6 +610,10 @@ export const useAgentFormDrawer = ({
     | string
     | undefined;
   const agentKind = useWatch({ control: form.control, name: "agentKind" }) as AgentKind;
+  const selectedPluginIds =
+    (useWatch({ control: form.control, name: "selectedPluginIds" }) as string[] | undefined) ?? [];
+  const selectedMcpServerIds =
+    (useWatch({ control: form.control, name: "selectedMcpServerIds" }) as string[] | undefined) ?? [];
   const automationTargetKind = useWatch({ control: form.control, name: "automationTargetKind" }) as AutomationTargetKind;
   const builtinAutomationId = useWatch({ control: form.control, name: "builtinAutomationId" }) as BuiltinAutomationId;
   const automationSkillSlug = (useWatch({ control: form.control, name: "automationSkillSlug" }) as string | undefined) ?? null;
@@ -805,7 +859,19 @@ export const useAgentFormDrawer = ({
           : { expression: values.cronExpression! };
 
     const runtimeFields = resolveScheduledAgentSubmitRuntimeFields(values);
-    const mcpServers = parseMcpServersJson(values.mcpServersJson);
+    // The old raw mcpServersJson textarea is gone: the backend fails closed on
+    // any unmanaged remote MCP URL (no almirantServerId), so scheduled agents
+    // never submit a manual mcpServers payload anymore. The Agents v2 tooling
+    // selection below carries the same intent through targetConfig instead —
+    // a running job's actual mcpServers config is materialized server-side
+    // from that selection at dispatch time.
+    // Named distinctly from the `mcpServers` catalog param this hook
+    // receives, which stays in outer scope for the returned selector state.
+    const submittedMcpServers = null;
+    const toolingSelection = buildAgentToolingSelection(values);
+    const hasToolingSelection =
+      toolingSelection.selectedPluginIds.length > 0 ||
+      toolingSelection.selectedMcpServerIds.length > 0;
     const isBuiltinAutomation =
       values.agentKind === "automation" && values.automationTargetKind === "builtin";
     const isUserSkillAutomation =
@@ -840,13 +906,18 @@ export const useAgentFormDrawer = ({
       maxJobsPerRun: values.maxJobsPerRun,
       description: values.description || undefined,
       ...runtimeFields,
-      mcpServers,
-      targetConfig: isBuiltinAutomation
-        ? buildBuiltinAutomationTargetConfig({
-            ...values,
-            allProjectIds: projects.map((project) => project.id),
-          })
-        : undefined,
+      mcpServers: submittedMcpServers,
+      targetConfig: (() => {
+        const baseTargetConfig = isBuiltinAutomation
+          ? buildBuiltinAutomationTargetConfig({
+              ...values,
+              allProjectIds: projects.map((project) => project.id),
+            })
+          : undefined;
+        return hasToolingSelection
+          ? mergeAgentToolingSelectionIntoTargetConfig(baseTargetConfig, toolingSelection)
+          : baseTargetConfig;
+      })(),
     };
 
     onSubmit(data);
@@ -857,6 +928,10 @@ export const useAgentFormDrawer = ({
     onSubmit: handleSubmit,
     skills: flatSkills,
     userSkills,
+    plugins,
+    mcpServers,
+    selectedPluginIds,
+    selectedMcpServerIds,
     scheduleType,
     trigger,
     isEditing,

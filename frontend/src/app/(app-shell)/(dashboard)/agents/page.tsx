@@ -2,21 +2,34 @@
 
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useCallback, useRef, useEffect, useState } from "react";
-import { Bot, FlaskConical, Sparkles, TerminalSquare } from "lucide-react";
+import {
+  Bot,
+  FlaskConical,
+  HardDrive,
+  Plug,
+  Server,
+  Sparkles,
+  TerminalSquare,
+} from "lucide-react";
 import { motion } from "motion/react";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { ScheduledAgentsContainer } from "@/domains/scheduled-agents/presentation/containers/scheduled-agents-container";
+import { AgentMcpServersContainer, AgentPluginsContainer } from "@/domains/scheduled-agents/presentation/containers/agent-tooling-container";
 import { SkillsContainer } from "@/domains/skills/presentation/containers/skills-container";
 import { SessionsPageContainer } from "@/domains/sessions/presentation/containers/sessions-page-container";
 import { stringifyUrlSearchParams } from "@/domains/shared/application/hooks/use-url-dynamic-filters";
+import { UserStorageContainer } from "@/domains/user-storage/presentation/containers/user-storage-container";
 
-type AgentsTab = "agents" | "skills" | "sessions";
+type AgentsTab = "agents" | "skills" | "sessions" | "mcp" | "plugins" | "storage";
 const DEFAULT_TAB: AgentsTab = "sessions";
 
-const TABS: { value: AgentsTab; label: string; icon: React.FC<{ className?: string }>; isBeta?: boolean }[] = [
+export const AGENT_TABS: { value: AgentsTab; label: string; icon: React.FC<{ className?: string }>; isBeta?: boolean }[] = [
   { value: "sessions", label: "Sessions", icon: TerminalSquare },
   { value: "agents", label: "Agents", icon: Bot },
   { value: "skills", label: "Skills", icon: Sparkles, isBeta: true },
+  { value: "mcp", label: "MCP", icon: Server },
+  { value: "plugins", label: "Plugins", icon: Plug },
+  { value: "storage", label: "Storage", icon: HardDrive },
 ];
 
 export default function AgentsPage() {
@@ -72,7 +85,7 @@ export default function AgentsPage() {
     >
       <div className="max-w-[1200px] mx-auto w-full px-6 pt-6">
         <div ref={containerRef} className="relative flex gap-6">
-          {TABS.map(({ value, label, icon: Icon, isBeta }) => (
+          {AGENT_TABS.map(({ value, label, icon: Icon, isBeta }) => (
             <button
               key={value}
               ref={(el) => {
@@ -110,6 +123,15 @@ export default function AgentsPage() {
       </TabsContent>
       <TabsContent value="skills" className="flex-1 mt-0 overflow-auto">
         <SkillsContainer />
+      </TabsContent>
+      <TabsContent value="mcp" className="flex-1 mt-0 overflow-auto">
+        <AgentMcpServersContainer />
+      </TabsContent>
+      <TabsContent value="plugins" className="flex-1 mt-0 overflow-auto">
+        <AgentPluginsContainer />
+      </TabsContent>
+      <TabsContent value="storage" className="flex-1 mt-0 overflow-auto">
+        <UserStorageContainer />
       </TabsContent>
       <TabsContent value="sessions" className="flex-1 mt-0 overflow-auto">
         <SessionsPageContainer />

@@ -156,7 +156,152 @@ export type ScheduledAgentMcpServers = Record<string, {
   url: string;
   enabled?: boolean;
   oauth?: false;
+  headers?: Record<string, string>;
+  /** Internal Agents v2 MCP catalog id; the runner rewrites this server through Almirant's managed gateway. */
+  almirantServerId?: string;
 }>;
+
+// ---------------------------------------------------------------------------
+// Agents v2 tooling catalog (owner-aware MCP servers, plugins, marketplaces).
+// Selection lives per-agent in targetConfig.customFilters (see
+// AGENT_TOOLING_SELECTION_KEY in application/hooks/use-agent-form-drawer.ts);
+// materializing a selection into a running job's mcpServers config happens
+// server-side at dispatch, not in this client.
+// ---------------------------------------------------------------------------
+
+export type McpAuthType = "none" | "bearer" | "custom_header";
+
+export interface AgentMcpServer {
+  id: string;
+  workspaceId: string | null;
+  projectId: string | null;
+  ownerUserId: string | null;
+  name: string;
+  slug: string;
+  description: string | null;
+  url: string;
+  transport: string;
+  visibility: "user" | "workspace" | "official";
+  authType: McpAuthType;
+  authHeaderName: string | null;
+  templateKey: McpConnectorTemplateKey | null;
+  configuration: Record<string, unknown>;
+  hasSecret: boolean;
+  enabled?: boolean;
+  version: number;
+  archivedAt: string | null;
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const MCP_CONNECTOR_TEMPLATE_KEYS = [
+  "context7",
+  "github",
+  "scraper",
+] as const;
+
+export type McpConnectorTemplateKey =
+  (typeof MCP_CONNECTOR_TEMPLATE_KEYS)[number];
+
+export interface McpConnectorTemplate {
+  key: McpConnectorTemplateKey;
+  name: string;
+  description: string;
+  url: string;
+  runnerServerName: string;
+  authType: "bearer" | "custom_header";
+  authHeaderName: string;
+  secretLabel: string;
+  secretRequired: boolean;
+  docsUrl: string;
+  defaultConfiguration: Record<string, unknown>;
+}
+
+export interface McpConnectionTestResult {
+  connected: boolean;
+  server?: { name: string; version: string };
+  toolCount?: number;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+export interface CreateAgentMcpServerData {
+  name: string;
+  slug: string;
+  description?: string | null;
+  url: string;
+  authType: McpAuthType;
+  authHeaderName?: string | null;
+  secret?: string | null;
+}
+
+export type UpdateAgentMcpServerData = Partial<CreateAgentMcpServerData> & {
+  clearSecret?: boolean;
+};
+
+export interface AgentPlugin {
+  id: string;
+  workspaceId: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  instructions: string;
+  ownerUserId: string | null;
+  visibility: "user" | "workspace" | "official";
+  provider: "portable" | "claude-code" | "opencode" | "codex";
+  sourceType: "instructions" | "marketplace" | "upload";
+  marketplaceId: string | null;
+  externalId: string | null;
+  version: string | null;
+  checksumSha256: string | null;
+  manifest: Record<string, unknown> | null;
+  enabled: boolean;
+  archivedAt: string | null;
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateAgentPluginData {
+  name: string;
+  slug: string;
+  description?: string | null;
+  instructions: string;
+  enabled?: boolean;
+}
+
+export type UpdateAgentPluginData = Partial<CreateAgentPluginData>;
+
+export interface PluginMarketplaceCatalogEntry {
+  externalId: string;
+  name: string;
+  description: string | null;
+  version: string | null;
+  category: string | null;
+  tags: string[];
+}
+
+export interface PluginMarketplace {
+  id: string;
+  name: string;
+  slug: string;
+  provider: "claude-code" | "opencode";
+  source: string;
+  sourceType: "github" | "url" | "npm";
+  catalog: {
+    name?: string;
+    ownerName?: string | null;
+    plugins?: PluginMarketplaceCatalogEntry[];
+  } | null;
+  enabled: boolean;
+  isBuiltIn: boolean;
+  lastSyncedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface BacklogDrainWorkItemTreeItem {
   id: string;
@@ -349,6 +494,11 @@ export interface AgentFormDrawerProps {
   isLoadingBacklogDrainPreview: boolean;
   webhookProposal: ScheduledAgentWebhookProposal | null;
   isLoadingWebhookProposal: boolean;
+  // Agents v2 tooling catalog + this agent's current selection.
+  plugins: AgentPlugin[];
+  mcpServers: AgentMcpServer[];
+  selectedPluginIds: string[];
+  selectedMcpServerIds: string[];
 }
 
 export interface ScheduledAgentWebhookProposal {
