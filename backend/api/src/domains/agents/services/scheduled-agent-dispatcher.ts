@@ -76,23 +76,12 @@
  *   in the design brief, purely to make the per-tick cap configurable and
  *   unit-testable without mutating `process.env` mid-test. Callers that only
  *   pass `now` are unaffected.
- * - DIVERGENCE FROM CLOUD -- no 'once' schedule type: cloud's dispatcher
- *   also ports a scheduleType='once' one-shot occurrence (migration 0238,
- *   community issue #85's exclusion list; tracked separately as its own
- *   future batch, "lote 15"). community's `schedule_type` enum has no
- *   'once' value (only manual, time_window, cron), so every 'once'-specific
- *   branch here -- the pre-dispatch `consumeOnceScheduleOccurrence`
- *   reservation, the `isOnceDue` due-check delegate (which
- *   scheduled-agent-due.ts does not export either, for the same reason),
- *   and the `onceAlreadyConsumed` skip-count field -- is omitted rather
- *   than kept as untriggerable dead code referencing a nonexistent enum
- *   member. See scheduled-agent-due.ts's own top-of-file note for the
- *   matching divergence in this dispatcher's due-check dependency.
  */
 
 import { logger } from "@almirant/config";
 import {
   checkQuotaAvailable,
+  consumeOnceScheduleOccurrence,
   countActiveAgentJobsForLane,
   createJob,
   DuplicateActiveJobError,
@@ -117,6 +106,7 @@ import {
 } from "@almirant/shared";
 import {
   isCronDue,
+  isOnceDue,
   isScheduledAgentRunnable,
   isTimeWindowActive,
   resolveScheduledDispatchDueKey,
@@ -249,10 +239,16 @@ export interface ScheduledAgentDispatchSkipCounts {
   notRunnable: number;
   notDue: number;
   noQuota: number;
-  // DIVERGENCE FROM CLOUD -- no `onceAlreadyConsumed` counter: cloud tracks
-  // scheduleType='once' at-most-once consumption races here. community has
-  // no 'once' schedule type (see top-of-file note), so this reason can
-  // never fire; omitted rather than kept as an untriggerable dead field.
+  /**
+   * A `scheduleType='once'` config's single occurrence was already consumed
+   * by another dispatch authority (a concurrent replica of this same
+   * dispatcher, or a crash that left the row `enabled=false` with
+   * `lastRunAt` still null) before this call's `consumeOnceScheduleOccurrence`
+   * could win the atomic UPDATE. See that function's docstring in
+   * `scheduled-agent-config-repository.ts` for the full at-most-once
+   * contract.
+   */
+  onceAlreadyConsumed: number;
 }
 
 export interface ScheduledAgentDispatchModeCounts {
@@ -776,13 +772,12 @@ const dispatchOneConfig = async (
     return { outcome: "skipped", reason: "notRunnable" };
   }
 
-  // DIVERGENCE FROM CLOUD -- no 'once' schedule type: see the top-of-file
-  // note. community's scheduleType union has no 'once' member, so the
-  // three-way ternary collapses to two branches.
   const isDue =
     config.scheduleType === "cron"
       ? isCronDue(dueConfig, now)
-      : isTimeWindowActive(dueConfig, now);
+      : config.scheduleType === "once"
+        ? isOnceDue(dueConfig, now)
+        : isTimeWindowActive(dueConfig, now);
   if (!isDue) {
     return { outcome: "skipped", reason: "notDue" };
   }
@@ -833,12 +828,29 @@ const dispatchOneConfig = async (
     }
   }
 
-  // DIVERGENCE FROM CLOUD -- no 'once' schedule type (see top-of-file
-  // note): cloud's at-most-once PRE-dispatch consumption for
-  // scheduleType='once' configs (review Fix 1, consumeOnceScheduleOccurrence)
-  // is omitted here. community's schedule_type enum has no 'once' member,
-  // so this reservation can never apply to any config this dispatcher will
-  // ever see.
+  // At-most-once PRE-dispatch consumption for 'once' configs (review Fix 1).
+  // MUST run before the router below, for every mode — the 4 deterministic
+  // modes and candidateBased never went through `reserveScheduledAgentRun`
+  // (only the standalone branch does, via
+  // `executeScheduledAgentConfigWithResult`), so without this gate the only
+  // guard for 'once' was the POST-dispatch auto-disable in
+  // `updateScheduledAgentConfigLastRunAt` — leaving a window where a crash
+  // between createJob and that disable, or two concurrent dispatch
+  // authorities both observing `isOnceDue()===true`, could double-dispatch.
+  //
+  // Deliberately scoped to scheduleType='once' only: do NOT extend this
+  // reservation to cron/time_window configs, which must keep being
+  // re-evaluated every tick by their own reconcilers.
+  if (config.scheduleType === "once") {
+    const consumed = await consumeOnceScheduleOccurrence(config.id);
+    if (!consumed) {
+      logger.info(
+        { configId: config.id, workspaceId: config.workspaceId },
+        "scheduled-agent-dispatcher: 'once' occurrence already consumed by another dispatch authority",
+      );
+      return { outcome: "skipped", reason: "onceAlreadyConsumed" };
+    }
+  }
 
   const targetConfig = config.targetConfig;
 
@@ -910,7 +922,7 @@ export const runScheduledAgentDispatchOnce = async (
     finishedAt: now.toISOString(),
     configsSeen: 0,
     configsProcessed: 0,
-    skipped: { notRunnable: 0, notDue: 0, noQuota: 0 },
+    skipped: { notRunnable: 0, notDue: 0, noQuota: 0, onceAlreadyConsumed: 0 },
     jobsCreated: 0,
     jobsCreatedByMode: {
       backlogDrain: 0,
