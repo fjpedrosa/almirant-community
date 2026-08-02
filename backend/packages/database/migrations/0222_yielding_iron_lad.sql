@@ -108,11 +108,15 @@ SET
 WHERE "due_key" IS NULL OR "trigger_type" IS NULL;--> statement-breakpoint
 ALTER TABLE "scheduled_agent_runs" ALTER COLUMN "due_key" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "scheduled_agent_runs" ALTER COLUMN "trigger_type" SET NOT NULL;--> statement-breakpoint
--- Backfill scheduled_agent_mcp_servers from the legacy inline
--- target_config.customFilters.__agent.selectedMcpServerIds array so
--- dispatch-time tooling resolution (agent-tooling-resolution.ts) has a
--- normalized association to read instead of reaching back into the legacy
--- jsonb blob (parity with cloud migration 0233).
+-- Backfill scheduled_agent_mcp_servers from the wizard's persisted tooling
+-- selection (community diverges from cloud's "__agent" key here: community's
+-- Agents v2 frontend wizard, PR #86, persists MCP/plugin selection under
+-- target_config.customFilters.__agentTooling -- see
+-- AGENT_TOOLING_SELECTION_KEY in
+-- frontend/src/domains/scheduled-agents/application/hooks/use-agent-form-drawer.ts.
+-- Cloud has no equivalent frontend divergence, so its 0233 read from
+-- "__agent" instead; community's dispatch-time tooling resolution
+-- (agent-tooling-resolution.ts) must read the SAME key the wizard writes).
 INSERT INTO "scheduled_agent_mcp_servers" (
   "agent_id",
   "mcp_server_id",
@@ -126,9 +130,9 @@ FROM "scheduled_agent_configs" AS config
 CROSS JOIN LATERAL jsonb_array_elements_text(
   CASE
     WHEN jsonb_typeof(
-      config."target_config" #> '{customFilters,__agent,selectedMcpServerIds}'
+      config."target_config" #> '{customFilters,__agentTooling,selectedMcpServerIds}'
     ) = 'array'
-    THEN config."target_config" #> '{customFilters,__agent,selectedMcpServerIds}'
+    THEN config."target_config" #> '{customFilters,__agentTooling,selectedMcpServerIds}'
     ELSE '[]'::jsonb
   END
 ) AS selected("mcp_server_id")

@@ -29,6 +29,7 @@ import { planningSessions } from "./planning-sessions";
 import { user } from "./auth";
 import { workspace } from "./workspace";
 import type { ProvenanceSource } from "./provenance";
+import type { AgentOutputPolicySnapshot } from "./agent-output";
 import type {
   AgentWorkspace,
   ClusterInvestigationContext,
@@ -124,6 +125,15 @@ export interface AgentJobConfig {
    * config blob (no dedicated DB column).
    */
   subagentModel?: string;
+  /** Idempotency key for the exact scheduled dispatch occurrence. */
+  scheduledDispatchDueKey?: string;
+  /** Server-owned origin for this scheduled-agent dispatch. */
+  scheduledDispatchTrigger?: "manual" | "webhook" | "schedule";
+  /**
+   * Secret-free, immutable structured-output policy resolved before enqueue.
+   * Endpoint templates, bindings and headers are intentionally never exposed here.
+   */
+  outputPolicy?: AgentOutputPolicySnapshot;
   /**
    * UUID of the specific `provider_connections` row the runner should use for
    * AI credentials. Set by `createJob` when the admin has pinned an account
