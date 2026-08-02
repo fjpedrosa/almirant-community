@@ -31,6 +31,7 @@ const state = {
     };
   },
   updateCalls: [] as Array<{ jobId: string; status: string; data?: Record<string, unknown> }>,
+  terminalIntentCalls: [] as Array<{ jobId: string; status: string; data?: Record<string, unknown> }>,
   cancelledJobs: [] as string[],
   broadcasts: [] as Array<{ orgId: string; message: Record<string, unknown> }>,
 };
@@ -57,6 +58,18 @@ mock.module("@almirant/database", () => ({
     return {
       id: jobId,
       status,
+      workItemId: state.currentJob.job.workItemId,
+    };
+  },
+  requestJobTerminalIntent: async (
+    jobId: string,
+    status: string,
+    data?: Record<string, unknown>,
+  ) => {
+    state.terminalIntentCalls.push({ jobId, status, data });
+    return {
+      id: jobId,
+      status: "finalizing",
       workItemId: state.currentJob.job.workItemId,
     };
   },
@@ -111,6 +124,7 @@ describe("interaction-timeout-sweeper", () => {
       },
     };
     state.updateCalls = [];
+    state.terminalIntentCalls = [];
     state.cancelledJobs = [];
     state.broadcasts = [];
   });
@@ -188,6 +202,33 @@ describe("interaction-timeout-sweeper", () => {
         },
       },
     });
+  });
+
+  it("deja una intencion de fallo sin liberar un claim durable activo", async () => {
+    state.expiredInteractions = [
+      {
+        id: "interaction-timeout",
+        agentJobId: "job-1",
+        workItemId: null,
+        questionText: "Need approval",
+        timeoutAction: "fail",
+        defaultAnswer: null,
+      },
+    ];
+
+    const { runInteractionTimeoutOnce } = await import("./interaction-timeout-sweeper");
+    await runInteractionTimeoutOnce();
+
+    expect(state.updateCalls).toHaveLength(0);
+    expect(state.terminalIntentCalls).toHaveLength(1);
+    expect(state.terminalIntentCalls[0]).toMatchObject({
+      jobId: "job-1",
+      status: "failed",
+      data: {
+        errorType: "interaction-timeout",
+      },
+    });
+    expect(state.cancelledJobs).toEqual(["job-1"]);
   });
 });
 
