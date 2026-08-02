@@ -4840,5 +4840,17 @@
       "policyUpdated": "AI key policy updated",
       "policyFailed": "Failed to update AI key policy"
     }
+  },
+  "scheduledAgents": {
+    "once": {
+      "scheduleTypeOption": "Run once",
+      "runAtLabel": "Run at",
+      "runAtDescription": "The agent runs once at this date and time, in the timezone selected above.",
+      "pastWarning": "This time is in the past — the agent will run on the very next tick after saving.",
+      "rearmHint": "This agent already ran once and disabled itself — no automatic re-enabling. Pick a new date and time above, then turn Enabled back on to schedule it again.",
+      "pendingLabel": "Runs once · {date}",
+      "executedBadge": "Executed {date}",
+      "rearmAction": "Re-arm"
+    }
   }
 }

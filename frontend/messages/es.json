@@ -4841,5 +4841,17 @@
       "policyUpdated": "Politica de claves AI actualizada",
       "policyFailed": "Error al actualizar politica de claves AI"
     }
+  },
+  "scheduledAgents": {
+    "once": {
+      "scheduleTypeOption": "Ejecutar una vez",
+      "runAtLabel": "Ejecutar el",
+      "runAtDescription": "El agente se ejecuta una única vez en esta fecha y hora, en la zona horaria seleccionada arriba.",
+      "pastWarning": "Esta hora ya ha pasado — el agente se ejecutará en el siguiente ciclo tras guardar.",
+      "rearmHint": "Este agente ya se ejecutó una vez y se desactivó solo — no se reactiva automáticamente. Elige una nueva fecha y hora arriba y vuelve a activar «Enabled» para programarlo de nuevo.",
+      "pendingLabel": "Se ejecuta una vez · {date}",
+      "executedBadge": "Ejecutado {date}",
+      "rearmAction": "Re-armar"
+    }
   }
 }
