@@ -16,7 +16,10 @@ export type StreamingBlock =
   | { type: "bash"; toolCallId?: string; command: string; description?: string; output?: string }
   | { type: "subagent"; subagentId: string; description: string; isBackground: boolean; status: "running" | "done"; subagentType?: string }
   | { type: "summary"; text: string; section: "Summary" | "Resumen" }
-  | { type: "session-reconnect"; timestamp: string };
+  | { type: "session-reconnect"; timestamp: string }
+  /** A data dump, kept out of the Markdown pipeline: rendering it as prose
+   *  autolinked URLs inside JSON strings and split identifiers mid-word. */
+  | { type: "data"; content: string; format: "json" | "text"; byteLength: number; lineCount: number };
 
 /**
  * Represents a group of streaming blocks with the same tool name.

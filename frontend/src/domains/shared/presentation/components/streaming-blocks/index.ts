@@ -26,3 +26,5 @@ export { BackgroundAgentsWaiting } from "./background-agents-waiting";
 export type { BackgroundAgentDetail } from "./background-agents-waiting";
 export { SessionReconnectBlock } from "./session-reconnect-block";
 export { SummaryBlock } from "./summary-block";
+export { DataBlock } from "./data-block";
+export { JsonTreeBlock } from "./json-tree-block";
