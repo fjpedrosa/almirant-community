@@ -888,7 +888,11 @@ export type AlmirantWorkerClient = {
   getNightlyValidationConfig: () => Promise<NightlyValidationConfig>;
   getAllNightlyValidationConfigs: () => Promise<NightlyProjectValidationConfig[]>;
   resetStaleChildTasks: (parentWorkItemId: string) => Promise<{ resetIds: string[] }>;
-  getJobTranscript: (jobId: string, params?: { limit?: number; tail?: boolean }) => Promise<{ transcript: string }>;
+  getJobTranscript: (
+    jobId: string,
+    params?: { limit?: number; tail?: boolean },
+    requestOptions?: WorkerClientRequestOptions,
+  ) => Promise<{ transcript: string }>;
   getJobSessionEvents: (
     jobId: string,
     params?: { after?: number; kinds?: string[]; limit?: number }

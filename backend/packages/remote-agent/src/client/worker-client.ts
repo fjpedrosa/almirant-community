@@ -901,7 +901,11 @@ export const createAlmirantWorkerClient = (
       );
     },
 
-    getJobTranscript: async (jobId: string, params?: { limit?: number; tail?: boolean }) => {
+    getJobTranscript: async (
+      jobId: string,
+      params?: { limit?: number; tail?: boolean },
+      requestOptions?: WorkerClientRequestOptions,
+    ) => {
       const queryParams = new URLSearchParams();
       if (params?.limit !== undefined) {
         queryParams.set("limit", String(params.limit));
@@ -915,6 +919,8 @@ export const createAlmirantWorkerClient = (
         `/workers/jobs/${jobId}/transcript${query}`,
         {
           method: "GET",
+          timeoutMs: requestOptions?.timeoutMs,
+          signal: requestOptions?.signal,
         }
       );
     },
