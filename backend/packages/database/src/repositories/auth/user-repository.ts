@@ -70,3 +70,24 @@ export const isUserWorkspaceMember = async (
     .limit(1);
   return Boolean(row);
 };
+
+/**
+ * Resolve the workspace's owner user id, for attributing automated dispatch
+ * (the scheduled-agent-dispatcher tick) to a real member instead of
+ * persisting `createdByUserId: null` -- which the sessions UI renders as
+ * "Almirant[bot]" even when the workspace has a real owner. Used as a
+ * fallback only: new `scheduled_agent_configs` rows always carry an
+ * `ownerUserId`, so this is exercised by legacy rows predating that
+ * enforcement.
+ */
+export const getWorkspaceOwnerUserId = async (
+  workspaceId: string,
+): Promise<string | null> => {
+  const [row] = await db
+    .select({ userId: member.userId })
+    .from(member)
+    .where(and(eq(member.workspaceId, workspaceId), eq(member.role, "owner")))
+    .orderBy(member.createdAt)
+    .limit(1);
+  return row?.userId ?? null;
+};
