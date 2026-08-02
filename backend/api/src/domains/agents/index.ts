@@ -11,6 +11,7 @@ import { skillsSyncRoutes } from "./routes/skills-sync.routes";
 import { memoryRoutes } from "./routes/memory.routes";
 import { agentConnectionsRoutes } from "./routes/agent-connections.routes";
 import { agentToolingRoutes } from "./routes/agent-tooling.routes";
+import { pluginMarketplacesRoutes } from "./routes/plugin-marketplaces.routes";
 
 export const agentsModule = {
   /** API key auth routes — mounted at root level (no session auth) */
@@ -28,6 +29,7 @@ export const agentsModule = {
       .use(agentJobsRoutes)
       .use(scheduledAgentRunsRoutes)
       .use(agentToolingRoutes)
+      .use(pluginMarketplacesRoutes)
       .use(scheduledAgentsRoutes)
       .use(skillsRoutes)
       .use(memoryRoutes)
