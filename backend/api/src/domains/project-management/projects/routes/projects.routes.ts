@@ -66,7 +66,20 @@ import {
 } from "../../../../shared/services/screenshot-service";
 import { extractKeyFromUrl, getS3Client, isS3Configured } from "../../../../shared/services/s3-service";
 import { env, logger } from "@almirant/config";
-import { getPermissionChecker } from "@almirant/shared";
+import { getPermissionChecker, BUILTIN_AUTOMATIONS, BUILTIN_AUTOMATION_IDS, isBuiltinAutomationId } from "@almirant/shared";
+import {
+  provisionDevFlowForProject,
+  getDevFlowStatus,
+  adoptDevFlowAutomation,
+  parsePersistedDevFlow,
+  DevFlowAutomationNotConflictedError,
+  type DevFlowRuntimeInput,
+} from "../../../agents/services/dev-flow-provisioning";
+import {
+  assertValidScheduledAgentRuntime,
+  SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR,
+} from "../../../agents/services/scheduled-agent-runtime-validation";
+import { assertValidDevFlowCronExpression } from "../../../agents/services/dev-flow-cron-validation";
 import { attachProjectRepository, RepositoryUrlValidationError } from "../services/project-repository-service";
 
 const NIGHTLY_VALIDATION_UNAVAILABLE_MESSAGE =
@@ -86,6 +99,37 @@ export const classifyRepositoryAttachError = (cause: unknown) => {
 };
 const PROJECT_CODING_AGENT_SCHEMA = t.Union([t.Literal("claude-code"), t.Literal("codex"), t.Literal("opencode")]);
 const PROJECT_AI_PROVIDER_SCHEMA = t.Union([t.Literal("anthropic"), t.Literal("openai"), t.Literal("google"), t.Literal("zai"), t.Literal("xai")]);
+// Dev-flow per-automation schedule override (issue #235). Kept loose on
+// purpose — `expression` is checked against the real cron parser
+// (assertValidDevFlowCronExpression) at the handler level, not here, so an
+// invalid cron string still gets a 400 with a useful message instead of
+// Elysia's generic 422 schema-validation error.
+const DEV_FLOW_AUTOMATION_SCHEDULE_SCHEMA = t.Object(
+  {
+    expression: t.String({ minLength: 1 }),
+    timezone: t.Optional(t.Nullable(t.String())),
+  },
+  { additionalProperties: false },
+);
+// One automation's override entry (issue #235). Every field is optional —
+// absent means "inherit the card-level devFlow default" — and `schedule`
+// additionally accepts an explicit `null` to CLEAR a previously-saved
+// schedule override. `automations`' KEYS (the automation id) are deliberately
+// NOT whitelisted at the schema level (see PROJECT_AGENT_DEFAULTS_SCHEMA
+// below) so an unknown id gets the same "400 + descriptive errorResponse"
+// treatment as every other devFlow validation failure, not Elysia's 422.
+const DEV_FLOW_AUTOMATION_OVERRIDE_SCHEMA = t.Object(
+  {
+    enabled: t.Optional(t.Nullable(t.Boolean())),
+    codingAgent: t.Optional(t.Nullable(PROJECT_CODING_AGENT_SCHEMA)),
+    aiProvider: t.Optional(t.Nullable(PROJECT_AI_PROVIDER_SCHEMA)),
+    model: t.Optional(t.Nullable(t.String())),
+    reasoningLevel: t.Optional(t.Nullable(t.String())),
+    maxConcurrentJobs: t.Optional(t.Nullable(t.Number({ minimum: 1, maximum: 100 }))),
+    schedule: t.Optional(t.Nullable(DEV_FLOW_AUTOMATION_SCHEDULE_SCHEMA)),
+  },
+  { additionalProperties: false },
+);
 const PROJECT_AGENT_DEFAULTS_SCHEMA = t.Object(
   {
     implementation: t.Optional(t.Nullable(t.Object({
@@ -93,6 +137,17 @@ const PROJECT_AGENT_DEFAULTS_SCHEMA = t.Object(
       aiProvider: t.Optional(t.Nullable(PROJECT_AI_PROVIDER_SCHEMA)),
       model: t.Optional(t.Nullable(t.String())),
       reasoningLevel: t.Optional(t.Nullable(t.String())),
+    }))),
+    // Dev-flow (issue #230, per-automation config issue #235): see
+    // dev-flow-provisioning.ts.
+    devFlow: t.Optional(t.Nullable(t.Object({
+      enabled: t.Boolean(),
+      codingAgent: t.Optional(t.Nullable(PROJECT_CODING_AGENT_SCHEMA)),
+      aiProvider: t.Optional(t.Nullable(PROJECT_AI_PROVIDER_SCHEMA)),
+      model: t.Optional(t.Nullable(t.String())),
+      reasoningLevel: t.Optional(t.Nullable(t.String())),
+      maxConcurrentJobs: t.Optional(t.Nullable(t.Number({ minimum: 1, maximum: 100 }))),
+      automations: t.Optional(t.Record(t.String({ minLength: 1 }), DEV_FLOW_AUTOMATION_OVERRIDE_SCHEMA)),
     }))),
   },
   { additionalProperties: false },
@@ -1261,7 +1316,7 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
   })
 
   // PATCH /projects/:id/ai-config
-  .patch("/:id/ai-config", async ({ params, body, set, activeWorkspace }) => {
+  .patch("/:id/ai-config", async ({ params, body, set, activeWorkspace, user }) => {
     const orgId = activeWorkspace!.id;
     const project = await getProjectById(orgId, params.id);
     if (!project) {
@@ -1272,14 +1327,171 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
       set.status = 400;
       return errorResponse("Invalid provider. Must be one of: claude-code, codex, zipu, grok", 400);
     }
+    const devFlow = body.agentDefaults?.devFlow as DevFlowRuntimeInput | null | undefined;
+    if (devFlow) {
+      // Per-automation config (issue #235): validate automation KEYS against
+      // the catalog first (unknown keys are a client bug, not a runtime
+      // coherence problem) — before touching the cron parser or the runtime
+      // validator, so a single unknown-key typo doesn't get masked by some
+      // other automation's cron/runtime error instead.
+      const automationOverrides = devFlow.automations ?? {};
+      const unknownAutomationIds = Object.keys(automationOverrides).filter(
+        (key) => !isBuiltinAutomationId(key),
+      );
+      if (unknownAutomationIds.length > 0) {
+        set.status = 400;
+        return errorResponse(
+          `Unknown automation id(s): ${unknownAutomationIds.join(", ")}. Valid ids: ${BUILTIN_AUTOMATION_IDS.join(", ")}.`,
+        );
+      }
+
+      // Cron parser check per automation's schedule override (real parser —
+      // croner's `Cron`, same one the dispatcher uses at evaluation time via
+      // schedule-evaluation.ts's isCronDue — so a config that passes this
+      // check is guaranteed evaluable later).
+      for (const automation of BUILTIN_AUTOMATIONS) {
+        const schedule = automationOverrides[automation.id]?.schedule;
+        if (!schedule) continue;
+        try {
+          assertValidDevFlowCronExpression(schedule.expression, schedule.timezone);
+        } catch (error) {
+          set.status = 400;
+          const message = error instanceof Error ? error.message : String(error);
+          return errorResponse(`${message} (automation: ${automation.id})`);
+        }
+      }
+
+      // Runtime coherence per automation's EFFECTIVE runtime (override >
+      // card default) — reuses the same provider/codingAgent/model/
+      // reasoningLevel coherence check scheduled-agent configs already
+      // enforce (see scheduled-agent-runtime-validation.ts). Every field is
+      // optional; omitted fields fall through to the normal
+      // scheduled-runtime precedence at dispatch time, so this only rejects
+      // an EXPLICIT incoherent combination, never an empty one. Looping over
+      // all 4 (rather than validating the card-level devFlow once) covers
+      // both "the card default itself is incoherent" (no automation
+      // overrides anything) and "only one automation's override is
+      // incoherent" (the card default alone is fine).
+      for (const automation of BUILTIN_AUTOMATIONS) {
+        const override = automationOverrides[automation.id];
+        try {
+          assertValidScheduledAgentRuntime({
+            codingAgent: override?.codingAgent ?? devFlow.codingAgent,
+            aiProvider: override?.aiProvider ?? devFlow.aiProvider,
+            aiModel: override?.model ?? devFlow.model,
+            reasoningLevel: override?.reasoningLevel ?? devFlow.reasoningLevel,
+          });
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith(SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR)) {
+            set.status = 400;
+            return errorResponse(`${error.message} (automation: ${automation.id})`);
+          }
+          throw error;
+        }
+      }
+    }
+
     const updated = await updateProjectAiConfig(params.id, body.defaultProvider, body.agentDefaults);
-    return successResponse(updated);
+
+    if (!devFlow) {
+      return successResponse(updated);
+    }
+
+    const devFlowProvisioning = await provisionDevFlowForProject({
+      workspaceId: orgId,
+      projectId: params.id,
+      devFlow,
+      actorUserId: user?.id ?? null,
+    });
+    return successResponse({ ...updated, devFlowProvisioning });
   }, {
     params: t.Object({ id: t.String() }),
     body: t.Object({
       defaultProvider: t.Nullable(t.String()),
       agentDefaults: t.Optional(PROJECT_AGENT_DEFAULTS_SCHEMA),
     }),
+  })
+
+  // GET /projects/:id/dev-flow — dev-flow (issue #230, per-automation config
+  // issue #235) status/diagnostic: the persisted devFlow config plus the
+  // four built-in automations' current system-config state (if
+  // provisioned), their per-automation `overrides`/computed `effective`
+  // runtime view, and any conflicting user-owned agents. Read-only — never
+  // provisions. For gate-by-gate dispatch diagnostics on a specific
+  // configId, use GET /scheduled-agents/:id/explain instead; this endpoint
+  // only references configIds.
+  .get("/:id/dev-flow", async ({ params, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
+    const project = await getProjectById(orgId, params.id);
+    if (!project) {
+      set.status = 404;
+      return notFoundResponse("Project");
+    }
+    const config = await getProjectAiConfig(params.id);
+    const persistedDevFlow = parsePersistedDevFlow(config.agentDefaults);
+    const status = await getDevFlowStatus({
+      workspaceId: orgId,
+      projectId: params.id,
+      devFlow: persistedDevFlow,
+    });
+    return successResponse({
+      devFlow: {
+        enabled: persistedDevFlow?.enabled ?? false,
+        codingAgent: persistedDevFlow?.codingAgent ?? null,
+        aiProvider: persistedDevFlow?.aiProvider ?? null,
+        model: persistedDevFlow?.model ?? null,
+        reasoningLevel: persistedDevFlow?.reasoningLevel ?? null,
+        maxConcurrentJobs: persistedDevFlow?.maxConcurrentJobs ?? null,
+      },
+      automations: status.automations,
+      skippedExistingUserAgents: status.skippedExistingUserAgents,
+    });
+  }, {
+    params: t.Object({ id: t.String() }),
+  })
+
+  // POST /projects/:id/dev-flow/adopt — dev-flow (issue #235): resolves a
+  // conflict between a built-in automation and an existing hand-made
+  // scheduled agent covering the same mode/scope. Disables the conflicting
+  // user-owned config(s) (still managedBy='user', never deleted) and turns
+  // the system-managed automation ON with its effective runtime/schedule —
+  // this is the ONLY authorized way to mutate the system-managed row
+  // outside PATCH /projects/:id/ai-config (see scheduled-agent-access.ts's
+  // assertScheduledAgentConfigIsUserManaged, which the generic
+  // scheduled-agent routes/MCP tools enforce against direct edits).
+  .post("/:id/dev-flow/adopt", async ({ params, body, set, activeWorkspace }) => {
+    const orgId = activeWorkspace!.id;
+    const project = await getProjectById(orgId, params.id);
+    if (!project) {
+      set.status = 404;
+      return notFoundResponse("Project");
+    }
+    if (!isBuiltinAutomationId(body.automationId)) {
+      set.status = 404;
+      return notFoundResponse("Automation");
+    }
+
+    const config = await getProjectAiConfig(params.id);
+    const persistedDevFlow = parsePersistedDevFlow(config.agentDefaults) ?? { enabled: false };
+
+    try {
+      const result = await adoptDevFlowAutomation({
+        workspaceId: orgId,
+        projectId: params.id,
+        automationId: body.automationId,
+        devFlow: persistedDevFlow,
+      });
+      return successResponse(result);
+    } catch (error) {
+      if (error instanceof DevFlowAutomationNotConflictedError) {
+        set.status = 409;
+        return errorResponse(error.message);
+      }
+      throw error;
+    }
+  }, {
+    params: t.Object({ id: t.String() }),
+    body: t.Object({ automationId: t.String({ minLength: 1 }) }),
   })
 
   // ──────────────────────────────────────────────

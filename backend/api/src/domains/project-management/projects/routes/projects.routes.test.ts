@@ -1399,6 +1399,874 @@ describe("Nightly Validation", () => {
 });
 
 // ─────────────────────────────────────────────────────
+// Dev Flow (issue #230) — PATCH /projects/:id/ai-config devFlow wiring
+// and GET /projects/:id/dev-flow status. `getProjectAiConfig` /
+// `updateProjectAiConfig` / the scheduled-agent-config repository functions
+// are mocked here (they resolve to the real implementation otherwise,
+// which would hit an unavailable DB); `dev-flow-provisioning.ts` itself
+// runs for real against those mocks, exercising the real
+// route -> provisioning -> repository wiring end to end.
+// ─────────────────────────────────────────────────────
+
+describe("Dev Flow", () => {
+  const emptyAiConfig = { defaultProvider: null, agentDefaults: {} };
+
+  describe("PATCH /projects/:id/ai-config", () => {
+    it("leaves the response unchanged (no devFlowProvisioning key) when devFlow is not part of the payload", async () => {
+      let updateCall: unknown[] | null = null;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          updateProjectAiConfig: async (...args: unknown[]) => {
+            updateCall = args;
+            return { defaultProvider: "claude-code", agentDefaults: { implementation: {} } };
+          },
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json({ defaultProvider: "claude-code", agentDefaults: { implementation: {} } }, "PATCH")
+        )
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+      expect(body.success).toBe(true);
+      expect(body.data).toEqual({ defaultProvider: "claude-code", agentDefaults: { implementation: {} } });
+      expect(body.data.devFlowProvisioning).toBeUndefined();
+      expect(updateCall).not.toBeNull();
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("provisions all four built-in automations and includes devFlowProvisioning in the response when devFlow.enabled=true", async () => {
+      const createCalls: Array<Record<string, unknown>> = [];
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          updateProjectAiConfig: async (
+            _projectId: string,
+            defaultProvider: string | null,
+            agentDefaults: unknown
+          ) => ({ defaultProvider, agentDefaults }),
+          listScheduledAgentConfigsByWorkspace: async () => [],
+          createScheduledAgentConfig: async (input: Record<string, unknown>) => {
+            createCalls.push(input);
+            return {
+              id: `cfg-system-${createCalls.length}`,
+              enabled: input.enabled,
+              lastRunAt: null,
+              managedBy: input.managedBy,
+              builtinAutomationId: input.builtinAutomationId,
+            };
+          },
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json({
+            defaultProvider: null,
+            agentDefaults: { devFlow: { enabled: true, codingAgent: "claude-code", aiProvider: "anthropic" } },
+          }, "PATCH")
+        )
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+      expect(body.success).toBe(true);
+      expect(createCalls).toHaveLength(4);
+      expect(createCalls.every((call) => call.managedBy === "system")).toBe(true);
+      expect(createCalls.every((call) => call.projectId === testProject.id)).toBe(true);
+      expect(body.data.devFlowProvisioning.automations).toHaveLength(4);
+      expect(body.data.devFlowProvisioning.skippedExistingUserAgents).toEqual([]);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("rejects an incoherent devFlow runtime (unknown model) with 400 before persisting or provisioning anything", async () => {
+      let updateCalled = false;
+      let createCalled = false;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          updateProjectAiConfig: async () => {
+            updateCalled = true;
+            return emptyAiConfig;
+          },
+          createScheduledAgentConfig: async () => {
+            createCalled = true;
+            throw new Error("should not be called");
+          },
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json({
+            defaultProvider: null,
+            agentDefaults: { devFlow: { enabled: true, model: "not-a-real-model-xyz" } },
+          }, "PATCH")
+        )
+      );
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as any;
+      expect(body.success).toBe(false);
+      expect(body.error).toContain("Invalid scheduled agent runtime");
+      expect(updateCalled).toBe(false);
+      expect(createCalled).toBe(false);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("returns 404 for an unknown project id", async () => {
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/does-not-exist/ai-config`,
+          json({ defaultProvider: null, agentDefaults: { devFlow: { enabled: true } } }, "PATCH")
+        )
+      );
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe("GET /projects/:id/dev-flow", () => {
+    it("returns disabled devFlow defaults and four unprovisioned automations when nothing has been provisioned yet", async () => {
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          listScheduledAgentConfigsByWorkspace: async () => [],
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(get(`/projects/${testProject.id}/dev-flow`));
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+      expect(body.success).toBe(true);
+      expect(body.data.devFlow).toEqual({
+        enabled: false,
+        codingAgent: null,
+        aiProvider: null,
+        model: null,
+        reasoningLevel: null,
+        maxConcurrentJobs: null,
+      });
+      expect(body.data.automations).toHaveLength(4);
+      expect(body.data.automations.every((a: any) => a.configId === null)).toBe(true);
+      expect(body.data.skippedExistingUserAgents).toEqual([]);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("reflects already-provisioned system configs and the persisted devFlow config", async () => {
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => ({
+            defaultProvider: null,
+            agentDefaults: { devFlow: { enabled: true, codingAgent: "codex", aiProvider: "openai" } },
+          }),
+          listScheduledAgentConfigsByWorkspace: async (
+            _workspaceId: string,
+            filters?: { projectId?: string }
+          ) =>
+            filters?.projectId === testProject.id
+              ? [
+                  {
+                    id: "cfg-system-dod-review",
+                    workspaceId: "org-test-1",
+                    projectId: testProject.id,
+                    managedBy: "system",
+                    builtinAutomationId: "dod-review",
+                    targetConfig: { dodReview: { enabled: true } },
+                    enabled: true,
+                    lastRunAt: new Date("2026-07-01T00:00:00.000Z"),
+                  },
+                ]
+              : [],
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(get(`/projects/${testProject.id}/dev-flow`));
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+      expect(body.data.devFlow).toMatchObject({ enabled: true, codingAgent: "codex", aiProvider: "openai" });
+      const dodReview = body.data.automations.find((a: any) => a.automationId === "dod-review");
+      expect(dodReview.configId).toBe("cfg-system-dod-review");
+      expect(dodReview.enabled).toBe(true);
+      expect(dodReview.lastRunAt).toBe("2026-07-01T00:00:00.000Z");
+      const backlogDrain = body.data.automations.find((a: any) => a.automationId === "backlog-drain");
+      expect(backlogDrain.configId).toBeNull();
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("surfaces a conflicting user-owned agent in skippedExistingUserAgents", async () => {
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          listScheduledAgentConfigsByWorkspace: async (
+            _workspaceId: string,
+            _filters?: { projectId?: string }
+          ) => [
+            {
+              id: "cfg-user-backlog-drain",
+              workspaceId: "org-test-1",
+              projectId: testProject.id,
+              managedBy: "user",
+              builtinAutomationId: null,
+              targetConfig: { backlogDrain: { enabled: true } },
+              enabled: true,
+              lastRunAt: null,
+            },
+          ],
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(get(`/projects/${testProject.id}/dev-flow`));
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+      expect(body.data.skippedExistingUserAgents).toEqual([
+        { configId: "cfg-user-backlog-drain", automationId: "backlog-drain" },
+      ]);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("returns 404 for an unknown project id", async () => {
+      const app = await makeApp();
+      const res = await app.handle(get(`/projects/does-not-exist/dev-flow`));
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────
+  // Per-automation config (issue #235)
+  // ─────────────────────────────────────────────────────
+
+  describe("PATCH /projects/:id/ai-config — per-automation overrides (issue #235)", () => {
+    it("persists devFlow.automations verbatim and provisions the EFFECTIVE per-automation runtime/schedule", async () => {
+      let persistedAgentDefaults: unknown = null;
+      const createCalls: Array<Record<string, unknown>> = [];
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          updateProjectAiConfig: async (
+            _projectId: string,
+            defaultProvider: string | null,
+            agentDefaults: unknown
+          ) => {
+            persistedAgentDefaults = agentDefaults;
+            return { defaultProvider, agentDefaults };
+          },
+          listScheduledAgentConfigsByWorkspace: async () => [],
+          createScheduledAgentConfig: async (input: Record<string, unknown>) => {
+            createCalls.push(input);
+            return {
+              id: `cfg-system-${createCalls.length}`,
+              enabled: input.enabled,
+              lastRunAt: null,
+              managedBy: input.managedBy,
+              builtinAutomationId: input.builtinAutomationId,
+            };
+          },
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json(
+            {
+              defaultProvider: null,
+              agentDefaults: {
+                devFlow: {
+                  enabled: true,
+                  codingAgent: "claude-code",
+                  aiProvider: "anthropic",
+                  model: "claude-opus-4-8",
+                  automations: {
+                    "dod-review": {
+                      codingAgent: "opencode",
+                      aiProvider: "zai",
+                      model: "glm-5.2",
+                      schedule: { expression: "0 */3 * * *", timezone: "UTC" },
+                    },
+                  },
+                },
+              },
+            },
+            "PATCH"
+          )
+        )
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+      expect(body.success).toBe(true);
+
+      // Persisted verbatim — the whole point of the JSONB is round-tripping.
+      expect((persistedAgentDefaults as any).devFlow.automations["dod-review"]).toEqual({
+        codingAgent: "opencode",
+        aiProvider: "zai",
+        model: "glm-5.2",
+        schedule: { expression: "0 */3 * * *", timezone: "UTC" },
+      });
+
+      // Provisioned with the EFFECTIVE (override) runtime/schedule for dod-review...
+      const dodReviewCall = createCalls.find((call) => call.builtinAutomationId === "dod-review")!;
+      expect(dodReviewCall.codingAgent).toBe("opencode");
+      expect(dodReviewCall.aiProvider).toBe("zai");
+      expect(dodReviewCall.aiModel).toBe("glm-5.2");
+      expect(dodReviewCall.scheduleType).toBe("cron");
+      expect(dodReviewCall.scheduleConfig).toEqual({ expression: "0 */3 * * *" });
+      expect(dodReviewCall.timezone).toBe("UTC");
+
+      // ...and the card default (default cron/timezone) for the other three.
+      const backlogDrainCall = createCalls.find((call) => call.builtinAutomationId === "backlog-drain")!;
+      expect(backlogDrainCall.codingAgent).toBe("claude-code");
+      expect(backlogDrainCall.aiProvider).toBe("anthropic");
+      expect(backlogDrainCall.aiModel).toBe("claude-opus-4-8");
+      expect(backlogDrainCall.scheduleConfig).toEqual({ expression: "*/5 * * * *" });
+      expect(backlogDrainCall.timezone).toBe("Europe/Madrid");
+
+      // Response mirrors the SAME shape as GET /dev-flow's automations array.
+      const dodReviewStatus = body.data.devFlowProvisioning.automations.find(
+        (a: any) => a.automationId === "dod-review"
+      );
+      expect(dodReviewStatus.overrides.codingAgent).toBe("opencode");
+      expect(dodReviewStatus.effective.codingAgent).toBe("opencode");
+      expect(dodReviewStatus.effective.schedule).toEqual({ expression: "0 */3 * * *", timezone: "UTC" });
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("rejects an unknown automation id in devFlow.automations with 400 before persisting or provisioning anything", async () => {
+      let updateCalled = false;
+      let createCalled = false;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          updateProjectAiConfig: async () => {
+            updateCalled = true;
+            return emptyAiConfig;
+          },
+          createScheduledAgentConfig: async () => {
+            createCalled = true;
+            throw new Error("should not be called");
+          },
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json(
+            {
+              defaultProvider: null,
+              agentDefaults: {
+                devFlow: { enabled: true, automations: { "not-a-real-automation": { enabled: true } } },
+              },
+            },
+            "PATCH"
+          )
+        )
+      );
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as any;
+      expect(body.success).toBe(false);
+      expect(body.error).toContain("not-a-real-automation");
+      expect(updateCalled).toBe(false);
+      expect(createCalled).toBe(false);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("rejects an invalid cron expression in an automation's schedule override with 400 before persisting or provisioning anything", async () => {
+      let updateCalled = false;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          updateProjectAiConfig: async () => {
+            updateCalled = true;
+            return emptyAiConfig;
+          },
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json(
+            {
+              defaultProvider: null,
+              agentDefaults: {
+                devFlow: {
+                  enabled: true,
+                  automations: { "backlog-drain": { schedule: { expression: "not-a-cron" } } },
+                },
+              },
+            },
+            "PATCH"
+          )
+        )
+      );
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as any;
+      expect(body.success).toBe(false);
+      expect(body.error).toContain("Invalid cron expression");
+      expect(updateCalled).toBe(false);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("rejects an incoherent EFFECTIVE runtime for a specific automation override (card default alone is fine) with 400", async () => {
+      let updateCalled = false;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          updateProjectAiConfig: async () => {
+            updateCalled = true;
+            return emptyAiConfig;
+          },
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json(
+            {
+              defaultProvider: null,
+              agentDefaults: {
+                devFlow: {
+                  enabled: true,
+                  codingAgent: "claude-code",
+                  aiProvider: "anthropic",
+                  model: "claude-opus-4-8",
+                  automations: { "dod-remediation": { model: "not-a-real-model-xyz" } },
+                },
+              },
+            },
+            "PATCH"
+          )
+        )
+      );
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as any;
+      expect(body.success).toBe(false);
+      expect(body.error).toContain("Invalid scheduled agent runtime");
+      expect(body.error).toContain("dod-remediation");
+      expect(updateCalled).toBe(false);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("accepts an explicit schedule: null override (clears any previously-saved schedule) and persists it verbatim", async () => {
+      let persistedAgentDefaults: unknown = null;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          updateProjectAiConfig: async (
+            _projectId: string,
+            defaultProvider: string | null,
+            agentDefaults: unknown
+          ) => {
+            persistedAgentDefaults = agentDefaults;
+            return { defaultProvider, agentDefaults };
+          },
+          listScheduledAgentConfigsByWorkspace: async () => [],
+          createScheduledAgentConfig: async (input: Record<string, unknown>) => ({
+            id: "cfg-1",
+            enabled: input.enabled,
+            lastRunAt: null,
+            managedBy: input.managedBy,
+            builtinAutomationId: input.builtinAutomationId,
+          }),
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json(
+            {
+              defaultProvider: null,
+              agentDefaults: { devFlow: { enabled: true, automations: { "backlog-drain": { schedule: null } } } },
+            },
+            "PATCH"
+          )
+        )
+      );
+
+      expect(res.status).toBe(200);
+      expect((persistedAgentDefaults as any).devFlow.automations["backlog-drain"]).toEqual({ schedule: null });
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+  });
+
+  // ─────────────────────────────────────────────────────
+  // Client wire-contract regression (review fixes #1+#2): the schema requires
+  // `defaultProvider` (Nullable, NOT Optional) and `devFlow.enabled`
+  // (Boolean, NOT Optional) — see the PROJECT_AGENT_DEFAULTS_SCHEMA /
+  // body schema above. Before the fix, the frontend's devFlowApi.updateConfig
+  // / updateAutomationOverrides (frontend/src/lib/api/client.ts) sent
+  // `{ agentDefaults: { devFlow } }` without `defaultProvider` at all —
+  // TypeBox validation rejected every request with a 400, so devFlow saves
+  // never worked. The fix is entirely on the frontend (use-project-dev-flow.ts
+  // / use-dev-flow-automation-overrides.ts now build the COMPLETE body,
+  // mirroring use-project-ai-config.ts's pattern) — this backend schema is
+  // intentionally left as-is (relaxing it would let a half-formed devFlow
+  // silently wipe `implementation`/other scalars via the wholesale JSONB
+  // replace in updateProjectAiConfig). These tests pin BOTH halves of that
+  // contract: the old incomplete shape must keep 400ing, and the new
+  // complete shape the fixed client sends must 200 AND round-trip
+  // `implementation`/devFlow scalars intact through a devFlow.automations
+  // save (the exact scenario Fix 1+2 was about — a wholesale JSONB replace
+  // must not drop data the caller didn't touch).
+  // ─────────────────────────────────────────────────────
+  describe("PATCH /projects/:id/ai-config — client.ts wire-contract regression (review fixes #1+#2)", () => {
+    it("still rejects the OLD incomplete payload shape (missing defaultProvider) — pinning why the fix had to be client-side, not a schema relaxation", async () => {
+      let updateCalled = false;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          updateProjectAiConfig: async () => {
+            updateCalled = true;
+            return emptyAiConfig;
+          },
+        })
+      );
+
+      const app = await makeApp();
+      // This is EXACTLY the shape the pre-fix devFlowApi.updateConfig sent:
+      // `{ agentDefaults: { devFlow } }`, no `defaultProvider` key at all —
+      // `defaultProvider` is `t.Nullable(t.String())`, NOT `t.Optional`, so
+      // TypeBox rejects the request before the handler ever runs.
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json({ agentDefaults: { devFlow: { enabled: true, codingAgent: "claude-code" } } }, "PATCH")
+        )
+      );
+
+      // `makeApp()` here wires only `projectsRoutes` (see the top of this
+      // file), not the global `errorMiddleware` from src/index.ts that maps
+      // Elysia's VALIDATION code to 400 in production — so this isolated
+      // harness surfaces Elysia's raw default (422) for a schema failure
+      // instead. Either way the request is REJECTED and NOTHING is
+      // persisted, which is the actual contract being pinned here.
+      expect(res.status).toBe(422);
+      expect(updateCalled).toBe(false);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("accepts the FULL body the fixed devFlowApi.updateAutomationOverrides client builds, and persists implementation + devFlow scalars + automations intact", async () => {
+      // Definite-assignment assertion (`!`) here on purpose — TS's
+      // control-flow analysis narrows a `let x: string | null = null`
+      // closured-and-reassigned variable to the literal `null` at later read
+      // sites (it can't see into the nested mock closure below), which then
+      // makes `expect(...).toBe("codex")` fail to type-check against the
+      // wrong overload. `!` keeps the declared union type without falling
+      // into the opposite "used before being assigned" error.
+      let persistedDefaultProvider!: string | null;
+      let persistedAgentDefaults: unknown = null;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          updateProjectAiConfig: async (
+            _projectId: string,
+            defaultProvider: string | null,
+            agentDefaults: unknown
+          ) => {
+            persistedDefaultProvider = defaultProvider;
+            persistedAgentDefaults = agentDefaults;
+            return { defaultProvider, agentDefaults };
+          },
+          listScheduledAgentConfigsByWorkspace: async () => [],
+          createScheduledAgentConfig: async (input: Record<string, unknown>) => ({
+            id: `cfg-system-${input.builtinAutomationId}`,
+            enabled: input.enabled,
+            lastRunAt: null,
+            managedBy: input.managedBy,
+            builtinAutomationId: input.builtinAutomationId,
+          }),
+        })
+      );
+
+      const app = await makeApp();
+
+      // Byte-for-byte mirror of what the FIXED useDevFlowAutomationOverrides'
+      // mutationFn builds (frontend/src/domains/projects/application/hooks/
+      // use-dev-flow-automation-overrides.ts) before calling
+      // devFlowApi.updateAutomationOverrides — defaultProvider + implementation
+      // read from the (shared, cached) ai-config query, devFlow scalars read
+      // from the card's server-persisted settings, and the automations map
+      // built by buildDevFlowAutomationsPatchPayload. If this literal ever
+      // drifts from the real client body, this test is documenting the wrong
+      // contract — keep them in sync by construction, not by memory.
+      const clientBuiltBody = {
+        defaultProvider: "codex",
+        agentDefaults: {
+          implementation: {
+            codingAgent: "codex",
+            aiProvider: "openai",
+            model: "gpt-5.6-sol",
+            reasoningLevel: null,
+          },
+          devFlow: {
+            enabled: true,
+            codingAgent: "claude-code",
+            aiProvider: "anthropic",
+            model: "claude-opus-4-8",
+            reasoningLevel: null,
+            maxConcurrentJobs: null,
+            automations: {
+              "dod-review": { model: "claude-sonnet-5", schedule: null },
+            },
+          },
+        },
+      };
+
+      const res = await app.handle(
+        req(`/projects/${testProject.id}/ai-config`, json(clientBuiltBody, "PATCH"))
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+      expect(body.success).toBe(true);
+
+      // Old bug #1: `defaultProvider` was missing entirely -> 400 always.
+      expect(persistedDefaultProvider).toBe("codex");
+
+      // Old bug #2: a wholesale JSONB replace with only `devFlow` present
+      // would silently drop `implementation`. Proves it survives a
+      // devFlow-automations save intact.
+      expect((persistedAgentDefaults as any).implementation).toEqual({
+        codingAgent: "codex",
+        aiProvider: "openai",
+        model: "gpt-5.6-sol",
+        reasoningLevel: null,
+      });
+
+      // The card-level devFlow scalars must survive too, not just automations.
+      expect((persistedAgentDefaults as any).devFlow.enabled).toBe(true);
+      expect((persistedAgentDefaults as any).devFlow.codingAgent).toBe("claude-code");
+      expect((persistedAgentDefaults as any).devFlow.aiProvider).toBe("anthropic");
+      expect((persistedAgentDefaults as any).devFlow.model).toBe("claude-opus-4-8");
+      expect((persistedAgentDefaults as any).devFlow.automations["dod-review"]).toEqual({
+        model: "claude-sonnet-5",
+        schedule: null,
+      });
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+  });
+
+  describe("GET /projects/:id/dev-flow — overrides/effective (issue #235)", () => {
+    it("returns overrides: null and a card-default-derived effective view for an automation without an override", async () => {
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => ({
+            defaultProvider: null,
+            agentDefaults: {
+              devFlow: { enabled: true, codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-opus-4-8" },
+            },
+          }),
+          listScheduledAgentConfigsByWorkspace: async () => [],
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(get(`/projects/${testProject.id}/dev-flow`));
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+      const backlogDrain = body.data.automations.find((a: any) => a.automationId === "backlog-drain");
+      expect(backlogDrain.overrides).toBeNull();
+      expect(backlogDrain.effective).toEqual({
+        codingAgent: "claude-code",
+        aiProvider: "anthropic",
+        model: "claude-opus-4-8",
+        reasoningLevel: null,
+        maxConcurrentJobs: null,
+        schedule: { expression: "*/5 * * * *", timezone: "Europe/Madrid" },
+      });
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("returns the raw override plus the merged effective runtime for an automation WITH an override", async () => {
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => ({
+            defaultProvider: null,
+            agentDefaults: {
+              devFlow: {
+                enabled: true,
+                codingAgent: "claude-code",
+                automations: {
+                  "release-integration": { codingAgent: "codex", schedule: { expression: "0 6 * * *" } },
+                },
+              },
+            },
+          }),
+          listScheduledAgentConfigsByWorkspace: async () => [],
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(get(`/projects/${testProject.id}/dev-flow`));
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+      const releaseIntegration = body.data.automations.find((a: any) => a.automationId === "release-integration");
+      expect(releaseIntegration.overrides).toEqual({
+        enabled: null,
+        codingAgent: "codex",
+        aiProvider: null,
+        model: null,
+        reasoningLevel: null,
+        maxConcurrentJobs: null,
+        schedule: { expression: "0 6 * * *", timezone: null },
+      });
+      expect(releaseIntegration.effective).toEqual({
+        codingAgent: "codex",
+        aiProvider: null,
+        model: null,
+        reasoningLevel: null,
+        maxConcurrentJobs: null,
+        schedule: { expression: "0 6 * * *", timezone: "Europe/Madrid" },
+      });
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+  });
+
+  describe("POST /projects/:id/dev-flow/adopt (issue #235)", () => {
+    it("disables the conflicting user config and enables the system automation, returning the GET-shaped automation entry", async () => {
+      const updateCalls: Array<{ id: string; input: Record<string, unknown> }> = [];
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => ({
+            defaultProvider: null,
+            agentDefaults: { devFlow: { enabled: true, codingAgent: "claude-code" } },
+          }),
+          listScheduledAgentConfigsByWorkspace: async () => [
+            {
+              id: "cfg-user-backlog-drain",
+              workspaceId: "org-test-1",
+              projectId: testProject.id,
+              managedBy: "user",
+              builtinAutomationId: null,
+              targetConfig: { backlogDrain: { enabled: true } },
+              enabled: true,
+              lastRunAt: null,
+            },
+          ],
+          updateScheduledAgentConfig: async (id: string, _workspaceId: string, input: Record<string, unknown>) => {
+            updateCalls.push({ id, input });
+            if (id === "cfg-user-backlog-drain") {
+              return { id, enabled: false, managedBy: "user" };
+            }
+            return { id, enabled: true, managedBy: "system", builtinAutomationId: "backlog-drain", lastRunAt: null };
+          },
+          createScheduledAgentConfig: async (input: Record<string, unknown>) => ({
+            id: "cfg-system-new",
+            enabled: input.enabled,
+            managedBy: input.managedBy,
+            builtinAutomationId: input.builtinAutomationId,
+            lastRunAt: null,
+          }),
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(`/projects/${testProject.id}/dev-flow/adopt`, json({ automationId: "backlog-drain" }, "POST"))
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+      expect(body.success).toBe(true);
+      expect(body.data.disabledUserConfigIds).toEqual(["cfg-user-backlog-drain"]);
+      expect(body.data.automation.automationId).toBe("backlog-drain");
+      expect(body.data.automation.enabled).toBe(true);
+      expect(body.data.automation.managedBy).toBe("system");
+      expect(
+        updateCalls.some((call) => call.id === "cfg-user-backlog-drain" && call.input.enabled === false)
+      ).toBe(true);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("returns 409 when there is no conflicting user agent for that automation", async () => {
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          listScheduledAgentConfigsByWorkspace: async () => [],
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(`/projects/${testProject.id}/dev-flow/adopt`, json({ automationId: "backlog-drain" }, "POST"))
+      );
+
+      expect(res.status).toBe(409);
+      const body = await res.json() as any;
+      expect(body.success).toBe(false);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("returns 404 for an unknown project id", async () => {
+      const app = await makeApp();
+      const res = await app.handle(
+        req(`/projects/does-not-exist/dev-flow/adopt`, json({ automationId: "backlog-drain" }, "POST"))
+      );
+
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 404 for an unknown automation id", async () => {
+      const app = await makeApp();
+      const res = await app.handle(
+        req(`/projects/${testProject.id}/dev-flow/adopt`, json({ automationId: "not-a-real-automation" }, "POST"))
+      );
+
+      expect(res.status).toBe(404);
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────
 // Boards sub-resource
 // ─────────────────────────────────────────────────────
 
