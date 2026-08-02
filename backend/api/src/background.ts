@@ -1,4 +1,4 @@
-import { env, logger } from "@almirant/config";
+import { env, logger, type Env } from "@almirant/config";
 import { startStaleJobRecovery } from "./domains/agents/services/stale-job-recovery";
 import { startInteractionTimeoutSweeper } from "./domains/observability/services/interaction-timeout-sweeper";
 import { startPlanningSessionIdleSweeper } from "./domains/ideation/planning-sessions/services/planning-session-idle-sweeper";
@@ -16,10 +16,25 @@ import { startBugFixAttemptPrReconciler } from "./domains/integrations/github/se
 import { startInvestigationTimeoutSweeper } from "./domains/observability/services/investigation-timeout-sweeper";
 import { startUserStorageDeletionSweeper } from "./domains/storage/services/user-storage-deletion-sweeper";
 import { startCloudBackgroundJobs } from "./cloud/background-jobs";
+import { startScheduledAgentDispatcher } from "./domains/agents/services/scheduled-agent-dispatcher";
 
 interface BackgroundJobHandles {
   stop: () => Promise<void>;
 }
+
+/**
+ * Pure gate predicate for the backend-native scheduled-agent dispatcher.
+ * Ported from cloud's background.ts verbatim. Extracted out of
+ * startBackgroundJobs() so the gate can be unit-tested directly instead of
+ * exercising the full startBackgroundJobs() side-effect graph. Default MUST
+ * stay disabled (SCHEDULED_AGENT_DISPATCHER_ENABLED defaults to "false" in
+ * @almirant/config's env.ts): running this dispatcher alongside the
+ * runner's own scheduler tick duplicates jobs for the deterministic
+ * automation modes.
+ */
+export const isScheduledAgentDispatcherEnabled = (
+  flag: Env["SCHEDULED_AGENT_DISPATCHER_ENABLED"],
+): boolean => flag === "true";
 
 export const startBackgroundJobs = (): BackgroundJobHandles => {
   const stopStaleJobRecovery = startStaleJobRecovery({
@@ -76,6 +91,17 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
           timeoutMinutes: env.ALMIRANT_INVESTIGATION_TIMEOUT_MINUTES,
         })
       : null;
+  // Kill switch, default OFF -- see SCHEDULED_AGENT_DISPATCHER_ENABLED's
+  // comment in packages/config/src/env.ts for why running this alongside
+  // the runner's own scheduler tick duplicates jobs and must not be
+  // enabled by default.
+  const stopScheduledAgentDispatcher = isScheduledAgentDispatcherEnabled(
+    env.SCHEDULED_AGENT_DISPATCHER_ENABLED,
+  )
+    ? startScheduledAgentDispatcher({
+        intervalMs: env.SCHEDULED_AGENT_DISPATCHER_INTERVAL_MS,
+      })
+    : null;
   const stopWsPubSub = env.REDIS_URL
     ? startWsPubSubSubscriber({
         redisUrl: env.REDIS_URL,
@@ -103,6 +129,7 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
       stopEffortEstimationSweeper();
       if (stopBugFixAttemptPrReconciler) stopBugFixAttemptPrReconciler();
       if (stopInvestigationTimeoutSweeper) stopInvestigationTimeoutSweeper();
+      if (stopScheduledAgentDispatcher) stopScheduledAgentDispatcher();
       wsConnectionManager.stopSweepInterval();
       await wsConnectionManager.stopPubSubPublisher();
       if (stopWsPubSub) await stopWsPubSub();
