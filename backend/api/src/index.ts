@@ -40,6 +40,9 @@ import { instanceModule } from "./domains/instance";
 import { storageModule } from "./domains/storage";
 import { cloudRoutes } from "./cloud/route-registration";
 import { handbookModule } from "./domains/handbook";
+import { feedbackModule } from "./domains/feedback";
+import { debugModule } from "./domains/debug";
+import { adminRoutes } from "./domains/admin";
 import { wsHandler } from "./shared/ws/ws-handler";
 import { startBackgroundJobs } from "./background";
 import { bootstrapExtensions, bootstrapRuntimeSettings } from "./bootstrap";
@@ -126,6 +129,9 @@ const app = new Elysia({
   .use(integrationsModule.public())
   // Resend inbound email webhooks at root level (no auth) - Resend sends webhooks without session
   .use(notificationsModule.public())
+  // Public widget feedback ingestion (no auth, secured by public key +
+  // token/captcha/origin/rate limit)
+  .use(feedbackModule.public())
   // Dev-only test session endpoint (disabled in production)
   .use(authModule.public())
   // Public list of configured auth providers (consumed by the login page before auth)
@@ -270,6 +276,15 @@ const app = new Elysia({
       .use(observabilityModule.protected())
       .use(ideationModule.protected())
       .use(billingModule.protected())
+      // Feedback widget submission + screenshots (session auth, workspace-scoped)
+      .use(feedbackModule.protected())
+      // Debug incident-bundle surface (/api/debug/*) — session + workspace
+      // scoped.
+      .use(debugModule.protected())
+      // Admin route group (/api/admin/*) — self-guards with requireAdmin.
+      // See backend/api/src/domains/admin/routes/index.ts for the full
+      // scope of mounted admin surfaces.
+      .use(adminRoutes)
       .use(documentsModule.uploads())
   )
   // Extension point for downstream distributions (e.g. Almirant Cloud) to

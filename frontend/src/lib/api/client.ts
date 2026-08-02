@@ -3044,3 +3044,485 @@ export const pushSubscriptionsApi = {
       method: "DELETE",
     }),
 };
+
+// -----------------------------------------------------------------------
+// Admin Feedback API — backs the ported `domains/feedback` (admin) and
+// `domains/feedback-triage` (cluster investigation) surfaces.
+//
+// Cloud's client carries this under a `backofficeApi` namespace shared with
+// its cross-workspace SaaS backoffice surface (users, security, waitlist,
+// workers, pm, workspaces). Community has no such surface — this is only
+// the feedback + bug-fix-attempts admin subset, so it is named for what it
+// actually is.
+// -----------------------------------------------------------------------
+export const adminFeedbackApi = {
+  // Feedback Admin
+  getFeedbackItems: (params?: URLSearchParams) =>
+    requestWithMeta<unknown[]>(
+      `/admin/feedback/feedback-items${params ? `?${params}` : ""}`
+    ),
+
+  getFeedbackItemById: (id: string) =>
+    request<unknown>(`/admin/feedback/feedback-items/${id}`),
+
+  updateFeedbackItem: (id: string, data: unknown) =>
+    request<unknown>(`/admin/feedback/feedback-items/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  deleteFeedbackItem: (id: string) =>
+    request<unknown>(`/admin/feedback/feedback-items/${id}`, {
+      method: "DELETE",
+    }),
+
+  promoteFeedbackItem: (feedbackItemId: string, data: unknown) =>
+    request<unknown>(
+      `/admin/feedback/feedback-items/${feedbackItemId}/promote`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      }
+    ),
+
+  getFeedbackTraceability: (feedbackItemId: string) =>
+    request<import("@/domains/feedback/domain/types").FeedbackTraceabilityResult>(
+      `/admin/feedback/feedback-items/${feedbackItemId}/traceability`
+    ),
+
+  triageFeedbackItem: (feedbackItemId: string) =>
+    request<{ enqueued: boolean; alreadyActive: boolean; jobId: string | null }>(
+      `/admin/feedback/feedback-items/${feedbackItemId}/triage`,
+      { method: "POST" }
+    ),
+
+  // Batch triage: enqueues a single feedback-triage-batch job for 2–20 items.
+  batchTriageFeedbackItems: (feedbackItemIds: string[]) =>
+    request<{
+      enqueued: boolean;
+      jobId?: string;
+      alreadyActiveJobId?: string;
+      itemCount: number;
+    }>("/admin/feedback/feedback-items/batch-triage", {
+      method: "POST",
+      body: JSON.stringify({ feedbackItemIds }),
+    }),
+
+  listFeedbackItemComments: (feedbackId: string) =>
+    request<unknown[]>(
+      `/admin/feedback/feedback-items/${feedbackId}/comments`
+    ),
+
+  addFeedbackItemComment: (feedbackId: string, content: string) =>
+    request<unknown>(`/admin/feedback/feedback-items/${feedbackId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+
+  updateFeedbackItemComment: (
+    feedbackId: string,
+    commentId: string,
+    content: string
+  ) =>
+    request<unknown>(
+      `/admin/feedback/feedback-items/${feedbackId}/comments/${commentId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ content }),
+      }
+    ),
+
+  deleteFeedbackItemComment: (feedbackId: string, commentId: string) =>
+    request<unknown>(
+      `/admin/feedback/feedback-items/${feedbackId}/comments/${commentId}`,
+      {
+        method: "DELETE",
+      }
+    ),
+
+  getFeedbackItemCommentHistory: (feedbackId: string, commentId: string) =>
+    request<unknown[]>(
+      `/admin/feedback/feedback-items/${feedbackId}/comments/${commentId}/history`
+    ),
+
+  getFeedbackStats: () => request<unknown>("/admin/feedback/stats"),
+
+  // Feedback Sources Admin
+  getFeedbackSources: (params?: URLSearchParams) =>
+    request<unknown[]>(
+      `/admin/feedback/feedback-sources${params ? `?${params}` : ""}`
+    ),
+
+  getFeedbackSourceById: (id: string) =>
+    request<unknown>(`/admin/feedback/feedback-sources/${id}`),
+
+  createFeedbackSource: (data: unknown) =>
+    request<unknown>("/admin/feedback/feedback-sources", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  updateFeedbackSource: (id: string, data: unknown) =>
+    request<unknown>(`/admin/feedback/feedback-sources/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  deleteFeedbackSource: (id: string) =>
+    request<unknown>(`/admin/feedback/feedback-sources/${id}`, {
+      method: "DELETE",
+    }),
+
+  rotateFeedbackSourceKey: (id: string) =>
+    request<unknown>(`/admin/feedback/feedback-sources/${id}/rotate-key`, {
+      method: "POST",
+    }),
+
+  // Feedback Clusters Admin
+  getFeedbackClusters: (params?: URLSearchParams) =>
+    request<unknown[]>(
+      `/admin/feedback/feedback-clusters${params ? `?${params}` : ""}`
+    ),
+
+  getFeedbackClusterById: (id: string) =>
+    request<unknown>(`/admin/feedback/feedback-clusters/${id}`),
+
+  updateFeedbackCluster: (id: string, data: unknown) => {
+    // Status mutations must go through the dedicated transitions endpoint
+    // (`feedbackTriageApi.transitionCluster`) so the backend state-machine
+    // runs. Strip any `status` field defensively before PATCHing metadata.
+    let sanitized: unknown = data;
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      const rest: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(
+        data as Record<string, unknown>
+      )) {
+        if (key === "status") continue;
+        rest[key] = value;
+      }
+      sanitized = rest;
+    }
+    return request<unknown>(`/admin/feedback/feedback-clusters/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(sanitized),
+    });
+  },
+
+  deleteFeedbackCluster: (id: string) =>
+    request<unknown>(`/admin/feedback/feedback-clusters/${id}`, {
+      method: "DELETE",
+    }),
+
+  // Feedback Promotions Admin
+  getFeedbackPromotions: (params?: URLSearchParams) =>
+    request<unknown[]>(
+      `/admin/feedback/feedback-promotions${params ? `?${params}` : ""}`
+    ),
+
+  // Feedback Triage Admin
+  runFeedbackTriage: (data: unknown) =>
+    request<unknown>("/admin/feedback/feedback-triage/run", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  // Bug Fix Attempts
+  getBugFixAttempts: (params?: URLSearchParams) =>
+    requestWithMeta<unknown[]>(
+      `/admin/bug-fix-attempts${params ? `?${params}` : ""}`
+    ),
+
+  getBugFixAttemptById: (id: string) =>
+    request<unknown>(`/admin/bug-fix-attempts/${id}`),
+
+  markBugFixAttemptFailed: (id: string, reason: string) =>
+    request<unknown>(`/admin/bug-fix-attempts/${id}/mark-failed`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+
+  getBugFixAttemptsByCluster: (clusterId: string) =>
+    request<
+      import("@/domains/feedback-triage/domain/types").BugFixAttemptSummary[]
+    >(`/admin/bug-fix-attempts/cluster/${clusterId}`),
+};
+
+export const feedbackTriageApi = {
+  /**
+   * Get inbox items pending review.
+   * Supports filtering by status, AI domain, and pagination.
+   */
+  getInbox: (params?: URLSearchParams) =>
+    requestWithMeta<
+      import("@/domains/feedback-triage/domain/types").TriageInboxItem[]
+    >(`/admin/feedback-triage/inbox${params ? `?${params}` : ""}`),
+
+  /**
+   * Get clusters grouped by topic for triage review.
+   * Supports filtering by status, minItemCount, and pagination.
+   */
+  getClustersByTopic: (params?: URLSearchParams) =>
+    requestWithMeta<
+      import("@/domains/feedback-triage/domain/types").TriageClusterGroup[]
+    >(`/admin/feedback-triage/clusters${params ? `?${params}` : ""}`),
+
+  /**
+   * Promote a cluster to a work item.
+   */
+  promoteCluster: (
+    clusterId: string,
+    input: import("@/domains/feedback-triage/domain/types").PromoteClusterInput
+  ) =>
+    request<
+      import("@/domains/feedback-triage/domain/types").PromoteClusterResponse
+    >(`/admin/feedback-triage/clusters/${clusterId}/promote`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  /**
+   * Reassign an inbox item to a different cluster.
+   */
+  reassignToCluster: (itemId: string, clusterId: string) =>
+    request<void>(`/admin/feedback-triage/items/${itemId}/reassign`, {
+      method: "POST",
+      body: JSON.stringify({ clusterId }),
+    }),
+
+  /**
+   * Manually create a new cluster.
+   */
+  createCluster: (
+    input: import("@/domains/feedback-triage/domain/types").CreateClusterInput
+  ) =>
+    request<
+      import("@/domains/feedback-triage/domain/types").CreateClusterResponse
+    >("/admin/feedback-triage/clusters", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  /**
+   * Dismiss an inbox item (will not be promoted).
+   */
+  dismissItem: (itemId: string, reason?: string) =>
+    request<void>(`/admin/feedback-triage/items/${itemId}/dismiss`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+
+  /**
+   * Confirm AI suggestion for an inbox item.
+   */
+  confirmItem: (itemId: string) =>
+    request<void>(`/admin/feedback-triage/items/${itemId}/confirm`, {
+      method: "POST",
+    }),
+
+  /** Get full detail view of a cluster. */
+  getClusterDetail: (clusterId: string) =>
+    request<
+      import("@/domains/feedback-triage/domain/types").TriageClusterDetail
+    >(`/admin/feedback/feedback-clusters/${clusterId}`),
+
+  /**
+   * Launch an investigation on a cluster. The backend derives the Almirant
+   * projectId server-side, so no body fields are sent.
+   */
+  launchInvestigation: (clusterId: string) =>
+    request<
+      import("@/domains/feedback-triage/domain/types").LaunchInvestigationResponse
+    >(`/admin/feedback/feedback-clusters/${clusterId}/launch-investigation`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
+  /**
+   * Launch investigations for multiple clusters in a single request. The
+   * backend iterates serially and always responds 200 with a per-cluster
+   * result list plus an aggregate summary. Capped at 50 cluster ids.
+   */
+  batchLaunchInvestigation: (clusterIds: string[]) =>
+    request<
+      import("@/domains/feedback-triage/domain/types").BatchLaunchInvestigationResponse
+    >("/admin/feedback-triage/clusters/batch-launch-investigation", {
+      method: "POST",
+      body: JSON.stringify({ clusterIds }),
+    }),
+
+  /**
+   * Abort the active investigation on a cluster. Idempotent: the second call
+   * returns `code: "ALREADY_ABORTED"`.
+   */
+  abortInvestigation: (clusterId: string) =>
+    request<
+      import("@/domains/feedback-triage/domain/types").AbortInvestigationResponse
+    >(`/admin/feedback/feedback-clusters/${clusterId}/abort-investigation`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
+  /**
+   * Transition a cluster to a new status through the backend state-machine.
+   * On a disallowed move the backend responds 409 `INVALID_TRANSITION`, which
+   * callers parse via `parseClusterTransitionError`.
+   */
+  transitionCluster: (
+    clusterId: string,
+    input: {
+      toStatus: import("@/domains/feedback-triage/domain/types").ClusterStatus;
+      reason?: string;
+    }
+  ) =>
+    request<import("@/domains/feedback-triage/domain/types").TriageCluster>(
+      `/admin/feedback-triage/clusters/${clusterId}/transitions`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      }
+    ),
+
+  /**
+   * Dismiss a cluster and cascade-cancel its non-terminal feedback items.
+   * Errors: 404 not_found, 422 INVALID_STATE (parse via parseDismissClusterError).
+   */
+  dismissCluster: (clusterId: string, input?: { reason?: string }) =>
+    request<
+      import("@/domains/feedback-triage/domain/types").DismissClusterResponse
+    >(`/admin/feedback/feedback-clusters/${clusterId}/dismiss`, {
+      method: "POST",
+      body: JSON.stringify(input ?? {}),
+    }),
+};
+
+/**
+ * Structured parser for cluster-dismiss failures (422 INVALID_STATE).
+ * Defensively probes `payload`, `body` and `cause`. Returns the
+ * `{ currentStatus, allowedStatuses }` pair, or `null` for any other error.
+ */
+export const parseDismissClusterError = (
+  err: unknown
+): {
+  currentStatus: import("@/domains/feedback-triage/domain/types").ClusterStatus;
+  allowedStatuses: import("@/domains/feedback-triage/domain/types").ClusterStatus[];
+} | null => {
+  if (!(err instanceof ApiError)) return null;
+  if (err.status !== 422) return null;
+
+  const anyErr = err as { body?: unknown; payload?: unknown; cause?: unknown };
+  const bodyCandidates = [anyErr.payload, anyErr.body, anyErr.cause];
+
+  for (const raw of bodyCandidates) {
+    if (!raw || typeof raw !== "object") continue;
+    const body = raw as { error?: unknown; data?: unknown };
+    if (body.error !== "INVALID_STATE") continue;
+
+    const data = body.data;
+    if (!data || typeof data !== "object") continue;
+
+    const d = data as {
+      currentStatus?: unknown;
+      allowedStatuses?: unknown;
+    };
+
+    if (
+      typeof d.currentStatus === "string" &&
+      Array.isArray(d.allowedStatuses) &&
+      d.allowedStatuses.every((x) => typeof x === "string")
+    ) {
+      return {
+        currentStatus:
+          d.currentStatus as import("@/domains/feedback-triage/domain/types").ClusterStatus,
+        allowedStatuses:
+          d.allowedStatuses as import("@/domains/feedback-triage/domain/types").ClusterStatus[],
+      };
+    }
+  }
+  return null;
+};
+
+/**
+ * Structured parser for cluster status-transition failures (409
+ * INVALID_TRANSITION). Returns the `{ currentStatus, toStatus, allowed }`
+ * triple, or `null` otherwise so callers can fall back to `err.message`.
+ */
+export const parseClusterTransitionError = (
+  err: unknown
+): {
+  currentStatus: import("@/domains/feedback-triage/domain/types").ClusterStatus;
+  toStatus: import("@/domains/feedback-triage/domain/types").ClusterStatus;
+  allowed: import("@/domains/feedback-triage/domain/types").ClusterStatus[];
+} | null => {
+  if (!(err instanceof ApiError)) return null;
+  if (err.status !== 409) return null;
+
+  const anyErr = err as { body?: unknown; payload?: unknown; cause?: unknown };
+  const bodyCandidates = [anyErr.payload, anyErr.body, anyErr.cause];
+
+  for (const raw of bodyCandidates) {
+    if (!raw || typeof raw !== "object") continue;
+    const body = raw as { error?: unknown; data?: unknown };
+    if (body.error !== "INVALID_TRANSITION") continue;
+
+    const data = body.data;
+    if (!data || typeof data !== "object") continue;
+
+    const d = data as {
+      currentStatus?: unknown;
+      toStatus?: unknown;
+      allowed?: unknown;
+    };
+
+    if (
+      typeof d.currentStatus === "string" &&
+      typeof d.toStatus === "string" &&
+      Array.isArray(d.allowed) &&
+      d.allowed.every((x) => typeof x === "string")
+    ) {
+      return {
+        currentStatus:
+          d.currentStatus as import("@/domains/feedback-triage/domain/types").ClusterStatus,
+        toStatus:
+          d.toStatus as import("@/domains/feedback-triage/domain/types").ClusterStatus,
+        allowed:
+          d.allowed as import("@/domains/feedback-triage/domain/types").ClusterStatus[],
+      };
+    }
+  }
+  return null;
+};
+
+// Feedback Metrics API (admin)
+export const feedbackMetricsApi = {
+  get: (params?: { from?: string; to?: string }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.from) searchParams.set("from", params.from);
+    if (params?.to) searchParams.set("to", params.to);
+    const qs = searchParams.toString();
+    return request<import("@/domains/feedback/domain/types").FeedbackMetrics>(
+      `/admin/feedback/metrics${qs ? `?${qs}` : ""}`
+    );
+  },
+};
+
+// Debug incident bundles — backs `domains/feedback`'s `use-incident-bundle`
+// hook. Session + workspace scoped (`/api/debug/*`, see
+// `backend/api/src/domains/debug`), not part of the admin-gated surface.
+export const debugApi = {
+  getIncidentBundle: (bundleId: string) =>
+    request<import("@/domains/feedback/domain/types").IncidentBundleResponse>(
+      `/debug/incidents/${bundleId}`
+    ),
+
+  refreshIncidentBundle: (bundleId: string) =>
+    request<import("@/domains/feedback/domain/types").IncidentBundleResponse>(
+      `/debug/incidents/${bundleId}/refresh`,
+      { method: "POST" }
+    ),
+
+  reanalyzeIncidentBundle: (bundleId: string) =>
+    request<{ bundleId: string; jobId?: string }>(
+      `/debug/incidents/${bundleId}/analyze`,
+      { method: "POST" }
+    ),
+};

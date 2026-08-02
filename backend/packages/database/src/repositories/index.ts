@@ -124,11 +124,13 @@ export * from "./auth/onboarding-repository";
 export * from "./waitlist/waitlist-repository";
 export * from "./waitlist/contact-submission-repository";
 
-// ── admin (CE: system settings + instance/tailnet config) ──
+// ── admin (CE: system settings + instance/tailnet config + feedback pipeline) ──
 export * from "./admin/admin-settings.repository";
 export * from "./admin/instance-settings.repository";
 export * from "./admin/instance-tailnet-database-access.repository";
 export * from "./admin/effort-estimator-config-repository";
+export * from "./admin/admin-feedback-repository";
+export * from "./admin/admin-feedback-metrics-repository";
 
 // ── observability ──
 export * from "./observability/analytics-repository";
