@@ -1,13 +1,18 @@
 import { db } from "../../client";
-import { agentJobs, workItems, projects, boards, planningSessions, user, workerRegistrations, workspaceSettings, workspace, feedbackItems } from "../../schema";
+import { agentJobs, agentJobClaimSequenceReceipts, workItems, projects, boards, planningSessions, user, workerRegistrations, workspaceSettings, workspace, feedbackItems } from "../../schema";
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, isNotNull, lte, or, sql, notInArray, count } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import type { AgentJobConfig } from "../../schema/agent-jobs";
+import type { AgentJobConfig, AgentJobPendingTerminalIntent } from "../../schema/agent-jobs";
 import { getSkillMemoryMb, type ResourceEstimate } from "@almirant/shared";
 import { logger, getCurrentTraceId } from "@almirant/config";
 import { resolvePersistedJobTemplateFields } from "./job-template-resolution";
 import { INTERNAL_SKILL_KEYS, type AgentRoutingEntry } from "../../schema/system-settings";
 import { getSystemSettings } from "../admin/admin-settings.repository";
+import {
+  CLAIM_RECEIPT_CURRENT_JOB_STATUSES,
+  MAX_DURABLE_SEQUENCE,
+  calculateSequenceReservationEnd,
+} from "./claim-sequence-receipt-repository";
 
 // Aliased `user` join used by getJobById to resolve the human requester
 // recorded in `agent_jobs.config.requestedByUserId` when the job's
@@ -590,62 +595,68 @@ export const normalizeAgentJobResult = (
   return { value: result };
 };
 
+export type UpdateJobStatusData = {
+  result?: Record<string, unknown> | string | null;
+  errorMessage?: string | null;
+  errorType?: string | null;
+  workerId?: string | null;
+  retryCount?: number | null;
+  maxRetries?: number | null;
+  availableAt?: Date | null;
+  branchName?: string | null;
+  worktreePath?: string | null;
+  startedAt?: Date | null;
+  completedAt?: Date | null;
+  failedAt?: Date | null;
+  durationMs?: number | null;
+  prUrl?: string | null;
+  prNumber?: number | null;
+  commitSha?: string | null;
+  cost?: number | null;
+  tokensUsed?: number | null;
+  sessionId?: string | null;
+  config?: AgentJobConfig;
+  model?: string | null;
+  cumulativeDurationMs?: number | null;
+};
+
+const buildJobStatusPatch = (
+  status: AgentJobStatus,
+  data?: UpdateJobStatusData
+): Partial<typeof agentJobs.$inferInsert> => ({
+  status,
+  // Note: null clears the field; undefined leaves it unchanged.
+  workerId: data?.workerId,
+  result: normalizeAgentJobResult(data?.result) as never,
+  errorMessage: data?.errorMessage,
+  errorType: data?.errorType,
+  retryCount: data?.retryCount ?? undefined,
+  maxRetries: data?.maxRetries ?? undefined,
+  availableAt: data?.availableAt,
+  branchName: data?.branchName,
+  worktreePath: data?.worktreePath,
+  startedAt: data?.startedAt,
+  completedAt: data?.completedAt,
+  failedAt: data?.failedAt,
+  durationMs: data?.durationMs ?? undefined,
+  cumulativeDurationMs: data?.cumulativeDurationMs ?? undefined,
+  prUrl: data?.prUrl,
+  prNumber: data?.prNumber ?? undefined,
+  commitSha: data?.commitSha,
+  cost: data?.cost === undefined || data?.cost === null ? undefined : String(data.cost),
+  tokensUsed: data?.tokensUsed ?? undefined,
+  sessionId: data?.sessionId,
+  config: data?.config,
+  model: data?.model ?? undefined,
+  updatedAt: new Date(),
+});
+
 export const updateJobStatus = async (
   id: string,
   status: AgentJobStatus,
-  data?: {
-    result?: Record<string, unknown> | string | null;
-    errorMessage?: string | null;
-    errorType?: string | null;
-    workerId?: string | null;
-    retryCount?: number | null;
-    maxRetries?: number | null;
-    availableAt?: Date | null;
-    branchName?: string | null;
-    worktreePath?: string | null;
-    startedAt?: Date | null;
-    completedAt?: Date | null;
-    failedAt?: Date | null;
-    durationMs?: number | null;
-    prUrl?: string | null;
-    prNumber?: number | null;
-    commitSha?: string | null;
-    cost?: number | null;
-    tokensUsed?: number | null;
-    sessionId?: string | null;
-    config?: AgentJobConfig;
-    model?: string | null;
-    cumulativeDurationMs?: number | null;
-  }
+  data?: UpdateJobStatusData
 ): Promise<typeof agentJobs.$inferSelect | null> => {
-  const now = new Date();
-  const patch: Partial<typeof agentJobs.$inferInsert> = {
-    status,
-    // Note: null clears the field; undefined leaves it unchanged.
-    workerId: data?.workerId,
-    result: normalizeAgentJobResult(data?.result) as never,
-    errorMessage: data?.errorMessage,
-    errorType: data?.errorType,
-    retryCount: data?.retryCount ?? undefined,
-    maxRetries: data?.maxRetries ?? undefined,
-    availableAt: data?.availableAt,
-    branchName: data?.branchName,
-    worktreePath: data?.worktreePath,
-    startedAt: data?.startedAt,
-    completedAt: data?.completedAt,
-    failedAt: data?.failedAt,
-    durationMs: data?.durationMs ?? undefined,
-    cumulativeDurationMs: data?.cumulativeDurationMs ?? undefined,
-    prUrl: data?.prUrl,
-    prNumber: data?.prNumber ?? undefined,
-    commitSha: data?.commitSha,
-    cost: data?.cost === undefined || data?.cost === null ? undefined : String(data.cost),
-    tokensUsed: data?.tokensUsed ?? undefined,
-    sessionId: data?.sessionId,
-    config: data?.config,
-    model: data?.model ?? undefined,
-    updatedAt: now,
-  };
+  const patch = buildJobStatusPatch(status, data);
 
   const [updated] = await db
     .update(agentJobs)
@@ -702,35 +713,589 @@ const cascadeTerminalJobToBugFixAttempt = async (
   }
 };
 
-export const cancelJob = async (id: string): Promise<typeof agentJobs.$inferSelect | null> => {
-  // Fetch the current job to compute total duration including the current segment.
-  const [current] = await db.select().from(agentJobs).where(eq(agentJobs.id, id)).limit(1);
-  if (!current) return null;
+export type LegacyClaimOwnership = Readonly<{
+  workerId: string | null;
+  expectedStatus: AgentJobStatus;
+  expectedUpdatedAt: Date;
+}>;
 
-  const now = new Date();
-  const segmentMs = current.startedAt instanceof Date
-    ? Math.max(0, now.getTime() - current.startedAt.getTime())
-    : 0;
-  const totalDuration = (current.cumulativeDurationMs ?? 0) + segmentMs;
+/**
+ * Receipt-free workers have no claim nonce, so their strongest safe fence is
+ * the exact active row snapshot they observed plus worker ownership. This CAS
+ * prevents a late legacy completion/failure from overwriting cancellation or
+ * any newer row generation that won after the route/orchestrator pre-read.
+ *
+ * Ported from cloud (agent-job-repository.ts) without the site-build
+ * execution-deadline branch: cloud races a `queued`/`paused` release against
+ * `siteBuildJobExecutionWindowPredicate()` and downgrades to `failed` if the
+ * deadline already passed. Community has no `site_build_runs` table (Shoutrz
+ * only), so a fenced release here always applies the requested status.
+ */
+export const updateLegacyClaimedJobStatus = async (
+  id: string,
+  status: AgentJobStatus,
+  ownership: LegacyClaimOwnership,
+  data?: UpdateJobStatusData
+): Promise<typeof agentJobs.$inferSelect | null> => {
+  if (
+    !ACTIVE_AGENT_JOB_STATUSES.includes(ownership.expectedStatus) ||
+    Number.isNaN(ownership.expectedUpdatedAt.getTime()) ||
+    (typeof ownership.workerId === "string" && !ownership.workerId.trim())
+  ) {
+    return null;
+  }
 
-  // Only allow cancel if queued/running.
   const [updated] = await db
     .update(agentJobs)
-    .set({
-      status: "cancelled",
-      completedAt: now,
-      updatedAt: now,
-      durationMs: totalDuration > 0 ? totalDuration : undefined,
-    })
-    .where(and(eq(agentJobs.id, id), inArray(agentJobs.status, ACTIVE_AGENT_JOB_STATUSES)))
+    .set(buildJobStatusPatch(status, data))
+    .where(
+      and(
+        eq(agentJobs.id, id),
+        eq(agentJobs.status, ownership.expectedStatus),
+        eq(agentJobs.updatedAt, ownership.expectedUpdatedAt),
+        ownership.workerId === null
+          ? isNull(agentJobs.workerId)
+          : eq(agentJobs.workerId, ownership.workerId),
+        sql`COALESCE(${agentJobs.config} ->> 'claimAttemptId', '') = ''`,
+        sql`${agentJobs.config} -> 'pendingTerminalIntent' IS NULL`
+      )
+    )
     .returning();
 
-  if (updated) {
-    await cascadeTerminalJobToBugFixAttempt(id, "cancelled");
+  if (updated && (updated.status === "cancelled" || updated.status === "failed")) {
+    await cascadeTerminalJobToBugFixAttempt(id, updated.status);
   }
 
   return updated ?? null;
 };
+
+export type ClaimOwnership = Readonly<{
+  workerId: string;
+  claimAttemptId: string;
+}>;
+
+export type ClaimReleaseConfig = Readonly<{
+  previousJobId?: string;
+  sequenceHighWater?: NonNullable<AgentJobConfig["sequenceHighWater"]>;
+}>;
+
+export type ClaimedJobStatusUpdate = typeof agentJobs.$inferSelect & Readonly<{
+  claimStatusOutcome?: "idempotent-replay";
+}>;
+
+const readPendingTerminalIntent = (
+  config: AgentJobConfig | null | undefined
+): AgentJobPendingTerminalIntent | null => {
+  const value = config?.pendingTerminalIntent;
+  if (
+    !value ||
+    (value.status !== "cancelled" && value.status !== "failed") ||
+    typeof value.requestedAt !== "string" ||
+    Number.isNaN(new Date(value.requestedAt).getTime())
+  ) {
+    return null;
+  }
+  return value;
+};
+
+const buildPendingTerminalIntent = (
+  job: typeof agentJobs.$inferSelect,
+  status: "cancelled" | "failed",
+  data: UpdateJobStatusData | undefined,
+  requestedAt: Date
+): AgentJobPendingTerminalIntent => {
+  const normalizedResult = normalizeAgentJobResult(data?.result);
+  const currentSegmentMs = job.startedAt instanceof Date
+    ? Math.max(0, requestedAt.getTime() - job.startedAt.getTime())
+    : 0;
+  const calculatedDurationMs = (job.cumulativeDurationMs ?? 0) + currentSegmentMs;
+  const durationMs =
+    typeof data?.durationMs === "number" && Number.isFinite(data.durationMs)
+      ? Math.max(0, data.durationMs)
+      : calculatedDurationMs > 0
+        ? calculatedDurationMs
+        : undefined;
+
+  return {
+    status,
+    requestedAt: requestedAt.toISOString(),
+    ...(normalizedResult && typeof normalizedResult === "object"
+      ? { result: normalizedResult }
+      : {}),
+    ...(typeof data?.errorType === "string" ? { errorType: data.errorType } : {}),
+    ...(typeof data?.errorMessage === "string"
+      ? { errorMessage: data.errorMessage }
+      : {}),
+    ...(durationMs !== undefined ? { durationMs } : {}),
+  };
+};
+
+const pendingTerminalIntentData = (
+  intent: AgentJobPendingTerminalIntent,
+  fallback?: UpdateJobStatusData
+): UpdateJobStatusData => {
+  const requestedAt = new Date(intent.requestedAt);
+  const fallbackResult = normalizeAgentJobResult(fallback?.result);
+  const result = intent.result
+    ? {
+        ...(fallbackResult && typeof fallbackResult === "object" ? fallbackResult : {}),
+        ...intent.result,
+      }
+    : fallbackResult;
+
+  return {
+    ...fallback,
+    workerId: null,
+    result,
+    errorType: intent.errorType ?? fallback?.errorType,
+    errorMessage: intent.errorMessage ?? fallback?.errorMessage,
+    durationMs: intent.durationMs ?? fallback?.durationMs,
+    completedAt: intent.status === "cancelled" ? requestedAt : fallback?.completedAt,
+    failedAt: intent.status === "failed" ? requestedAt : fallback?.failedAt,
+  };
+};
+
+const assertSequenceHighWater = (
+  value: NonNullable<AgentJobConfig["sequenceHighWater"]>
+): void => {
+  if (
+    value.protocolVersion !== 2 ||
+    ![value.jobLogs, value.sessionEvents, value.nativeEvents].every(
+      (item) => Number.isInteger(item) && item >= 0 && item <= MAX_DURABLE_SEQUENCE
+    )
+  ) {
+    throw new Error("Invalid producer sequence high-water mark");
+  }
+};
+
+/**
+ * Update a runner-owned job only while the exact atomic claim attempt remains
+ * current. Releases remove the nonce and merge sequence floors in the same SQL
+ * statement, so a lost-response retry cannot mutate a later claim.
+ *
+ * Ported from cloud without the site-build execution-window CASE that can
+ * downgrade a `queued`/`paused` release to `failed` (Shoutrz only, no
+ * `site_build_runs` table in community): a fenced release here always applies
+ * the requested status.
+ */
+export const updateClaimedJobStatus = async (
+  id: string,
+  status: AgentJobStatus,
+  ownership: ClaimOwnership,
+  data?: UpdateJobStatusData,
+  releaseConfig?: ClaimReleaseConfig
+): Promise<ClaimedJobStatusUpdate | null> => {
+  if (!ownership.workerId.trim() || !ownership.claimAttemptId.trim()) {
+    return null;
+  }
+  if ((status === "queued" || status === "paused") && !releaseConfig) {
+    return null;
+  }
+
+  let patch = buildJobStatusPatch(status, data);
+  if (releaseConfig) {
+    let nextConfig = sql<AgentJobConfig>`(${agentJobs.config} - 'claimAttemptId')`;
+
+    if (releaseConfig.previousJobId) {
+      nextConfig = sql<AgentJobConfig>`jsonb_set(
+        ${nextConfig},
+        '{previousJobId}',
+        to_jsonb(COALESCE(
+          ${agentJobs.config} ->> 'previousJobId',
+          ${releaseConfig.previousJobId}::text
+        )),
+        true
+      )`;
+    }
+
+    if (releaseConfig.sequenceHighWater) {
+      assertSequenceHighWater(releaseConfig.sequenceHighWater);
+      const highWater = releaseConfig.sequenceHighWater;
+      nextConfig = sql<AgentJobConfig>`jsonb_set(
+        ${nextConfig},
+        '{sequenceHighWater}',
+        jsonb_build_object(
+          'protocolVersion', 2,
+          'jobLogs', GREATEST(
+            ${highWater.jobLogs},
+            CASE
+              WHEN ${agentJobs.config} #>> '{sequenceHighWater,protocolVersion}' = '2'
+                AND (${agentJobs.config} #>> '{sequenceHighWater,jobLogs}') ~ '^[0-9]{1,10}$'
+              THEN CASE
+                WHEN (${agentJobs.config} #>> '{sequenceHighWater,jobLogs}')::bigint <= 2147483647
+                THEN (${agentJobs.config} #>> '{sequenceHighWater,jobLogs}')::int
+                ELSE 0
+              END
+              ELSE 0
+            END
+          ),
+          'sessionEvents', GREATEST(
+            ${highWater.sessionEvents},
+            CASE
+              WHEN ${agentJobs.config} #>> '{sequenceHighWater,protocolVersion}' = '2'
+                AND (${agentJobs.config} #>> '{sequenceHighWater,sessionEvents}') ~ '^[0-9]{1,10}$'
+              THEN CASE
+                WHEN (${agentJobs.config} #>> '{sequenceHighWater,sessionEvents}')::bigint <= 2147483647
+                THEN (${agentJobs.config} #>> '{sequenceHighWater,sessionEvents}')::int
+                ELSE 0
+              END
+              ELSE 0
+            END
+          ),
+          'nativeEvents', GREATEST(
+            ${highWater.nativeEvents},
+            CASE
+              WHEN ${agentJobs.config} #>> '{sequenceHighWater,protocolVersion}' = '2'
+                AND (${agentJobs.config} #>> '{sequenceHighWater,nativeEvents}') ~ '^[0-9]{1,10}$'
+              THEN CASE
+                WHEN (${agentJobs.config} #>> '{sequenceHighWater,nativeEvents}')::bigint <= 2147483647
+                THEN (${agentJobs.config} #>> '{sequenceHighWater,nativeEvents}')::int
+                ELSE 0
+              END
+              ELSE 0
+            END
+          )
+        ),
+        true
+      )`;
+    }
+
+    patch.config = nextConfig as never;
+  }
+
+  const requiresReadySequenceReceipt =
+    releaseConfig !== undefined ||
+    status === "completed" ||
+    status === "incomplete" ||
+    status === "failed" ||
+    status === "cancelled";
+  const requestsTerminalStatus =
+    status === "completed" ||
+    status === "incomplete" ||
+    status === "failed" ||
+    status === "cancelled";
+
+  let updated: ClaimedJobStatusUpdate | null;
+  if (requiresReadySequenceReceipt) {
+    if (!releaseConfig) {
+      // Terminal status clears ownership only after the exact receipt is ready.
+      patch.workerId = null;
+      patch.config = sql<AgentJobConfig>`(
+        ${agentJobs.config} - 'claimAttemptId' - 'pendingTerminalIntent'
+      )` as never;
+    }
+
+    updated = await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({
+          receipt: {
+            state: agentJobClaimSequenceReceipts.state,
+            jobLogs: agentJobClaimSequenceReceipts.jobLogEmittedThrough,
+            sessionEvents: agentJobClaimSequenceReceipts.sessionEventEmittedThrough,
+            nativeEvents: agentJobClaimSequenceReceipts.nativeEventEmittedThrough,
+          },
+          job: agentJobs,
+        })
+        .from(agentJobClaimSequenceReceipts)
+        .innerJoin(agentJobs, eq(agentJobs.id, agentJobClaimSequenceReceipts.jobId))
+        .where(
+          and(
+            eq(agentJobClaimSequenceReceipts.jobId, id),
+            eq(agentJobClaimSequenceReceipts.claimAttemptId, ownership.claimAttemptId),
+            eq(agentJobClaimSequenceReceipts.workerId, ownership.workerId)
+          )
+        )
+        .for("update");
+
+      if (!locked) return null;
+      const { receipt, job } = locked;
+      if (
+        releaseConfig &&
+        (!releaseConfig.sequenceHighWater ||
+          receipt.jobLogs !== releaseConfig.sequenceHighWater.jobLogs ||
+          receipt.sessionEvents !== releaseConfig.sequenceHighWater.sessionEvents ||
+          receipt.nativeEvents !== releaseConfig.sequenceHighWater.nativeEvents)
+      ) {
+        return null;
+      }
+
+      if (
+        (receipt.state === "released" && releaseConfig !== undefined) ||
+        (receipt.state === "terminal" && requestsTerminalStatus)
+      ) {
+        return {
+          ...job,
+          claimStatusOutcome: "idempotent-replay" as const,
+        };
+      }
+
+      const currentClaimAttemptId =
+        typeof job.config?.claimAttemptId === "string"
+          ? job.config.claimAttemptId.trim()
+          : "";
+      if (
+        receipt.state !== "ready" ||
+        !(CLAIM_RECEIPT_CURRENT_JOB_STATUSES as readonly AgentJobStatus[]).includes(
+          job.status
+        ) ||
+        job.workerId !== ownership.workerId ||
+        currentClaimAttemptId !== ownership.claimAttemptId
+      ) {
+        return null;
+      }
+
+      const pendingTerminalIntent = readPendingTerminalIntent(job.config);
+      let finalizedReceiptState: "released" | "terminal" = releaseConfig
+        ? "released"
+        : "terminal";
+      if (
+        pendingTerminalIntent &&
+        (releaseConfig !== undefined || requestsTerminalStatus)
+      ) {
+        patch = buildJobStatusPatch(
+          pendingTerminalIntent.status,
+          pendingTerminalIntentData(pendingTerminalIntent, data)
+        );
+        patch.config = sql<AgentJobConfig>`(
+          ${agentJobs.config} - 'claimAttemptId' - 'pendingTerminalIntent'
+        )` as never;
+        finalizedReceiptState = "terminal";
+      }
+
+      const [statusUpdated] = await tx.update(agentJobs)
+        .set(patch)
+        .where(
+          and(
+            eq(agentJobs.id, id),
+            inArray(agentJobs.status, CLAIM_RECEIPT_CURRENT_JOB_STATUSES),
+            eq(agentJobs.workerId, ownership.workerId),
+            sql`${agentJobs.config} ->> 'claimAttemptId' = ${ownership.claimAttemptId}`
+          )
+        )
+        .returning();
+      if (!statusUpdated) return null;
+
+      await tx.update(agentJobClaimSequenceReceipts)
+        .set({
+          state: finalizedReceiptState,
+          finalizedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(agentJobClaimSequenceReceipts.jobId, id),
+            eq(agentJobClaimSequenceReceipts.claimAttemptId, ownership.claimAttemptId),
+            eq(agentJobClaimSequenceReceipts.state, "ready")
+          )
+        );
+
+      return statusUpdated;
+    });
+  } else {
+    const [statusUpdated] = await db
+      .update(agentJobs)
+      .set(patch)
+      .where(
+        and(
+          eq(agentJobs.id, id),
+          inArray(agentJobs.status, CLAIM_RECEIPT_CURRENT_JOB_STATUSES),
+          eq(agentJobs.workerId, ownership.workerId),
+          sql`${agentJobs.config} ->> 'claimAttemptId' = ${ownership.claimAttemptId}`,
+          sql`${agentJobs.config} -> 'pendingTerminalIntent' IS NULL`
+        )
+      )
+      .returning();
+    updated = statusUpdated ?? null;
+  }
+
+  if (
+    updated &&
+    updated.claimStatusOutcome !== "idempotent-replay" &&
+    (updated.status === "cancelled" || updated.status === "failed")
+  ) {
+    await cascadeTerminalJobToBugFixAttempt(id, updated.status);
+  }
+
+  return updated;
+};
+
+/**
+ * Request a terminal transition (`cancelled` | `failed`) while respecting an
+ * in-flight durable claim: if the claim's sequence receipt is still
+ * `active`/`draining`, the terminal request is held as `pendingTerminalIntent`
+ * on a `finalizing` job instead of ripping the row out from under an
+ * in-flight fenced write. `updateClaimedJobStatus` applies the held intent
+ * once the receipt reaches `ready`. Receipt-free jobs keep the legacy
+ * immediate terminal transition.
+ *
+ * Ported from cloud (agent-job-repository.ts) verbatim — this function has no
+ * Shoutrz/site-build dependency.
+ */
+export const requestJobTerminalIntent = async (
+  id: string,
+  status: "cancelled" | "failed",
+  data?: UpdateJobStatusData
+): Promise<typeof agentJobs.$inferSelect | null> => {
+  const requestedAt = new Date();
+  const outcome = await db.transaction(async (tx) => {
+    // Durable paths acquire receipt + job in the same order as persistence,
+    // handoff and fenced status updates. This avoids a job→receipt lock
+    // inversion while an ingress transaction holds receipt→job.
+    const [claimed] = await tx
+      .select({
+        job: agentJobs,
+        receipt: {
+          state: agentJobClaimSequenceReceipts.state,
+          workerId: agentJobClaimSequenceReceipts.workerId,
+        },
+      })
+      .from(agentJobClaimSequenceReceipts)
+      .innerJoin(agentJobs, eq(agentJobs.id, agentJobClaimSequenceReceipts.jobId))
+      .where(
+        and(
+          eq(agentJobs.id, id),
+          inArray(agentJobs.status, ACTIVE_AGENT_JOB_STATUSES),
+          eq(agentJobClaimSequenceReceipts.workerId, agentJobs.workerId),
+          sql`${agentJobClaimSequenceReceipts.claimAttemptId} = ${agentJobs.config} ->> 'claimAttemptId'`
+        )
+      )
+      .for("update");
+
+    let job: typeof agentJobs.$inferSelect;
+    let receipt: Pick<
+      typeof agentJobClaimSequenceReceipts.$inferSelect,
+      "state" | "workerId"
+    > | null = null;
+    if (claimed) {
+      job = claimed.job;
+      receipt = claimed.receipt;
+    } else {
+      // Receipt-free jobs retain the legacy immediate terminal transition.
+      // A row that does have a nonce but no matching receipt fails closed.
+      const [locked] = await tx
+        .select({ job: agentJobs })
+        .from(agentJobs)
+        .where(eq(agentJobs.id, id))
+        .for("update");
+      if (!locked || !ACTIVE_AGENT_JOB_STATUSES.includes(locked.job.status)) {
+        return null;
+      }
+      const lockedClaimAttemptId =
+        typeof locked.job.config?.claimAttemptId === "string"
+          ? locked.job.config.claimAttemptId.trim()
+          : "";
+      if (lockedClaimAttemptId) return null;
+      job = locked.job;
+    }
+
+    const existingIntent = readPendingTerminalIntent(job.config);
+    const intent =
+      existingIntent ??
+      buildPendingTerminalIntent(job, status, data, requestedAt);
+    const claimAttemptId =
+      typeof job.config?.claimAttemptId === "string"
+        ? job.config.claimAttemptId.trim()
+        : "";
+
+    const nextConfig = { ...job.config };
+    delete nextConfig.claimAttemptId;
+    delete nextConfig.pendingTerminalIntent;
+
+    if (!claimAttemptId) {
+      const [updated] = await tx
+        .update(agentJobs)
+        .set(buildJobStatusPatch(intent.status, {
+          ...pendingTerminalIntentData(intent, data),
+          config: nextConfig,
+        }))
+        .where(
+          and(
+            eq(agentJobs.id, id),
+            inArray(agentJobs.status, ACTIVE_AGENT_JOB_STATUSES),
+            sql`COALESCE(${agentJobs.config} ->> 'claimAttemptId', '') = ''`
+          )
+        )
+        .returning();
+      return updated
+        ? { job: updated, terminalized: true as const }
+        : null;
+    }
+
+    if (!receipt || !job.workerId || receipt.workerId !== job.workerId) return null;
+
+    if (receipt.state === "active" || receipt.state === "draining") {
+      const configWithIntent: AgentJobConfig = {
+        ...job.config,
+        pendingTerminalIntent: intent,
+      };
+      const [updated] = await tx
+        .update(agentJobs)
+        .set({
+          status: "finalizing",
+          config: configWithIntent,
+          updatedAt: requestedAt,
+        })
+        .where(
+          and(
+            eq(agentJobs.id, id),
+            inArray(agentJobs.status, ACTIVE_AGENT_JOB_STATUSES),
+            eq(agentJobs.workerId, job.workerId),
+            sql`${agentJobs.config} ->> 'claimAttemptId' = ${claimAttemptId}`
+          )
+        )
+        .returning();
+      return updated
+        ? { job: updated, terminalized: false as const }
+        : null;
+    }
+
+    if (receipt.state !== "ready") return null;
+    const [updated] = await tx
+      .update(agentJobs)
+      .set(buildJobStatusPatch(intent.status, {
+        ...pendingTerminalIntentData(intent, data),
+        config: nextConfig,
+      }))
+      .where(
+        and(
+          eq(agentJobs.id, id),
+          inArray(agentJobs.status, CLAIM_RECEIPT_CURRENT_JOB_STATUSES),
+          eq(agentJobs.workerId, job.workerId),
+          sql`${agentJobs.config} ->> 'claimAttemptId' = ${claimAttemptId}`
+        )
+      )
+      .returning();
+    if (!updated) return null;
+
+    await tx
+      .update(agentJobClaimSequenceReceipts)
+      .set({
+        state: "terminal",
+        finalizedAt: requestedAt,
+        updatedAt: requestedAt,
+      })
+      .where(
+        and(
+          eq(agentJobClaimSequenceReceipts.jobId, id),
+          eq(agentJobClaimSequenceReceipts.claimAttemptId, claimAttemptId),
+          eq(agentJobClaimSequenceReceipts.state, "ready")
+        )
+      );
+    return { job: updated, terminalized: true as const };
+  });
+
+  if (!outcome) return null;
+  if (outcome.terminalized) {
+    await cascadeTerminalJobToBugFixAttempt(id, outcome.job.status as "cancelled" | "failed");
+  }
+  return outcome.job;
+};
+
+export const cancelJob = async (
+  id: string,
+  data?: UpdateJobStatusData
+): Promise<typeof agentJobs.$inferSelect | null> =>
+  requestJobTerminalIntent(id, "cancelled", data);
 
 export const getActiveJobForWorkItem = async (
   workItemId: string
@@ -814,17 +1379,32 @@ export type ClaimedJobRow = typeof agentJobs.$inferSelect & {
   estimatedMemoryMb: number | null;
   estimatedSubagents: number | null;
   childCount: number;
+  /** Durable high-water marks captured atomically while the job row is claimed. */
+  jobLogSequenceBase?: number;
+  sessionEventSequenceBase?: number;
+  nativeEventSequenceBase?: number;
+  /** Inclusive ends of the claim's disjoint durable sequence reservations. */
+  jobLogSequenceEnd?: number;
+  sessionEventSequenceEnd?: number;
+  nativeEventSequenceEnd?: number;
+  claimAttemptId?: string;
 };
+
+export type ClaimJobsProtocol = Readonly<{
+  durableSequenceReceipts: boolean;
+}>;
 
 export const claimJobs = async (
   workerId: string,
   count: number,
-  acceptedCodingAgents?: string[]
+  acceptedCodingAgents?: string[],
+  protocol?: ClaimJobsProtocol
 ): Promise<ClaimedJobRow[]> => {
   const safeCount = Math.max(0, Math.min(count, 50));
   if (safeCount === 0) return [];
 
   const now = new Date().toISOString();
+  const durableSequenceReceipts = protocol?.durableSequenceReceipts === true;
 
   return db.transaction(async (tx) => {
     // Lock the worker row to serialize concurrent claims for the same worker.
@@ -864,6 +1444,34 @@ export const claimJobs = async (
         ? sql`AND coding_agent = ANY(ARRAY[${sql.join(acceptedCodingAgents.map(a => sql`${a}`), sql`, `)}]::coding_agent[])`
         : sql``;
 
+    // Receipts rollout gate: while `durableSequenceReceipts` is off, exclude
+    // jobs that already opted into the durable protocol (explicit requirement,
+    // an existing receipt, or a persisted high-water mark) or already carry a
+    // claim nonce — a legacy worker must never race a durable claimant onto
+    // the same row. Ported from cloud minus the `siteBuildRunId` branch
+    // (Shoutrz only, no equivalent column in community).
+    const receiptCompatibilityFilter = durableSequenceReceipts
+      ? sql``
+      : sql`AND COALESCE(aj.config ->> 'sequenceProtocolRequirement', '') <> 'durable.v2.receipts'
+          AND COALESCE(aj.config #>> '{sequenceHighWater,protocolVersion}', '') <> '2'
+          AND COALESCE(aj.config ->> 'claimAttemptId', '') = ''
+          AND NOT EXISTS (
+            SELECT 1
+            FROM agent_job_claim_sequence_receipts compatibility_receipt
+            WHERE compatibility_receipt.job_id = aj.id
+          )`;
+    const claimAttemptIdExpression = durableSequenceReceipts
+      ? sql`gen_random_uuid()::text`
+      : sql`NULL::text`;
+    const claimedConfigExpression = durableSequenceReceipts
+      ? sql`jsonb_set(
+          aj.config,
+          '{claimAttemptId}',
+          to_jsonb(p.claim_attempt_id),
+          true
+        )`
+      : sql`aj.config`;
+
     // Raw SQL is required for FOR UPDATE SKIP LOCKED.
     // RETURNING * returns snake_case column names, so we select explicitly with camelCase aliases.
     // The picked CTE also excludes jobs from workspaces that have reached their
@@ -884,6 +1492,12 @@ export const claimJobs = async (
     // The lock clause is narrowed to `FOR UPDATE OF aj SKIP LOCKED` so we only
     // lock `agent_jobs` rows; the estimates table stays unlocked and writers can
     // keep populating it without serializing against the claim path.
+    //
+    // Durable claims also compute each channel's sequence base atomically in
+    // the same locked snapshot: GREATEST of the highest persisted row, the
+    // highest prior receipt reservation end, and any producer high-water mark
+    // fenced into the job by a same-job release. This guarantees a same-job
+    // retry never reuses a sequence a previous execution already emitted.
     const rows = (await tx.execute(sql`
       WITH orgs_at_limit AS (
         SELECT os.workspace_id
@@ -900,12 +1514,80 @@ export const claimJobs = async (
         SELECT
           aj.id,
           aj.work_item_id,
+          ${claimAttemptIdExpression} AS claim_attempt_id,
           e.id AS estimate_id,
           e.estimated_memory_mb,
-          e.estimated_subagents
+          e.estimated_subagents,
+          GREATEST(
+            COALESCE((
+              SELECT MAX(ajl.seq)
+              FROM agent_job_logs ajl
+              WHERE ajl.job_id = aj.id
+            ), 0)::int,
+            COALESCE((
+              SELECT MAX(receipts.job_log_sequence_end)
+              FROM agent_job_claim_sequence_receipts receipts
+              WHERE receipts.job_id = aj.id
+            ), 0)::int,
+            CASE
+              WHEN aj.config #>> '{sequenceHighWater,protocolVersion}' = '2'
+                AND (aj.config #>> '{sequenceHighWater,jobLogs}') ~ '^[0-9]{1,10}$'
+              THEN CASE
+                WHEN (aj.config #>> '{sequenceHighWater,jobLogs}')::bigint <= 2147483647
+                THEN (aj.config #>> '{sequenceHighWater,jobLogs}')::int
+                ELSE 0
+              END
+              ELSE 0
+            END
+          ) AS job_log_sequence_base,
+          GREATEST(
+            COALESCE((
+              SELECT MAX(se.sequence_num)
+              FROM session_events se
+              WHERE se.agent_job_id = aj.id
+            ), 0)::int,
+            COALESCE((
+              SELECT MAX(receipts.session_event_sequence_end)
+              FROM agent_job_claim_sequence_receipts receipts
+              WHERE receipts.job_id = aj.id
+            ), 0)::int,
+            CASE
+              WHEN aj.config #>> '{sequenceHighWater,protocolVersion}' = '2'
+                AND (aj.config #>> '{sequenceHighWater,sessionEvents}') ~ '^[0-9]{1,10}$'
+              THEN CASE
+                WHEN (aj.config #>> '{sequenceHighWater,sessionEvents}')::bigint <= 2147483647
+                THEN (aj.config #>> '{sequenceHighWater,sessionEvents}')::int
+                ELSE 0
+              END
+              ELSE 0
+            END
+          ) AS session_event_sequence_base,
+          GREATEST(
+            COALESCE((
+              SELECT MAX(ane.sequence_num)
+              FROM agent_native_events ane
+              WHERE ane.agent_job_id = aj.id
+            ), 0)::int,
+            COALESCE((
+              SELECT MAX(receipts.native_event_sequence_end)
+              FROM agent_job_claim_sequence_receipts receipts
+              WHERE receipts.job_id = aj.id
+            ), 0)::int,
+            CASE
+              WHEN aj.config #>> '{sequenceHighWater,protocolVersion}' = '2'
+                AND (aj.config #>> '{sequenceHighWater,nativeEvents}') ~ '^[0-9]{1,10}$'
+              THEN CASE
+                WHEN (aj.config #>> '{sequenceHighWater,nativeEvents}')::bigint <= 2147483647
+                THEN (aj.config #>> '{sequenceHighWater,nativeEvents}')::int
+                ELSE 0
+              END
+              ELSE 0
+            END
+          ) AS native_event_sequence_base
         FROM agent_jobs aj
         LEFT JOIN work_item_effort_estimates e ON e.work_item_id = aj.work_item_id
         WHERE aj.status = 'queued'
+          ${receiptCompatibilityFilter}
           AND (aj.available_at IS NULL OR aj.available_at <= ${now})
           AND (
             aj.workspace_id IS NULL
@@ -941,6 +1623,7 @@ export const claimJobs = async (
       UPDATE agent_jobs aj
       SET status = 'running',
           worker_id = ${workerId},
+          config = ${claimedConfigExpression},
           available_at = NULL,
           started_at = COALESCE(aj.started_at, ${now}::timestamptz),
           updated_at = ${now}::timestamptz
@@ -991,6 +1674,10 @@ export const claimJobs = async (
         aj.interactive,
         p.estimated_memory_mb AS "estimatedMemoryMb",
         p.estimated_subagents AS "estimatedSubagents",
+        p.job_log_sequence_base AS "jobLogSequenceBase",
+        p.session_event_sequence_base AS "sessionEventSequenceBase",
+        p.native_event_sequence_base AS "nativeEventSequenceBase",
+        p.claim_attempt_id AS "claimAttemptId",
         (
           SELECT COUNT(*)::int
           FROM work_items wi
@@ -998,9 +1685,89 @@ export const claimJobs = async (
         ) AS "childCount"
     `)) as unknown as ClaimedJobRow[];
 
-    if (rows.length < actualCount) {
+    const reservedRows: ClaimedJobRow[] = [];
+    if (!durableSequenceReceipts) {
+      for (const row of rows) {
+        const {
+          claimAttemptId: _claimAttemptId,
+          jobLogSequenceBase: _jobLogSequenceBase,
+          sessionEventSequenceBase: _sessionEventSequenceBase,
+          nativeEventSequenceBase: _nativeEventSequenceBase,
+          jobLogSequenceEnd: _jobLogSequenceEnd,
+          sessionEventSequenceEnd: _sessionEventSequenceEnd,
+          nativeEventSequenceEnd: _nativeEventSequenceEnd,
+          ...legacyRow
+        } = row;
+        reservedRows.push(legacyRow as ClaimedJobRow);
+      }
+    } else {
+      for (const row of rows) {
+        if (
+          row.jobLogSequenceBase === undefined ||
+          row.sessionEventSequenceBase === undefined ||
+          row.nativeEventSequenceBase === undefined ||
+          !row.claimAttemptId ||
+          row.jobLogSequenceBase >= MAX_DURABLE_SEQUENCE ||
+          row.sessionEventSequenceBase >= MAX_DURABLE_SEQUENCE ||
+          row.nativeEventSequenceBase >= MAX_DURABLE_SEQUENCE
+        ) {
+          throw new Error(`Durable sequence space exhausted for job ${row.id}`);
+        }
+
+        const jobLogSequenceEnd = calculateSequenceReservationEnd(
+          row.jobLogSequenceBase,
+          row.jobLogSequenceBase + 1
+        );
+        const sessionEventSequenceEnd = calculateSequenceReservationEnd(
+          row.sessionEventSequenceBase,
+          row.sessionEventSequenceBase + 1
+        );
+        const nativeEventSequenceEnd = calculateSequenceReservationEnd(
+          row.nativeEventSequenceBase,
+          row.nativeEventSequenceBase + 1
+        );
+
+        // The receipt insert shares the claim transaction. Any nonce collision
+        // or schema failure rolls the job update back instead of exposing an
+        // unfenced running claim.
+        await tx.execute(sql`
+          INSERT INTO agent_job_claim_sequence_receipts (
+            job_id,
+            claim_attempt_id,
+            worker_id,
+            state,
+            job_log_sequence_start,
+            job_log_sequence_end,
+            session_event_sequence_start,
+            session_event_sequence_end,
+            native_event_sequence_start,
+            native_event_sequence_end
+          ) VALUES (
+            ${row.id},
+            ${row.claimAttemptId},
+            ${workerId},
+            'active',
+            ${row.jobLogSequenceBase + 1},
+            ${jobLogSequenceEnd},
+            ${row.sessionEventSequenceBase + 1},
+            ${sessionEventSequenceEnd},
+            ${row.nativeEventSequenceBase + 1},
+            ${nativeEventSequenceEnd}
+          )
+        `);
+
+        reservedRows.push({
+          ...row,
+          jobLogSequenceEnd,
+          sessionEventSequenceEnd,
+          nativeEventSequenceEnd,
+        });
+      }
+    }
+
+    if (reservedRows.length < actualCount) {
       logger.debug(
-        { workerId, requested: actualCount, claimed: rows.length },
+        { workerId, requested: actualCount, claimed: reservedRows.length },
         "claimJobs: fewer jobs claimed than requested — some orgs may be at concurrency limit"
       );
     }
@@ -1008,7 +1775,7 @@ export const claimJobs = async (
     // A-1945: emit a WARN for any runner-implement/runner-document job that
     // slipped through via the 10-minute escape (i.e. no estimate row). Runners
     // read this to apply fallback resource tiers instead of an oversized default.
-    for (const row of rows) {
+    for (const row of reservedRows) {
       const skill = (row as unknown as { skillName: string | null }).skillName ?? null;
       const template = (row as unknown as { promptTemplate: string | null }).promptTemplate ?? null;
       const isGated =
@@ -1029,7 +1796,7 @@ export const claimJobs = async (
       }
     }
 
-    return rows;
+    return reservedRows;
   });
 };
 
