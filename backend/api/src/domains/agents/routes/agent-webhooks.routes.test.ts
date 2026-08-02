@@ -56,7 +56,7 @@ const dbMocks = createDatabaseMocks({
   createJob: async (input: Record<string, unknown>) => {
     state.createdJobInput = input;
     return {
-      id: "job-from-webhook-1",
+      id: (input.id as string | undefined) ?? "job-from-webhook-1",
       workItemId: null,
       planningSessionId: null,
       projectId: webhookAgent.projectId,
@@ -69,6 +69,36 @@ const dbMocks = createDatabaseMocks({
       prompt: input.prompt ?? null,
     };
   },
+  // Agents v2 authoritative-dispatch occurrence identity (migration 0222,
+  // parity with cloud 0233) -- executeScheduledAgentConfig now reserves a
+  // durable scheduled_agent_runs row before every dispatch.
+  reserveScheduledAgentRun: async (input: {
+    configId: string;
+    workspaceId: string;
+    dueKey: string;
+    triggerType: string;
+  }) => ({
+    run: {
+      id: "run-from-webhook-1",
+      configId: input.configId,
+      workspaceId: input.workspaceId,
+      dueKey: input.dueKey,
+      triggerType: input.triggerType,
+    },
+    created: true,
+  }),
+  linkScheduledAgentRunToJob: async () => undefined,
+  getJobById: async () => null,
+  // Structured-output policy (migration 0222, parity with cloud 0234) --
+  // none of these webhook tests pin an output sink.
+  findScheduledAgentOutputPolicy: async () => null,
+  putAgentOutputBinding: async () => ({ created: true, bindingId: "binding-1" }),
+  // Dispatch-time tooling resolution (agent-tooling-resolution.ts) -- none
+  // of these webhook tests select a managed MCP server or plugin.
+  getScheduledAgentMcpServerIds: async () => [],
+  getAgentMcpServersByIds: async () => [],
+  getAgentPluginsByIds: async () => [],
+  getAgentPluginMarketplacesByIds: async () => [],
 });
 
 mock.module("@almirant/database", () => dbMocks);

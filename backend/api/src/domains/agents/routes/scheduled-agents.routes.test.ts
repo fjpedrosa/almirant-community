@@ -113,7 +113,7 @@ const dbMocks = createDatabaseMocks({
   createJob: async (input: Record<string, unknown>) => {
     state.createdJobInput = input;
     return {
-      id: "job-scheduled-1",
+      id: (input.id as string | undefined) ?? "job-scheduled-1",
       workItemId: null,
       planningSessionId: null,
       projectId: scheduledConfig.projectId,
@@ -125,6 +125,36 @@ const dbMocks = createDatabaseMocks({
       config: input.config ?? {},
     };
   },
+  // Agents v2 authoritative-dispatch occurrence identity (migration 0222,
+  // parity with cloud 0233) -- executeScheduledAgentConfig now reserves a
+  // durable scheduled_agent_runs row before every dispatch.
+  reserveScheduledAgentRun: async (input: {
+    configId: string;
+    workspaceId: string;
+    dueKey: string;
+    triggerType: string;
+  }) => ({
+    run: {
+      id: "run-scheduled-1",
+      configId: input.configId,
+      workspaceId: input.workspaceId,
+      dueKey: input.dueKey,
+      triggerType: input.triggerType,
+    },
+    created: true,
+  }),
+  linkScheduledAgentRunToJob: async () => undefined,
+  getJobById: async () => null,
+  // Structured-output policy (migration 0222, parity with cloud 0234) --
+  // none of these routes tests pin an output sink.
+  findScheduledAgentOutputPolicy: async () => null,
+  putAgentOutputBinding: async () => ({ created: true, bindingId: "binding-1" }),
+  // Dispatch-time tooling resolution (agent-tooling-resolution.ts) -- none
+  // of these routes tests select a managed MCP server or plugin.
+  getScheduledAgentMcpServerIds: async () => [],
+  getAgentMcpServersByIds: async () => [],
+  getAgentPluginsByIds: async () => [],
+  getAgentPluginMarketplacesByIds: async () => [],
 });
 
 mock.module("@almirant/database", () => dbMocks);
@@ -775,13 +805,17 @@ describe("scheduledAgentsRoutes POST /scheduled-agents/:id/trigger", () => {
       triggerType: "event",
       interactive: false,
     });
+    // The job id is now pinned to the scheduled-run reservation's id
+    // (durable dispatch occurrence identity, migration 0222 parity with
+    // cloud 0233) rather than a freshly generated one -- see the
+    // reserveScheduledAgentRun mock above.
     expect(state.broadcasts).toEqual([
       {
         orgId: scheduledConfig.workspaceId,
         message: {
           type: "agent-job:status-changed",
           payload: {
-            jobId: "job-scheduled-1",
+            jobId: "run-scheduled-1",
             status: "queued",
             workItemId: null,
             planningSessionId: null,
@@ -805,7 +839,7 @@ describe("scheduledAgentsRoutes POST /scheduled-agents/:id/trigger", () => {
     expect(state.createdJobInput?.createdByUserId).toBe(testUser.id);
   });
 
-  it("propaga MCP configurado al job manualmente disparado", async () => {
+  it("ignora MCP inline legacy al disparar manualmente", async () => {
     const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
     const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
     state.scheduledConfigOverride = {
@@ -828,16 +862,7 @@ describe("scheduledAgentsRoutes POST /scheduled-agents/:id/trigger", () => {
       );
 
       expect(response.status).toBe(200);
-      expect(state.createdJobInput?.config).toMatchObject({
-        mcpServers: {
-          "z-combinator": {
-            type: "remote",
-            url: "https://mcp.z-combinator.example/mcp",
-            enabled: true,
-            oauth: false,
-          },
-        },
-      });
+      expect(state.createdJobInput?.config).not.toHaveProperty("mcpServers");
     } finally {
       state.scheduledConfigOverride = null;
     }
