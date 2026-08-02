@@ -9,6 +9,7 @@
 import type { BidirectionalRelay } from "@almirant/remote-agent";
 import type { StreamPublisher } from "@almirant/stream-consumer";
 import type { RunnerJobEventLogger } from "../observability/job-event-logger";
+import type { JobSafeConsole } from "../security/job-secret-redactor";
 import {
   nextSequence,
   publishCanonicalEvent,
@@ -61,6 +62,13 @@ export type EventHandlerDeps = {
   webWorkspaceId: string;
   threadId: string;
   eventLogger: RunnerJobEventLogger;
+  /**
+   * Job-scoped external console boundary. Optional so callers that do not
+   * yet construct a per-job redactor (event-consumer.ts wiring lands with
+   * the lote 16 receipts port) keep working — falls back to the global
+   * console via `safeConsoleFor`.
+   */
+  safeConsole?: JobSafeConsole;
   streamPublisher?: StreamPublisher;
   relay?: BidirectionalRelay;
   abortController: AbortController;
@@ -79,6 +87,10 @@ export type EventHandlerDeps = {
     opts?: { questionText?: string; source?: string },
   ) => Promise<void>;
 };
+
+/** Job-scoped console boundary, falling back to the global console when the caller has not wired a per-job redactor. */
+const safeConsoleFor = (deps: Pick<EventHandlerDeps, "safeConsole">): JobSafeConsole =>
+  deps.safeConsole ?? console;
 
 // ---------------------------------------------------------------------------
 // Handler signature
@@ -180,7 +192,7 @@ export const handlePartDelta: EventHandler = async (ctx, deps, props) => {
         /run_in_background["\s]*[:=]\s*true/i.test(ctx.currentToolUseBuffer)
       ) {
         ctx.hasActiveBackgroundAgents = true;
-        console.log(`[job:${deps.jobId}] Detected background agent launch — idle termination suppressed`);
+        safeConsoleFor(deps).log(`[job:${deps.jobId}] Detected background agent launch — idle termination suppressed`);
         deps.eventLogger.info("session", "session.background_agent_detected", "Background agent detected in tool_use stream");
         deps.resetBackgroundAgentTimeout();
       }
@@ -302,14 +314,14 @@ export const handleSessionIdle: EventHandler = async (ctx, deps) => {
   if (ctx.hasActiveBackgroundAgents) {
     // Background agents are still running — do NOT set messageCompleted.
     ctx.wasIdleWithBackgroundAgents = true;
-    console.log(`[job:${deps.jobId}] Session idle with pending background agents — suppressing idle termination, starting ${POST_IDLE_BACKGROUND_GRACE_MS}ms grace period`);
+    safeConsoleFor(deps).log(`[job:${deps.jobId}] Session idle with pending background agents — suppressing idle termination, starting ${POST_IDLE_BACKGROUND_GRACE_MS}ms grace period`);
     deps.eventLogger.info("session", "session.idle_suppressed", "Idle suppressed: background agents pending, grace period started");
     deps.eventLogger.info("session", "session.waiting_background_agents",
       "Waiting for background agents to complete");
     deps.startPostIdleBackgroundGrace();
   } else if (deps.isInteractiveJob) {
     // Interactive jobs stay alive between turns.
-    console.log(`[job:${deps.jobId}] Session idle (interactive) — waiting for next user message`);
+    safeConsoleFor(deps).log(`[job:${deps.jobId}] Session idle (interactive) — waiting for next user message`);
     deps.eventLogger.info("session", "session.idle_interactive", "Session idle, waiting for next user message");
 
     if (ctx.buffer.length > 0) {
@@ -354,7 +366,7 @@ export const handleSessionIdle: EventHandler = async (ctx, deps) => {
     return;
   } else {
     ctx.messageCompleted = true;
-    console.log(`[job:${deps.jobId}] Session idle — agent finished`);
+    safeConsoleFor(deps).log(`[job:${deps.jobId}] Session idle — agent finished`);
     deps.eventLogger.info("session", "session.idle", "Session entered idle state");
   }
 
@@ -386,7 +398,7 @@ export const handleQuestionAsked: EventHandler = async (ctx, deps, props, rawEve
         ? props.question
         : rawEvent.data;
 
-  console.log(`[job:${deps.jobId}] Question: ${questionText.slice(0, 100)}`);
+  safeConsoleFor(deps).log(`[job:${deps.jobId}] Question: ${questionText.slice(0, 100)}`);
   deps.eventLogger.info("interaction", "interaction.asked", "Agent asked for input", {
     question: questionText.slice(0, 500),
   });
@@ -441,13 +453,13 @@ export const handleQuestionAsked: EventHandler = async (ctx, deps, props, rawEve
 };
 
 export const handlePermissionAsked: EventHandler = async (_ctx, deps, _props, rawEvent) => {
-  console.log(
+  safeConsoleFor(deps).log(
     `[job:${deps.jobId}] Unexpected permission event: ${rawEvent.data}`
   );
 };
 
 export const handleSessionClosed: EventHandler = async (_ctx, deps) => {
-  console.log(`[job:${deps.jobId}] Session closed`);
+  safeConsoleFor(deps).log(`[job:${deps.jobId}] Session closed`);
   deps.abortController.abort();
 };
 
@@ -469,13 +481,13 @@ export const handleSessionError: EventHandler = async (ctx, deps, props, rawEven
   const isRecoverable = /sqlite|disk is full|database.*full/i.test(errMsg);
 
   if (isRecoverable) {
-    console.warn(`[job:${deps.jobId}] Recoverable error (continuing): ${errMsg}`);
+    safeConsoleFor(deps).warn(`[job:${deps.jobId}] Recoverable error (continuing): ${errMsg}`);
     deps.eventLogger.warn("session", "session.recoverable_error", "Recoverable session error", {
       errorMessage: errMsg,
     });
   } else {
     ctx.errorMessage = errMsg;
-    console.error(`[job:${deps.jobId}] Fatal session error: ${errMsg}`);
+    safeConsoleFor(deps).error(`[job:${deps.jobId}] Fatal session error: ${errMsg}`);
     deps.eventLogger.error("session", "session.error_event", "Fatal session error", {
       errorMessage: errMsg,
     });
@@ -494,7 +506,7 @@ export const handleSessionStatus: EventHandler = async (ctx, deps, props) => {
       : "Runtime reported session status error";
 
   ctx.errorMessage = errMsg;
-  console.error(`[job:${deps.jobId}] Fatal session status error: ${errMsg}`);
+  safeConsoleFor(deps).error(`[job:${deps.jobId}] Fatal session status error: ${errMsg}`);
   deps.eventLogger.error("session", "session.status_error", "Fatal session status error", {
     errorMessage: errMsg,
   });
@@ -502,12 +514,12 @@ export const handleSessionStatus: EventHandler = async (ctx, deps, props) => {
 };
 
 export const handleMessageQueued: EventHandler = async (_ctx, deps, props) => {
-  console.log(`[job:${deps.jobId}] Message queued: ${props.messageId} (depth: ${props.queueDepth})`);
+  safeConsoleFor(deps).log(`[job:${deps.jobId}] Message queued: ${props.messageId} (depth: ${props.queueDepth})`);
 };
 
 export const handleMessageDequeued: EventHandler = async (ctx, deps, props) => {
   ctx.lastActivityAt = Date.now();
-  console.log(`[job:${deps.jobId}] Message dequeued: ${props.messageId} (remaining: ${props.remainingInQueue})`);
+  safeConsoleFor(deps).log(`[job:${deps.jobId}] Message dequeued: ${props.messageId} (remaining: ${props.remainingInQueue})`);
 };
 
 /** No-op handler for known informational events that are silently ignored. */
@@ -532,7 +544,7 @@ export const handleDefaultUnknown: EventHandler = async (ctx, deps, _props, rawE
         : typeof eventData.message === "string"
           ? eventData.message
           : rawEvent.data;
-    console.error(`[job:${deps.jobId}] Error event: ${ctx.errorMessage}`);
+    safeConsoleFor(deps).error(`[job:${deps.jobId}] Error event: ${ctx.errorMessage}`);
     deps.eventLogger.error("session", "session.error_event", "Received error event from stream", {
       errorMessage: ctx.errorMessage,
     });
