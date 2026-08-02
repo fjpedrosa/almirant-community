@@ -13,8 +13,11 @@ describe("buildRuntimeSkillAugmentation", () => {
     });
 
     expect(note).not.toBeNull();
-    expect(note).toContain("Almirant MCP may be configured in `.mcp.json`");
-    expect(note).toContain("\"name\":\"list_work_items\"");
+    expect(note).toContain("Use Almirant MCP through Claude's normal MCP tool interface");
+    expect(note).not.toContain(".mcp.json");
+    expect(note).not.toContain("Authorization");
+    expect(note).not.toContain("curl");
+    expect(note).not.toContain("jq");
   });
 
   it("does not add the fallback note for non-Claude runtimes", () => {

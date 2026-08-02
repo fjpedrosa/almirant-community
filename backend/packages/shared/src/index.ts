@@ -9,6 +9,7 @@ export * from "./agents/builtin-automations";
 export * from "./agents/schedule-evaluation";
 export * from "./agents/scheduled-connection-runtime";
 export * from "./agents/resource-estimation";
+export * from "./agents/selected-skill-reference";
 export * from "./cluster-status";
 export * from "./cluster-timeline";
 export * from "./cluster-investigation-context";
