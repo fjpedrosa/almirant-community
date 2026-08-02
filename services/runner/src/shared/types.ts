@@ -17,6 +17,9 @@ export type RunnerContainerSpec = {
   volumes?: RunnerContainerVolume[];
   tmpfs?: Record<string, string>;
   portBindings?: Record<string, Array<{ HostIp?: string; HostPort: string }>>;
+  networkMode?: "none";
+  /** Agents use only loopback DNS; Squid resolves destination hostnames. */
+  dnsServers?: string[];
   securityOpt?: string[];
   capDrop?: string[];
   readOnlyRootFs?: boolean;
