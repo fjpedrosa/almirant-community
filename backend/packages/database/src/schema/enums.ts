@@ -654,3 +654,16 @@ export const effortEstimationRequestStatusEnum = pgEnum(
   "effort_estimation_request_status",
   ["pending", "processing", "done", "failed"]
 );
+
+// MCP Server Catalog Enums
+export const mcpVisibilityEnum = pgEnum("mcp_visibility", [
+  "user",
+  "workspace",
+  "official",
+]);
+
+export const mcpAuthTypeEnum = pgEnum("mcp_auth_type", [
+  "none",
+  "bearer",
+  "custom_header",
+]);

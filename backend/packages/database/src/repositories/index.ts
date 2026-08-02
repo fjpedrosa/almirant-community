@@ -44,6 +44,8 @@ export * from "./agents/worker-metrics-repository";
 export * from "./agents/scheduled-agent-config-repository";
 export * from "./agents/scheduled-agent-run-repository";
 export * from "./agents/skill-repository";
+export * from "./agents/agent-tooling-repository";
+export * from "./agents/plugin-marketplace-repository";
 export * from "./agents/session-event-repository";
 export * from "./agents/session-state-repository";
 export * from "./agents/native-event-repository";
@@ -99,6 +101,9 @@ export * from "./billing/currency-rate-repository";
 export * from "./billing/recurring-expense-repository";
 export * from "./billing/quota-repository";
 export * from "./billing/usage-repository";
+
+// ── storage ──
+export * from "./storage/user-storage-repository";
 
 // ── notifications ──
 export * from "./notifications/notification-queue-repository";

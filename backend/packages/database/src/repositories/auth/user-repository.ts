@@ -1,7 +1,7 @@
 import { db } from "../../client";
 import { user } from "../../schema/auth";
 import { member } from "../../schema/workspace";
-import { eq, ilike, or, sql } from "drizzle-orm";
+import { and, eq, ilike, or, sql } from "drizzle-orm";
 
 export const getUserById = async (id: string) => {
   const [result] = await db.select().from(user).where(eq(user.id, id)).limit(1);
@@ -57,4 +57,16 @@ export const getMembersByWorkspaceId = async (workspaceId: string) => {
     .orderBy(member.createdAt);
 
   return rows;
+};
+
+export const isUserWorkspaceMember = async (
+  userId: string,
+  workspaceId: string,
+): Promise<boolean> => {
+  const [row] = await db
+    .select({ id: member.id })
+    .from(member)
+    .where(and(eq(member.userId, userId), eq(member.workspaceId, workspaceId)))
+    .limit(1);
+  return Boolean(row);
 };
