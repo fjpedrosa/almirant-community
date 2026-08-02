@@ -18,3 +18,4 @@ export * from "./internal-skills";
 export * from "./runner-mcp-config";
 export * from "./agent-plugin-bundle";
 export * from "./extensions";
+export * from "./execution-boundary";

@@ -56,6 +56,11 @@ export type ChannelThread = {
   archived?: boolean;
 };
 
+export type ChannelRequestOptions = {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+};
+
 export type ChannelAdapter = {
   sendMessage: (threadId: string, content: string) => Promise<ChannelMessage>;
   editMessage: (threadId: string, messageId: string, content: string) => Promise<ChannelMessage>;
@@ -64,7 +69,7 @@ export type ChannelAdapter = {
     name: string;
     reason?: string;
     autoArchiveDurationMinutes?: 60 | 1440 | 4320 | 10080;
-  }) => Promise<ChannelThread>;
+  }, requestOptions?: ChannelRequestOptions) => Promise<ChannelThread>;
   renameThread: (threadId: string, name: string) => Promise<ChannelThread>;
   archiveThread: (threadId: string) => Promise<void>;
   addReaction: (threadId: string, messageId: string, emoji: string) => Promise<void>;

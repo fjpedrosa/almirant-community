@@ -6,6 +6,8 @@ import {
   releasePrimarySession,
 } from "../src/delivery/push-pipeline";
 import type { RunnerJobEventLogger } from "../src/observability/job-event-logger";
+import type { ExecutionBoundary } from "@almirant/shared";
+import { createJobSecretRedactor } from "../src/security/job-secret-redactor";
 
 describe("isProtectedPushBranch", () => {
   it("blocks protected default branches", () => {
@@ -77,6 +79,42 @@ const createFakeEventLogger = (): {
 };
 
 describe("releasePrimarySession", () => {
+  it("propagates and locally enforces the live work deadline during deletion", async () => {
+    const { logger } = createFakeEventLogger();
+    const controller = new AbortController();
+    let observedSignal: AbortSignal | undefined;
+    const executionBoundary: ExecutionBoundary = {
+      assertOpen: () => {
+        if (controller.signal.aborted) {
+          throw controller.signal.reason;
+        }
+      },
+      timeoutMs: (configuredTimeoutMs) => configuredTimeoutMs,
+      signal: () => controller.signal,
+    };
+
+    const result = await releasePrimarySession({
+      jobId: "job-deadline",
+      sessionId: "primary-stalled",
+      containerServeBaseUrl: "http://container-serve:4096",
+      eventLogger: logger,
+      redactor: createJobSecretRedactor(),
+      executionBoundary,
+      sessionManagerFactory: () => ({
+        deleteSession: async (_sessionId, requestOptions) => {
+          observedSignal = requestOptions?.signal;
+          controller.abort(
+            new Error("execution_boundary_deadline_exceeded"),
+          );
+          await Promise.resolve();
+        },
+      }),
+    });
+
+    expect(result).toBe(false);
+    expect(observedSignal).toBe(controller.signal);
+  });
+
   it("calls deleteSession with the primary session id when serve URL is set", async () => {
     const { logger, calls } = createFakeEventLogger();
     const deleteCalls: string[] = [];
@@ -86,6 +124,7 @@ describe("releasePrimarySession", () => {
       sessionId: "primary-sess-abc",
       containerServeBaseUrl: "http://container-serve:4096",
       eventLogger: logger,
+      redactor: createJobSecretRedactor(),
       sessionManagerFactory: (baseUrl) => {
         expect(baseUrl).toBe("http://container-serve:4096");
         return {
@@ -114,6 +153,7 @@ describe("releasePrimarySession", () => {
       sessionId: "primary-sess-abc",
       containerServeBaseUrl: null,
       eventLogger: logger,
+      redactor: createJobSecretRedactor(),
       sessionManagerFactory: () => {
         factoryCalled = true;
         return { deleteSession: async () => undefined };
@@ -133,6 +173,7 @@ describe("releasePrimarySession", () => {
       sessionId: "",
       containerServeBaseUrl: "http://container-serve:4096",
       eventLogger: logger,
+      redactor: createJobSecretRedactor(),
     });
 
     expect(result).toBe(false);
@@ -147,6 +188,7 @@ describe("releasePrimarySession", () => {
       sessionId: "primary-sess-abc",
       containerServeBaseUrl: "http://container-serve:4096",
       eventLogger: logger,
+      redactor: createJobSecretRedactor(),
       sessionManagerFactory: () => ({
         deleteSession: async () => {
           throw new Error("serve unreachable");

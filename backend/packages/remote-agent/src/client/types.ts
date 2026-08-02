@@ -830,7 +830,11 @@ export type AlmirantWorkerClient = {
     payload: CreateInteractionPayload,
     requestOptions?: WorkerClientRequestOptions,
   ) => Promise<WorkerInteraction>;
-  pollInteraction: (jobId: string, interactionId: string) => Promise<WorkerInteraction>;
+  pollInteraction: (
+    jobId: string,
+    interactionId: string,
+    requestOptions?: WorkerClientRequestOptions,
+  ) => Promise<WorkerInteraction>;
   streamJobOutput: (
     jobId: string,
     payload: StreamJobOutputPayload,

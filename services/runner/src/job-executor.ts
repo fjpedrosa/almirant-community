@@ -33,7 +33,8 @@ import { provisionUploadedFilesWorkspace } from "./workspace/uploaded-files-prov
 import { resolveEvidenceArtifactsForJob } from "./workspace/evidence-artifact-policy";
 import { provisionEvidenceArtifacts } from "./workspace/evidence-artifact-provisioner";
 import { materializeAgentPlugins } from "./workspace/agent-plugin-materializer";
-import type { EvidenceArtifactDescriptor, AgentRuntimePluginReference } from "@almirant/shared";
+import type { EvidenceArtifactDescriptor, AgentRuntimePluginReference, ExecutionBoundary } from "@almirant/shared";
+import { createExecutionBoundary } from "@almirant/shared";
 import type { ContainerDriver } from "./workspace/container-driver";
 import {
   UUID_RE,
@@ -240,6 +241,13 @@ type JobExecutionContext = {
   evidenceManifestPath?: string;
   /** Mutable per-job redactor shared by the event consumer and job log persistence. */
   secretRedactor: JobSecretRedactor;
+  /**
+   * Live execution-deadline fence threaded through the delivery trio and
+   * container operations. Community has no scheduled-job deadline concept
+   * yet, so this is always the unbounded boundary — the seam a future
+   * Community-native execution deadline plugs into.
+   */
+  executionBoundary: ExecutionBoundary;
   /** Null in legacy mode (older API without receipt-capable claims). */
   sequenceReceipt: DurableSequenceReceipt | null;
 };
@@ -625,6 +633,7 @@ export const createJobExecutor = (
       effectiveJobType: job.jobType ?? "implementation",
       evidenceArtifacts: [],
       secretRedactor,
+      executionBoundary: createExecutionBoundary(),
       sequenceReceipt,
     };
   };
@@ -897,6 +906,7 @@ export const createJobExecutor = (
             repoUrl: injectedEnv.REPO_URL,
             baseBranch: injectedEnv.REPO_BRANCH ?? "main",
             eventLogger,
+            executionBoundary: ctx.executionBoundary,
           },
         );
 
@@ -1899,11 +1909,13 @@ export const createJobExecutor = (
       sessionId: result.sessionId,
       containerServeBaseUrl: ctx.containerServeBaseUrl,
       eventLogger,
+      redactor: ctx.secretRedactor,
+      executionBoundary: ctx.executionBoundary,
     });
 
     // Extract branch name from container before reporting status.
     if (ctx.containerId) {
-      ctx.extractedBranchName = await extractBranchName(containerManager, ctx.containerId);
+      ctx.extractedBranchName = await extractBranchName(containerManager, ctx.containerId, ctx.executionBoundary);
     }
 
     // Ensure only write-capable jobs are allowed to push post-session.
@@ -1957,6 +1969,8 @@ export const createJobExecutor = (
           repositoryId: ctx.repositoryOverride.id,
           containerServeBaseUrl: ctx.containerServeBaseUrl,
           eventLogger,
+          redactor: ctx.secretRedactor,
+          executionBoundary: ctx.executionBoundary,
         },
       );
       pushSucceeded = pushResult.pushSucceeded;

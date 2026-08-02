@@ -6,6 +6,9 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { pushChanges } from "../src/delivery/runner-push";
 import type { CollectedChanges } from "../src/delivery/change-collector";
+import { createExecutionBoundary } from "@almirant/shared";
+
+const executionBoundary = createExecutionBoundary();
 
 const execFileAsync = promisify(execFile);
 
@@ -41,7 +44,16 @@ const createSelectiveArchive = async (sourceRepo: string, paths: string[], tempD
 };
 
 describe("pushChanges selective collection mode", () => {
-  it("applies tracked binary patch and extracts only the selective untracked archive", async () => {
+  it.each([
+    ["trusted site author", {
+      name: "FJ.Pedrosa",
+      email: "33778906+fjpedrosa@users.noreply.github.com",
+    }],
+    ["ordinary Almirant author", {
+      name: "almirant-ai[bot]",
+      email: "263330516+almirant-ai[bot]@users.noreply.github.com",
+    }],
+  ])("applies the archive and commits with the %s", async (_label, gitIdentity) => {
     const tempDir = await mkdtemp(join(tmpdir(), "almirant-push-selective-test-"));
 
     try {
@@ -79,13 +91,24 @@ describe("pushChanges selective collection mode", () => {
         branch: "main",
         gitToken: "unused-for-local-repo",
         jobId: "job-selective-test",
+        gitIdentity,
+        executionBoundary,
       });
 
-      expect(result).toEqual({ success: true, modifiedFileCount: 2 });
+      expect(result).toMatchObject({ success: true, modifiedFileCount: 2 });
+      expect(result.commitSha).toMatch(/^[a-f0-9]{40}$/);
 
       await run("git", ["clone", originDir, verifyDir]);
+      const { stdout: remoteHead } = await run("git", ["rev-parse", "HEAD"], verifyDir);
+      expect(result.commitSha).toBe(remoteHead.trim());
       expect(await readFile(join(verifyDir, "src/app.txt"), "utf8")).toBe("after\n");
       expect(await readFile(join(verifyDir, "docs/new.md"), "utf8")).toBe("new file\n");
+      const { stdout: author } = await run(
+        "git",
+        ["log", "-1", "--format=%an <%ae>"],
+        verifyDir,
+      );
+      expect(author.trim()).toBe(`${gitIdentity.name} <${gitIdentity.email}>`);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

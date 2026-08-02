@@ -15,6 +15,62 @@ const waitFor = async (
 };
 
 describe("BidirectionalRelay", () => {
+  it("aborts an in-flight worker interaction when the relay stops", async () => {
+    let createStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      createStarted = resolve;
+    });
+    let observedAbort = false;
+    let channelCalls = 0;
+    const relay = createBidirectionalRelay({
+      threadId: "thread-deadline",
+      sessionId: "session-deadline",
+      jobId: "job-deadline",
+      optionsMergeWindowMs: 0,
+      runtime: {
+        sendPrompt: async () => undefined,
+      },
+      workerClient: {
+        createInteraction: async (_jobId, _payload, requestOptions) => {
+          createStarted();
+          if (!requestOptions?.signal) {
+            throw new Error("missing relay interaction signal");
+          }
+          await new Promise<void>((_resolve, reject) => {
+            requestOptions.signal?.addEventListener("abort", () => {
+              observedAbort = true;
+              reject(requestOptions.signal?.reason);
+            }, { once: true });
+          });
+          throw new Error("unreachable");
+        },
+        pollInteraction: async () => {
+          throw new Error("poll must not start");
+        },
+      },
+      channelAdapter: {
+        sendMessage: async () => {
+          channelCalls += 1;
+          return { id: "message", content: "" };
+        },
+        sendRichMessage: async () => {
+          channelCalls += 1;
+          return { id: "message", content: "" };
+        },
+      },
+    });
+
+    await relay.handleOutputEvent({
+      type: "question",
+      text: "Will this cross the cutoff?",
+    });
+    await started;
+    await relay.stop();
+
+    expect(observedAbort).toBe(true);
+    expect(channelCalls).toBe(0);
+  });
+
   it("relays user responses to runtime session via interaction polling", async () => {
     const prompts: Array<{ prompt: string; metadata?: Record<string, unknown> }> = [];
     let polls = 0;

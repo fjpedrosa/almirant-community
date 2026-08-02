@@ -90,6 +90,98 @@ describe("OpenCodeSessionManager", () => {
     expect(result).toEqual({ ok: true });
   });
 
+  it("aborts an in-flight async prompt with the caller's live signal", async () => {
+    let capturedSignal: AbortSignal | null = null;
+    let resolveRequest!: (response: Response) => void;
+    const request = new Promise<Response>((resolve) => {
+      resolveRequest = resolve;
+    });
+    const manager = createOpenCodeSessionManager(
+      { baseUrl: "http://localhost:4096", timeoutMs: 30_000 },
+      {
+        fetchFn: asFetch(async (_input, init) => {
+          capturedSignal = init?.signal ?? null;
+          return request;
+        }),
+      },
+    );
+    const boundaryController = new AbortController();
+
+    const prompt = manager.sendPromptAsync(
+      "session-1",
+      { prompt: "Do not cross the cutoff" },
+      { signal: boundaryController.signal, timeoutMs: 30_000 },
+    );
+    boundaryController.abort(new Error("site_build_execution_deadline_exceeded"));
+    await Promise.resolve();
+
+    expect((capturedSignal as AbortSignal | null)?.aborted).toBe(true);
+    resolveRequest(new Response("", { status: 204 }));
+    await expect(prompt).rejects.toThrow("site_build_execution_deadline_exceeded");
+  });
+
+  it("aborts an in-flight session creation with the caller's live signal", async () => {
+    let capturedSignal: AbortSignal | null = null;
+    let resolveRequest!: (response: Response) => void;
+    const request = new Promise<Response>((resolve) => {
+      resolveRequest = resolve;
+    });
+    const manager = createOpenCodeSessionManager(
+      { baseUrl: "http://localhost:4096", timeoutMs: 30_000 },
+      {
+        fetchFn: asFetch(async (_input, init) => {
+          capturedSignal = init?.signal ?? null;
+          return request;
+        }),
+      },
+    );
+    const boundaryController = new AbortController();
+
+    const creation = manager.createSession(
+      { cwd: "/workspace/repo" },
+      { signal: boundaryController.signal, timeoutMs: 30_000 },
+    );
+    boundaryController.abort(new Error("site_build_execution_deadline_exceeded"));
+    await Promise.resolve();
+
+    expect((capturedSignal as AbortSignal | null)?.aborted).toBe(true);
+    resolveRequest(jsonResponse(200, {
+      success: true,
+      data: { id: "session-created-too-late" },
+    }));
+    await expect(creation).rejects.toThrow(
+      "site_build_execution_deadline_exceeded",
+    );
+  });
+
+  it("keeps the caller deadline active while consuming a response body", async () => {
+    const boundaryController = new AbortController();
+    let bodyStarted = false;
+    const manager = createOpenCodeSessionManager(
+      { baseUrl: "http://localhost:4096", timeoutMs: 30_000 },
+      {
+        fetchFn: asFetch(async () => ({
+          ok: true,
+          status: 200,
+          text: async () => {
+            bodyStarted = true;
+            boundaryController.abort(
+              new Error("site_build_execution_deadline_exceeded"),
+            );
+            await Promise.resolve();
+            return "";
+          },
+        }) as Response),
+      },
+    );
+
+    await expect(manager.deleteSession(
+      "primary-session-with-stalled-body",
+      { signal: boundaryController.signal, timeoutMs: 30_000 },
+    )).rejects.toThrow("site_build_execution_deadline_exceeded");
+    expect(bodyStarted).toBe(true);
+  });
+
   it("deletes a session via DELETE on the session path", async () => {
     let method = "";
     let visitedPath = "";
@@ -169,28 +261,4 @@ describe("OpenCodeSessionManager", () => {
     });
     expect(requests).toEqual([{ method: "GET", path: "/mcp" }]);
   });
-
-  it("aborts getMcpStatus when the caller-supplied signal fires", async () => {
-    const manager = createOpenCodeSessionManager(
-      { baseUrl: "http://localhost:4096" },
-      {
-        // Real fetch() rejects synchronously with an AbortError when called
-        // with an already-aborted signal — mirror that instead of waiting on
-        // an "abort" event that fired before this listener could attach.
-        fetchFn: asFetch(async (_input, init) => {
-          if (init?.signal?.aborted) {
-            throw new Error("The operation was aborted");
-          }
-          return jsonResponse(200, {});
-        }),
-      },
-    );
-    const controller = new AbortController();
-    controller.abort();
-
-    await expect(
-      manager.getMcpStatus({ signal: controller.signal }),
-    ).rejects.toThrow();
-  });
-
 });

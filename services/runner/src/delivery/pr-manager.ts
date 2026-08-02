@@ -6,11 +6,16 @@
  * changes from agent containers.
  */
 
+import type { ExecutionBoundary } from "@almirant/shared";
 import type { AlmirantWorkerClient, ClaimedJob, WorkItemDetails } from "@almirant/remote-agent";
 import type { ContainerDriver } from "../workspace/container-driver";
-import { GITHUB_BOT_EMAIL, GITHUB_BOT_NAME } from "./github-identity";
+import { resolveDeliveryGitIdentity } from "./github-identity";
 import type { RunnerJobEventLogger } from "../observability/job-event-logger";
-import { extractRepoFullName } from "../shared/job-helpers";
+import {
+  extractRepoFullName,
+  normalizeJobConfig,
+  raceWorkerClientRequest,
+} from "../shared/job-helpers";
 import { collectChanges, cleanupCollectedChanges } from "./change-collector";
 import { pushChanges } from "./runner-push";
 
@@ -61,6 +66,8 @@ export type CreateBranchAndDraftPrParams = {
   repoUrl: string;
   baseBranch: string;
   eventLogger: RunnerJobEventLogger;
+  /** Live execution-deadline fence for token/git subprocess/API calls. */
+  executionBoundary: ExecutionBoundary;
 };
 
 export type CreateBranchAndDraftPrResult = {
@@ -149,7 +156,9 @@ export async function createBranchAndDraftPr(
   config: PrApiConfig,
   params: CreateBranchAndDraftPrParams,
 ): Promise<CreateBranchAndDraftPrResult | null> {
-  const { job, workItem, repositoryId, repoUrl, baseBranch, eventLogger } = params;
+  const { job, workItem, repositoryId, repoUrl, baseBranch, eventLogger, executionBoundary } = params;
+  executionBoundary.assertOpen();
+  const { identity: commitIdentity } = resolveDeliveryGitIdentity(normalizeJobConfig(job));
 
   if (!repositoryId) {
     eventLogger.warn("pr", "pr.skip_no_repo", "Skipping PR-first flow: no repositoryId configured");
@@ -184,6 +193,7 @@ export async function createBranchAndDraftPr(
     });
     return null;
   }
+  executionBoundary.assertOpen();
 
   const { tmpdir } = await import("node:os");
   const { mkdtemp, rm } = await import("node:fs/promises");
@@ -197,15 +207,21 @@ export async function createBranchAndDraftPr(
     args: string[],
     opts?: { cwd?: string; env?: Record<string, string> }
   ): Promise<{ stdout: string; stderr: string }> => {
-    return execFileAsync(cmd, args, {
+    executionBoundary.assertOpen();
+    const result = await execFileAsync(cmd, args, {
       cwd: opts?.cwd,
       env: { ...process.env, ...opts?.env },
       maxBuffer: 10 * 1024 * 1024,
+      signal: executionBoundary.signal(60_000),
     });
+    executionBoundary.assertOpen();
+    return result;
   };
 
+  executionBoundary.assertOpen();
   const tempBase = join(tmpdir(), "almirant-branch-");
   const tempDir = await mkdtemp(tempBase);
+  executionBoundary.assertOpen();
   const cloneDir = join(tempDir, "repo");
 
   try {
@@ -248,6 +264,7 @@ export async function createBranchAndDraftPr(
         eventLogger.info("pr", "pr.branch_exists", "Branch already exists, reusing (could not parse commits)", { branchName });
       }
     } catch {
+      executionBoundary.assertOpen();
       // Branch doesn't exist — clone base branch and create it
       await run("git", [
         "clone", "--depth=1", "--branch", baseBranch,
@@ -261,8 +278,8 @@ export async function createBranchAndDraftPr(
 
       // Create an empty initial commit
       await run("git", [
-        "-c", `user.name=${GITHUB_BOT_NAME}`,
-        "-c", `user.email=${GITHUB_BOT_EMAIL}`,
+        "-c", `user.name=${commitIdentity.name}`,
+        "-c", `user.email=${commitIdentity.email}`,
         "commit", "--allow-empty",
         "-m", `chore: initialize branch for ${prIdentity.displayRef}\n\n${prIdentity.title}`,
       ], { cwd: cloneDir });
@@ -296,6 +313,7 @@ export async function createBranchAndDraftPr(
         : undefined;
 
       if (prApiUrl && apiKey) {
+        executionBoundary.assertOpen();
         const prRes = await fetch(prApiUrl, {
           method: "POST",
           headers: {
@@ -310,10 +328,11 @@ export async function createBranchAndDraftPr(
             body: prBody,
             isDraft: true,
           }),
-          signal: AbortSignal.timeout(30_000),
+          signal: executionBoundary.signal(30_000),
         });
 
         const prText = await prRes.text().catch(() => "");
+        executionBoundary.assertOpen();
         let prPayload: Record<string, unknown> | null = null;
         try {
           prPayload = JSON.parse(prText) as Record<string, unknown>;
@@ -352,6 +371,7 @@ export async function createBranchAndDraftPr(
         eventLogger.warn("pr", "pr.skip_no_api", "Cannot create PR: no API base URL or key available");
       }
     } catch (error) {
+      executionBoundary.assertOpen();
       // PR creation failure is non-fatal
       eventLogger.warn("pr", "pr.create_error", "Draft PR creation failed (non-fatal)", {
         errorMessage: error instanceof Error ? error.message : String(error),
@@ -359,17 +379,33 @@ export async function createBranchAndDraftPr(
     }
 
     // Update job status with branch and PR info
+    executionBoundary.assertOpen();
     try {
-      await deps.workerClient.updateJobStatus(job.id, {
-        status: "running",
-        workerId: config.workerId,
-        branchName,
-        prUrl,
-        prNumber,
-      });
+      const timeoutMs = executionBoundary.timeoutMs(30_000);
+      const requestOptions = {
+        timeoutMs,
+        signal: executionBoundary.signal(timeoutMs),
+      };
+      await raceWorkerClientRequest(
+        () =>
+          deps.workerClient.updateJobStatus(
+            job.id,
+            {
+              status: "running",
+              workerId: config.workerId,
+              branchName,
+              prUrl,
+              prNumber,
+            },
+            requestOptions,
+          ),
+        requestOptions,
+      );
     } catch {
+      executionBoundary.assertOpen();
       // Non-fatal: job status update failure doesn't block execution
     }
+    executionBoundary.assertOpen();
 
     return { branchName, baseBranch, prUrl, prNumber, completedTaskIds, prCreatedByThisJob };
   } finally {
@@ -386,6 +422,7 @@ export type UpdatePrSummaryParams = {
   prNumber: number;
   eventLogger: RunnerJobEventLogger;
   summary: string;
+  executionBoundary?: ExecutionBoundary;
 };
 
 /**
@@ -415,6 +452,7 @@ export async function updatePrSummary(
   }
 
   const patchUrl = `${apiBaseUrl.replace(/\/+$/, "")}/api/github/pull-requests/${prNumber}`;
+  params.executionBoundary?.assertOpen();
   const res = await fetch(patchUrl, {
     method: "PATCH",
     headers: {
@@ -425,8 +463,9 @@ export async function updatePrSummary(
       repoFullName,
       body: summary,
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal: params.executionBoundary?.signal(30_000) ?? AbortSignal.timeout(30_000),
   });
+  params.executionBoundary?.assertOpen();
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -442,6 +481,7 @@ export type MarkPrReadyForReviewParams = {
   eventLogger: RunnerJobEventLogger;
   /** Optional summary to set as the PR body (replaces the draft placeholder). */
   summary?: string;
+  executionBoundary?: ExecutionBoundary;
 };
 
 /**
@@ -474,6 +514,7 @@ export async function markPrReadyForReview(
   }
 
   const patchUrl = `${apiBaseUrl.replace(/\/+$/, "")}/api/github/pull-requests/${prNumber}`;
+  params.executionBoundary?.assertOpen();
   const res = await fetch(patchUrl, {
     method: "PATCH",
     headers: {
@@ -481,8 +522,9 @@ export async function markPrReadyForReview(
       "x-api-key": apiKey,
     },
     body: JSON.stringify(patchBody),
-    signal: AbortSignal.timeout(30_000),
+    signal: params.executionBoundary?.signal(30_000) ?? AbortSignal.timeout(30_000),
   });
+  params.executionBoundary?.assertOpen();
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -500,6 +542,7 @@ export type CloseDraftPrParams = {
   repoUrl: string;
   prNumber: number;
   eventLogger: RunnerJobEventLogger;
+  executionBoundary?: ExecutionBoundary;
 };
 
 /**
@@ -526,6 +569,7 @@ export async function closeDraftPr(
   }
 
   const patchUrl = `${apiBaseUrl.replace(/\/+$/, "")}/api/github/pull-requests/${prNumber}`;
+  params.executionBoundary?.assertOpen();
   const res = await fetch(patchUrl, {
     method: "PATCH",
     headers: {
@@ -533,8 +577,9 @@ export async function closeDraftPr(
       "x-api-key": apiKey,
     },
     body: JSON.stringify({ repoFullName, state: "closed" }),
-    signal: AbortSignal.timeout(30_000),
+    signal: params.executionBoundary?.signal(30_000) ?? AbortSignal.timeout(30_000),
   });
+  params.executionBoundary?.assertOpen();
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -554,6 +599,7 @@ export type CreateLatePrParams = {
   baseBranch: string;
   workItem: WorkItemDetails | null;
   eventLogger: RunnerJobEventLogger;
+  executionBoundary?: ExecutionBoundary;
 };
 
 /**
@@ -594,6 +640,7 @@ export async function createLatePr(
   ].join("\n");
 
   const prApiUrl = `${apiBaseUrl.replace(/\/+$/, "")}/api/github/pull-requests`;
+  params.executionBoundary?.assertOpen();
   const prRes = await fetch(prApiUrl, {
     method: "POST",
     headers: {
@@ -608,10 +655,11 @@ export async function createLatePr(
       body: prBody,
       isDraft: false,
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal: params.executionBoundary?.signal(30_000) ?? AbortSignal.timeout(30_000),
   });
 
   const prText = await prRes.text().catch(() => "");
+  params.executionBoundary?.assertOpen();
   let prPayload: Record<string, unknown> | null = null;
   try {
     prPayload = JSON.parse(prText) as Record<string, unknown>;
@@ -648,6 +696,8 @@ export type CollectAndPushChangesParams = {
   repoUrl: string;
   branch: string;
   eventLogger: RunnerJobEventLogger;
+  /** Live execution-deadline fence for collection/token/push subprocess calls. */
+  executionBoundary: ExecutionBoundary;
 };
 
 /**
@@ -660,20 +710,25 @@ export async function collectAndPushChanges(
   deps: PrManagerDeps,
   params: CollectAndPushChangesParams,
 ): Promise<void> {
-  const { containerId, job, repositoryId, repoUrl, branch, eventLogger } = params;
+  const { containerId, job, repositoryId, repoUrl, branch, eventLogger, executionBoundary } = params;
+  executionBoundary.assertOpen();
+  const { identity: commitIdentity } = resolveDeliveryGitIdentity(normalizeJobConfig(job));
 
   // 1. Collect changes from the container (diff + archive)
   console.log(`[job:${job.id}] Collecting changes from container ${containerId} at /workspace/repo`);
   eventLogger.info("push", "push.collect_start", "Collecting changes from container");
   let collected: Awaited<ReturnType<typeof collectChanges>>;
   const collectTimeoutMessage = `Timed out collecting changes after ${Math.round(COLLECT_CHANGES_TIMEOUT_MS / 1000)}s`;
+  const collectTimeoutMs = executionBoundary.timeoutMs(COLLECT_CHANGES_TIMEOUT_MS);
   try {
     collected = await withTimeout(
-      collectChanges(deps.containerManager, containerId, "/workspace/repo", COLLECT_CHANGES_TIMEOUT_MS),
-      COLLECT_CHANGES_TIMEOUT_MS,
+      collectChanges(deps.containerManager, containerId, "/workspace/repo", collectTimeoutMs),
+      collectTimeoutMs,
       collectTimeoutMessage,
     );
+    executionBoundary.assertOpen();
   } catch (error) {
+    executionBoundary.assertOpen();
     const msg = error instanceof Error ? error.message : String(error);
     const timedOut = msg === collectTimeoutMessage || msg.includes("Timed out extracting archive");
     console.error(`[job:${job.id}] Failed to collect changes: ${msg}`);
@@ -706,6 +761,7 @@ export async function collectAndPushChanges(
     const tokenResult = await deps.workerClient.getGithubToken(repositoryId);
     githubToken = tokenResult.token;
   } catch (error) {
+    executionBoundary.assertOpen();
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`[job:${job.id}] Failed to get GitHub token: ${msg}`);
     eventLogger.warn("push", "push.token_failed", "Failed to get GitHub token for push", {
@@ -714,6 +770,7 @@ export async function collectAndPushChanges(
     await cleanupCollectedChanges(collected);
     throw new Error(`GitHub token retrieval failed: ${msg}`);
   }
+  executionBoundary.assertOpen();
 
   // 3. Push changes from the runner side
   eventLogger.info("push", "push.pushing", "Pushing changes to remote", { branch });
@@ -724,6 +781,8 @@ export async function collectAndPushChanges(
       branch,
       gitToken: githubToken,
       jobId: job.id,
+      gitIdentity: commitIdentity,
+      executionBoundary,
     });
 
     if (result.success) {
