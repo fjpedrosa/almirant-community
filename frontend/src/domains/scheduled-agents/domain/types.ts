@@ -2,7 +2,11 @@ import { getModelsForProvider } from "@/lib/ai-models-catalog";
 import { getReasoningEffortOptions } from "@/lib/ai-model-reasoning";
 
 // Enums / literals
-export type ScheduleType = "manual" | "time_window" | "cron";
+export type ScheduleType = "manual" | "time_window" | "cron" | "once";
+
+// Steps of the New/Edit Agent wizard drawer. Shared between the drawer's
+// props (initialStep, to jump straight to a step) and the drawer itself.
+export type AgentWizardStep = "base" | "prompt" | "mcp" | "trigger";
 export type AgentTrigger = "scheduled" | "webhook";
 
 export type AgentJobType =
@@ -100,7 +104,20 @@ export interface CronConfig {
   expression: string;
 }
 
-export type ScheduleConfig = TimeWindowConfig | CronConfig;
+/**
+ * One-shot schedule (scheduleType='once'). `runAt` is an absolute
+ * RFC3339/ISO-8601 instant — see `onceConfigSchema` in
+ * backend/api/src/domains/agents/routes/scheduled-agents.routes.ts. The
+ * backend auto-disables the config (enabled=false) after it dispatches; the
+ * wizard surfaces this as "Executed" and lets the user re-arm it with a new
+ * future `runAt` (see domain/once-schedule.ts for the timezone conversion
+ * helpers used to build/read this value from the form).
+ */
+export interface OnceConfig {
+  runAt: string;
+}
+
+export type ScheduleConfig = TimeWindowConfig | CronConfig | OnceConfig;
 
 // Target config type
 export interface BacklogDrainProjectRule {
@@ -445,6 +462,8 @@ export interface ScheduledAgentsListProps {
   onEdit: (item: ScheduledAgentConfig) => void;
   onDelete: (item: ScheduledAgentConfig) => void;
   onTrigger: (item: ScheduledAgentConfig) => void;
+  /** Opens the edit wizard on the Trigger step so the user can pick a new runAt for an executed 'once' agent. */
+  onRearm: (item: ScheduledAgentConfig) => void;
 }
 
 export interface ScheduledAgentFormDialogProps {
@@ -499,6 +518,12 @@ export interface AgentFormDrawerProps {
   mcpServers: AgentMcpServer[];
   selectedPluginIds: string[];
   selectedMcpServerIds: string[];
+  /** lastRunAt of the config being edited, null when creating or never run. Drives the 'once' re-arm hint. */
+  lastRunAt: string | null;
+  /** True when the picked 'once' date/time is already in the past — a non-blocking warning, never a validation error. */
+  onceRunAtPastWarning: boolean;
+  /** Step the drawer opens on. Defaults to "base"; the list's re-arm action opens directly on "trigger". */
+  initialStep?: AgentWizardStep;
 }
 
 export interface ScheduledAgentWebhookProposal {
@@ -647,3 +672,16 @@ export const isTimeWindowConfig = (
 export const isCronConfig = (config: ScheduleConfig | null | undefined): config is CronConfig => {
   return !!config && "expression" in config;
 };
+
+export const isOnceConfig = (config: ScheduleConfig | null | undefined): config is OnceConfig => {
+  return !!config && "runAt" in config;
+};
+
+/**
+ * True when a persisted 'once' config has already dispatched: the backend
+ * auto-disables the config (enabled=false) after dispatch and stamps
+ * lastRunAt — see the "no magic" re-arm semantics documented on OnceConfig.
+ */
+export const isOnceScheduleExecuted = (
+  config: Pick<ScheduledAgentConfig, "scheduleType" | "enabled" | "lastRunAt">,
+): boolean => config.scheduleType === "once" && !config.enabled && Boolean(config.lastRunAt);

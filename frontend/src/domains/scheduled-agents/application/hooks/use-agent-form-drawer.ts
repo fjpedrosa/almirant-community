@@ -28,6 +28,7 @@ import type {
 } from "../../domain/types";
 import {
   isTimeWindowConfig,
+  isOnceConfig,
   getAiProvidersForScheduledRuntime,
   MODELS_BY_PROVIDER,
   getScheduledReasoningLevelOptions,
@@ -40,6 +41,11 @@ import {
   resolveCanonicalModelId,
   reconcileModelWithAvailable,
 } from "@/lib/ai-models-catalog";
+import {
+  isZonedDateTimeInPast,
+  isoToZonedDateTimeLocal,
+  zonedDateTimeToIso,
+} from "../../domain/once-schedule";
 
 // Extended schema with 5 new optional fields
 export const scheduledAgentFormSchema = z
@@ -55,13 +61,18 @@ export const scheduledAgentFormSchema = z
     webhookUrl: z.string().optional(),
     testWebhookUrl: z.string().optional(),
     skillId: z.string().nullable().optional(),
-    scheduleType: z.enum(["manual", "time_window", "cron"]),
+    scheduleType: z.enum(["manual", "time_window", "cron", "once"]),
     // Time window fields
     startHour: z.coerce.number().min(0).max(23).optional(),
     endHour: z.coerce.number().min(0).max(23).optional(),
     daysOfWeek: z.array(z.number().min(0).max(6)).optional(),
     // Cron fields
     cronExpression: z.string().optional(),
+    // Once (run-once) field: a zone-naive `datetime-local` string (e.g.
+    // "2026-08-15T14:30") representing a wall-clock moment in the `timezone`
+    // field below. Converted to an absolute ISO runAt on submit — see
+    // buildOnceScheduleConfig / domain/once-schedule.ts.
+    onceRunAtLocal: z.string().optional(),
     timezone: z.string().min(1),
     enabled: z.boolean(),
     maxJobsPerRun: z.coerce.number().min(1).max(100),
@@ -131,6 +142,23 @@ export const scheduledAgentFormSchema = z
     {
       message: "Cron expression is required",
       path: ["cronExpression"],
+    }
+  )
+  .refine(
+    (data) => {
+      if (data.scheduleType === "once") {
+        // A PAST runAt is intentionally allowed (the backend dispatches on
+        // the next tick instead of rejecting it) — only an empty or
+        // unparseable date/time blocks the form. See the "once" schedule
+        // section in agent-form-drawer.tsx for the non-blocking past warning.
+        if (!data.onceRunAtLocal) return false;
+        return zonedDateTimeToIso(data.onceRunAtLocal, data.timezone) !== null;
+      }
+      return true;
+    },
+    {
+      message: "Run once requires a valid date and time",
+      path: ["onceRunAtLocal"],
     }
   )
   .refine(
@@ -207,6 +235,35 @@ export const resolveScheduledAgentSubmitProjectId = (
     values.agentKind === "automation" && values.automationTargetKind === "builtin";
 
   return isBuiltinAutomation ? null : values.projectId || null;
+};
+
+/**
+ * Builds the persisted scheduleConfig for scheduleType='once' from the
+ * form's zone-naive local date/time field. Returns null when no date/time
+ * was picked or it doesn't parse — callers should treat that as "no
+ * schedule config", matching the zod refine that blocks submission first.
+ */
+export const buildOnceScheduleConfig = (
+  values: Pick<FormValues, "onceRunAtLocal" | "timezone">,
+): { runAt: string } | null => {
+  if (!values.onceRunAtLocal) return null;
+  const runAt = zonedDateTimeToIso(values.onceRunAtLocal, values.timezone);
+  return runAt ? { runAt } : null;
+};
+
+/**
+ * Default value for the "once" date/time picker when editing an existing
+ * config: converts the persisted absolute runAt back into the zone-naive
+ * local wall-clock string, in the config's OWN timezone (not the browser's),
+ * so editing shows exactly what the user originally picked.
+ */
+export const resolveOnceRunAtDefault = (
+  config: Pick<ScheduledAgentConfig, "scheduleType" | "scheduleConfig" | "timezone"> | null,
+): string => {
+  if (!config || config.scheduleType !== "once" || !isOnceConfig(config.scheduleConfig)) {
+    return "";
+  }
+  return isoToZonedDateTimeLocal(config.scheduleConfig.runAt, config.timezone) ?? "";
 };
 
 const resolveProjectIdsScope = (projectIds: string[]): string[] | undefined => {
@@ -472,6 +529,7 @@ export const useAgentFormDrawer = ({
         endHour: timeConfig?.endHour,
         daysOfWeek: timeConfig?.daysOfWeek ?? [],
         cronExpression: cronConfig?.expression ?? "",
+        onceRunAtLocal: resolveOnceRunAtDefault(config),
         timezone: config.timezone,
         enabled: config.enabled,
         maxJobsPerRun: config.maxJobsPerRun,
@@ -527,6 +585,7 @@ export const useAgentFormDrawer = ({
       endHour: 18,
       daysOfWeek: [1, 2, 3, 4, 5],
       cronExpression: "",
+      onceRunAtLocal: "",
       timezone: "Europe/Madrid",
       enabled: false,
       maxJobsPerRun: 10,
@@ -624,6 +683,16 @@ export const useAgentFormDrawer = ({
   const backlogDrainProjectConcurrency = useWatch({ control: form.control, name: "backlogDrainProjectConcurrency" }) as Record<string, number>;
   const backlogDrainExcludedWorkItemIds = useWatch({ control: form.control, name: "backlogDrainExcludedWorkItemIds" }) as string[];
   const backlogDrainExcludeDescendants = useWatch({ control: form.control, name: "backlogDrainExcludeDescendants" }) as boolean;
+  const watchedOnceRunAtLocal = (useWatch({ control: form.control, name: "onceRunAtLocal" }) as string | undefined) ?? "";
+  const watchedTimezone = (useWatch({ control: form.control, name: "timezone" }) as string | undefined) ?? "UTC";
+
+  // Non-blocking warning ("this will dispatch on the next tick") for a
+  // 'once' runAt already in the past — the backend allows it, so this must
+  // never fail form validation (see the zod refine above).
+  const onceRunAtPastWarning = useMemo(
+    () => scheduleType === "once" && isZonedDateTimeInPast(watchedOnceRunAtLocal, watchedTimezone),
+    [scheduleType, watchedOnceRunAtLocal, watchedTimezone],
+  );
 
   // Cascading: available providers filtered by coding agent
   const availableProviders = useMemo(() => {
@@ -856,7 +925,9 @@ export const useAgentFormDrawer = ({
               endHour: values.endHour!,
               daysOfWeek: values.daysOfWeek!,
             }
-          : { expression: values.cronExpression! };
+          : values.scheduleType === "once"
+            ? buildOnceScheduleConfig(values)
+            : { expression: values.cronExpression! };
 
     const runtimeFields = resolveScheduledAgentSubmitRuntimeFields(values);
     // The old raw mcpServersJson textarea is gone: the backend fails closed on
@@ -951,5 +1022,7 @@ export const useAgentFormDrawer = ({
     isLoadingBacklogDrainPreview: backlogDrainPreviewQuery.isLoading || backlogDrainPreviewQuery.isFetching,
     webhookProposal,
     isLoadingWebhookProposal,
+    onceRunAtPastWarning,
+    lastRunAt: config?.lastRunAt ?? null,
   };
 };
