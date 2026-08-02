@@ -1,11 +1,3 @@
-/**
- * Shared validated current-schema bootstrap primitive.
- *
- * Applies the latest Drizzle schema to an empty database via `drizzle-kit
- * push`, validates the resulting columns against the migration journal's
- * latest snapshot, and baselines the migration ledger so future runs use the
- * normal append-only migration path. Used by self-hosted initialization.
- */
 import { createHash } from "crypto";
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
@@ -46,12 +38,135 @@ interface ActualColumn {
   column_name: string;
 }
 
+interface ImperativeObjectStateRow {
+  documents_function: boolean;
+  documents_trigger: boolean;
+  documents_gin_index: boolean;
+  storage_function: boolean;
+  storage_trigger: boolean;
+}
+
 const DEFAULT_MIGRATIONS_FOLDER = resolve(import.meta.dir, "../../migrations");
 const DEFAULT_JOURNAL_PATH = resolve(
   DEFAULT_MIGRATIONS_FOLDER,
   "meta/_journal.json",
 );
 const packageRoot = resolve(import.meta.dir, "../..");
+
+// drizzle-kit push can only materialize objects represented by the declarative
+// Drizzle schema. Keep the current runtime definitions for historical raw-SQL
+// objects here so a fresh schema is equivalent to one that ran migrations 0083
+// and 0218. Historical migration files remain immutable ledger inputs.
+const DOCUMENTS_SEARCH_VECTOR_FUNCTION_BODY = `BEGIN
+  NEW.search_vector :=
+    setweight(to_tsvector('spanish', coalesce(NEW.title, '')), 'A') ||
+    setweight(to_tsvector('english', coalesce(NEW.title, '')), 'A') ||
+    setweight(to_tsvector('spanish', coalesce(NEW.content, '')), 'B') ||
+    setweight(to_tsvector('english', coalesce(NEW.content, '')), 'B');
+  RETURN NEW;
+END;`;
+
+const QUEUE_STORAGE_DELETION_FUNCTION_BODY = `BEGIN
+  INSERT INTO public.user_storage_deletions (object_key, owner_user_id)
+  VALUES (OLD.object_key, OLD.owner_user_id)
+  ON CONFLICT (object_key) DO NOTHING;
+  RETURN OLD;
+END;`;
+
+const IMPERATIVE_OBJECT_VALIDATION_QUERY = `
+  SELECT
+    EXISTS (
+      SELECT 1
+      FROM pg_proc AS procedure
+      JOIN pg_language AS language ON language.oid = procedure.prolang
+      WHERE procedure.oid = to_regprocedure(
+        'public.documents_search_vector_update()'
+      )
+        AND procedure.prorettype = 'trigger'::regtype
+        AND procedure.pronargs = 0
+        AND btrim(procedure.prosrc, E' \n\r\t') = btrim($1, E' \n\r\t')
+        AND language.lanname = 'plpgsql'
+    ) AS documents_function,
+    EXISTS (
+      SELECT 1
+      FROM pg_trigger AS trigger
+      JOIN pg_class AS relation ON relation.oid = trigger.tgrelid
+      JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+      WHERE namespace.nspname = 'public'
+        AND relation.relname = 'documents'
+        AND trigger.tgname = 'documents_search_vector_trigger'
+        AND trigger.tgfoid = to_regprocedure(
+          'public.documents_search_vector_update()'
+        )
+        AND trigger.tgtype = 23
+        AND trigger.tgenabled = 'O'
+        AND NOT trigger.tgisinternal
+        AND (
+          SELECT array_agg(attribute.attname::text ORDER BY attribute.attname)
+          FROM unnest(trigger.tgattr::smallint[]) AS trigger_column(attnum)
+          JOIN pg_attribute AS attribute
+            ON attribute.attrelid = relation.oid
+           AND attribute.attnum = trigger_column.attnum
+        ) = ARRAY['content', 'title']::text[]
+    ) AS documents_trigger,
+    EXISTS (
+      SELECT 1
+      FROM pg_class AS index_relation
+      JOIN pg_namespace AS namespace
+        ON namespace.oid = index_relation.relnamespace
+      JOIN pg_index AS index_metadata
+        ON index_metadata.indexrelid = index_relation.oid
+      JOIN pg_class AS table_relation
+        ON table_relation.oid = index_metadata.indrelid
+      JOIN pg_am AS access_method
+        ON access_method.oid = index_relation.relam
+      WHERE namespace.nspname = 'public'
+        AND index_relation.relname = 'documents_search_vector_gin_idx'
+        AND table_relation.relname = 'documents'
+        AND access_method.amname = 'gin'
+        AND index_metadata.indisready
+        AND index_metadata.indisvalid
+        AND index_metadata.indpred IS NULL
+        AND index_metadata.indexprs IS NULL
+        AND index_metadata.indnkeyatts = 1
+        AND (
+          SELECT array_agg(attribute.attname::text ORDER BY index_column.ordinality)
+          FROM unnest(index_metadata.indkey::smallint[])
+            WITH ORDINALITY AS index_column(attnum, ordinality)
+          JOIN pg_attribute AS attribute
+            ON attribute.attrelid = table_relation.oid
+           AND attribute.attnum = index_column.attnum
+          WHERE index_column.ordinality <= index_metadata.indnkeyatts
+        ) = ARRAY['search_vector']::text[]
+    ) AS documents_gin_index,
+    EXISTS (
+      SELECT 1
+      FROM pg_proc AS procedure
+      JOIN pg_language AS language ON language.oid = procedure.prolang
+      WHERE procedure.oid = to_regprocedure(
+        'public.queue_user_storage_object_deletion()'
+      )
+        AND procedure.prorettype = 'trigger'::regtype
+        AND procedure.pronargs = 0
+        AND btrim(procedure.prosrc, E' \n\r\t') = btrim($2, E' \n\r\t')
+        AND language.lanname = 'plpgsql'
+    ) AS storage_function,
+    EXISTS (
+      SELECT 1
+      FROM pg_trigger AS trigger
+      JOIN pg_class AS relation ON relation.oid = trigger.tgrelid
+      JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+      WHERE namespace.nspname = 'public'
+        AND relation.relname = 'user_storage_objects'
+        AND trigger.tgname = 'user_storage_objects_queue_deletion'
+        AND trigger.tgfoid = to_regprocedure(
+          'public.queue_user_storage_object_deletion()'
+        )
+        AND trigger.tgtype = 9
+        AND trigger.tgenabled = 'O'
+        AND NOT trigger.tgisinternal
+    ) AS storage_trigger
+`;
 
 export function loadJournalEntries(
   journalPath = DEFAULT_JOURNAL_PATH,
@@ -201,6 +316,101 @@ export async function validateCurrentSchema(
   throw new Error(
     `Cannot baseline migrations because the database schema is missing ${missing.length} expected column(s):\n  - ${sample}${suffix}`,
   );
+}
+
+/**
+ * Reconciles raw-SQL objects that drizzle-kit push cannot express, validates
+ * their exact runtime contract, and commits them atomically. A validation
+ * failure rolls the whole reconciliation back and the caller must not baseline.
+ */
+export async function materializeCurrentSchemaImperativeObjects(
+  databaseUrl: string,
+  logPrefix: string,
+): Promise<void> {
+  const sql = postgres(databaseUrl, { max: 1 });
+  try {
+    await sql.begin(async (tx) => {
+      await tx.unsafe(`
+        CREATE OR REPLACE FUNCTION public.documents_search_vector_update()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        SET search_path = pg_catalog, public
+        AS $function$
+${DOCUMENTS_SEARCH_VECTOR_FUNCTION_BODY}
+        $function$
+      `);
+      await tx.unsafe(`
+        DROP TRIGGER IF EXISTS documents_search_vector_trigger
+        ON public.documents
+      `);
+      await tx.unsafe(`
+        CREATE TRIGGER documents_search_vector_trigger
+        BEFORE INSERT OR UPDATE OF title, content ON public.documents
+        FOR EACH ROW
+        EXECUTE FUNCTION public.documents_search_vector_update()
+      `);
+      await tx.unsafe(`
+        CREATE INDEX IF NOT EXISTS documents_search_vector_gin_idx
+        ON public.documents USING gin (search_vector)
+      `);
+
+      await tx.unsafe(`
+        CREATE OR REPLACE FUNCTION public.queue_user_storage_object_deletion()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        SET search_path = pg_catalog, public
+        AS $function$
+${QUEUE_STORAGE_DELETION_FUNCTION_BODY}
+        $function$
+      `);
+      await tx.unsafe(`
+        DROP TRIGGER IF EXISTS user_storage_objects_queue_deletion
+        ON public.user_storage_objects
+      `);
+      await tx.unsafe(`
+        CREATE TRIGGER user_storage_objects_queue_deletion
+        AFTER DELETE ON public.user_storage_objects
+        FOR EACH ROW
+        EXECUTE FUNCTION public.queue_user_storage_object_deletion()
+      `);
+
+      const [state] = (await tx.unsafe(IMPERATIVE_OBJECT_VALIDATION_QUERY, [
+        DOCUMENTS_SEARCH_VECTOR_FUNCTION_BODY,
+        QUEUE_STORAGE_DELETION_FUNCTION_BODY,
+      ])) as unknown as ImperativeObjectStateRow[];
+      if (!state) {
+        throw new Error(
+          "Cannot baseline migrations because imperative object validation returned no state",
+        );
+      }
+
+      const missing = [
+        ["public.documents_search_vector_update()", state.documents_function],
+        ["public.documents_search_vector_trigger", state.documents_trigger],
+        ["public.documents_search_vector_gin_idx", state.documents_gin_index],
+        [
+          "public.queue_user_storage_object_deletion()",
+          state.storage_function,
+        ],
+        ["public.user_storage_objects_queue_deletion", state.storage_trigger],
+      ]
+        .filter(([, valid]) => valid !== true)
+        .map(([name]) => name);
+
+      if (missing.length > 0) {
+        throw new Error(
+          "Cannot baseline migrations because the current schema is missing or " +
+            `misconfigured imperative runtime object(s): ${missing.join(", ")}`,
+        );
+      }
+    });
+
+    console.log(
+      `${logPrefix} Imperative runtime object validation passed (5 objects checked).`,
+    );
+  } finally {
+    await sql.end();
+  }
 }
 
 export async function baselineMigrationLedger(

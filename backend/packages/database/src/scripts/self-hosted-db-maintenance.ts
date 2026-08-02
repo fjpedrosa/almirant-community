@@ -17,6 +17,7 @@ import {
   getLatestJournalEntry,
   getMigrationRecordsThrough,
   loadJournalEntries,
+  materializeCurrentSchemaImperativeObjects,
   validateCurrentSchema,
 } from "./current-schema-bootstrap";
 
@@ -123,6 +124,10 @@ export async function maintainSelfHostedDatabase(databaseUrl: string): Promise<v
       "[self-hosted-db] Empty database detected. Creating latest schema...",
     );
     await applyCurrentSchema(databaseUrl, "[self-hosted-db]");
+    await materializeCurrentSchemaImperativeObjects(
+      databaseUrl,
+      "[self-hosted-db]",
+    );
     await validateCurrentSchema(databaseUrl, latestEntry, "[self-hosted-db]");
     await baselineMigrationLedger(
       databaseUrl,
