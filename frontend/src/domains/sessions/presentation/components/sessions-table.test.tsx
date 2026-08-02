@@ -1,6 +1,58 @@
-import { describe, expect, it, mock } from "bun:test";
+import { afterAll, describe, expect, it, mock } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import type { AgentSessionListItem } from "../../domain/types";
+
+// ─── Capture the real modules BEFORE mocking them ──────────────────────
+// `mock.module()` replaces the module in Bun's shared, process-global
+// registry, and — confirmed against Bun 1.3.14 — `mock.restore()` does NOT
+// undo it. Left un-restored, these overrides leak into every test file that
+// runs afterward in the same `bun test` process — most notably
+// `agent-job-status-badge`, which would leak a status-only stub into
+// session-detail-sheet.test.tsx and any other consumer (agent-runs-table.tsx,
+// sessions-tab-content.tsx, etc.) that expects the real component or its own
+// stub.
+//
+// The exports are captured via object spread (a plain, one-time property
+// copy), NOT by holding on to the `await import(...)` namespace object
+// itself — an ES module namespace object is a live view, so its properties
+// keep reflecting whatever the LATEST `mock.module()` call for that
+// specifier returned, even for code that ran before the mock existed.
+// Spreading into a fresh plain object breaks that live link and gives a
+// true point-in-time snapshot, which is what afterAll needs to restore.
+//
+// `next-intl` is deliberately NOT captured/restored here: ~15 other test
+// files across the codebase already mock it globally without restoring
+// (settings, ai-planning, teams, github, onboarding, analytics, dashboard...),
+// so by the time this file runs in the full suite, `await import("next-intl")`
+// can already resolve to one of THEIR incomplete stubs instead of the true
+// real module — capturing that and re-registering it in afterAll (verified
+// empirically) then locks in a broken `next-intl` for whichever file runs
+// next, e.g. `SyntaxError: Export named 'useLocale' not found`. Fixing that
+// requires the same capture/restore treatment on every one of those other
+// files, which is out of scope here (see task report).
+//
+// `use-formatted-date` is ALSO deliberately not captured/restored via the
+// same mechanism, for a related reason (also verified empirically): the
+// real `use-formatted-date.ts` itself statically imports `useLocale` from
+// "next-intl". Evaluating the real module to snapshot it — which is what
+// `await import(...)` does the first time a specifier is touched — runs
+// into the exact same already-poisoned `next-intl` mock described above and
+// throws `SyntaxError: Export named 'useLocale' not found` before this file
+// even gets to its own tests. So this mock is left un-restored too; it has
+// no in-scope victim (no other file in domains/sessions or domains/backoffice
+// mocks or depends on the real `use-formatted-date` behavior).
+const realAgentJobStatusBadgeExports = {
+  ...(await import(
+    "@/domains/agents/presentation/components/agent-job-status-badge"
+  )),
+};
+
+afterAll(() => {
+  mock.module(
+    "@/domains/agents/presentation/components/agent-job-status-badge",
+    () => realAgentJobStatusBadgeExports,
+  );
+});
 
 mock.module("next-intl", () => ({
   useTranslations: () => (key: string) => key,
@@ -124,6 +176,42 @@ describe("SessionsTable", () => {
     const botAvatarFallback = container.querySelector('[data-slot="avatar-fallback"]');
     expect(botAvatarFallback?.className).toContain("bg-white");
     expect(botAvatarFallback?.className).toContain("text-black");
+  });
+
+  it("muestra el indicador de ejecución automática junto al usuario cuando el job viene del cron de un scheduled agent", () => {
+    const { container } = render(
+      <SessionsTable
+        sessions={[
+          {
+            ...baseSession,
+            id: "job-3",
+            triggerType: "scheduled",
+            createdByUserName: "Jane Doe",
+            config: { skillName: "runner-implement", source: "scheduled", scheduledDispatchTrigger: "schedule" },
+          },
+        ]}
+        isLoading={false}
+        currentTime={Date.now()}
+        onOpenSession={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Jane Doe")).toBeInTheDocument();
+    expect(container.querySelector('[title="Ejecución automática"]')).toBeInTheDocument();
+  });
+
+  it("no muestra el indicador de ejecución automática para una sesión lanzada manualmente por un usuario", () => {
+    const { container } = render(
+      <SessionsTable
+        sessions={[baseSession]}
+        isLoading={false}
+        currentTime={Date.now()}
+        onOpenSession={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Jane Doe")).toBeInTheDocument();
+    expect(container.querySelector('[title="Ejecución automática"]')).not.toBeInTheDocument();
   });
 
   it("agrupa proyecto y skill, normalizando runner-implement como implement", () => {

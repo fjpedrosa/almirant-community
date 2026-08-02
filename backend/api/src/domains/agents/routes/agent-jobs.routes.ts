@@ -32,6 +32,7 @@ import {
   workItems,
   inArray,
   eq,
+  findAgentOutputSubmissionByJobId,
 } from "@almirant/database";
 import type { AgentJobConfig, AgentJobStatus, AgentJobType, CodingAgent, AiProvider, NewAgentNativeEvent } from "@almirant/database";
 import { resolveRuntime, requiresInternalMcp } from "@almirant/shared";
@@ -1721,6 +1722,39 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
           })
         ),
       }),
+    }
+  )
+
+  // GET /api/agent-jobs/:id/output-submission — the job's validated result
+  .get(
+    "/:id/output-submission",
+    async (ctx) => {
+      const { params, set } = ctx;
+      const orgId = getOrgIdFromContext(
+        ctx as { activeWorkspace?: { id: string } },
+      );
+      if (!orgId) {
+        set.status = 401;
+        return errorResponse("Unauthorized");
+      }
+      const existing = await getJobById(params.id);
+      if (!existing) {
+        set.status = 404;
+        return notFoundResponse("Agent job");
+      }
+      if (!existing.job.workspaceId || existing.job.workspaceId !== orgId) {
+        set.status = 404;
+        return notFoundResponse("Agent job");
+      }
+
+      // A job without a submission is ordinary — most agents never produce one —
+      // so this answers with null rather than 404, which the caller would have to
+      // tell apart from "no such job".
+      const submission = await findAgentOutputSubmissionByJobId(params.id);
+      return successResponse(submission);
+    },
+    {
+      params: t.Object({ id: t.String() }),
     }
   )
 

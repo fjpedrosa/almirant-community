@@ -1,8 +1,10 @@
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 import {
   ToolCallBlock,
   FileOperationBlock,
   BashBlock,
+  DataBlock,
   SubagentBlock,
   SubagentGroupBlock,
   ActivityBurstBlock,
@@ -63,7 +65,8 @@ const getPersistentBlockKey = (block: StreamingBlock): string | null => {
     case "subagent":
       return `subagent:${block.subagentId}`;
     case "text":
-    case "info": {
+    case "info":
+    case "data": {
       const normalized = normalizeTextForDedup(block.content);
       return normalized ? `text:${normalized}` : null;
     }
@@ -155,7 +158,13 @@ const QuestionBlock: React.FC<{
   );
 };
 
-export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
+/**
+ * Memoized because a live session refetches every four seconds and this rebuilds
+ * the entire transcript on each render. Props are arrays rebuilt by the parent,
+ * so the default shallow comparison only helps once the parent stabilises them —
+ * which `session-transcript` now does with useMemo.
+ */
+const ConversationTimelineComponent: React.FC<ConversationTimelineProps> = ({
   messages,
   timeZone,
   streamingContent,
@@ -210,6 +219,14 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
    *  produced — so interleaved reasoning folds into this one entry. */
   let reasoningAnchorIndex: number | null = null;
 
+  // Index by id instead of scanning the whole array per message. With one
+  // tool call per message this was O(n^2), and a live session re-runs the merge
+  // every four seconds over a transcript that can hold tens of thousands of
+  // events.
+  const toolCallIndexById = new Map<string, number>();
+  const subagentIndexById = new Map<string, number>();
+  let hasAskUserQuestion = false;
+
   for (let index = 0; index < messages.length; index++) {
     let message = messages[index];
     const messageMetadata = message.metadata as Record<string, unknown> | undefined;
@@ -238,22 +255,14 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
         message.messageType === "tool_call" &&
         (meta?.toolName as string) === "AskUserQuestion"
       ) {
-        const alreadyHasAsk = mergedMessages.some(
-          (merged) =>
-            merged._toolBlock?.type === "tool_call" &&
-            merged._toolBlock.toolName === "AskUserQuestion",
-        );
-        if (alreadyHasAsk) continue;
+        if (hasAskUserQuestion) continue;
+        hasAskUserQuestion = true;
       }
 
       if (message.messageType === "tool_call") {
         const toolCallId = (meta?.toolCallId as string) ?? message.id;
         const inputPreview = meta?.inputPreview as string | undefined;
-        const existingIndex = mergedMessages.findIndex(
-          (merged) =>
-            merged._toolBlock?.type === "tool_call" &&
-            merged._toolBlock.toolCallId === toolCallId,
-        );
+        const existingIndex = toolCallIndexById.get(toolCallId) ?? -1;
 
         if (existingIndex >= 0) {
           const previousBlock = mergedMessages[existingIndex]._toolBlock;
@@ -278,6 +287,7 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
           continue;
         }
 
+        toolCallIndexById.set(toolCallId, mergedMessages.length);
         mergedMessages.push({
           ...message,
           _sourceIndex: index,
@@ -293,11 +303,7 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
         const subagentId = (meta?.subagentId as string) ?? message.id;
         const description = (meta?.description as string) ?? "";
         const subagentType = meta?.subagentType as string | undefined;
-        const existingIndex = mergedMessages.findIndex(
-          (merged) =>
-            merged._toolBlock?.type === "subagent" &&
-            merged._toolBlock.subagentId === subagentId,
-        );
+        const existingIndex = subagentIndexById.get(subagentId) ?? -1;
 
         if (existingIndex >= 0) {
           const previousBlock = mergedMessages[existingIndex]._toolBlock;
@@ -322,6 +328,7 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
           continue;
         }
 
+        subagentIndexById.set(subagentId, mergedMessages.length);
         mergedMessages.push({
           ...message,
           _sourceIndex: index,
@@ -811,6 +818,16 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
                     operation={block.operation}
                   />
                 );
+              case "data":
+                return (
+                  <DataBlock
+                    key={blockKey}
+                    content={block.content}
+                    format={block.format}
+                    byteLength={block.byteLength}
+                    lineCount={block.lineCount}
+                  />
+                );
               case "bash":
                 return (
                   <BashBlock
@@ -994,6 +1011,16 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
                     operation={block.operation}
                   />
                 );
+              case "data":
+                return (
+                  <DataBlock
+                    key={`stream-block-${blockIndex}`}
+                    content={block.content}
+                    format={block.format}
+                    byteLength={block.byteLength}
+                    lineCount={block.lineCount}
+                  />
+                );
               case "bash":
                 return (
                   <BashBlock
@@ -1078,3 +1105,5 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
     </div>
   );
 };
+
+export const ConversationTimeline = memo(ConversationTimelineComponent);

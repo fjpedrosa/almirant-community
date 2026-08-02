@@ -2,6 +2,7 @@ import type { AgentLogChunk } from "@/domains/shared/domain/types";
 import type { StreamingBlock } from "@/domains/shared/domain/streaming-block-types";
 import { classifyShellCommandForDisplay } from "@/domains/shared/application/utils/shell-command-display";
 import { stripDanglingBacktickBoundaryLines } from "./transcript-content-sanitizer";
+import { classifyTextPayload } from "./classify-text-payload";
 
 /** Tool names hidden from the transcript (internal/noisy). */
 const HIDDEN_TOOLS = new Set([
@@ -966,6 +967,21 @@ export const parseChunksToStreamingBlocks = (
           toolCallId: tcId,
           status: "success",
           inputPreview: preview,
+        });
+        continue;
+      }
+
+      // Classify before emitting: a subagent that answers with tens of KB of
+      // serialized data is not writing prose, and sending it through Markdown is
+      // what autolinked URLs inside JSON strings and split identifiers mid-word.
+      const classification = classifyTextPayload(text);
+      if (classification.kind === "data") {
+        blocks.push({
+          type: "data",
+          content: text,
+          format: classification.format,
+          byteLength: classification.byteLength,
+          lineCount: classification.lineCount,
         });
         continue;
       }

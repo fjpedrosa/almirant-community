@@ -1328,3 +1328,74 @@ curl -s -X POST "$MCP_URL" \\
     expect(textBlocks[0]?.content).not.toContain("## Summary");
   });
 });
+
+describe("volcados de datos en el transcript", () => {
+  const productDump = JSON.stringify({
+    productCount: 20,
+    products: Array.from({ length: 20 }, (_, index) => ({
+      handle: `prop-starter-kit-${index}`,
+      title: `Prop Starter Kit ${index}`,
+      vendor: "Your Reformer",
+      images: [
+        `https://cdn.shopify.com/s/files/1/0566/8424/9273/files/kit-${index}.jpg?v=1764803928`,
+      ],
+      variants: [{ price: "25.00", sku: `SKU-${index}`, available: true }],
+    })),
+  });
+
+  it("emite un bloque de datos, no de texto, cuando un subagente responde con JSON crudo", () => {
+    // El caso real: sequence_num 568 de un job del scraper, 19.837 caracteres de
+    // JSON emitidos como texto de asistente. Como bloque de texto acababa en
+    // Markdown, que autoenlazaba las URLs de dentro del JSON y partía los
+    // identificadores por la mitad.
+    const blocks = parseChunksToStreamingBlocks(
+      [
+        makeChunk({
+          id: "subagent-answer",
+          seq: 1,
+          phase: "transcript",
+          eventType: "agent.text",
+          contentType: "text",
+          message: productDump,
+          timestamp: "2026-07-25T21:00:00.000Z",
+        }),
+      ],
+      false,
+    );
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({ type: "data", format: "json" });
+    const block = blocks[0] as Extract<
+      (typeof blocks)[number],
+      { type: "data" }
+    >;
+    expect(block.content).toBe(productDump);
+    expect(block.byteLength).toBe(productDump.length);
+  });
+
+  it("deja la prosa como bloque de texto", () => {
+    const report = [
+      "He inspeccionado la tienda y detectado que usa Shopify.",
+      "El catálogo estructurado responde, así que los precios salen de ahí.",
+      "Faltan las descripciones en ocho productos porque la tienda no las publica.",
+    ].join("\n");
+
+    const blocks = parseChunksToStreamingBlocks(
+      [
+        makeChunk({
+          id: "prose",
+          seq: 1,
+          phase: "transcript",
+          eventType: "agent.text",
+          contentType: "text",
+          message: report,
+          timestamp: "2026-07-25T21:00:00.000Z",
+        }),
+      ],
+      false,
+    );
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({ type: "text", content: report });
+  });
+});

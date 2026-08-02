@@ -58,6 +58,7 @@ describe("resolveSessionLauncherIdentity", () => {
       kind: "user",
       label: "Jane Doe",
       imageUrl: "https://img.test/jane.png",
+      automated: false,
     });
   });
 
@@ -103,20 +104,46 @@ describe("resolveSessionLauncherIdentity", () => {
   it("atribuye al usuario un trigger manual aunque el source sea 'scheduled'", () => {
     // Un scheduled agent disparado manualmente desde la UI: triggerType pasa
     // a "event" y createdByUserId identifica al humano. El source de la config
-    // sigue siendo "scheduled" porque el job salió de una config programada.
+    // sigue siendo "scheduled" porque el job salió de una config programada
+    // (execute-scheduled-agent-config.ts:298-299 escribe `source: "scheduled"`
+    // tanto para el tick del cron como para el trigger manual). Sólo
+    // `scheduledDispatchTrigger: "manual"` (misma línea 298) distingue este
+    // caso del disparo automático — ver `isAutomatedDispatch`.
     expect(
       resolveSessionLauncherIdentity(
         makeSession({
           triggerType: "event",
           createdByUserId: "user-42",
           createdByUserName: "Jane Doe",
-          config: { source: "scheduled" },
+          config: { source: "scheduled", scheduledDispatchTrigger: "manual" },
         }),
       ),
     ).toEqual({
       kind: "user",
       label: "Jane Doe",
       imageUrl: null,
+      automated: false,
+    });
+  });
+
+  it("marca como automática un job de un scheduled agent disparado por el cron, atribuido al usuario", () => {
+    // Tras el fallback de backend al owner del workspace (config.ownerUserId
+    // null), el job de cron ya no cae en la rama bot: createdByUserId apunta
+    // al owner real. La UI debe seguir mostrando la ejecución como automática.
+    expect(
+      resolveSessionLauncherIdentity(
+        makeSession({
+          triggerType: "scheduled",
+          createdByUserId: "owner-1",
+          createdByUserName: "Jane Doe",
+          config: { source: "scheduled", scheduledDispatchTrigger: "schedule" },
+        }),
+      ),
+    ).toEqual({
+      kind: "user",
+      label: "Jane Doe",
+      imageUrl: null,
+      automated: true,
     });
   });
 
@@ -133,6 +160,7 @@ describe("resolveSessionLauncherIdentity", () => {
       kind: "user",
       label: "Usuario",
       imageUrl: null,
+      automated: false,
     });
   });
 
@@ -157,6 +185,7 @@ describe("resolveSessionLauncherIdentity", () => {
       kind: "user",
       label: "User Admin via Auto-Fix",
       imageUrl: "https://img.test/admin.png",
+      automated: false,
     });
   });
 
@@ -179,6 +208,7 @@ describe("resolveSessionLauncherIdentity", () => {
       kind: "user",
       label: "Usuario",
       imageUrl: null,
+      automated: false,
     });
   });
 
@@ -201,6 +231,7 @@ describe("resolveSessionLauncherIdentity", () => {
       kind: "user",
       label: "Another Admin via Auto-Fix",
       imageUrl: "https://img.test/another.png",
+      automated: false,
     });
   });
 
@@ -217,7 +248,68 @@ describe("resolveSessionLauncherIdentity", () => {
       kind: "user",
       label: "Auto-Fix Bot",
       imageUrl: null,
+      automated: false,
     });
+  });
+
+  it("sin usuario, un job de una automatización de dispatcher (source scheduled-config) sigue marcado como bot", () => {
+    // Contrato intacto: cuando no hay createdByUserId (workspace sin owner
+    // resoluble), la identidad sigue siendo "bot" — el campo `automated` sólo
+    // aplica a la variante "user".
+    expect(
+      resolveSessionLauncherIdentity(
+        makeSession({
+          triggerType: "event",
+          config: { source: "scheduled-config" },
+        }),
+      ),
+    ).toEqual({
+      kind: "bot",
+      label: "Almirant[bot]",
+      imageUrl: null,
+    });
+  });
+
+  it("trigger manual con config.requestedByUserId presente sigue marcado como automated=false", () => {
+    expect(
+      resolveSessionLauncherIdentity(
+        makeSession({
+          triggerType: "event",
+          createdByUserId: "user-42",
+          createdByUserName: "Jane Doe",
+          config: {
+            source: "scheduled",
+            scheduledDispatchTrigger: "manual",
+            requestedByUserId: "user-42",
+          },
+        }),
+      ),
+    ).toEqual({
+      kind: "user",
+      label: "Jane Doe",
+      imageUrl: null,
+      automated: false,
+    });
+  });
+
+  it("marca automated=true para un job de backlog-drain/dod-remediation/dod-review atribuido al owner del workspace", () => {
+    for (const source of ["backlog-drain", "dod-remediation", "dod-review"]) {
+      expect(
+        resolveSessionLauncherIdentity(
+          makeSession({
+            triggerType: "event",
+            createdByUserId: "owner-1",
+            createdByUserName: "Jane Doe",
+            config: { source },
+          }),
+        ),
+      ).toEqual({
+        kind: "user",
+        label: "Jane Doe",
+        imageUrl: null,
+        automated: true,
+      });
+    }
   });
 });
 

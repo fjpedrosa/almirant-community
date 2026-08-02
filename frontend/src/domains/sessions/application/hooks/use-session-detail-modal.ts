@@ -6,6 +6,7 @@ import { useLiveTimer } from "@/domains/agents/application/hooks/use-live-timer"
 import {
   useSessionDetail,
   useSessionOutput,
+  useSessionOutputSubmission,
   isAgentSessionActive,
 } from "./use-session-detail";
 import { useSessionTranscriptStream } from "./use-session-transcript-stream";
@@ -57,6 +58,13 @@ export const useSessionDetailModal = () => {
       enabled: gates.resourceTimeline,
       isLive,
     });
+
+  // The validated result, when the job produced one. Only meaningful once the
+  // job is terminal, which the hook enforces.
+  const { data: outputSubmission } = useSessionOutputSubmission(
+    selectedItemId,
+    detail?.job.status,
+  );
 
   const streamingBlocks = useMemo(
     () => parseChunksToStreamingBlocks(chunks, isLive),
@@ -180,6 +188,7 @@ export const useSessionDetailModal = () => {
     phases,
     resourceTimeline: resourceTimeline ?? null,
     isResourceTimelineLoading,
+    resultPayload: outputSubmission?.payload ?? null,
     isActive: controls.isActive,
     isCancelling: controls.isCancelling,
     elapsedTime,

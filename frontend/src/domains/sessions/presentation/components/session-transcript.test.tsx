@@ -62,6 +62,51 @@ beforeAll(() => {
 });
 
 describe("SessionTranscript", () => {
+  it("integra resultado y conversación dentro del mismo scroll vertical y padding", () => {
+    const { container } = render(
+      <SessionTranscript
+        transcript="Contenido del transcript"
+        resultPayload={{ summary: "Resultado compacto", status: "ok" }}
+        isStreaming={false}
+        isLoading={false}
+      />,
+    );
+
+    const scrollArea = container.querySelector('[data-slot="scroll-area"]');
+    const resultPanel = screen.getByTestId("session-result-panel");
+    expect(scrollArea).toContainElement(resultPanel);
+    expect(scrollArea).toHaveClass(
+      "min-h-0",
+      "w-full",
+      "max-w-full",
+      "overflow-hidden",
+    );
+
+    const transcriptContent = screen.getByTestId("session-transcript-content");
+    expect(transcriptContent).toHaveClass("px-4", "sm:px-6", "min-w-0");
+    expect(transcriptContent).toContainElement(resultPanel);
+    expect(screen.getByText("Contenido del transcript")).toBeInTheDocument();
+  });
+
+  it("mantiene el resultado en el scroll mientras el transcript aún carga", () => {
+    const { container } = render(
+      <SessionTranscript
+        transcript=""
+        resultPayload={{ summary: "Resultado ya disponible" }}
+        isStreaming={false}
+        isLoading
+      />,
+    );
+
+    const scrollArea = container.querySelector('[data-slot="scroll-area"]');
+    expect(scrollArea).toContainElement(
+      screen.getByTestId("session-result-panel"),
+    );
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(
+      0,
+    );
+  });
+
   it("mantiene colapsado y permite expandir el reasoning de sesiones terminadas", () => {
     render(<CompletedTranscriptHarness />);
 

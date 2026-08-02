@@ -1,4 +1,7 @@
-import { useMemo, useCallback, type ReactNode } from "react";
+import { useMemo, useState, useCallback, type ReactNode } from "react";
+
+/** Messages kept mounted before the reader asks for the earlier ones. */
+const MESSAGE_WINDOW = 300;
 import { MarkdownPreview } from "@/domains/shared/presentation/components/markdown-preview";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,6 +18,7 @@ import type { ResolvedTaskId } from "../../application/hooks/use-task-id-resolut
 import type { TranscriptSegment } from "../../domain/types";
 import type { ConversationMessage, QuickFeedbackData } from "@/domains/shared/domain/conversation-types";
 import type { StreamingBlock } from "@/domains/shared/domain/streaming-block-types";
+import { SessionResultPanelContainer } from "../containers/session-result-panel-container";
 
 interface SessionTranscriptProps {
   messages?: ConversationMessage[];
@@ -32,6 +36,7 @@ interface SessionTranscriptProps {
   hasBackgroundAgentsWaiting?: boolean;
   processingStartedAt?: number;
   onFeedback?: (messageId: string, data: QuickFeedbackData) => void;
+  resultPayload?: unknown;
 }
 
 export const SessionTranscript: React.FC<SessionTranscriptProps> = ({
@@ -50,6 +55,7 @@ export const SessionTranscript: React.FC<SessionTranscriptProps> = ({
   hasBackgroundAgentsWaiting = false,
   processingStartedAt,
   onFeedback,
+  resultPayload,
 }) => {
   const taskIdComponents = useMemo(() => {
     if (!taskIdMap || taskIdMap.size === 0) return undefined;
@@ -73,11 +79,28 @@ export const SessionTranscript: React.FC<SessionTranscriptProps> = ({
     };
   }, [taskIdMap]);
 
-  const conversationMessages = messages ?? [];
-  const hasMessages = conversationMessages.length > 0;
+  const allMessages = messages ?? [];
+  const hasMessages = allMessages.length > 0;
+
+  // A finished scraper job carries tens of thousands of events. Mounting a node
+  // for each one freezes the panel, so only the tail is rendered until the
+  // reader asks for the rest — the same "load more" shape the job log timeline
+  // already uses. The window is explicit: a silent cut would read as "that is
+  // the whole conversation".
+  const [showAllMessages, setShowAllMessages] = useState(false);
+  const hiddenMessageCount = showAllMessages
+    ? 0
+    : Math.max(0, allMessages.length - MESSAGE_WINDOW);
+  const conversationMessages = useMemo(
+    () => (hiddenMessageCount > 0 ? allMessages.slice(-MESSAGE_WINDOW) : allMessages),
+    [allMessages, hiddenMessageCount],
+  );
   const hasStreamingBlocks = (streamingBlocks?.length ?? 0) > 0;
   const hasSegments = (segments?.length ?? 0) > 0;
+  const hasResultPayload =
+    resultPayload !== null && resultPayload !== undefined;
   const hasRenderableContent =
+    hasResultPayload ||
     hasMessages ||
     hasStreamingBlocks ||
     hasSegments ||
@@ -149,7 +172,7 @@ export const SessionTranscript: React.FC<SessionTranscriptProps> = ({
     [getThinkingIndex, isThinkingOpen, onThinkingToggle],
   );
 
-  if (isLoading) {
+  if (isLoading && !hasResultPayload) {
     return (
       <div className={cn("space-y-3 p-4", className)}>
         <Skeleton className="h-4 w-3/4" />
@@ -201,43 +224,80 @@ export const SessionTranscript: React.FC<SessionTranscriptProps> = ({
   );
 
   return (
-    <ScrollArea className={cn("h-full min-w-0", className)} ref={scrollAreaRef}>
-      <div className="max-w-3xl mx-auto w-full min-w-0 p-4">
-        {hasMessages || hasStreamingBlocks ? (
-          <ConversationTimeline
-            className="space-y-3"
-            messages={
-              !isStreaming && streamingBlocks?.length
-                ? conversationMessages.filter((m) => m.role === "user")
-                : conversationMessages
-            }
-            timeZone={timeZone}
-            isStreaming={isStreaming}
-            streamingBlocks={isStreaming ? streamingBlocks : undefined}
-            completedTurnBlocks={!isStreaming && streamingBlocks?.length ? [streamingBlocks] : undefined}
-            thinkingBlockIsCollapsed={thinkingState.isCollapsed}
-            thinkingBlockToggleCollapse={thinkingState.toggleCollapse}
-            markdownComponents={taskIdComponents}
-            onFeedback={onFeedback}
-          />
-        ) : hasSegments ? (
-          renderSegments()
-        ) : (
-          <MarkdownPreview
-            content={transcript}
-            size="sm"
-            components={taskIdComponents}
-          />
-        )}
-
-        {showBackgroundAgentsWaiting ? (
-          <BackgroundAgentsWaiting
-            count={runningBackgroundAgentCount > 0 ? runningBackgroundAgentCount : undefined}
-            agents={runningBackgroundAgents.length > 0 ? runningBackgroundAgents : undefined}
-          />
-        ) : isStreaming ? (
-          <StreamingActivityIndicator startedAt={processingStartedAt} />
+    <ScrollArea
+      className={cn(
+        "h-full min-h-0 w-full min-w-0 max-w-full overflow-hidden",
+        className,
+      )}
+      ref={scrollAreaRef}
+    >
+      <div
+        data-testid="session-transcript-content"
+        className="mx-auto w-full min-w-0 max-w-3xl px-4 py-3 sm:px-6 sm:py-4"
+      >
+        {hasResultPayload ? (
+          <div className="mb-3 min-w-0 max-w-full">
+            <SessionResultPanelContainer payload={resultPayload} />
+          </div>
         ) : null}
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-5/6" />
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-4/5" />
+          </div>
+        ) : (
+          <>
+            {hiddenMessageCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => setShowAllMessages(true)}
+                className="mb-3 w-full rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/60"
+              >
+                Ver los {hiddenMessageCount.toLocaleString("es-ES")} mensajes
+                anteriores
+              </button>
+            ) : null}
+            {hasMessages || hasStreamingBlocks ? (
+              <ConversationTimeline
+                className="space-y-3"
+                messages={
+                  !isStreaming && streamingBlocks?.length
+                    ? conversationMessages.filter((m) => m.role === "user")
+                    : conversationMessages
+                }
+                timeZone={timeZone}
+                isStreaming={isStreaming}
+                streamingBlocks={isStreaming ? streamingBlocks : undefined}
+                completedTurnBlocks={!isStreaming && streamingBlocks?.length ? [streamingBlocks] : undefined}
+                thinkingBlockIsCollapsed={thinkingState.isCollapsed}
+                thinkingBlockToggleCollapse={thinkingState.toggleCollapse}
+                markdownComponents={taskIdComponents}
+                onFeedback={onFeedback}
+              />
+            ) : hasSegments ? (
+              renderSegments()
+            ) : (
+              <MarkdownPreview
+                content={transcript}
+                size="sm"
+                components={taskIdComponents}
+              />
+            )}
+
+            {showBackgroundAgentsWaiting ? (
+              <BackgroundAgentsWaiting
+                count={runningBackgroundAgentCount > 0 ? runningBackgroundAgentCount : undefined}
+                agents={runningBackgroundAgents.length > 0 ? runningBackgroundAgents : undefined}
+              />
+            ) : isStreaming ? (
+              <StreamingActivityIndicator startedAt={processingStartedAt} />
+            ) : null}
+          </>
+        )}
       </div>
     </ScrollArea>
   );

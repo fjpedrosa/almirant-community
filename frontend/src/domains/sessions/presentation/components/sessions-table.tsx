@@ -213,6 +213,14 @@ export const SessionsTable: React.FC<SessionsTableProps> = ({
                           </AvatarFallback>
                         </Avatar>
                         <span className="truncate">{launcher.label}</span>
+                        {launcher.kind === "user" && launcher.automated && (
+                          <span
+                            className="inline-flex shrink-0"
+                            title="Ejecución automática"
+                          >
+                            <Bot className="size-3 text-muted-foreground" aria-hidden="true" />
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
