@@ -12,6 +12,7 @@ export {
 
 export {
   type StreamPublisher,
+  type StreamPublisherOperationOptions,
   createStreamPublisher,
 } from "./stream-publisher";
 
@@ -94,6 +95,7 @@ export {
   type SystemWarnEvent,
   type MessageQueuedCanonical,
   type MessageDequeuedCanonical,
+  DURABLE_SEQUENCE_PROTOCOL_VERSION,
   CANONICAL_PROTOCOL_VERSION,
   CANONICAL_PROJECTOR_VERSION,
   createInitialCanonicalSessionProjection,

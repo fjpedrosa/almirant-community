@@ -744,61 +744,51 @@ describeWithRedis("Integration — End-to-End Streaming Fan-out", () => {
       const receivedA: string[] = [];
       const receivedB: string[] = [];
 
-      const doneA = new Promise<void>((resolve) => {
-        const readerA = createStreamReader({
-          redisUrl: REDIS_URL!,
-          streamName,
-          dlqStreamName: dlqA,
-          consumerGroup: groupA,
-          consumerId: "isolation-a-1",
-          blockMs: 100,
-          batchSize: 5,
-        });
+      const readerA = createStreamReader({
+        redisUrl: REDIS_URL!,
+        streamName,
+        dlqStreamName: dlqA,
+        consumerGroup: groupA,
+        consumerId: "isolation-a-1",
+        blockMs: 100,
+        batchSize: 5,
+      });
+      const readerB = createStreamReader({
+        redisUrl: REDIS_URL!,
+        streamName,
+        dlqStreamName: dlqB,
+        consumerGroup: groupB,
+        consumerId: "isolation-b-1",
+        blockMs: 100,
+        batchSize: 5,
+      });
 
+      const doneA = new Promise<void>((resolve) => {
         readerA.start(async (event, ack) => {
           if (event.content) receivedA.push(event.content);
           await ack();
           if (receivedA.length === 10) {
-            await wait(50);
             resolve();
-            await readerA.stop();
           }
         });
 
-        setTimeout(async () => {
-          await readerA.stop();
-          resolve();
-        }, 15_000);
+        setTimeout(resolve, 15_000);
       });
 
       const doneB = new Promise<void>((resolve) => {
-        const readerB = createStreamReader({
-          redisUrl: REDIS_URL!,
-          streamName,
-          dlqStreamName: dlqB,
-          consumerGroup: groupB,
-          consumerId: "isolation-b-1",
-          blockMs: 100,
-          batchSize: 5,
-        });
-
         readerB.start(async (event, ack) => {
           if (event.content) receivedB.push(event.content);
           await ack();
           if (receivedB.length === 10) {
-            await wait(50);
             resolve();
-            await readerB.stop();
           }
         });
 
-        setTimeout(async () => {
-          await readerB.stop();
-          resolve();
-        }, 15_000);
+        setTimeout(resolve, 15_000);
       });
 
       await Promise.all([doneA, doneB]);
+      await Promise.all([readerA.stop(), readerB.stop()]);
       await publisher.close();
 
       // Both groups received all 10 events independently
@@ -812,17 +802,11 @@ describeWithRedis("Integration — End-to-End Streaming Fan-out", () => {
       expect(contentsA).toEqual(expected);
       expect(contentsB).toEqual(expected);
 
-      // Verify idempotency keys are scoped per group (no cross-contamination)
+      // Both groups clear their crash-window markers after successful XACK.
       const keysA = await redis.keys(`agent-output:processed:${groupA}:*`);
       const keysB = await redis.keys(`agent-output:processed:${groupB}:*`);
-      expect(keysA.length).toBe(10);
-      expect(keysB.length).toBe(10);
-
-      // No keys from groupA should overlap with groupB
-      const setA = new Set(keysA);
-      for (const key of keysB) {
-        expect(setA.has(key)).toBe(false);
-      }
+      expect(keysA).toEqual([]);
+      expect(keysB).toEqual([]);
     },
     30_000
   );

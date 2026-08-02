@@ -67,6 +67,8 @@ export type StreamPublisherConfig = {
   redisUrl: string;
   streamName?: string; // default: "agent-output"
   maxLen?: number; // MAXLEN for XTRIM, default: 100000
+  /** Hard cap for a Redis command even when the socket stays open silently. */
+  commandTimeoutMs?: number;
 };
 
 export type StreamReaderConfig = {
@@ -77,6 +79,19 @@ export type StreamReaderConfig = {
   consumerId: string;
   blockMs?: number; // default: 5000
   batchSize?: number; // default: 10
+  /**
+   * Handlers dispatched concurrently within one XREADGROUP page.
+   *
+   * Default 1 reproduces the historical strictly-sequential loop exactly. Values
+   * above 1 put several handlers in flight at once, which is the only way a
+   * handler-side collector can ever accumulate more than one event per write: a
+   * size threshold alone self-deadlocks against a serial loop, because the
+   * single in-flight handler is the only thing that could fill the buffer.
+   *
+   * A consumer whose traffic needs ordering must re-serialize that traffic
+   * itself; see the per-job canonical turnstile in the web-bridge consumer.
+   */
+  pageConcurrency?: number; // default: 1
 };
 
 export type RetryConfig = {

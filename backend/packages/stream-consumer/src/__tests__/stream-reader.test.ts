@@ -25,6 +25,27 @@ const makeEvent = (
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const deferredVoid = () => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((onResolve) => {
+    resolve = () => onResolve();
+  });
+  return { promise, resolve };
+};
+
+
+const waitUntil = async (
+  predicate: () => Promise<boolean>,
+  timeoutMs: number,
+): Promise<boolean> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await predicate()) return true;
+    await wait(20);
+  }
+  return predicate();
+};
+
 describeWithRedis("StreamReader", () => {
   let redis: Redis;
 
@@ -187,7 +208,7 @@ describeWithRedis("StreamReader", () => {
     expect(event.elapsedMs).toBe(1234);
   }, 10_000);
 
-  test("idempotency — handler called only once for duplicate processing", async () => {
+  test("successful ACK removes the crash-window idempotency marker", async () => {
     nextTestNames();
     const publisher = createStreamPublisher({
       redisUrl: REDIS_URL!,
@@ -217,14 +238,114 @@ describeWithRedis("StreamReader", () => {
 
     expect(callCount).toBe(1);
 
-    // Publish same event ID won't happen (Redis auto-generates IDs),
-    // but we can verify that the idempotency guard is working by
-    // checking the processed key exists
+    // The marker protects only the side-effect-to-XACK crash window.
+    // A successful ACK makes the entry impossible to redeliver from the PEL.
     const keys = await redis.keys(`agent-output:processed:${TEST_GROUP}:*`);
-    expect(keys.length).toBeGreaterThan(0);
+    expect(keys).toEqual([]);
 
     await publisher.close();
   }, 10_000);
+
+  test("page concurrency defaults to the strictly sequential loop", async () => {
+    // The discord-bridge and every other consumer inherit this default, so it has
+    // to reproduce the historical loop exactly: one handler in flight at a time,
+    // in stream order.
+    nextTestNames();
+    const publisher = createStreamPublisher({
+      redisUrl: REDIS_URL!,
+      streamName: TEST_STREAM,
+    });
+    for (let index = 1; index <= 6; index += 1) {
+      await publisher.publish(makeEvent({ sequenceNumber: index }));
+    }
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const order: number[] = [];
+    const reader = createStreamReader({
+      redisUrl: REDIS_URL!,
+      streamName: TEST_STREAM,
+      consumerGroup: TEST_GROUP,
+      consumerId: "consumer-default",
+      blockMs: 100,
+    });
+
+    reader.start(async (event) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      order.push(event.sequenceNumber as number);
+      await wait(20);
+      inFlight -= 1;
+    });
+
+    await waitUntil(async () => order.length === 6, 8_000);
+    await reader.stop();
+
+    expect(maxInFlight).toBe(1);
+    expect(order).toEqual([1, 2, 3, 4, 5, 6]);
+    await publisher.close();
+  }, 15_000);
+
+  test("page concurrency dispatches a page together and still acks after each handler", async () => {
+    // This is what lets a handler-side collector batch at all: with a serial loop
+    // the single in-flight handler is the only thing that could fill its buffer.
+    nextTestNames();
+    const publisher = createStreamPublisher({
+      redisUrl: REDIS_URL!,
+      streamName: TEST_STREAM,
+    });
+    for (let index = 1; index <= 6; index += 1) {
+      await publisher.publish(makeEvent({ sequenceNumber: index }));
+    }
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let handled = 0;
+    const release = deferredVoid();
+    const reader = createStreamReader({
+      redisUrl: REDIS_URL!,
+      streamName: TEST_STREAM,
+      consumerGroup: TEST_GROUP,
+      consumerId: "consumer-concurrent",
+      blockMs: 100,
+      batchSize: 6,
+      pageConcurrency: 6,
+    });
+
+    reader.start(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      handled += 1;
+      await release.promise;
+      inFlight -= 1;
+    });
+
+    // All six handlers are parked at once, which is the whole point.
+    await waitUntil(async () => handled === 6, 8_000);
+    expect(maxInFlight).toBe(6);
+
+    // Nothing is acknowledged while the handlers are still parked: the ACK
+    // follows the durable write, exactly as with the sequential loop.
+    const pendingWhileParked = await redis.xpending(
+      TEST_STREAM,
+      TEST_GROUP,
+      "-",
+      "+",
+      10,
+    );
+    expect(Array.isArray(pendingWhileParked) ? pendingWhileParked.length : 0).toBe(6);
+
+    release.resolve();
+    await waitUntil(async () => {
+      const pending = await redis.xpending(TEST_STREAM, TEST_GROUP, "-", "+", 10);
+      return (Array.isArray(pending) ? pending.length : 0) === 0;
+    }, 8_000);
+    await reader.stop();
+
+    const pendingAfter = await redis.xpending(TEST_STREAM, TEST_GROUP, "-", "+", 10);
+    expect(Array.isArray(pendingAfter) ? pendingAfter.length : 0).toBe(0);
+    await publisher.close();
+  }, 15_000);
 
   test("retry on handler failure — eventually succeeds", async () => {
     nextTestNames();
@@ -281,6 +402,7 @@ describeWithRedis("StreamReader", () => {
     const reader = createStreamReader({
       redisUrl: REDIS_URL!,
       streamName: TEST_STREAM,
+      dlqStreamName: TEST_DLQ,
       consumerGroup: TEST_GROUP,
       consumerId: "consumer-1",
       blockMs: 100,
@@ -292,22 +414,30 @@ describeWithRedis("StreamReader", () => {
       },
     });
 
+    let handlerCalls = 0;
     reader.start(async () => {
+      handlerCalls += 1;
       throw new Error("Permanent failure");
     });
 
-    // Wait for initial failure + enough recovery cycles to exhaust retries + DLQ
-    await wait(5000);
+    expect(
+      await waitUntil(async () => (await redis.xlen(TEST_DLQ)) === 1, 5_000),
+    ).toBe(true);
     await reader.stop();
     await publisher.close();
 
-    // Check DLQ has the event
+    // maxRetries is the historical total-deliveries budget: initial failure
+    // plus one recovery delivery, then one atomic quarantine+ACK.
+    expect(handlerCalls).toBe(2);
     const dlqLen = await redis.xlen(TEST_DLQ);
-    expect(dlqLen).toBeGreaterThanOrEqual(1);
+    expect(dlqLen).toBe(1);
+
+    const pending = (await redis.xpending(TEST_STREAM, TEST_GROUP)) as unknown[];
+    expect(Number(pending[0])).toBe(0);
 
     // Verify DLQ entry contents
     const dlqEntries = await redis.xrange(TEST_DLQ, "-", "+");
-    expect(dlqEntries.length).toBeGreaterThanOrEqual(1);
+    expect(dlqEntries).toHaveLength(1);
 
     const [, fields] = dlqEntries[0];
     const fieldMap = new Map<string, string>();
@@ -315,7 +445,8 @@ describeWithRedis("StreamReader", () => {
       fieldMap.set(fields[i], fields[i + 1]);
     }
 
-    expect(fieldMap.get("error")).toBe("Permanent failure");
+    expect(fieldMap.get("error")).toBe("Max retries exhausted");
+    expect(fieldMap.get("retryCount")).toBe("1");
     expect(fieldMap.get("consumerGroup")).toBe(TEST_GROUP);
     expect(fieldMap.has("originalEvent")).toBe(true);
     expect(fieldMap.has("failedAt")).toBe(true);
@@ -328,7 +459,7 @@ describeWithRedis("StreamReader", () => {
   // A-1756: Strengthened idempotency tests
   // ---------------------------------------------------------------------------
 
-  test("redelivery after ACK — same consumer group skips handler", async () => {
+  test("an ACKed entry is not redelivered after its marker is removed", async () => {
     nextTestNames();
 
     const publisher = createStreamPublisher({
@@ -364,9 +495,9 @@ describeWithRedis("StreamReader", () => {
     await reader1.stop();
     expect(callCount).toBe(1);
 
-    // Verify idempotency key was set
+    // ACK is durable, so the temporary crash-window marker is gone.
     const keys = await redis.keys(`agent-output:processed:${TEST_GROUP}:*`);
-    expect(keys.length).toBe(1);
+    expect(keys).toEqual([]);
 
     // Second reader in same group — simulate redelivery.
     // The entry is already ACK'd, but if somehow redelivered (e.g., via
@@ -465,14 +596,11 @@ describeWithRedis("StreamReader", () => {
     expect(callCountA).toBe(1);
     expect(callCountB).toBe(1);
 
-    // Each group has its own idempotency key
+    // Each group ACKed independently and cleared its own temporary marker.
     const keysA = await redis.keys(`agent-output:processed:${groupA}:*`);
     const keysB = await redis.keys(`agent-output:processed:${groupB}:*`);
-    expect(keysA.length).toBe(1);
-    expect(keysB.length).toBe(1);
-
-    // Keys must be different (different group prefix)
-    expect(keysA[0]).not.toBe(keysB[0]);
+    expect(keysA).toEqual([]);
+    expect(keysB).toEqual([]);
   }, 15_000);
 
   test("retry after handler failure respects idempotency on eventual success", async () => {
@@ -518,9 +646,9 @@ describeWithRedis("StreamReader", () => {
     // Handler called at least twice (1 fail + 1 success)
     expect(callCount).toBeGreaterThanOrEqual(2);
 
-    // Idempotency key must be set after success
+    // The marker is cleared after the retry eventually ACKs successfully.
     const keys = await redis.keys(`agent-output:processed:${TEST_GROUP}:*`);
-    expect(keys.length).toBe(1);
+    expect(keys).toEqual([]);
 
     // Now start another reader in the same group — the event must NOT be
     // re-processed because idempotency guard blocks it.
