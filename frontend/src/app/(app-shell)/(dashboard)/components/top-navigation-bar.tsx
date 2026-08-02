@@ -18,11 +18,14 @@ import { AlmirantLogo } from "@/components/icons/almirant-logo";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { TopNavUserAvatar } from "./top-nav-user-avatar";
+import { FeedbackWidgetContainer } from "@/domains/feedback/presentation/containers/feedback-widget-container";
+import { DashboardNavExtraActions } from "@/cloud/dashboard-nav-extra-actions";
 import { PendingQuestionsContainer } from "@/domains/agents/presentation/containers/pending-questions-container";
 import { NotificationBellContainer } from "@/domains/notifications/presentation/containers/notification-bell-container";
 import { UsageNavButtonContainer } from "./usage-nav-button-container";
@@ -215,22 +218,28 @@ export const TopNavigationBar: React.FC<TopNavigationBarProps> = ({
                   </div>
                 ) : null}
               </nav>
-              {/* Feedback badge — pinned to bottom */}
+              {/* Feedback badge — pinned to bottom. Wrapped in SheetClose so
+                  this menu is dismissed as the feedback sheet opens: two
+                  stacked Radix overlays fight over the scroll lock, and the
+                  screenshot the widget captures on open would otherwise show
+                  the navigation menu instead of the page being reported. */}
               <div className="mt-auto p-3 border-t border-border">
-                <button
-                  type="button"
-                  onClick={() => {
-                    window.dispatchEvent(new CustomEvent("open-feedback"));
-                  }}
-                  className="relative flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-sm font-medium bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
-                >
-                  <span className="relative">
-                    <MessageSquareHeart className="h-4 w-4" />
-                    <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary animate-ping" />
-                    <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary" />
-                  </span>
-                  Feedback
-                </button>
+                <SheetClose asChild>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent("open-feedback"));
+                    }}
+                    className="relative flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-sm font-medium bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
+                  >
+                    <span className="relative">
+                      <MessageSquareHeart className="h-4 w-4" />
+                      <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary animate-ping" />
+                      <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary" />
+                    </span>
+                    Feedback
+                  </button>
+                </SheetClose>
               </div>
             </SheetContent>
           </Sheet>
@@ -299,12 +308,20 @@ export const TopNavigationBar: React.FC<TopNavigationBarProps> = ({
         </nav>
 
         <div className="flex items-center justify-end gap-2 shrink-0">
+          {/* Feedback. This container renders the desktop tab AND owns the
+              `open-feedback` listener that the mobile sidebar button above
+              dispatches, so it has to stay mounted on every dashboard route —
+              which is exactly what this bar does. */}
+          <FeedbackWidgetContainer />
           {/* Notification hub: indicators clustered around the bell */}
           <div className="flex items-center gap-0.5">
             <PendingQuestionsContainer />
             <UsageNavButtonContainer />
             <NotificationBellContainer />
           </div>
+          {/* Extension point for downstream distributions — see
+              src/cloud/dashboard-nav-extra-actions.tsx. Inert by default. */}
+          <DashboardNavExtraActions />
           <TopNavUserAvatar />
         </div>
       </div>
