@@ -1,0 +1,12 @@
+summary: Almirant Squid readiness check
+description: Require the proxy listener before runners may accept agent jobs.
+checks:
+  squid-ready:
+    override: replace
+    level: ready
+    period: 5s
+    timeout: 2s
+    threshold: 3
+    tcp:
+      host: 127.0.0.1
+      port: 3128

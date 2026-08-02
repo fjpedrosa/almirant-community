@@ -41,16 +41,21 @@ services:
   # Egress Proxy - Squid proxy with domain allowlist for agent containers
   # --------------------------------------------------------------------------
   egress-proxy:
-    image: ubuntu/squid:latest
+    image: ubuntu/squid:7.2-26.04_edge@sha256:ceec14e15ca37b18f19827d2ae6d86dd297bc161f78ced839b7d29b25724cc2c
     container_name: almirant-egress-proxy
     restart: unless-stopped
+    labels:
+      com.almirant.network.role: egress-proxy
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ./docker/squid.conf:/etc/squid/squid.conf:ro
+      - ./docker/pebble-egress-check.yaml:/var/lib/pebble/default/layers/002-almirant-egress.yaml:ro
     networks:
       - runner-internal
-      - agent-network
+      - agent-egress
     healthcheck:
-      test: ["CMD", "squid", "-k", "check"]
+      test: ["CMD", "/usr/bin/pebble", "health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -76,6 +81,9 @@ services:
       PORT: ${PORT:-3002}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DOCKER_HOST: tcp://docker-proxy:2375
+      AGENT_EGRESS_NETWORK: ${AGENT_EGRESS_NETWORK:-almirant-agent-egress}
+      AGENT_CONTROL_NETWORK: ${AGENT_CONTROL_NETWORK:-almirant-agent-control}
+      AGENT_EGRESS_PROXY_URL: http://egress-proxy:3128
       RUNNER_RELEASE_SLICE: runner
       OPENCODE_IMAGE: ${OPENCODE_IMAGE:-almirant-opencode-shim:1.17.20}
       CLAUDE_SHIM_IMAGE: ${CLAUDE_SHIM_IMAGE:-almirant-claude-shim:2.1.209}
@@ -84,6 +92,7 @@ services:
       - ./repos:/app/repos
     networks:
       - runner-internal
+      - agent-control
     depends_on:
       docker-proxy:
         condition: service_started
@@ -190,6 +199,15 @@ services:
 networks:
   runner-internal:
     driver: bridge
-  agent-network:
+  agent-egress:
+    name: ${AGENT_EGRESS_NETWORK:-almirant-agent-egress}
     driver: bridge
-    internal: true # No direct internet access - agents must use egress-proxy
+    internal: true # No direct internet/DNS access - agents must use egress-proxy
+    labels:
+      com.almirant.network.role: agent-egress
+  agent-control:
+    name: ${AGENT_CONTROL_NETWORK:-almirant-agent-control}
+    driver: bridge
+    internal: true
+    labels:
+      com.almirant.network.role: agent-control
