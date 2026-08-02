@@ -23,6 +23,14 @@ const envSchema = z.object({
   DOCKER_SOCKET: z.string().optional(),
   /** DOCKER_HOST is set by docker-compose to point at the socket proxy. */
   DOCKER_HOST: z.string().optional(),
+  /** Explicit internal Docker network used only for runner/agent/Squid traffic. */
+  AGENT_EGRESS_NETWORK: z.string().trim().min(1).optional(),
+  /** Separate internal network used only for runner-to-agent serve traffic. */
+  AGENT_CONTROL_NETWORK: z.string().trim().min(1).optional(),
+  /** Deprecated explicit alias retained for safe rollout of existing runner env files. */
+  AGENT_NETWORK_NAME: z.string().trim().min(1).optional(),
+  /** HTTP Squid endpoint on AGENT_EGRESS_NETWORK. No implicit default by design. */
+  AGENT_EGRESS_PROXY_URL: optionalUrl,
   HEARTBEAT_INTERVAL_MS: z.coerce.number().int().min(5000).default(10000),
   CLAIM_INTERVAL_MS: z.coerce.number().int().min(2000).default(10000),
   OPENCODE_IMAGE: z.string().default("almirant-opencode-shim:1.17.20"),
