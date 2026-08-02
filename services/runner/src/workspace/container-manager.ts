@@ -2,6 +2,7 @@ import { PassThrough } from "node:stream";
 import { readdir, rm, stat, access } from "node:fs/promises";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
+import { isIP } from "node:net";
 
 const execFileAsync = promisify(execFileCb);
 import Docker from "dockerode";
@@ -43,6 +44,12 @@ const DOCKER_OPERATION_TIMEOUT_MS = 15_000;
 const ZOMBIE_ERROR_PATTERN = /zombie|can not be killed|cannot be killed/i;
 const ALREADY_STOPPED_ERROR_PATTERN =
   /not running|is not running|already stopped|container.*stopped/i;
+const AGENT_EGRESS_NETWORK_ROLE_LABEL = "com.almirant.network.role";
+const AGENT_EGRESS_NETWORK_ROLE = "agent-egress";
+const AGENT_CONTROL_NETWORK_ROLE = "agent-control";
+const AGENT_EGRESS_PROXY_ROLE = "egress-proxy";
+const CONTROL_PLANE_CONTAINER_NAME =
+  /(^|[-_.])(backend|database|db|docker-proxy|postgres|redis)([-_.]|$)/i;
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -295,6 +302,16 @@ export class ContainerManager implements ContainerDriver {
    *   routed exclusively through a Squid allowlist proxy.
    */
   public async createContainer(jobId: string, spec: RunnerContainerSpec): Promise<string> {
+    if (spec.networkMode !== undefined && spec.networkMode !== "none") {
+      throw new Error("Runner containers must be created with NetworkMode=none");
+    }
+    if (
+      spec.dnsServers !== undefined &&
+      (spec.dnsServers.length !== 1 || spec.dnsServers[0] !== "127.0.0.1")
+    ) {
+      throw new Error("Runner containers may only use loopback DNS; Squid resolves destinations");
+    }
+
     const labels = {
       [this.managedLabelKey]: this.managedLabelValue,
       "worker-id": this.workerId,
@@ -340,6 +357,13 @@ export class ContainerManager implements ContainerDriver {
         // Enable Docker's tiny init process so orphaned child processes are
         // reaped instead of accumulating as zombies inside agent containers.
         Init: true,
+        // Never let Docker attach a container to the daemon's default bridge.
+        // The executor connects the stopped container to one verified egress
+        // network only after this disconnected creation succeeds.
+        NetworkMode: "none",
+        // Prevent DNS exfiltration/bypass. The HTTP proxy URL is pinned to its
+        // network IP and Squid resolves approved destination hostnames itself.
+        Dns: spec.dnsServers,
         Binds: binds,
         PortBindings: spec.portBindings,
         Tmpfs: spec.tmpfs,
@@ -400,6 +424,9 @@ export class ContainerManager implements ContainerDriver {
       if (preferred?.IPAddress) {
         return preferred.IPAddress;
       }
+      throw new Error(
+        `Container ${containerId} is not attached to required network ${preferNetwork}`,
+      );
     }
 
     // Fall back to any network with an IP
@@ -418,8 +445,165 @@ export class ContainerManager implements ContainerDriver {
   }
 
   public async connectToNetwork(containerId: string, networkName: string): Promise<void> {
+    const container = this.docker.getContainer(containerId);
+    const info = (await container.inspect()) as {
+      NetworkSettings?: { Networks?: Record<string, unknown> };
+    };
+    if (Object.hasOwn(info.NetworkSettings?.Networks ?? {}, "none")) {
+      await this.docker.getNetwork("none").disconnect({
+        Container: containerId,
+        Force: true,
+      } as never);
+    }
     const network = this.docker.getNetwork(networkName);
     await network.connect({ Container: containerId });
+  }
+
+  /**
+   * Verify the deployment-owned egress network and return an IP-pinned Squid
+   * URL. This makes Docker DNS unavailable to the agent without losing proxy
+   * connectivity. Any control-plane member or ambiguous proxy fails closed.
+   */
+  public async resolveAgentEgressProxy(
+    networkName: string,
+    configuredProxyUrl: string,
+  ): Promise<string> {
+    const network = this.docker.getNetwork(networkName);
+    const info = (await (network as unknown as {
+      inspect: () => Promise<unknown>;
+    }).inspect()) as {
+      Name?: string;
+      Driver?: string;
+      Internal?: boolean;
+      Labels?: Record<string, string>;
+      Containers?: Record<
+        string,
+        { Name?: string; IPv4Address?: string; IPv6Address?: string } | undefined
+      >;
+    };
+
+    if (
+      info.Name !== networkName ||
+      info.Driver !== "bridge" ||
+      info.Internal !== true ||
+      info.Labels?.[AGENT_EGRESS_NETWORK_ROLE_LABEL] !== AGENT_EGRESS_NETWORK_ROLE
+    ) {
+      throw new Error(
+        `Unsafe agent egress network ${networkName}: expected exact internal labelled bridge`,
+      );
+    }
+
+    const configuredProxy = new URL(configuredProxyUrl);
+    const proxyCandidates: string[] = [];
+
+    for (const [containerId, endpoint] of Object.entries(info.Containers ?? {})) {
+      const memberName = endpoint?.Name ?? containerId;
+      if (CONTROL_PLANE_CONTAINER_NAME.test(memberName)) {
+        throw new Error(
+          `Unsafe agent egress network ${networkName}: control-plane member ${memberName}`,
+        );
+      }
+
+      const member = this.docker.getContainer(containerId);
+      const memberInfo = (await member.inspect()) as {
+        Config?: { Labels?: Record<string, string> };
+        NetworkSettings?: {
+          Networks?: Record<
+            string,
+            { Aliases?: string[]; IPAddress?: string; GlobalIPv6Address?: string } | undefined
+          >;
+        };
+      };
+      const role = memberInfo.Config?.Labels?.[AGENT_EGRESS_NETWORK_ROLE_LABEL];
+      if (role !== AGENT_EGRESS_PROXY_ROLE) continue;
+
+      const networkSettings = memberInfo.NetworkSettings?.Networks?.[networkName];
+      const aliases = new Set([
+        memberName,
+        ...(networkSettings?.Aliases ?? []),
+      ]);
+      if (!aliases.has(configuredProxy.hostname)) {
+        throw new Error(
+          `Unsafe agent egress proxy: configured host is not an alias on ${networkName}`,
+        );
+      }
+
+      const addressWithPrefix =
+        endpoint?.IPv4Address ||
+        networkSettings?.IPAddress ||
+        endpoint?.IPv6Address ||
+        networkSettings?.GlobalIPv6Address ||
+        "";
+      const address = addressWithPrefix.split("/")[0] ?? "";
+      if (isIP(address) === 0) {
+        throw new Error("Unsafe agent egress proxy: labelled proxy has no routable network IP");
+      }
+      proxyCandidates.push(address);
+    }
+
+    if (proxyCandidates.length !== 1) {
+      throw new Error(
+        `Unsafe agent egress network ${networkName}: expected exactly one labelled proxy`,
+      );
+    }
+
+    const pinnedProxy = new URL(configuredProxy);
+    const address = proxyCandidates[0]!;
+    pinnedProxy.host = `${isIP(address) === 6 ? `[${address}]` : address}:${configuredProxy.port}`;
+    return pinnedProxy.toString();
+  }
+
+  /** Verify the deployment-owned runner-to-agent control network. */
+  public async assertAgentControlNetwork(networkName: string): Promise<void> {
+    const network = this.docker.getNetwork(networkName);
+    const info = (await (network as unknown as {
+      inspect: () => Promise<unknown>;
+    }).inspect()) as {
+      Name?: string;
+      Driver?: string;
+      Internal?: boolean;
+      Labels?: Record<string, string>;
+    };
+    if (
+      info.Name !== networkName ||
+      info.Driver !== "bridge" ||
+      info.Internal !== true ||
+      info.Labels?.[AGENT_EGRESS_NETWORK_ROLE_LABEL] !== AGENT_CONTROL_NETWORK_ROLE
+    ) {
+      throw new Error(
+        `Unsafe agent control network ${networkName}: expected exact internal labelled bridge`,
+      );
+    }
+  }
+
+  /** Verify a stopped agent has only the configured egress attachment. */
+  public async assertContainerNetworkIsolation(
+    containerId: string,
+    expectedNetworkName: string,
+    allowedAdditionalNetworks: string[] = [],
+  ): Promise<void> {
+    const container = this.docker.getContainer(containerId);
+    const info = (await container.inspect()) as {
+      NetworkSettings?: { Networks?: Record<string, unknown> };
+    };
+    const attached = Object.keys(info.NetworkSettings?.Networks ?? {});
+    if (!attached.includes(expectedNetworkName)) {
+      throw new Error(
+        `Container ${containerId} is not attached to required network ${expectedNetworkName}`,
+      );
+    }
+    const allowed = new Set([expectedNetworkName, ...allowedAdditionalNetworks, "none"]);
+    for (const required of allowedAdditionalNetworks) {
+      if (!attached.includes(required)) {
+        throw new Error(`Container ${containerId} is not attached to required network ${required}`);
+      }
+    }
+    const unexpected = attached.filter((networkName) => !allowed.has(networkName));
+    if (unexpected.length > 0) {
+      throw new Error(
+        `Container ${containerId} has unexpected networks: ${unexpected.sort().join(", ")}`,
+      );
+    }
   }
 
   public async createNetwork(name: string): Promise<string> {

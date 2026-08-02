@@ -7,6 +7,7 @@ type DockerMock = {
   createContainer: (config: Record<string, unknown>) => Promise<{ id: string }>;
   listContainers?: (options?: unknown) => Promise<Array<Record<string, unknown>>>;
   getContainer?: (id: string) => Record<string, unknown>;
+  getNetwork?: (name: string) => Record<string, unknown>;
   getImage: (image: string) => {
     inspect: () => Promise<unknown>;
   };
@@ -112,6 +113,7 @@ describe("ContainerManager.createContainer", () => {
       securityOpt: ["no-new-privileges:true"],
       capDrop: ["ALL"],
       readOnlyRootFs: true,
+      dnsServers: ["127.0.0.1"],
       tty: true,
     });
 
@@ -119,6 +121,8 @@ describe("ContainerManager.createContainer", () => {
     expect(receivedConfig?.User).toBe("1001:1001");
     expect(receivedConfig?.HostConfig).toMatchObject({
       Init: true,
+      NetworkMode: "none",
+      Dns: ["127.0.0.1"],
       Tmpfs: {
         "/workspace": "rw,uid=1001,gid=1001,mode=0755",
       },
@@ -126,6 +130,231 @@ describe("ContainerManager.createContainer", () => {
       CapDrop: ["ALL"],
       ReadonlyRootfs: true,
     });
+  });
+
+  it("rejects any caller attempt to create an agent on a Docker network", async () => {
+    const manager = new ContainerManager({
+      dockerSocketPath: "/var/run/docker.sock",
+      workerId: "worker-1",
+      docker: createDockerMock() as never,
+    });
+
+    await expect(
+      manager.createContainer("job-1", {
+        image: "almirant-opencode:latest",
+        env: {},
+        networkMode: "bridge",
+      } as never),
+    ).rejects.toThrow("must be created with NetworkMode=none");
+  });
+});
+
+describe("ContainerManager agent egress isolation", () => {
+  it("detaches private none mode before attaching the two approved networks", async () => {
+    const calls: string[] = [];
+    let noneAttached = true;
+    const docker = createDockerMock({
+      getContainer: () => ({
+        inspect: async () => ({
+          NetworkSettings: { Networks: noneAttached ? { none: {} } : {} },
+        }),
+      }),
+      getNetwork: (name) => ({
+        disconnect: async () => {
+          noneAttached = false;
+          calls.push(`disconnect:${name}`);
+        },
+        connect: async () => calls.push(`connect:${name}`),
+      }),
+    });
+    const manager = new ContainerManager({
+      dockerSocketPath: "tcp://docker-proxy:2375",
+      workerId: "worker-1",
+      docker: docker as never,
+    });
+
+    await manager.connectToNetwork("container-1", "almirant-agent-egress");
+    await manager.connectToNetwork("container-1", "almirant-agent-control");
+
+    expect(calls).toEqual([
+      "disconnect:none",
+      "connect:almirant-agent-egress",
+      "connect:almirant-agent-control",
+    ]);
+  });
+
+  it("validates the internal labelled network, its proxy alias, and pins the proxy IP", async () => {
+    const docker = createDockerMock({
+      getNetwork: () => ({
+        inspect: async () => ({
+          Name: "almirant-agent-egress",
+          Driver: "bridge",
+          Internal: true,
+          Labels: { "com.almirant.network.role": "agent-egress" },
+          Containers: {
+            proxy: {
+              Name: "almirant-egress-proxy",
+              IPv4Address: "172.30.0.2/16",
+            },
+            runner: {
+              Name: "almirant-runner",
+              IPv4Address: "172.30.0.3/16",
+            },
+          },
+        }),
+      }),
+      getContainer: (id) => ({
+        inspect: async () =>
+          id === "proxy"
+            ? {
+                Config: { Labels: { "com.almirant.network.role": "egress-proxy" } },
+                NetworkSettings: {
+                  Networks: {
+                    "almirant-agent-egress": { Aliases: ["egress-proxy"] },
+                  },
+                },
+              }
+            : {
+                Config: { Labels: { "com.almirant.network.role": "runner" } },
+                NetworkSettings: { Networks: { "almirant-agent-egress": {} } },
+              },
+      }),
+    });
+    const manager = new ContainerManager({
+      dockerSocketPath: "/var/run/docker.sock",
+      workerId: "worker-1",
+      docker: docker as never,
+    });
+
+    await expect(
+      manager.resolveAgentEgressProxy(
+        "almirant-agent-egress",
+        "http://egress-proxy:3128/",
+      ),
+    ).resolves.toBe("http://172.30.0.2:3128/");
+  });
+
+  it.each([
+    ["non-internal", { Internal: false, Labels: { "com.almirant.network.role": "agent-egress" }, Containers: {} }],
+    ["unlabelled", { Internal: true, Labels: {}, Containers: {} }],
+    [
+      "control-plane member",
+      {
+        Internal: true,
+        Labels: { "com.almirant.network.role": "agent-egress" },
+        Containers: { backend: { Name: "almirant-backend-1", IPv4Address: "172.30.0.4/16" } },
+      },
+    ],
+  ])("rejects a %s network before an agent is connected", async (_case, networkInfo) => {
+    const docker = createDockerMock({
+      getNetwork: () => ({ inspect: async () => ({ Name: "almirant-agent-egress", Driver: "bridge", ...networkInfo }) }),
+      getContainer: () => ({
+        inspect: async () => ({ Config: { Labels: {} }, NetworkSettings: { Networks: {} } }),
+      }),
+    });
+    const manager = new ContainerManager({
+      dockerSocketPath: "/var/run/docker.sock",
+      workerId: "worker-1",
+      docker: docker as never,
+    });
+
+    await expect(
+      manager.resolveAgentEgressProxy(
+        "almirant-agent-egress",
+        "http://egress-proxy:3128/",
+      ),
+    ).rejects.toThrow("Unsafe agent egress network");
+  });
+
+  it("validates the internal labelled runner-to-agent control network", async () => {
+    const docker = createDockerMock({
+      getNetwork: () => ({
+        inspect: async () => ({
+          Name: "almirant-agent-control",
+          Driver: "bridge",
+          Internal: true,
+          Labels: { "com.almirant.network.role": "agent-control" },
+        }),
+      }),
+    });
+    const manager = new ContainerManager({
+      dockerSocketPath: "/var/run/docker.sock",
+      workerId: "worker-1",
+      docker: docker as never,
+    });
+
+    await expect(
+      manager.assertAgentControlNetwork("almirant-agent-control"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects an unlabelled or non-internal control network", async () => {
+    const docker = createDockerMock({
+      getNetwork: () => ({
+        inspect: async () => ({
+          Name: "almirant-agent-control",
+          Driver: "bridge",
+          Internal: false,
+          Labels: {},
+        }),
+      }),
+    });
+    const manager = new ContainerManager({
+      dockerSocketPath: "/var/run/docker.sock",
+      workerId: "worker-1",
+      docker: docker as never,
+    });
+
+    await expect(
+      manager.assertAgentControlNetwork("almirant-agent-control"),
+    ).rejects.toThrow("Unsafe agent control network");
+  });
+
+  it("does not fall back to the first attached network when the explicit one is missing", async () => {
+    const docker = createDockerMock({
+      getContainer: () => ({
+        inspect: async () => ({
+          NetworkSettings: {
+            Networks: {
+              "runner-internal": { IPAddress: "172.20.0.9" },
+            },
+          },
+        }),
+      }),
+    });
+    const manager = new ContainerManager({
+      dockerSocketPath: "/var/run/docker.sock",
+      workerId: "worker-1",
+      docker: docker as never,
+    });
+
+    await expect(
+      manager.getContainerIp("container-1", "almirant-agent-egress"),
+    ).rejects.toThrow("not attached to required network");
+  });
+
+  it("rejects a container attached to any network besides the explicit egress network", async () => {
+    const docker = createDockerMock({
+      getContainer: () => ({
+        inspect: async () => ({
+          NetworkSettings: {
+            Networks: {
+              "almirant-agent-egress": { IPAddress: "172.30.0.9" },
+              "runner-internal": { IPAddress: "172.20.0.9" },
+            },
+          },
+        }),
+      }),
+    });
+    const manager = new ContainerManager({
+      dockerSocketPath: "/var/run/docker.sock",
+      workerId: "worker-1",
+      docker: docker as never,
+    });
+
+    await expect(
+      manager.assertContainerNetworkIsolation("container-1", "almirant-agent-egress"),
+    ).rejects.toThrow("unexpected networks: runner-internal");
   });
 });
 
