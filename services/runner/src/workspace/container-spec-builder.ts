@@ -12,6 +12,8 @@ import { resolveJobIntent, resolveResourceTier, getResourcesForTier, type SkillR
 import { resolveJobMemoryRequirement } from "../orchestration/runner-memory";
 import { buildClaudeMcpConfig, buildCodexMcpConfig } from "../shared/mcp-config-builder";
 import { normalizeJobConfig } from "../shared/job-helpers";
+import { AGENT_NO_PROXY } from "./agent-egress-policy";
+import { resolveDeliveryGitIdentity } from "../delivery/github-identity";
 
 // ── Re-exported constants (also consumed by job-executor.ts) ─────────────────
 
@@ -36,6 +38,39 @@ export const CONTAINER_USER = "1001:1001";
 export const PROVIDER_MEMORY_BUMP: Record<string, number> = {
   "codex-shim": 1536,
   "claude-shim": 512,
+};
+
+const PROXY_ENV_KEYS = [
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "ALL_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "all_proxy",
+  "no_proxy",
+] as const;
+
+const GIT_IDENTITY_EXACT_ENV_KEYS = new Set([
+  "ALMIRANT_GIT_AUTHOR_NAME",
+  "ALMIRANT_GIT_AUTHOR_EMAIL",
+  "GIT_AUTHOR_NAME",
+  "GIT_AUTHOR_EMAIL",
+  "GIT_COMMITTER_NAME",
+  "GIT_COMMITTER_EMAIL",
+  "GIT_CONFIG",
+  "XDG_CONFIG_HOME",
+]);
+
+const isGitIdentityOverrideEnvKey = (key: string): boolean =>
+  GIT_IDENTITY_EXACT_ENV_KEYS.has(key) || key.startsWith("GIT_CONFIG_");
+
+const withoutCallerProxyEnvironment = (
+  ...sources: Array<Record<string, string>>
+): Record<string, string> => {
+  const environment = Object.assign({}, ...sources);
+  for (const key of PROXY_ENV_KEYS) delete environment[key];
+  return environment;
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -91,6 +126,7 @@ export type ContainerSpecParams = {
   workspaceMountMode: "bind" | "tmpfs" | "volume";
   /** Host-side repos path, used for Docker volume mounts to sibling containers. */
   reposHostPath?: string;
+  egressProxyUrl?: string;
 };
 
 export const buildContainerSpec = (params: ContainerSpecParams): RunnerContainerSpec => {
@@ -102,9 +138,17 @@ export const buildContainerSpec = (params: ContainerSpecParams): RunnerContainer
     openCodeConfig,
     workspaceMountMode,
     reposHostPath,
+    egressProxyUrl,
   } = params;
 
   const config = normalizeJobConfig(job);
+  const deliveryGitIdentity = resolveDeliveryGitIdentity(config);
+  if (
+    Object.keys(injectedEnv).some(isGitIdentityOverrideEnvKey) ||
+    Object.keys(runtimeConfig.envVars).some(isGitIdentityOverrideEnvKey)
+  ) {
+    throw new Error("Git author environment override is restricted to server-owned site policy");
+  }
   const intent = resolveJobIntent(job);
   const tierResources = getResourcesForTier(resolveResourceTier(intent));
   const memoryRequirement = resolveJobMemoryRequirement(job);
@@ -117,6 +161,7 @@ export const buildContainerSpec = (params: ContainerSpecParams): RunnerContainer
   const taskId = workItem?.taskId ?? "";
   const mcpConfig = openCodeConfig.mcp ?? {};
   const hasMcp = Object.keys(mcpConfig).length > 0;
+  const callerEnvironment = withoutCallerProxyEnvironment(injectedEnv, runtimeConfig.envVars);
 
   // Build Codex-specific MCP config + extracted bearer tokens
   const codexMcp = hasMcp && runtimeConfig.type === "codex-shim"
@@ -129,8 +174,7 @@ export const buildContainerSpec = (params: ContainerSpecParams): RunnerContainer
     command: runtimeConfig.command,
     user: CONTAINER_USER,
     env: {
-      ...injectedEnv,
-      ...runtimeConfig.envVars,
+      ...callerEnvironment,
       HOME: "/home/opencode",
 
       ALMIRANT_JOB_ID: job.id,
@@ -152,9 +196,24 @@ export const buildContainerSpec = (params: ContainerSpecParams): RunnerContainer
           : "",
       CODEX_MCP_JSON:
         codexMcp ? JSON.stringify(codexMcp.servers) : "",
+      ...(deliveryGitIdentity.runnerDeliveryEnabled
+        ? {
+            ALMIRANT_GIT_AUTHOR_NAME: deliveryGitIdentity.identity.name,
+            ALMIRANT_GIT_AUTHOR_EMAIL: deliveryGitIdentity.identity.email,
+          }
+        : {}),
       // Inject extracted bearer tokens as individual env vars for Codex
       ...(codexMcp?.tokenEnvVars ?? {}),
-      // Agent containers have direct internet access (no egress proxy).
+      ...(egressProxyUrl
+        ? {
+            HTTP_PROXY: egressProxyUrl,
+            HTTPS_PROXY: egressProxyUrl,
+            http_proxy: egressProxyUrl,
+            https_proxy: egressProxyUrl,
+            NO_PROXY: AGENT_NO_PROXY,
+            no_proxy: AGENT_NO_PROXY,
+          }
+        : {}),
       // Full validation environment URLs (set by setupValidateEnvironment when applicable)
       ...(typeof (injectedEnv as Record<string, string>).VALIDATE_FRONTEND_URL === "string"
         ? { VALIDATE_FRONTEND_URL: (injectedEnv as Record<string, string>).VALIDATE_FRONTEND_URL }
@@ -163,6 +222,8 @@ export const buildContainerSpec = (params: ContainerSpecParams): RunnerContainer
     labels: {
       "work-item-id": workItem?.id ?? "",
     },
+    networkMode: "none",
+    ...(egressProxyUrl ? { dnsServers: ["127.0.0.1"] } : {}),
     // Prefer a disk-backed bind mount when available; fall back to tmpfs for
     // read-only host filesystems or Docker-for-local-dev path issues.
     // In bind mode, ALL writable paths (/workspace, /tmp, /home/opencode)
