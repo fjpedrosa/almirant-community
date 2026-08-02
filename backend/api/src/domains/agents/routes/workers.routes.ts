@@ -3103,6 +3103,14 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   // 4. Runner polls via GET until status is "answered"
 
   // POST /workers/jobs/:jobId/interactions - Worker asks a question (creates interaction)
+  //
+  // Ported from cloud without the workerApiKey workspace-scope check (see the
+  // "sequence-reservations" endpoint comment above) and without the
+  // deadline_exceeded outcome (Shoutrz only — community's adapted
+  // createFencedJobInteraction never returns it). Replaces the prior
+  // two-step write (a separate updateJobStatus("waiting_for_input") before
+  // createInteraction, with no atomicity between them) with one atomic
+  // claim-fenced transition + insert.
   .post(
     "/jobs/:jobId/interactions",
     async ({ params, body, set }) => {
@@ -3112,15 +3120,16 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         return notFoundResponse("Agent job");
       }
 
-      // Transition job to waiting_for_input
-      const updated = await updateJobStatus(params.jobId, "waiting_for_input");
-      if (updated) {
-        void broadcastStatusChanged(updated, {
-          jobId: updated.id,
-          status: updated.status,
-          workItemId: updated.workItemId ?? null,
-          planningSessionId: updated.planningSessionId ?? null,
-        });
+      const currentClaimAttemptId = getCurrentClaimAttemptId(existing.job.config);
+      if (
+        currentClaimAttemptId
+          ? body.expectedClaimAttemptId !== currentClaimAttemptId ||
+            body.workerId !== existing.job.workerId
+          : body.expectedClaimAttemptId !== undefined ||
+            body.workerId !== undefined
+      ) {
+        set.status = 409;
+        return errorResponse("Job claim is no longer active", 409);
       }
 
       const expiresAt = new Date(body.expiresAt);
@@ -3129,9 +3138,11 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         return errorResponse("expiresAt must be a valid ISO date string");
       }
 
-      const interaction = await createInteraction({
+      const creation = await createFencedJobInteraction({
         agentJobId: params.jobId,
         workItemId: existing.job.workItemId ?? undefined,
+        workerId: body.workerId,
+        claimAttemptId: body.expectedClaimAttemptId,
         questionType: body.questionType,
         questionText: body.questionText,
         questionContext: (body.questionContext ?? null) as Record<string, unknown> | null,
@@ -3139,6 +3150,21 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         expiresAt,
         timeoutAction: body.timeoutAction ?? "fail",
         defaultAnswer: body.defaultAnswer ?? null,
+      });
+      if (creation.outcome !== "created") {
+        if (creation.outcome === "not_found") {
+          set.status = 404;
+          return notFoundResponse("Agent job");
+        }
+        set.status = 409;
+        return errorResponse("Job claim is no longer active", 409);
+      }
+      const { interaction, job: updated } = creation;
+      void broadcastStatusChanged(updated, {
+        jobId: updated.id,
+        status: updated.status,
+        workItemId: updated.workItemId ?? null,
+        planningSessionId: updated.planningSessionId ?? null,
       });
 
       // Broadcast to connected clients
@@ -3170,6 +3196,10 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         jobId: t.String(),
       }),
       body: t.Object({
+        workerId: t.Optional(t.String({ minLength: 1 })),
+        expectedClaimAttemptId: t.Optional(
+          t.String({ minLength: 1, maxLength: 100 }),
+        ),
         questionType: t.Union([
           t.Literal("clarification"),
           t.Literal("approval"),
