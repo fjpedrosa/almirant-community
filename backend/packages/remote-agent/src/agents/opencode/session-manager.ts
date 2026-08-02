@@ -2,6 +2,7 @@ import { createOpenCodeSseClient, OpenCodeSseClient } from "./sse-client";
 import type {
   OpenCodeApiPaths,
   OpenCodeCreateSessionInput,
+  OpenCodeMcpStatusMap,
   OpenCodeSession,
   OpenCodeSessionManagerConfig,
   OpenCodeSseEvent,
@@ -11,6 +12,11 @@ import { DEFAULT_OPENCODE_PATHS } from "./types";
 type SessionManagerDeps = {
   fetchFn?: typeof fetch;
   sseClient?: OpenCodeSseClient;
+};
+
+export type OpenCodeSessionRequestOptions = {
+  signal?: AbortSignal;
+  timeoutMs?: number;
 };
 
 type SuccessEnvelope<T> = {
@@ -80,6 +86,24 @@ export class OpenCodeSessionManager {
     const response = await this.request(this.paths.sessions, { method: "GET" });
     const json = await response.json();
     return normalizeEnvelope<OpenCodeSession[]>(json);
+  }
+
+  /**
+   * OpenCode 1.18 initializes configured MCP clients before returning this
+   * map. A "connected" status therefore represents transport setup and
+   * tool-definition cache initialization (including tools/list when the
+   * server advertises tools), not merely parsed configuration.
+   */
+  public async getMcpStatus(
+    requestOptions?: OpenCodeSessionRequestOptions,
+  ): Promise<OpenCodeMcpStatusMap> {
+    const response = await this.request(
+      this.paths.mcpStatus,
+      { method: "GET" },
+      requestOptions,
+    );
+    const json = await response.json();
+    return normalizeEnvelope<OpenCodeMcpStatusMap>(json);
   }
 
   public async createSession(
@@ -182,9 +206,20 @@ export class OpenCodeSessionManager {
     return this.sseClient.subscribe(this.paths.sessionEvents(sessionId), signal);
   }
 
-  private async request(path: string, init: RequestInit): Promise<Response> {
+  private async request(
+    path: string,
+    init: RequestInit,
+    requestOptions?: OpenCodeSessionRequestOptions,
+  ): Promise<Response> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timeoutMs = requestOptions?.timeoutMs ?? this.timeoutMs;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const externalSignal = requestOptions?.signal;
+    const onExternalAbort = () => controller.abort();
+    if (externalSignal) {
+      if (externalSignal.aborted) controller.abort();
+      else externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    }
 
     try {
       const headers = new Headers(init.headers);
@@ -206,6 +241,7 @@ export class OpenCodeSessionManager {
       return response;
     } finally {
       clearTimeout(timeout);
+      if (externalSignal) externalSignal.removeEventListener("abort", onExternalAbort);
     }
   }
 

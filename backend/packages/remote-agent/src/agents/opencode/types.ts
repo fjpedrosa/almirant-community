@@ -7,6 +7,7 @@ export type OpenCodeAuthConfig = {
 
 export type OpenCodeApiPaths = {
   health: string;
+  mcpStatus: string;
   sessions: string;
   sessionById: (sessionId: string) => string;
   sessionPrompt: (sessionId: string) => string;
@@ -30,6 +31,15 @@ export type OpenCodeSession = {
   updatedAt?: string;
   metadata?: Record<string, unknown>;
 };
+
+export type OpenCodeMcpStatus =
+  | { status: "connected" }
+  | { status: "disabled" }
+  | { status: "failed"; error: string }
+  | { status: "needs_auth" }
+  | { status: "needs_client_registration"; error: string };
+
+export type OpenCodeMcpStatusMap = Record<string, OpenCodeMcpStatus>;
 
 export type OpenCodeCreateSessionInput = {
   cwd: string;
@@ -108,6 +118,7 @@ export type OpenCodeRuntimeAgent = AgentRuntime & {
 
 export const DEFAULT_OPENCODE_PATHS: OpenCodeApiPaths = {
   health: "/session",
+  mcpStatus: "/mcp",
   sessions: "/session",
   sessionById: (sessionId: string) => `/session/${encodeURIComponent(sessionId)}`,
   sessionPrompt: (sessionId: string) => `/session/${encodeURIComponent(sessionId)}/message`,

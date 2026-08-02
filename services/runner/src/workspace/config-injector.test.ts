@@ -8,7 +8,9 @@ let buildInjectedEnv: typeof import("./config-injector").buildInjectedEnv;
 let resolveRuntimeConfig: typeof import("./config-injector").resolveRuntimeConfig;
 
 beforeAll(async () => {
+  const actualRemoteAgent = await import("@almirant/remote-agent");
   mock.module("@almirant/remote-agent", () => ({
+    ...actualRemoteAgent,
     buildOpenCodeConfig: (config: Record<string, unknown>) => {
       const provider = String(config.provider ?? "openai");
       const apiKeyEnvVar = String(config.apiKeyEnvVar ?? "OPENAI_API_KEY");
@@ -58,7 +60,14 @@ beforeAll(async () => {
   ({ buildInjectedEnv, resolveRuntimeConfig } = await import("./config-injector"));
 });
 
-afterAll(() => {
+afterAll(async () => {
+  // mock.restore() only undoes mock()/spyOn() spies, not mock.module()
+  // replacements — re-register the untouched real module so later test
+  // files in the same bun test process (e.g. managed-mcp-readiness.test.ts,
+  // which imports createOpenCodeSessionManager as a value) do not resolve
+  // this file's narrowed buildOpenCodeConfig-only mock.
+  const actualRemoteAgent = await import("@almirant/remote-agent");
+  mock.module("@almirant/remote-agent", () => actualRemoteAgent);
   mock.restore();
 });
 

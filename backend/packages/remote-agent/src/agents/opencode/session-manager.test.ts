@@ -139,4 +139,58 @@ describe("OpenCodeSessionManager", () => {
     );
   });
 
+  it("reads the OpenCode 1.18 MCP status contract", async () => {
+    const requests: Array<{ method: string; path: string }> = [];
+    const manager = createOpenCodeSessionManager(
+      { baseUrl: "http://localhost:4096" },
+      {
+        fetchFn: asFetch(async (input, init) => {
+          requests.push({
+            method: (init?.method ?? "GET").toUpperCase(),
+            path: new URL(String(input)).pathname,
+          });
+          return jsonResponse(200, {
+            scraper: { status: "connected" },
+            private_docs: {
+              status: "failed",
+              error: "gateway unavailable",
+            },
+          });
+        }),
+      },
+    );
+
+    await expect(manager.getMcpStatus()).resolves.toEqual({
+      scraper: { status: "connected" },
+      private_docs: {
+        status: "failed",
+        error: "gateway unavailable",
+      },
+    });
+    expect(requests).toEqual([{ method: "GET", path: "/mcp" }]);
+  });
+
+  it("aborts getMcpStatus when the caller-supplied signal fires", async () => {
+    const manager = createOpenCodeSessionManager(
+      { baseUrl: "http://localhost:4096" },
+      {
+        // Real fetch() rejects synchronously with an AbortError when called
+        // with an already-aborted signal — mirror that instead of waiting on
+        // an "abort" event that fired before this listener could attach.
+        fetchFn: asFetch(async (_input, init) => {
+          if (init?.signal?.aborted) {
+            throw new Error("The operation was aborted");
+          }
+          return jsonResponse(200, {});
+        }),
+      },
+    );
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      manager.getMcpStatus({ signal: controller.signal }),
+    ).rejects.toThrow();
+  });
+
 });
