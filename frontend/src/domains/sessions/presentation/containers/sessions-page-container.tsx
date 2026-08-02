@@ -136,6 +136,7 @@ export const SessionsPageContainer: React.FC = () => {
             isStreaming={modal.isStreaming}
             isTranscriptLoading={modal.isTranscriptLoading}
             phases={modal.phases}
+            resultPayload={modal.resultPayload}
             resourceTimeline={modal.resourceTimeline}
             isResourceTimelineLoading={modal.isResourceTimelineLoading}
             isActive={modal.isActive}

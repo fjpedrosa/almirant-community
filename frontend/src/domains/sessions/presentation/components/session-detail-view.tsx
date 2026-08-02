@@ -53,6 +53,8 @@ interface SessionDetailViewProps {
   isStreaming: boolean;
   isTranscriptLoading: boolean;
   phases: TimelinePhase[];
+  /** Validated output of the job, when it submitted one. */
+  resultPayload?: unknown;
   resourceTimeline?: ResourceTimeline | null;
   isResourceTimelineLoading?: boolean;
   isActive: boolean;
@@ -135,6 +137,7 @@ const CopyableIdValue: React.FC<{
 };
 
 export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
+  resultPayload,
   detail,
   messages,
   transcript,
@@ -432,6 +435,7 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
                   ? processingStartedAt
                   : undefined
               }
+              resultPayload={resultPayload}
             />
           </TabsContent>
         </Tabs>
@@ -620,6 +624,7 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
                 ? processingStartedAt
                 : undefined
             }
+            resultPayload={resultPayload}
           />
         </div>
 
