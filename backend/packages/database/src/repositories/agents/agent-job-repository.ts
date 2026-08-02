@@ -119,6 +119,8 @@ const ACTIVE_AGENT_JOB_STATUSES: AgentJobStatus[] = ["queued", "running", "final
 const EXECUTING_AGENT_JOB_STATUSES: AgentJobStatus[] = ["running", "finalizing"];
 
 export type CreateAgentJobInput = {
+  /** Optional server-preassigned id for durable dispatch-occurrence correlation. */
+  id?: string;
   projectId?: string | null;
   workItemId?: string | null;
   boardId?: string | null;
@@ -149,6 +151,66 @@ export type AgentJobWithRelations = {
   feedbackItem: Pick<typeof feedbackItems.$inferSelect, "id" | "title"> | null;
   createdByUser: Pick<typeof user.$inferSelect, "id" | "name" | "image"> | null;
   requestedByUser: Pick<typeof user.$inferSelect, "id" | "name" | "image"> | null;
+};
+
+/**
+ * Thrown by `createJob` when the INSERT collides with
+ * `agent_jobs_work_item_job_type_active_uidx` (migration 0222, parity with
+ * cloud 0236) -- i.e. another transaction already created an active job for
+ * the same (work_item_id, job_type) pair. This guards the race between the
+ * two dispatch authorities (the backend scheduled-agent-dispatcher tick,
+ * flag-gated off by default, and the runner scheduler over /workers/*),
+ * both of which read-then-write against an "active job exists" filter that
+ * is not atomic with the INSERT.
+ *
+ * Callers must treat this as a benign "candidate skipped" outcome -- never
+ * as an unexpected job-creation failure -- and continue processing the next
+ * candidate.
+ */
+export class DuplicateActiveJobError extends Error {
+  constructor(
+    public readonly workItemId: string | null,
+    public readonly jobType: string | null,
+  ) {
+    super(
+      `An active job already exists for work_item_id=${workItemId ?? "null"} job_type=${jobType ?? "null"}`,
+    );
+    this.name = "DuplicateActiveJobError";
+  }
+}
+
+const AGENT_JOBS_WORK_ITEM_JOB_TYPE_ACTIVE_UNIQUE_INDEX =
+  "agent_jobs_work_item_job_type_active_uidx";
+
+/**
+ * Narrowed shape of a pg unique-violation error. Mirrors the pattern used in
+ * `feedback-cluster-repository.ts`'s `getBugFixAttemptUniqueViolationKind` --
+ * we only care about the SQLSTATE code and the constraint name.
+ */
+interface PgUniqueViolationError {
+  code?: string;
+  constraint_name?: string;
+  cause?: unknown;
+}
+
+/**
+ * True when `err` is a postgres 23505 unique-violation raised by
+ * `agent_jobs_work_item_job_type_active_uidx`. Drizzle/postgres-js wrap
+ * driver errors inconsistently across versions, so we probe both the raw
+ * error and one level of `.cause` unwrap.
+ */
+const isDuplicateActiveJobViolation = (err: unknown): boolean => {
+  const probe = (candidate: unknown): boolean => {
+    if (!candidate || typeof candidate !== "object") return false;
+    const pg = candidate as PgUniqueViolationError;
+    return (
+      pg.code === "23505" &&
+      pg.constraint_name === AGENT_JOBS_WORK_ITEM_JOB_TYPE_ACTIVE_UNIQUE_INDEX
+    );
+  };
+  if (!err || typeof err !== "object") return false;
+  if (probe(err)) return true;
+  return probe((err as PgUniqueViolationError).cause);
 };
 
 export const createJob = async (input: CreateAgentJobInput): Promise<typeof agentJobs.$inferSelect> => {
@@ -187,37 +249,45 @@ export const createJob = async (input: CreateAgentJobInput): Promise<typeof agen
     },
   );
 
-  const [created] = await db
-    .insert(agentJobs)
-    .values({
-      projectId: input.projectId ?? null,
-      workItemId: input.workItemId ?? null,
-      boardId: input.boardId ?? null,
-      planningSessionId: input.planningSessionId ?? null,
-      createdByUserId: input.createdByUserId ?? null,
-      workspaceId: input.workspaceId ?? null,
-      // Old model (kept for backward compat)
-      jobType: resolvedJobType,
-      skillName: resolvedSkillName,
-      // New model (prompt + trigger)
-      prompt: resolvedPrompt,
-      promptTemplate: resolvedPromptTemplate,
-      triggerType: (input.triggerType ?? "event") as "event" | "scheduled" | "recovery",
-      interactive: input.interactive ?? resolvedJobType === "planning",
-      // Common fields
-      provider: input.provider,
-      priority: input.priority ?? "medium",
-      status: "queued" as const,
-      config: configWithOverrides,
-      codingAgent:
-        input.codingAgent ??
-        ((routingOverride?.codingAgent ?? "claude-code") as CodingAgent),
-      aiProvider:
-        input.aiProvider ??
-        ((routingOverride?.aiProvider ?? "anthropic") as AiProvider),
-      model: input.model ?? routingOverride?.model ?? "claude-opus-4-8",
-    })
-    .returning();
+  const jobValues = {
+    ...(input.id ? { id: input.id } : {}),
+    projectId: input.projectId ?? null,
+    workItemId: input.workItemId ?? null,
+    boardId: input.boardId ?? null,
+    planningSessionId: input.planningSessionId ?? null,
+    createdByUserId: input.createdByUserId ?? null,
+    workspaceId: input.workspaceId ?? null,
+    // Old model (kept for backward compat)
+    jobType: resolvedJobType,
+    skillName: resolvedSkillName,
+    // New model (prompt + trigger)
+    prompt: resolvedPrompt,
+    promptTemplate: resolvedPromptTemplate,
+    triggerType: (input.triggerType ?? "event") as "event" | "scheduled" | "recovery",
+    interactive: input.interactive ?? resolvedJobType === "planning",
+    // Common fields
+    provider: input.provider,
+    priority: input.priority ?? "medium",
+    status: "queued" as const,
+    config: configWithOverrides,
+    codingAgent:
+      input.codingAgent ??
+      ((routingOverride?.codingAgent ?? "claude-code") as CodingAgent),
+    aiProvider:
+      input.aiProvider ??
+      ((routingOverride?.aiProvider ?? "anthropic") as AiProvider),
+    model: input.model ?? routingOverride?.model ?? "claude-opus-4-8",
+  };
+
+  let created: typeof agentJobs.$inferSelect | undefined;
+  try {
+    [created] = await db.insert(agentJobs).values(jobValues).returning();
+  } catch (error) {
+    if (isDuplicateActiveJobViolation(error)) {
+      throw new DuplicateActiveJobError(jobValues.workItemId, jobValues.jobType ?? null);
+    }
+    throw error;
+  }
 
   if (!created) throw new Error("Failed to create agent job");
   return created;

@@ -15,6 +15,7 @@ import {
   upsertWorker,
   updateHeartbeat,
   createJob,
+  DuplicateActiveJobError,
   claimJobs,
   updateJobStatus,
   getJobById,
@@ -1461,62 +1462,80 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           ? scheduledJob.mcpServers
           : body.config?.mcpServers;
 
-        const job = await createJob({
-          projectId: scheduledJob?.projectId ?? workItem.projectId ?? null,
-          boardId: workItem.boardId ?? null,
-          workItemId: workItem.id,
-          workspaceId,
-          jobType: resolvedJobType,
-          provider: scheduledJob?.provider ?? body.provider,
-          priority: body.priority ?? "medium",
-          config: {
-            repoPath: body.config?.repoPath ?? ".",
-            baseBranch: body.config?.baseBranch ?? "main",
-            ...(body.config?.workspace ? { workspace: body.config.workspace } : {}),
-            projectId: scheduledJob?.projectId ?? body.config?.projectId ?? workItem.projectId ?? undefined,
-            ...(scheduledJob?.scheduledConfigId ?? body.config?.scheduledConfigId
-              ? { scheduledConfigId: scheduledJob?.scheduledConfigId ?? body.config?.scheduledConfigId }
-              : {}),
-            ...(scheduledJob?.scheduledConfigName ?? body.config?.scheduledConfigName
-              ? {
-                  scheduledConfigName:
-                    scheduledJob?.scheduledConfigName ?? body.config?.scheduledConfigName,
-                }
-              : {}),
+        // `getActiveJobForWorkItem` above is a read-then-write check: it is
+        // not atomic with this INSERT, so the backend scheduled-agent-
+        // dispatcher tick (flag-gated off by default) or another backend
+        // replica can still win a race and create the active job first.
+        // `createJob` translates the resulting
+        // agent_jobs_work_item_job_type_active_uidx violation (migration
+        // 0222, parity with cloud 0236) into `DuplicateActiveJobError` --
+        // surface it as the exact same 409 the pre-check above already
+        // returns for the sequential case, instead of an unhandled 500.
+        let job: Awaited<ReturnType<typeof createJob>>;
+        try {
+          job = await createJob({
+            projectId: scheduledJob?.projectId ?? workItem.projectId ?? null,
+            boardId: workItem.boardId ?? null,
+            workItemId: workItem.id,
+            workspaceId,
+            jobType: resolvedJobType,
+            provider: scheduledJob?.provider ?? body.provider,
+            priority: body.priority ?? "medium",
+            config: {
+              repoPath: body.config?.repoPath ?? ".",
+              baseBranch: body.config?.baseBranch ?? "main",
+              ...(body.config?.workspace ? { workspace: body.config.workspace } : {}),
+              projectId: scheduledJob?.projectId ?? body.config?.projectId ?? workItem.projectId ?? undefined,
+              ...(scheduledJob?.scheduledConfigId ?? body.config?.scheduledConfigId
+                ? { scheduledConfigId: scheduledJob?.scheduledConfigId ?? body.config?.scheduledConfigId }
+                : {}),
+              ...(scheduledJob?.scheduledConfigName ?? body.config?.scheduledConfigName
+                ? {
+                    scheduledConfigName:
+                      scheduledJob?.scheduledConfigName ?? body.config?.scheduledConfigName,
+                  }
+                : {}),
+              skillName: resolvedSkillName,
+              ...(body.config?.skillId ? { skillId: body.config.skillId } : {}),
+              source: scheduledJob?.source ?? body.config?.source ?? "worker",
+              ...(resolvedReasoningLevel
+                ? { reasoningLevel: resolvedReasoningLevel }
+                : {}),
+              ...(scheduledJob?.dodReport ?? body.config?.dodReport
+                ? { dodReport: scheduledJob?.dodReport ?? body.config?.dodReport }
+                : {}),
+              ...(scheduledJob?.dodReviewedAt ?? body.config?.dodReviewedAt
+                ? { dodReviewedAt: scheduledJob?.dodReviewedAt ?? body.config?.dodReviewedAt }
+                : {}),
+              ...(body.config?.repositoryId
+                ? { repositoryId: body.config.repositoryId }
+                : {}),
+              ...(resolvedMcpServers
+                ? { mcpServers: resolvedMcpServers }
+                : {}),
+              ...(body.config?.needsBrowser ? { needsBrowser: true } : {}),
+              ...(resourceEstimate ? { resourceEstimate } : {}),
+            },
+            codingAgent: scheduledJob?.codingAgent ??
+              (body.codingAgent as CodingAgent | undefined) ??
+              resolvedRuntime.codingAgent,
+            aiProvider: scheduledJob?.aiProvider ??
+              (body.aiProvider as AiProvider | undefined) ??
+              resolvedRuntime.aiProvider,
+            model: scheduledJob?.model ?? body.model ?? resolvedRuntime.model,
             skillName: resolvedSkillName,
-            ...(body.config?.skillId ? { skillId: body.config.skillId } : {}),
-            source: scheduledJob?.source ?? body.config?.source ?? "worker",
-            ...(resolvedReasoningLevel
-              ? { reasoningLevel: resolvedReasoningLevel }
-              : {}),
-            ...(scheduledJob?.dodReport ?? body.config?.dodReport
-              ? { dodReport: scheduledJob?.dodReport ?? body.config?.dodReport }
-              : {}),
-            ...(scheduledJob?.dodReviewedAt ?? body.config?.dodReviewedAt
-              ? { dodReviewedAt: scheduledJob?.dodReviewedAt ?? body.config?.dodReviewedAt }
-              : {}),
-            ...(body.config?.repositoryId
-              ? { repositoryId: body.config.repositoryId }
-              : {}),
-            ...(resolvedMcpServers
-              ? { mcpServers: resolvedMcpServers }
-              : {}),
-            ...(body.config?.needsBrowser ? { needsBrowser: true } : {}),
-            ...(resourceEstimate ? { resourceEstimate } : {}),
-          },
-          codingAgent: scheduledJob?.codingAgent ??
-            (body.codingAgent as CodingAgent | undefined) ??
-            resolvedRuntime.codingAgent,
-          aiProvider: scheduledJob?.aiProvider ??
-            (body.aiProvider as AiProvider | undefined) ??
-            resolvedRuntime.aiProvider,
-          model: scheduledJob?.model ?? body.model ?? resolvedRuntime.model,
-          skillName: resolvedSkillName,
-          // New model fields
-          promptTemplate: resolvedSkillName,
-          triggerType: "event",
-          interactive: false,
-        });
+            // New model fields
+            promptTemplate: resolvedSkillName,
+            triggerType: "event",
+            interactive: false,
+          });
+        } catch (error) {
+          if (error instanceof DuplicateActiveJobError) {
+            set.status = 409;
+            return errorResponse("An active job already exists for this work item");
+          }
+          throw error;
+        }
 
         // Flip isAiProcessing on the linked work item as soon as the job is
         // enqueued so cards animate immediately, without waiting for the
