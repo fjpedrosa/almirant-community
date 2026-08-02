@@ -20,6 +20,10 @@ import { successResponse, errorResponse, notFoundResponse } from "../../../share
 import { getInstanceConfig } from "../../instance/services/instance-config-service";
 import { executeScheduledAgentConfig } from "../services/execute-scheduled-agent-config";
 import {
+  assertScheduledAgentConfigIsUserManaged,
+  ScheduledAgentConfigSystemManagedError,
+} from "../services/scheduled-agent-access";
+import {
   assertValidScheduledAgentRuntime,
   canonicalizeAiModelForStorage,
   SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR,
@@ -508,6 +512,7 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
           set.status = 404;
           return notFoundResponse("Scheduled agent config");
         }
+        assertScheduledAgentConfigIsUserManaged(existing);
 
         const nextTrigger = body.trigger ?? existing.trigger;
         const nextScheduleType = body.scheduleType ?? existing.scheduleType;
@@ -582,6 +587,10 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
         });
         return successResponse(config);
       } catch (error) {
+        if (error instanceof ScheduledAgentConfigSystemManagedError) {
+          set.status = 403;
+          return errorResponse(error.message);
+        }
         if (error instanceof Error && error.message.startsWith("Invalid MCP server config")) {
           logger.warn({ error }, "Rejected scheduled agent MCP config update");
           set.status = 400;
@@ -617,10 +626,15 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
           set.status = 404;
           return notFoundResponse("Scheduled agent config");
         }
+        assertScheduledAgentConfigIsUserManaged(existing);
 
         await deleteScheduledAgentConfig(params.id, orgId);
         return successResponse({ deleted: true });
       } catch (error) {
+        if (error instanceof ScheduledAgentConfigSystemManagedError) {
+          set.status = 403;
+          return errorResponse(error.message);
+        }
         logger.error({ error }, "Failed to delete scheduled agent config");
         return errorResponse(
           error instanceof Error ? error.message : "Failed to delete scheduled agent config",
@@ -645,6 +659,7 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
           set.status = 404;
           return notFoundResponse("Scheduled agent config");
         }
+        assertScheduledAgentConfigIsUserManaged(existing);
 
         const until = body.until ? new Date(body.until) : null;
 
@@ -656,6 +671,10 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
         const updated = await pauseScheduledAgentConfig(params.id, orgId, until);
         return successResponse(updated);
       } catch (error) {
+        if (error instanceof ScheduledAgentConfigSystemManagedError) {
+          set.status = 403;
+          return errorResponse(error.message);
+        }
         logger.error({ error }, "Failed to pause/resume scheduled agent config");
         return errorResponse(
           error instanceof Error ? error.message : "Failed to pause/resume scheduled agent config",
