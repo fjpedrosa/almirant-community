@@ -20,7 +20,7 @@ export const buildClaudeMcpConfig = (
       const headers = server.headers as Record<string, string> | undefined;
       const authHeader = headers?.Authorization ?? headers?.authorization;
 
-      if (authHeader) {
+      if (headers && Object.keys(headers).length > 0) {
         // Authenticated remote MCP — use native type: "http" with headers.
         // Claude Code (recent versions) reliably sends static Authorization
         // headers via the HTTP transport; mcp-remote (stdio proxy) was the old
@@ -29,7 +29,9 @@ export const buildClaudeMcpConfig = (
         claudeServers[name] = {
           type: "http",
           url: server.url,
-          headers: { Authorization: authHeader },
+          headers: authHeader
+            ? { ...headers, Authorization: authHeader }
+            : headers,
         };
       } else {
         // Unauthenticated remote MCP (e.g. context7) — type: "http" works fine
@@ -79,6 +81,8 @@ export const buildCodexMcpConfig = (
         const envVarName = `MCP_TOKEN_${name.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
         entry.bearer_token_env_var = envVarName;
         tokenEnvVars[envVarName] = token;
+      } else if (headers && Object.keys(headers).length > 0) {
+        entry.headers = headers;
       }
 
       servers[name] = entry;
