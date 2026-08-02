@@ -30,6 +30,7 @@ import * as rankerExports from "../lib/memory/ranker";
 import * as scrubberExports from "../lib/memory/scrubber";
 import * as agentJobEnrichmentExports from "../domains/agents/services/agent-job-enrichment";
 import * as feedbackEventsExports from "../shared/ws/feedback-events";
+import * as scheduledAgentRuntimeValidationExports from "../domains/agents/services/scheduled-agent-runtime-validation";
 
 // ---------------------------------------------------------------------------
 // Real module snapshots — captured at import time (before any mock.module).
@@ -44,6 +45,12 @@ const __realRanker = { ...rankerExports };
 const __realScrubber = { ...scrubberExports };
 const __realAgentJobEnrichment = { ...agentJobEnrichmentExports };
 const __realFeedbackEvents = { ...feedbackEventsExports };
+// execute-scheduled-agent-config.test.ts replaces this module with a
+// permissive `assertValidScheduledAgentRuntime: () => undefined` stub and
+// relies on restoreRealModules() to undo it (mock.restore() does NOT clear
+// mock.module() registrations) — without this entry every test file that
+// runs afterward in the same process silently skips runtime validation.
+const __realScheduledAgentRuntimeValidation = { ...scheduledAgentRuntimeValidationExports };
 
 /**
  * Elysia plugin that injects test user + workspace context.
@@ -723,4 +730,8 @@ export const restoreRealModules = () => {
   mock.module("../lib/memory/scrubber", () => __realScrubber);
   mock.module("../domains/agents/services/agent-job-enrichment", () => __realAgentJobEnrichment);
   mock.module("../shared/ws/feedback-events", () => __realFeedbackEvents);
+  mock.module(
+    "../domains/agents/services/scheduled-agent-runtime-validation",
+    () => __realScheduledAgentRuntimeValidation,
+  );
 };
