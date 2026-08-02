@@ -44,6 +44,45 @@ export const useSessionDetail = (sessionId: string | null | undefined) => {
   });
 };
 
+export interface AgentOutputSubmissionRecord {
+  status: string;
+  payload: unknown;
+  payloadHash: string | null;
+  errorCode: string | null;
+  submittedAt: string;
+}
+
+/**
+ * The job's validated result, if it produced one.
+ *
+ * Most agents never submit output, so `null` is the ordinary answer rather than
+ * an error. Only fetched once the job is terminal: before that there is nothing
+ * to show, and polling for it would add a request per session tick.
+ */
+export const useSessionOutputSubmission = (
+  sessionId: string | null | undefined,
+  status: AgentJobStatus | null | undefined,
+) => {
+  const { confirmedActiveTeamId } = useActiveTeam();
+  const scopedKey = useOrgScopedKey([
+    ...sessionKeys.output(sessionId ?? ""),
+    "submission",
+  ]);
+
+  return useQuery({
+    queryKey: scopedKey,
+    queryFn: () =>
+      request<AgentOutputSubmissionRecord | null>(
+        `/agent-jobs/${sessionId!}/output-submission`,
+      ),
+    enabled:
+      !!sessionId &&
+      !!confirmedActiveTeamId &&
+      !isAgentSessionActive(status ?? undefined),
+    staleTime: 60_000,
+  });
+};
+
 export const useSessionOutput = (
   sessionId: string | null | undefined,
   status: AgentJobStatus | null | undefined,
