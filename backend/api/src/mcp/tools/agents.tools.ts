@@ -13,7 +13,10 @@ import { assertValidScheduledAgentRuntime } from "../../domains/agents/services/
 import {
   resolveScheduledAgentEffectiveRuntimes,
 } from "../../domains/agents/services/scheduled-agent-effective-model-resolver";
-import { canAccessScheduledAgent } from "../../domains/agents/services/scheduled-agent-access";
+import {
+  canAccessScheduledAgent,
+  assertScheduledAgentConfigIsUserManaged,
+} from "../../domains/agents/services/scheduled-agent-access";
 
 const TRIGGER_VALUES = ["scheduled", "webhook"] as const;
 const SCHEDULE_TYPE_VALUES = ["manual", "time_window", "cron"] as const;
@@ -334,6 +337,7 @@ export const registerAgentsTools = (server: McpServer) => {
             isError: true,
           };
         }
+        assertScheduledAgentConfigIsUserManaged(existing);
 
         // Only normalize schedule when trigger or schedule fields are touched
         const touchesScheduling =
@@ -428,6 +432,15 @@ export const registerAgentsTools = (server: McpServer) => {
         const orgResult = assertOrgScope(extra);
         if (typeof orgResult !== "string") return orgResult;
         const workspaceId = orgResult;
+
+        const existing = await getScheduledAgentConfigById(params.id, workspaceId);
+        if (!existing) {
+          return {
+            content: [{ type: "text" as const, text: `Error: agent ${params.id} not found` }],
+            isError: true,
+          };
+        }
+        assertScheduledAgentConfigIsUserManaged(existing);
 
         const deleted = await deleteScheduledAgentConfig(params.id, workspaceId);
         if (!deleted) {
