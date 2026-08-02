@@ -93,6 +93,7 @@ export * from "./scheduled-agent-configs";
 export * from "./scheduled-agent-runs";
 export * from "./mcp-servers";
 export * from "./agent-plugins";
+export * from "./agent-output";
 export * from "./plugin-marketplaces";
 export * from "./user-storage";
 export * from "./ask-documents";

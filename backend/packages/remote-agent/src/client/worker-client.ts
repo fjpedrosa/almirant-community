@@ -26,6 +26,7 @@ import type {
   WorkerHeartbeatPayload,
   WorkerInteraction,
   WorkspaceFileDownloadResponse,
+  PortableAgentPluginBundleDescriptor,
   EvidenceArtifactDownloadResponse,
   NightlyValidationConfig,
   ValidationCandidate,
@@ -509,6 +510,16 @@ export const createAlmirantWorkerClient = (
       return requestJson<WorkspaceFileDownloadResponse>(
         config,
         `/workers/jobs/${encodeURIComponent(jobId)}/workspace-files/${encodeURIComponent(fileId)}`,
+        {
+          method: "GET",
+        },
+      );
+    },
+
+    getAgentPluginBundle: async (jobId: string, pluginId: string) => {
+      return requestJson<PortableAgentPluginBundleDescriptor>(
+        config,
+        `/workers/jobs/${encodeURIComponent(jobId)}/agent-plugins/${encodeURIComponent(pluginId)}/bundle`,
         {
           method: "GET",
         },

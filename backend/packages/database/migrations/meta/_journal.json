@@ -1513,6 +1513,13 @@
       "when": 1785630787319,
       "tag": "0221_red_blacklash",
       "breakpoints": true
+    },
+    {
+      "idx": 222,
+      "version": "7",
+      "when": 1785633781203,
+      "tag": "0222_yielding_iron_lad",
+      "breakpoints": true
     }
   ]
 }

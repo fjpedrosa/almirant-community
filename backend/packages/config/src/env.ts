@@ -49,6 +49,22 @@ const envSchema = z.object({
     .positive()
     .default(25),
   BUG_FIX_PR_RECONCILER_ENABLED: z.enum(["true", "false"]).default("true"),
+  // Backend-native dispatcher for scheduled_agent_configs (see
+  // backend/api/src/domains/agents/services/scheduled-agent-dispatcher.ts).
+  // DEFAULT MUST STAY "false": the runner (services/runner) still runs its
+  // own scheduler tick over HTTP. Running both at once DUPLICATES jobs for
+  // the deterministic modes (backlogDrain, dodReview, releaseIntegration) —
+  // those paths do not go through the idempotent dueKey reservation that
+  // guards the standalone "jobType === scheduled" path, so two dispatchers
+  // racing the same tick will both create jobs for the same candidates.
+  // Only flip this on once the runner's own scheduler tick has been
+  // disabled/retired for the target deployment.
+  SCHEDULED_AGENT_DISPATCHER_ENABLED: z.enum(["true", "false"]).default("false"),
+  SCHEDULED_AGENT_DISPATCHER_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(10_000)
+    .default(60_000),
   // Telegram (optional - only required if enabling the Telegram bot integration)
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_WEBHOOK_SECRET_TOKEN: z.string().optional(),

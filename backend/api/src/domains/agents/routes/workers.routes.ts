@@ -1,4 +1,5 @@
 import { Elysia, t } from "elysia";
+import { createHash } from "node:crypto";
 import {
   validateApiKey,
   listEnabledScheduledAgentConfigs,
@@ -15,6 +16,7 @@ import {
   upsertWorker,
   updateHeartbeat,
   createJob,
+  DuplicateActiveJobError,
   claimJobs,
   updateJobStatus,
   getJobById,
@@ -83,6 +85,8 @@ import {
   workItems,
   projects,
   planningSessions,
+  getAgentPluginById,
+  getUserStorageObject,
 } from "@almirant/database";
 import { getInstallationAccessToken } from "../../integrations/github/services/github-service";
 import type {
@@ -98,7 +102,7 @@ import { env, logger } from "@almirant/config";
 import { refreshCanonicalSessionProjection } from "../../ideation/planning-sessions/services/canonical-session-projection";
 import { getGithubAppCredentials } from "../../instance/services/github-app-credentials-service";
 import { errorResponse, notFoundResponse, successResponse } from "../../../shared/services/response";
-import { downloadBufferFromS3, extractKeyFromUrl, isS3Configured } from "../../../shared/services/s3-service";
+import { downloadBufferFromS3, extractKeyFromUrl, getEditorUploadsBucket, isS3Configured } from "../../../shared/services/s3-service";
 import { resolveLocalAttachmentPath } from "../../../shared/services/local-attachments";
 import { wsConnectionManager } from "../../../shared/ws/ws-connection-manager";
 import { broadcastAgentJobStatusChanged } from "../../../shared/ws/agent-job-events";
@@ -110,7 +114,11 @@ import { sanitizeLogMessage, sanitizeLogPayload } from "../services/agent-job-lo
 import { autoLinkCommitsToWorkItems } from "../../integrations/github/services/github-webhook-handlers";
 import { deriveJobUsageMetrics } from "../services/job-usage-metrics";
 import { persistJobMemoryFromTerminalState } from "../../../lib/memory/post-job";
-import { resolveRuntime } from "@almirant/shared";
+import {
+  resolveRuntime,
+  decodeAgentPluginBundleDescriptor,
+  type AgentRuntimePluginReference,
+} from "@almirant/shared";
 import {
   buildDefaultJobResourceEstimate,
   buildWorkItemResourceForecast,
@@ -779,6 +787,30 @@ const getUploadedWorkspaceFileIds = (config: unknown): string[] => {
           typeof fileId === "string" && fileId.trim().length > 0,
       )
     : [];
+};
+
+// Ported from cloud's workers.routes.ts (community issue #85, lote 13) for
+// GET /jobs/:jobId/agent-plugins/:pluginId/bundle. Minimal surgery: only
+// this constant + helper + route are added -- no other part of this file
+// is touched, and cloud's `resolveWorkerJobAccess` shared helper is
+// deliberately NOT ported (community has no equivalent and every other
+// job-scoped GET route in this file already does its own inline
+// getJobById + 404 check instead of a shared abstraction -- see
+// /jobs/:jobId/workspace-files/:fileId directly above).
+const MAX_PLUGIN_BUNDLE_DESCRIPTOR_BYTES = 70 * 1024 * 1024;
+
+const getJobAgentPluginReferences = (
+  config: unknown,
+): AgentRuntimePluginReference[] => {
+  if (!isPlainRecord(config) || !Array.isArray(config.agentPlugins)) return [];
+  return config.agentPlugins.filter((reference): reference is AgentRuntimePluginReference => {
+    if (!isPlainRecord(reference)) return false;
+    return (
+      typeof reference.id === "string" &&
+      typeof reference.slug === "string" &&
+      typeof reference.kind === "string"
+    );
+  });
 };
 
 const pickAttachmentWorkspacePath = (metadata: Record<string, unknown>): string | null => {
@@ -1461,62 +1493,80 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           ? scheduledJob.mcpServers
           : body.config?.mcpServers;
 
-        const job = await createJob({
-          projectId: scheduledJob?.projectId ?? workItem.projectId ?? null,
-          boardId: workItem.boardId ?? null,
-          workItemId: workItem.id,
-          workspaceId,
-          jobType: resolvedJobType,
-          provider: scheduledJob?.provider ?? body.provider,
-          priority: body.priority ?? "medium",
-          config: {
-            repoPath: body.config?.repoPath ?? ".",
-            baseBranch: body.config?.baseBranch ?? "main",
-            ...(body.config?.workspace ? { workspace: body.config.workspace } : {}),
-            projectId: scheduledJob?.projectId ?? body.config?.projectId ?? workItem.projectId ?? undefined,
-            ...(scheduledJob?.scheduledConfigId ?? body.config?.scheduledConfigId
-              ? { scheduledConfigId: scheduledJob?.scheduledConfigId ?? body.config?.scheduledConfigId }
-              : {}),
-            ...(scheduledJob?.scheduledConfigName ?? body.config?.scheduledConfigName
-              ? {
-                  scheduledConfigName:
-                    scheduledJob?.scheduledConfigName ?? body.config?.scheduledConfigName,
-                }
-              : {}),
+        // `getActiveJobForWorkItem` above is a read-then-write check: it is
+        // not atomic with this INSERT, so the backend scheduled-agent-
+        // dispatcher tick (flag-gated off by default) or another backend
+        // replica can still win a race and create the active job first.
+        // `createJob` translates the resulting
+        // agent_jobs_work_item_job_type_active_uidx violation (migration
+        // 0222, parity with cloud 0236) into `DuplicateActiveJobError` --
+        // surface it as the exact same 409 the pre-check above already
+        // returns for the sequential case, instead of an unhandled 500.
+        let job: Awaited<ReturnType<typeof createJob>>;
+        try {
+          job = await createJob({
+            projectId: scheduledJob?.projectId ?? workItem.projectId ?? null,
+            boardId: workItem.boardId ?? null,
+            workItemId: workItem.id,
+            workspaceId,
+            jobType: resolvedJobType,
+            provider: scheduledJob?.provider ?? body.provider,
+            priority: body.priority ?? "medium",
+            config: {
+              repoPath: body.config?.repoPath ?? ".",
+              baseBranch: body.config?.baseBranch ?? "main",
+              ...(body.config?.workspace ? { workspace: body.config.workspace } : {}),
+              projectId: scheduledJob?.projectId ?? body.config?.projectId ?? workItem.projectId ?? undefined,
+              ...(scheduledJob?.scheduledConfigId ?? body.config?.scheduledConfigId
+                ? { scheduledConfigId: scheduledJob?.scheduledConfigId ?? body.config?.scheduledConfigId }
+                : {}),
+              ...(scheduledJob?.scheduledConfigName ?? body.config?.scheduledConfigName
+                ? {
+                    scheduledConfigName:
+                      scheduledJob?.scheduledConfigName ?? body.config?.scheduledConfigName,
+                  }
+                : {}),
+              skillName: resolvedSkillName,
+              ...(body.config?.skillId ? { skillId: body.config.skillId } : {}),
+              source: scheduledJob?.source ?? body.config?.source ?? "worker",
+              ...(resolvedReasoningLevel
+                ? { reasoningLevel: resolvedReasoningLevel }
+                : {}),
+              ...(scheduledJob?.dodReport ?? body.config?.dodReport
+                ? { dodReport: scheduledJob?.dodReport ?? body.config?.dodReport }
+                : {}),
+              ...(scheduledJob?.dodReviewedAt ?? body.config?.dodReviewedAt
+                ? { dodReviewedAt: scheduledJob?.dodReviewedAt ?? body.config?.dodReviewedAt }
+                : {}),
+              ...(body.config?.repositoryId
+                ? { repositoryId: body.config.repositoryId }
+                : {}),
+              ...(resolvedMcpServers
+                ? { mcpServers: resolvedMcpServers }
+                : {}),
+              ...(body.config?.needsBrowser ? { needsBrowser: true } : {}),
+              ...(resourceEstimate ? { resourceEstimate } : {}),
+            },
+            codingAgent: scheduledJob?.codingAgent ??
+              (body.codingAgent as CodingAgent | undefined) ??
+              resolvedRuntime.codingAgent,
+            aiProvider: scheduledJob?.aiProvider ??
+              (body.aiProvider as AiProvider | undefined) ??
+              resolvedRuntime.aiProvider,
+            model: scheduledJob?.model ?? body.model ?? resolvedRuntime.model,
             skillName: resolvedSkillName,
-            ...(body.config?.skillId ? { skillId: body.config.skillId } : {}),
-            source: scheduledJob?.source ?? body.config?.source ?? "worker",
-            ...(resolvedReasoningLevel
-              ? { reasoningLevel: resolvedReasoningLevel }
-              : {}),
-            ...(scheduledJob?.dodReport ?? body.config?.dodReport
-              ? { dodReport: scheduledJob?.dodReport ?? body.config?.dodReport }
-              : {}),
-            ...(scheduledJob?.dodReviewedAt ?? body.config?.dodReviewedAt
-              ? { dodReviewedAt: scheduledJob?.dodReviewedAt ?? body.config?.dodReviewedAt }
-              : {}),
-            ...(body.config?.repositoryId
-              ? { repositoryId: body.config.repositoryId }
-              : {}),
-            ...(resolvedMcpServers
-              ? { mcpServers: resolvedMcpServers }
-              : {}),
-            ...(body.config?.needsBrowser ? { needsBrowser: true } : {}),
-            ...(resourceEstimate ? { resourceEstimate } : {}),
-          },
-          codingAgent: scheduledJob?.codingAgent ??
-            (body.codingAgent as CodingAgent | undefined) ??
-            resolvedRuntime.codingAgent,
-          aiProvider: scheduledJob?.aiProvider ??
-            (body.aiProvider as AiProvider | undefined) ??
-            resolvedRuntime.aiProvider,
-          model: scheduledJob?.model ?? body.model ?? resolvedRuntime.model,
-          skillName: resolvedSkillName,
-          // New model fields
-          promptTemplate: resolvedSkillName,
-          triggerType: "event",
-          interactive: false,
-        });
+            // New model fields
+            promptTemplate: resolvedSkillName,
+            triggerType: "event",
+            interactive: false,
+          });
+        } catch (error) {
+          if (error instanceof DuplicateActiveJobError) {
+            set.status = 409;
+            return errorResponse("An active job already exists for this work item");
+          }
+          throw error;
+        }
 
         // Flip isAiProcessing on the linked work item as soon as the job is
         // enqueued so cards animate immediately, without waiting for the
@@ -1904,6 +1954,167 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       params: t.Object({
         jobId: t.String(),
         fileId: t.String(),
+      }),
+    }
+  )
+
+  // GET /workers/jobs/:jobId/agent-plugins/:pluginId/bundle
+  // A worker can fetch only portable plugin IDs pinned into this job. The API
+  // reads a canonical JSON descriptor from private user storage and validates
+  // it before returning regular files; raw archives are never extracted here.
+  // Ported from cloud (community issue #85, lote 13) -- see the
+  // getJobAgentPluginReferences / MAX_PLUGIN_BUNDLE_DESCRIPTOR_BYTES comment
+  // above for what was deliberately NOT ported (resolveWorkerJobAccess).
+  .get(
+    "/jobs/:jobId/agent-plugins/:pluginId/bundle",
+    async ({ params, set, workerApiKey }) => {
+      if (!workerApiKey?.serviceAccountId) {
+        set.status = 403;
+        return errorResponse("Worker service-account credential required", 403);
+      }
+      const existing = await getJobById(params.jobId);
+      if (!existing) {
+        set.status = 404;
+        return notFoundResponse("Agent job");
+      }
+
+      const reference = getJobAgentPluginReferences(existing.job.config).find(
+        (candidate) => candidate.id === params.pluginId,
+      );
+      if (!reference) {
+        set.status = 403;
+        return errorResponse("Agent plugin is not declared by this job");
+      }
+      if (
+        reference.kind !== "portable_skill" &&
+        reference.kind !== "claude_upload"
+      ) {
+        set.status = 409;
+        return errorResponse("Agent plugin does not use an uploaded bundle");
+      }
+      const expectedBundleKind = reference.kind === "claude_upload"
+        ? "claude_plugin"
+        : "portable_skill";
+      const expectedProvider = reference.kind === "claude_upload"
+        ? "claude-code"
+        : "portable";
+
+      const workspaceId = existing.job.workspaceId;
+      if (!workspaceId) {
+        set.status = 409;
+        return errorResponse("Agent job has no workspaceId");
+      }
+
+      const plugin = await getAgentPluginById(
+        params.pluginId,
+        workspaceId,
+        existing.job.createdByUserId,
+      );
+      if (!plugin) {
+        set.status = 404;
+        return notFoundResponse("Agent plugin");
+      }
+
+      const manifestKind =
+        plugin.manifest && typeof plugin.manifest.kind === "string"
+          ? plugin.manifest.kind
+          : null;
+      if (
+        !plugin.enabled ||
+        plugin.sourceType !== "upload" ||
+        plugin.provider !== expectedProvider ||
+        manifestKind !== expectedBundleKind ||
+        !plugin.ownerUserId ||
+        !plugin.storageObjectId ||
+        !plugin.checksumSha256 ||
+        plugin.slug !== reference.slug ||
+        (reference.kind === "claude_upload" &&
+          plugin.externalId !== reference.pluginName) ||
+        plugin.checksumSha256.toLowerCase() !== reference.checksumSha256.toLowerCase()
+      ) {
+        set.status = 409;
+        return errorResponse("Agent plugin runtime configuration no longer matches the job pin");
+      }
+
+      const storageObject = await getUserStorageObject(
+        plugin.ownerUserId,
+        plugin.storageObjectId,
+      );
+      if (!storageObject) {
+        set.status = 404;
+        return notFoundResponse("Agent plugin bundle");
+      }
+
+      const isCanonicalDescriptor =
+        storageObject.contentType === "application/json" ||
+        storageObject.contentType.startsWith("application/vnd.almirant.agent-plugin+json");
+      if (
+        storageObject.kind !== "plugin_bundle" ||
+        !isCanonicalDescriptor ||
+        (storageObject.workspaceId && storageObject.workspaceId !== workspaceId) ||
+        storageObject.checksumSha256.toLowerCase() !==
+          reference.checksumSha256.toLowerCase()
+      ) {
+        set.status = 409;
+        return errorResponse("Agent plugin bundle is not a canonical job-scoped descriptor");
+      }
+      if (storageObject.sizeBytes > MAX_PLUGIN_BUNDLE_DESCRIPTOR_BYTES) {
+        set.status = 413;
+        return errorResponse("Agent plugin bundle descriptor exceeds the supported size");
+      }
+
+      const bucket = getEditorUploadsBucket();
+      if (!bucket || !isS3Configured(bucket)) {
+        set.status = 503;
+        return errorResponse("Private plugin storage is not configured", 503);
+      }
+
+      try {
+        const bytes = await downloadBufferFromS3(storageObject.objectKey, bucket);
+        if (bytes.byteLength > MAX_PLUGIN_BUNDLE_DESCRIPTOR_BYTES) {
+          set.status = 413;
+          return errorResponse("Agent plugin bundle descriptor exceeds the supported size");
+        }
+
+        const checksum = createHash("sha256").update(bytes).digest("hex");
+        if (checksum !== reference.checksumSha256.toLowerCase()) {
+          set.status = 409;
+          return errorResponse("Agent plugin bundle checksum does not match the job pin");
+        }
+
+        const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        const parsed = JSON.parse(text) as unknown;
+        const validated = decodeAgentPluginBundleDescriptor(parsed);
+        if (validated.kind !== expectedBundleKind) {
+          set.status = 409;
+          return errorResponse("Agent plugin bundle kind does not match the job pin");
+        }
+
+        return successResponse({
+          schemaVersion: 1 as const,
+          pluginId: plugin.id,
+          slug: plugin.slug,
+          kind: validated.kind,
+          checksumSha256: checksum,
+          files: validated.files.map((file) => ({
+            type: "file" as const,
+            path: file.path,
+            contentBase64: Buffer.from(file.content).toString("base64"),
+          })),
+        });
+      } catch (error) {
+        logger.error(
+          { error, jobId: params.jobId, pluginId: params.pluginId },
+          "Failed to validate agent plugin bundle",
+        );
+        set.status = 500;
+        return errorResponse("Failed to validate agent plugin bundle", 500);
+      }
+    },
+    {
+      params: t.Object({
+        jobId: t.String(),
+        pluginId: t.String(),
       }),
     }
   )

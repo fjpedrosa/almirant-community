@@ -44,6 +44,32 @@ const transactionMock = mock(async (callback: (tx: { execute: typeof txExecute }
   return callback({ execute: txExecute });
 });
 
+// createJob's duplicate-active-job unique-violation translation (below)
+// inserts directly via `db.insert(...)`, not through a transaction, so it
+// needs its own mock of that chain.
+const insertState: {
+  values: Record<string, unknown> | null;
+  returningRows: Array<Record<string, unknown>>;
+  throwError: Error | null;
+} = {
+  values: null,
+  returningRows: [],
+  throwError: null,
+};
+const insertCalls: Array<{ table: unknown; values: Record<string, unknown> }> = [];
+const insertMock = mock((table: unknown) => ({
+  values: (values: Record<string, unknown>) => {
+    insertState.values = values;
+    insertCalls.push({ table, values });
+    return {
+      returning: async () => {
+        if (insertState.throwError) throw insertState.throwError;
+        return [...insertState.returningRows];
+      },
+    };
+  },
+}));
+
 const sqlTag = Object.assign(
   (strings: TemplateStringsArray, ...values: unknown[]) => ({
     strings: Array.from(strings),
@@ -57,6 +83,7 @@ const sqlTag = Object.assign(
 mock.module("../../client", () => ({
   db: {
     transaction: transactionMock,
+    insert: insertMock,
   },
 }));
 
@@ -295,5 +322,104 @@ describe("claimJobs effort-estimate gating (A-1945)", () => {
       String(call[1] ?? "").includes("10-minute estimate escape")
     );
     expect(warnedWithEscape).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createJob — duplicate-active-job unique-violation translation.
+//
+// `agent_jobs_work_item_job_type_active_uidx` (migration 0222, parity with
+// cloud 0236) guards against two dispatch authorities racing to create an
+// active job for the same (work_item_id, job_type) pair. `createJob` must
+// translate the resulting postgres 23505 into `DuplicateActiveJobError` so
+// callers (the scheduled-agent-dispatcher tick, workers.routes.ts) can treat
+// it as a skipped candidate instead of an unexpected failure — see
+// scheduled-agent-authoritative-dispatch-migration-0222.test.ts for the
+// index/migration itself.
+// ---------------------------------------------------------------------------
+describe("createJob duplicate-active-job handling", () => {
+  beforeEach(() => {
+    insertState.values = null;
+    insertState.returningRows = [{ id: "created-job-1", status: "queued" }];
+    insertState.throwError = null;
+    insertCalls.length = 0;
+    insertMock.mockClear();
+  });
+
+  test("translates the agent_jobs_work_item_job_type_active_uidx violation into DuplicateActiveJobError", async () => {
+    const { createJob, DuplicateActiveJobError } = await import("./agent-job-repository");
+
+    const conflict = Object.assign(
+      new Error("duplicate key value violates unique constraint \"agent_jobs_work_item_job_type_active_uidx\""),
+      { code: "23505", constraint_name: "agent_jobs_work_item_job_type_active_uidx" },
+    );
+    insertState.throwError = conflict;
+
+    const attempt = createJob({
+      workItemId: "wi-1",
+      jobType: "implementation",
+      provider: "claude-code",
+      config: { repoPath: ".", baseBranch: "main" },
+    });
+
+    await expect(attempt).rejects.toBeInstanceOf(DuplicateActiveJobError);
+  });
+
+  test("also classifies the violation when the driver wraps it one level in `cause`", async () => {
+    const { createJob, DuplicateActiveJobError } = await import("./agent-job-repository");
+
+    const wrapped = Object.assign(new Error("insert failed"), {
+      cause: { code: "23505", constraint_name: "agent_jobs_work_item_job_type_active_uidx" },
+    });
+    insertState.throwError = wrapped as Error;
+
+    await expect(
+      createJob({
+        workItemId: "wi-2",
+        jobType: "review",
+        provider: "claude-code",
+        config: { repoPath: ".", baseBranch: "main" },
+      }),
+    ).rejects.toBeInstanceOf(DuplicateActiveJobError);
+  });
+
+  test("rethrows unrelated unique violations unchanged", async () => {
+    const { createJob, DuplicateActiveJobError } = await import("./agent-job-repository");
+
+    const unrelated = Object.assign(new Error("duplicate key value violates unique constraint \"some_other_idx\""), {
+      code: "23505",
+      constraint_name: "some_other_idx",
+    });
+    insertState.throwError = unrelated;
+
+    const attempt = createJob({
+      workItemId: "wi-3",
+      jobType: "implementation",
+      provider: "claude-code",
+      config: { repoPath: ".", baseBranch: "main" },
+    });
+
+    await expect(attempt).rejects.toThrow("some_other_idx");
+    await expect(
+      createJob({
+        workItemId: "wi-3",
+        jobType: "implementation",
+        provider: "claude-code",
+        config: { repoPath: ".", baseBranch: "main" },
+      }),
+    ).rejects.not.toBeInstanceOf(DuplicateActiveJobError);
+  });
+
+  test("creates the job normally when there is no conflict", async () => {
+    const { createJob } = await import("./agent-job-repository");
+
+    const job = await createJob({
+      workItemId: "wi-4",
+      jobType: "implementation",
+      provider: "claude-code",
+      config: { repoPath: ".", baseBranch: "main" },
+    });
+
+    expect(job).toMatchObject({ id: "created-job-1", status: "queued" });
   });
 });

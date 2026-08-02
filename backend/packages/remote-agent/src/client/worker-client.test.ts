@@ -321,6 +321,55 @@ describe("createAlmirantWorkerClient", () => {
     });
   });
 
+  it("fetches a job-pinned agent plugin bundle descriptor", async () => {
+    let requestedUrl = "";
+
+    setMockFetch(async (input: RequestInfo | URL) => {
+      requestedUrl = String(input);
+      return jsonResponse({
+        success: true,
+        data: {
+          schemaVersion: 1,
+          pluginId: "plugin-1",
+          slug: "private-review",
+          kind: "portable_skill",
+          checksumSha256: "a".repeat(64),
+          files: [
+            {
+              type: "file",
+              path: "SKILL.md",
+              contentBase64: Buffer.from("# Private review").toString("base64"),
+            },
+          ],
+        },
+      });
+    });
+
+    const client = createAlmirantWorkerClient({
+      apiBaseUrl: "https://api.example.com",
+      apiKey: "test-key",
+      maxRetries: 0,
+    });
+
+    const bundle = await client.getAgentPluginBundle("job-123", "plugin-1");
+
+    expect(requestedUrl).toContain("/workers/jobs/job-123/agent-plugins/plugin-1/bundle");
+    expect(bundle).toEqual({
+      schemaVersion: 1,
+      pluginId: "plugin-1",
+      slug: "private-review",
+      kind: "portable_skill",
+      checksumSha256: "a".repeat(64),
+      files: [
+        {
+          type: "file",
+          path: "SKILL.md",
+          contentBase64: Buffer.from("# Private review").toString("base64"),
+        },
+      ],
+    });
+  });
+
   it("streams worker-authenticated evidence bytes from the job/artifact endpoint", async () => {
     let requestedUrl = "";
     let authHeader = "";

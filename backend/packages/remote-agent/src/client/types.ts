@@ -268,6 +268,28 @@ export type WorkspaceFileDownloadResponse = {
   workspacePath?: string | null;
 };
 
+/**
+ * Ported from cloud (community issue #85, lote 13). Wire response shape of
+ * GET /workers/jobs/:jobId/agent-plugins/:pluginId/bundle -- a DIFFERENT
+ * type from @almirant/shared's PortableAgentPluginBundleDescriptor (the
+ * server-internal decoded-from-storage shape, with raw file content
+ * bytes). This one is the base64-over-HTTP wire shape the worker/runner
+ * receives, so it's kept local like every other *Response type in this
+ * file rather than imported.
+ */
+export type PortableAgentPluginBundleDescriptor = {
+  schemaVersion: 1;
+  pluginId: string;
+  slug: string;
+  kind: "portable_skill";
+  checksumSha256: string;
+  files: Array<{
+    type: "file";
+    path: string;
+    contentBase64: string;
+  }>;
+};
+
 export const EVIDENCE_ARTIFACT_ENDPOINT_SEGMENT = "evidence-artifacts";
 export const EVIDENCE_ARTIFACT_RESPONSE_HEADERS = Object.freeze({
   contentType: "content-type",
@@ -713,6 +735,10 @@ export type AlmirantWorkerClient = {
   getJobStatus: (jobId: string) => Promise<JobStatusResponse>;
   getJobConfig: (jobId: string) => Promise<{ jobType: string; config: Record<string, unknown> | null; status: string }>;
   getWorkspaceFile: (jobId: string, fileId: string) => Promise<WorkspaceFileDownloadResponse>;
+  getAgentPluginBundle: (
+    jobId: string,
+    pluginId: string
+  ) => Promise<PortableAgentPluginBundleDescriptor>;
   getEvidenceArtifact: (
     jobId: string,
     artifactId: string,

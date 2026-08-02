@@ -43,6 +43,7 @@ export * from "./agents/worker-lifecycle-repository";
 export * from "./agents/worker-metrics-repository";
 export * from "./agents/scheduled-agent-config-repository";
 export * from "./agents/scheduled-agent-run-repository";
+export * from "./agents/agent-output-repository";
 export * from "./agents/skill-repository";
 export * from "./agents/agent-tooling-repository";
 export * from "./agents/plugin-marketplace-repository";
