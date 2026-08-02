@@ -55,6 +55,7 @@ export * from "./agents/event-archive-repository";
 export * from "./agents/bug-fix-attempt-repository";
 export * from "./agents/backlog-drain-repository";
 export * from "./agents/backlog-drain-selection";
+export * from "./agents/queued-receipt-residue-repository";
 
 // ── ai ──
 export * from "./ai/ai-session-repository";

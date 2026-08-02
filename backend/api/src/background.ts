@@ -17,6 +17,7 @@ import { startInvestigationTimeoutSweeper } from "./domains/observability/servic
 import { startUserStorageDeletionSweeper } from "./domains/storage/services/user-storage-deletion-sweeper";
 import { startCloudBackgroundJobs } from "./cloud/background-jobs";
 import { startScheduledAgentDispatcher } from "./domains/agents/services/scheduled-agent-dispatcher";
+import { startQueuedReceiptResidueReconciler } from "./domains/agents/services/queued-receipt-residue-reconciler";
 
 interface BackgroundJobHandles {
   stop: () => Promise<void>;
@@ -76,6 +77,13 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
     intervalMs: env.EFFORT_ESTIMATION_SWEEPER_INTERVAL_MS,
     batchSize: 5,
   });
+  // Gate-off safety net for community#16 / cloud#64 / cloud#155: fails only
+  // old, workerless, queued jobs carrying incompatible v2 receipt markers
+  // while the durable-receipts gate is off. Self-gates internally via
+  // QUEUED_RECEIPT_RESIDUE_RECONCILER_ENABLED and
+  // DURABLE_SEQUENCE_RECEIPTS_ENABLED — see queued-receipt-residue-reconciler.ts.
+  const stopQueuedReceiptResidueReconciler =
+    startQueuedReceiptResidueReconciler();
   const stopBugFixAttemptPrReconciler =
     env.BUG_FIX_PR_RECONCILER_ENABLED === "true"
       ? startBugFixAttemptPrReconciler({
@@ -127,6 +135,7 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
       stopUserStorageDeletionSweeper();
       await stopCloudBackgroundJobs();
       stopEffortEstimationSweeper();
+      stopQueuedReceiptResidueReconciler();
       if (stopBugFixAttemptPrReconciler) stopBugFixAttemptPrReconciler();
       if (stopInvestigationTimeoutSweeper) stopInvestigationTimeoutSweeper();
       if (stopScheduledAgentDispatcher) stopScheduledAgentDispatcher();

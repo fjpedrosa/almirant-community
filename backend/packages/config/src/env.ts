@@ -54,6 +54,29 @@ const envSchema = z.object({
   // consumer group has been drained; a worker capability alone must never
   // activate the protocol.
   DURABLE_SEQUENCE_RECEIPTS_ENABLED: z.enum(["true", "false"]).default("false"),
+  // Gate-off safety reconciler for queued jobs already contaminated with
+  // v2 receipt markers (community#16 / cloud#64 / cloud#155). The
+  // independent switch allows rollback without enabling the receipt
+  // protocol for an unready fleet.
+  QUEUED_RECEIPT_RESIDUE_RECONCILER_ENABLED: z
+    .enum(["true", "false"])
+    .default("true"),
+  QUEUED_RECEIPT_RESIDUE_RECONCILER_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(10_000)
+    .default(60_000),
+  QUEUED_RECEIPT_RESIDUE_RECONCILER_MIN_AGE_MS: z.coerce
+    .number()
+    .int()
+    .min(60_000)
+    .default(300_000),
+  QUEUED_RECEIPT_RESIDUE_RECONCILER_BATCH_SIZE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(25),
   // Backend-native dispatcher for scheduled_agent_configs (see
   // backend/api/src/domains/agents/services/scheduled-agent-dispatcher.ts).
   // DEFAULT MUST STAY "false": the runner (services/runner) still runs its
