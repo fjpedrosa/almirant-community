@@ -17,12 +17,15 @@ const __real_resolveAiKey = {
 const state = {
   broadcasts: [] as Array<{ orgId: string; message: Record<string, unknown> }>,
   createdInteractions: [] as Array<Record<string, unknown>>,
+  statusUpdates: [] as Array<Record<string, unknown>>,
   job: {
     job: {
       id: "job-1",
       workItemId: null,
       planningSessionId: "planning-session-1",
       workspaceId: testWorkspace.id,
+      workerId: null,
+      config: {} as Record<string, unknown>,
     },
     workItem: null,
     project: null,
@@ -34,6 +37,8 @@ const state = {
       workItemId: string | null;
       planningSessionId: string | null;
       workspaceId: string | null;
+      workerId: string | null;
+      config: Record<string, unknown>;
     };
     workItem: null;
     project: null;
@@ -52,23 +57,55 @@ const planningOrgLookupChain = {
 const dbMocks = createDatabaseMocks({
   validateApiKey: async () => ({ id: "worker-api-key" }),
   getJobById: async () => state.job,
-  updateJobStatus: async (jobId: string, status: string) => ({
-    id: jobId,
-    status,
-    workItemId: state.job?.job.workItemId ?? null,
-    planningSessionId: state.job?.job.planningSessionId ?? null,
-  }),
-  createInteraction: async (input: Record<string, unknown>) => {
-    state.createdInteractions.push(input);
+  updateJobStatus: async (jobId: string, status: string) => {
+    state.statusUpdates.push({ jobId, status, mode: "legacy" });
     return {
-      id: "interaction-1",
-      questionText: input.questionText,
-      questionType: input.questionType,
-      questionContext: input.questionContext ?? null,
-      options: input.options ?? null,
-      expiresAt: input.expiresAt instanceof Date
-        ? input.expiresAt
-        : new Date("2026-01-01T00:15:00.000Z"),
+      id: jobId,
+      status,
+      workItemId: state.job?.job.workItemId ?? null,
+      planningSessionId: state.job?.job.planningSessionId ?? null,
+    };
+  },
+  updateClaimedJobStatus: async (
+    jobId: string,
+    status: string,
+    ownership: Record<string, unknown>,
+  ) => {
+    state.statusUpdates.push({ jobId, status, ownership, mode: "fenced" });
+    return {
+      id: jobId,
+      status,
+      workItemId: state.job?.job.workItemId ?? null,
+      planningSessionId: state.job?.job.planningSessionId ?? null,
+    };
+  },
+  createFencedJobInteraction: async (input: Record<string, unknown>) => {
+    state.createdInteractions.push(input);
+    state.statusUpdates.push({
+      jobId: input.agentJobId,
+      status: "waiting_for_input",
+      ownership: {
+        workerId: input.workerId,
+        claimAttemptId: input.claimAttemptId,
+      },
+      mode: "fenced",
+    });
+    return {
+      outcome: "created",
+      job: {
+        ...state.job!.job,
+        status: "waiting_for_input",
+      },
+      interaction: {
+        id: "interaction-1",
+        questionText: input.questionText,
+        questionType: input.questionType,
+        questionContext: input.questionContext ?? null,
+        options: input.options ?? null,
+        expiresAt: input.expiresAt instanceof Date
+          ? input.expiresAt
+          : new Date("2026-01-01T00:15:00.000Z"),
+      },
     };
   },
   db: {
@@ -116,16 +153,34 @@ const makeRequest = (body: unknown): Request =>
     body: JSON.stringify(body),
   });
 
+const makeInteractionRequest = (body: Record<string, unknown>): Request =>
+  new Request("http://localhost/workers/jobs/job-1/interactions", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer worker-secret",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      questionType: "free_text",
+      questionText: "Need a decision",
+      expiresAt: "2026-08-01T12:00:00.000Z",
+      ...body,
+    }),
+  });
+
 describe("workersRoutes /jobs/:jobId/stream", () => {
   beforeEach(() => {
     state.broadcasts = [];
     state.createdInteractions = [];
+    state.statusUpdates = [];
     state.job = {
       job: {
         id: "job-1",
         workItemId: null,
         planningSessionId: "planning-session-1",
         workspaceId: testWorkspace.id,
+        workerId: null,
+        config: {},
       },
       workItem: null,
       project: null,
@@ -250,6 +305,59 @@ describe("workersRoutes /jobs/:jobId/stream", () => {
             content: "I need more context from the user.\n",
           },
         },
+      },
+    ]);
+  });
+
+  it("rejects planning output from a stale claim generation", async () => {
+    state.job!.job.workerId = "worker-current";
+    state.job!.job.config = { claimAttemptId: "attempt-current" };
+    const { workersRoutes } = await import("./workers.routes");
+    const app = new Elysia().use(workersRoutes);
+
+    const res = await app.handle(
+      makeRequest({
+        content: "stale output\n",
+        workerId: "worker-current",
+        expectedClaimAttemptId: "attempt-stale",
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    expect(state.broadcasts).toEqual([]);
+  });
+
+  it("fences interaction creation and its waiting status transition", async () => {
+    state.job!.job.workerId = "worker-current";
+    state.job!.job.config = { claimAttemptId: "attempt-current" };
+    const { workersRoutes } = await import("./workers.routes");
+    const app = new Elysia().use(workersRoutes);
+
+    const stale = await app.handle(
+      makeInteractionRequest({
+        workerId: "worker-current",
+        expectedClaimAttemptId: "attempt-stale",
+      }),
+    );
+    const accepted = await app.handle(
+      makeInteractionRequest({
+        workerId: "worker-current",
+        expectedClaimAttemptId: "attempt-current",
+      }),
+    );
+
+    expect(stale.status).toBe(409);
+    expect(accepted.status).toBe(201);
+    expect(state.createdInteractions).toHaveLength(1);
+    expect(state.statusUpdates).toEqual([
+      {
+        jobId: "job-1",
+        status: "waiting_for_input",
+        ownership: {
+          workerId: "worker-current",
+          claimAttemptId: "attempt-current",
+        },
+        mode: "fenced",
       },
     ]);
   });

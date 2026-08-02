@@ -3057,6 +3057,9 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // POST /workers/jobs/:jobId/stream - Worker sends output stream chunks for planning jobs
+  //
+  // Ported from cloud without the workerApiKey workspace-scope check (see
+  // the "sequence-reservations" endpoint comment above).
   .post(
     "/jobs/:jobId/stream",
     async ({ params, body, set }) => {
@@ -3065,6 +3068,18 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       if (!existing) {
         set.status = 404;
         return notFoundResponse("Agent job");
+      }
+
+      const currentClaimAttemptId = getCurrentClaimAttemptId(existing.job.config);
+      if (
+        currentClaimAttemptId
+          ? body.expectedClaimAttemptId !== currentClaimAttemptId ||
+            body.workerId !== existing.job.workerId
+          : body.expectedClaimAttemptId !== undefined ||
+            body.workerId !== undefined
+      ) {
+        set.status = 409;
+        return errorResponse("Job claim is no longer active", 409);
       }
 
       const planningSessionId = existing.job.planningSessionId;
@@ -3116,6 +3131,10 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         jobId: t.String(),
       }),
       body: t.Object({
+        workerId: t.Optional(t.String({ minLength: 1 })),
+        expectedClaimAttemptId: t.Optional(
+          t.String({ minLength: 1, maxLength: 100 }),
+        ),
         content: t.String(),
         stepIndex: t.Optional(t.Number()),
         persistContent: t.Optional(t.Boolean()),
