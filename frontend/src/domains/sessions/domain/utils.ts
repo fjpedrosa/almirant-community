@@ -151,6 +151,10 @@ export type SessionLauncherIdentity =
       kind: "user";
       label: string;
       imageUrl: string | null;
+      /** True when this run was dispatched automatically (cron tick, a
+       *  built-in dispatcher automation, or a stale-job recovery re-enqueue)
+       *  rather than launched interactively by the shown user. */
+      automated: boolean;
     }
   | {
       kind: "bot";
@@ -167,6 +171,59 @@ export type SessionLauncherIdentity =
  * `backend/api/src/shared/services/session-token.ts`.
  */
 const AUTOMATION_BOT_USER_ID = "auto-fix-bot";
+
+/**
+ * `config.source` values written only by scheduled-agent dispatch paths that
+ * never involve a human clicking anything in the UI — the four built-in
+ * dispatcher automations (backend/api/src/domains/agents/services/
+ * scheduled-agent-dispatcher.ts: `executeBacklogDrain` sets `"backlog-drain"`,
+ * `executeDodRemediation` sets `"dod-remediation"`, `executeDodReview` sets
+ * `"dod-review"`, `executeCandidateBased` sets `"scheduled-config"`) plus the
+ * standalone scheduled-agent path (`"scheduled"`, written by
+ * execute-scheduled-agent-config.ts:299).
+ *
+ * `"scheduled"` is ambiguous on its own: a manual "Trigger now" click on a
+ * scheduled agent ALSO writes `config.source: "scheduled"` (same line —
+ * `source: dispatchTrigger === "webhook" ? "webhook" : "scheduled"` covers
+ * both `dispatchTrigger === "manual"` and `dispatchTrigger === "schedule"`).
+ * Only `config.scheduledDispatchTrigger` (`"schedule" | "webhook" | "manual"`,
+ * execute-scheduled-agent-config.ts:298) tells them apart, so
+ * `isAutomatedDispatch` below checks it whenever `source === "scheduled"`.
+ * The other four sources are never written by a manual-trigger code path, so
+ * for them any `scheduledDispatchTrigger` other than `"manual"` (i.e.
+ * `undefined`, since those branches call `createJob` directly and never set
+ * that field) means automated.
+ */
+const AUTOMATED_SCHEDULED_AGENT_SOURCES = new Set([
+  "scheduled",
+  "backlog-drain",
+  "dod-remediation",
+  "dod-review",
+  "scheduled-config",
+]);
+
+/**
+ * True when a job was dispatched without a human directly requesting this
+ * specific run: the scheduled-agent cron tick (`triggerType: "scheduled"`,
+ * execute-scheduled-agent-config.ts:339), a stale-job recovery re-enqueue
+ * (`triggerType: "recovery"`), or one of the `config.source` values above
+ * with `scheduledDispatchTrigger !== "manual"`.
+ */
+const isAutomatedDispatch = (
+  session: Pick<AgentSessionListItem, "triggerType" | "config">,
+): boolean => {
+  if (session.triggerType === "scheduled" || session.triggerType === "recovery") {
+    return true;
+  }
+
+  const source = getTrimmedString(session.config?.source);
+  if (!source || !AUTOMATED_SCHEDULED_AGENT_SOURCES.has(source)) return false;
+
+  const scheduledDispatchTrigger = getTrimmedString(
+    session.config?.scheduledDispatchTrigger as string | undefined,
+  );
+  return scheduledDispatchTrigger !== "manual";
+};
 
 export const resolveSessionLauncherIdentity = (
   session: Pick<
@@ -196,12 +253,14 @@ export const resolveSessionLauncherIdentity = (
         kind: "user",
         label: `${requestedByUserName} via Auto-Fix`,
         imageUrl: session.requestedByUserImage ?? null,
+        automated: isAutomatedDispatch(session),
       };
     }
     return {
       kind: "user",
       label: "Usuario",
       imageUrl: null,
+      automated: isAutomatedDispatch(session),
     };
   }
 
@@ -211,6 +270,7 @@ export const resolveSessionLauncherIdentity = (
       kind: "user",
       label: createdByUserName,
       imageUrl: session.createdByUserImage ?? null,
+      automated: isAutomatedDispatch(session),
     };
   }
 
@@ -221,6 +281,7 @@ export const resolveSessionLauncherIdentity = (
       kind: "user",
       label: "Usuario",
       imageUrl: session.createdByUserImage ?? null,
+      automated: isAutomatedDispatch(session),
     };
   }
 
