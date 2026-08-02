@@ -7,6 +7,7 @@ import { createRunnerOrchestrator } from "./orchestration/orchestrator";
 import { createPlatformInjector } from "./workspace/platform-injector";
 import { initTelemetry, shutdownTelemetry } from "./observability/telemetry";
 import { createRuntimeExecutorRegistry } from "./runtime-executors/registry";
+import { isAuthorizedRunnerControlRequest } from "./shared/control-auth";
 
 const env = loadRunnerEnv();
 
@@ -126,7 +127,11 @@ const app = new Elysia()
       bridge: isBridgeMode,
     };
   })
-  .post("/drain", () => {
+  .post("/drain", ({ request, set }) => {
+    if (!isAuthorizedRunnerControlRequest(request, env.ALMIRANT_API_KEY)) {
+      set.status = 401;
+      return { ok: false, message: "unauthorized" };
+    }
     if (orchestrator.isDraining) {
       return { ok: true, message: "already draining" };
     }
