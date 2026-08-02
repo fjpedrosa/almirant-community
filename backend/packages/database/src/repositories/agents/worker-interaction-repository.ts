@@ -1,7 +1,8 @@
 import { db } from "../../client";
 import { workerInteractions } from "../../schema";
 import { agentJobs } from "../../schema";
-import { and, asc, desc, eq, lt, notExists, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, notExists, sql } from "drizzle-orm";
+import { CLAIM_RECEIPT_CURRENT_JOB_STATUSES } from "./claim-sequence-receipt-repository";
 
 export type CreateInteractionInput = {
   agentJobId: string;
@@ -36,6 +37,126 @@ export const createInteraction = async (
 
   if (!created) throw new Error("Failed to create worker interaction");
   return created;
+};
+
+export type CreateFencedJobInteractionInput = CreateInteractionInput & {
+  workerId?: string;
+  claimAttemptId?: string;
+};
+
+export type CreateFencedJobInteractionResult =
+  | {
+      outcome: "created";
+      job: typeof agentJobs.$inferSelect;
+      interaction: typeof workerInteractions.$inferSelect;
+    }
+  | {
+      outcome: "not_found" | "claim_conflict";
+    };
+
+/**
+ * Atomically transitions an exact active claim to `waiting_for_input` and
+ * persists its interaction. Ownership is fenced the same way as the receipts
+ * protocol's status-transition path: if a durable claim is active, the
+ * request's `workerId`/`claimAttemptId` must match it exactly; if no claim is
+ * active, the request must not carry one either. A job with a pending
+ * terminal intent (cancel/fail requested but not yet applied) refuses new
+ * interactions.
+ *
+ * Ported from cloud's `createFencedJobInteraction` with the site-build
+ * execution-deadline fence removed: cloud locks `site_build_runs`/
+ * `site_build_stages` rows correlated to the job before the update, applies
+ * `siteBuildJobExecutionWindowPredicate()` inside the `UPDATE ... WHERE`, and
+ * re-checks the window after the INSERT (rolling back with a
+ * `deadline_exceeded` outcome if the window closed mid-transaction). None of
+ * that exists in community — there is no `site_build_runs` table — so the
+ * atomic `UPDATE ... WHERE` re-checking claim ownership + status +
+ * `pendingTerminalIntent` is the only fence, and the outcome union has no
+ * `deadline_exceeded` case.
+ */
+export const createFencedJobInteraction = async (
+  input: CreateFencedJobInteractionInput,
+): Promise<CreateFencedJobInteractionResult> => {
+  return db.transaction(async (tx) => {
+    const [lockedJob] = await tx
+      .select()
+      .from(agentJobs)
+      .where(eq(agentJobs.id, input.agentJobId))
+      .for("update");
+    if (!lockedJob) return { outcome: "not_found" as const };
+
+    const currentClaimAttemptId =
+      typeof lockedJob.config?.claimAttemptId === "string"
+        ? lockedJob.config.claimAttemptId.trim()
+        : "";
+    const requestWorkerId = input.workerId?.trim() ?? "";
+    const requestClaimAttemptId = input.claimAttemptId?.trim() ?? "";
+    const hasCurrentClaim = currentClaimAttemptId.length > 0;
+    const ownsCurrentClaim = hasCurrentClaim
+      ? requestWorkerId.length > 0 &&
+        requestClaimAttemptId === currentClaimAttemptId &&
+        lockedJob.workerId === requestWorkerId
+      : requestWorkerId.length === 0 && requestClaimAttemptId.length === 0;
+    if (
+      !ownsCurrentClaim ||
+      !CLAIM_RECEIPT_CURRENT_JOB_STATUSES.includes(
+        lockedJob.status as (typeof CLAIM_RECEIPT_CURRENT_JOB_STATUSES)[number],
+      ) ||
+      lockedJob.config?.pendingTerminalIntent != null
+    ) {
+      return { outcome: "claim_conflict" as const };
+    }
+
+    const ownershipPredicate = hasCurrentClaim
+      ? and(
+          eq(agentJobs.workerId, requestWorkerId),
+          sql`${agentJobs.config} ->> 'claimAttemptId' = ${requestClaimAttemptId}`,
+        )
+      : sql`COALESCE(${agentJobs.config} ->> 'claimAttemptId', '') = ''`;
+    const [updatedJob] = await tx
+      .update(agentJobs)
+      .set({
+        status: "waiting_for_input",
+        updatedAt: sql<Date>`clock_timestamp()` as never,
+      })
+      .where(
+        and(
+          eq(agentJobs.id, input.agentJobId),
+          inArray(agentJobs.status, CLAIM_RECEIPT_CURRENT_JOB_STATUSES),
+          ownershipPredicate,
+          sql`${agentJobs.config} -> 'pendingTerminalIntent' IS NULL`,
+        ),
+      )
+      .returning();
+    if (!updatedJob) {
+      return { outcome: "claim_conflict" as const };
+    }
+
+    const [interaction] = await tx
+      .insert(workerInteractions)
+      .values({
+        agentJobId: input.agentJobId,
+        workItemId: input.workItemId ?? null,
+        questionType: input.questionType,
+        questionText: input.questionText,
+        questionContext: input.questionContext ?? null,
+        options: input.options ?? null,
+        expiresAt: input.expiresAt,
+        timeoutAction: input.timeoutAction ?? "fail",
+        defaultAnswer: input.defaultAnswer ?? null,
+        status: "pending",
+      })
+      .returning();
+    if (!interaction) {
+      throw new Error("Failed to create worker interaction");
+    }
+
+    return {
+      outcome: "created" as const,
+      job: updatedJob,
+      interaction,
+    };
+  });
 };
 
 export const getInteractionById = async (
