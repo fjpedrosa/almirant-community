@@ -617,12 +617,18 @@ export const createAlmirantWorkerClient = (
       );
     },
 
-    pollInteraction: async (jobId: string, interactionId: string) => {
+    pollInteraction: async (
+      jobId: string,
+      interactionId: string,
+      requestOptions?: WorkerClientRequestOptions,
+    ) => {
       return requestJson<WorkerInteraction>(
         config,
         `/workers/jobs/${jobId}/interactions/${interactionId}`,
         {
           method: "GET",
+          timeoutMs: requestOptions?.timeoutMs,
+          signal: requestOptions?.signal,
         }
       );
     },

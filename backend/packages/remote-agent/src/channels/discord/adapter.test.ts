@@ -80,6 +80,42 @@ describe("DiscordChannelAdapter", () => {
     expect(parsed.auto_archive_duration).toBe(1440);
   });
 
+  it("keeps the caller deadline active while consuming thread response JSON", async () => {
+    const boundaryController = new AbortController();
+    const adapter = createDiscordChannelAdapter(
+      {
+        botToken: "bot-123",
+        apiBaseUrl: "https://discord.example/api/v10",
+        requestTimeoutMs: 30_000,
+      },
+      {
+        fetchFn: asFetch(async () => ({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: async () => {
+            boundaryController.abort(
+              new Error("site_build_execution_deadline_exceeded"),
+            );
+            await Promise.resolve();
+            return JSON.stringify({
+              id: "thread-too-late",
+              name: "too late",
+            });
+          },
+        }) as Response),
+      },
+    );
+
+    await expect(adapter.createThread(
+      {
+        channelId: "channel-1",
+        name: "deadline thread",
+      },
+      { signal: boundaryController.signal, timeoutMs: 30_000 },
+    )).rejects.toThrow("site_build_execution_deadline_exceeded");
+  });
+
   it("waits for replies and filters by requester", async () => {
     let now = 0;
     let polls = 0;

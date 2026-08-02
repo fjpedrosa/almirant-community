@@ -1,4 +1,7 @@
-import type { ChannelAdapter } from "../../core/types";
+import type {
+  ChannelAdapter,
+  ChannelRequestOptions,
+} from "../../core/types";
 import { DISCORD_LIMITS, type DiscordApiConfig, type DiscordApiMessage, type DiscordChannelMessage, type DiscordChannelThread, type DiscordMessagePayload, type DiscordRichChannelAdapter, type DiscordThreadReply } from "./types";
 import { splitMessageContent, stripAnsiForDiscord } from "./formatter";
 
@@ -15,6 +18,33 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 const DEFAULT_EDIT_THROTTLE_MS = 1000;
 const DEFAULT_POLL_INTERVAL_MS = 2000;
 const DEFAULT_REPLY_TIMEOUT_MS = 5 * 60 * 1000;
+
+const throwIfAborted = (signal: AbortSignal): void => {
+  if (signal.aborted) {
+    throw signal.reason ?? new Error("Discord API request aborted");
+  }
+};
+
+const raceWithAbort = async <T>(
+  operation: () => Promise<T>,
+  signal: AbortSignal,
+): Promise<T> => {
+  throwIfAborted(signal);
+  const pending = operation();
+  pending.catch(() => undefined);
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => {
+      reject(signal.reason ?? new Error("Discord API request aborted"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([pending, aborted]);
+  } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+};
 
 const clampThreadName = (name: string): string => {
   const cleaned = name.trim().replace(/\s+/g, " ");
@@ -149,7 +179,7 @@ export class DiscordChannelAdapter implements DiscordRichChannelAdapter {
     name: string;
     reason?: string;
     autoArchiveDurationMinutes?: 60 | 1440 | 4320 | 10080;
-  }): Promise<DiscordChannelThread> {
+  }, requestOptions?: ChannelRequestOptions): Promise<DiscordChannelThread> {
     const payload = await this.requestJson(
       `/channels/${encodeURIComponent(args.channelId)}/threads`,
       {
@@ -161,7 +191,8 @@ export class DiscordChannelAdapter implements DiscordRichChannelAdapter {
             args.autoArchiveDurationMinutes ?? this.config.defaultAutoArchiveMinutes,
         }),
         reason: args.reason,
-      }
+      },
+      requestOptions,
     );
 
     return toDiscordThread(payload);
@@ -381,9 +412,16 @@ export class DiscordChannelAdapter implements DiscordRichChannelAdapter {
     this.lastEditAtByMessage.set(messageId, this.now());
   }
 
-  private async requestJson(path: string, init: RequestInitWithReason): Promise<JsonValue> {
-    const response = await this.request(path, init);
-    const text = await response.text();
+  private async requestJson(
+    path: string,
+    init: RequestInitWithReason,
+    requestOptions?: ChannelRequestOptions,
+  ): Promise<JsonValue> {
+    const { body: text } = await this.request(
+      path,
+      init,
+      requestOptions,
+    );
     if (!text.trim()) {
       return {};
     }
@@ -399,10 +437,32 @@ export class DiscordChannelAdapter implements DiscordRichChannelAdapter {
     }
   }
 
-  private async request(path: string, init: RequestInitWithReason): Promise<Response> {
+  private async request(
+    path: string,
+    init: RequestInitWithReason,
+    requestOptions?: ChannelRequestOptions,
+  ): Promise<{ response: Response; body: string }> {
     const controller = new AbortController();
-    const timeoutMs = this.config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutMs =
+      requestOptions?.timeoutMs ??
+      this.config.requestTimeoutMs ??
+      DEFAULT_REQUEST_TIMEOUT_MS;
+    const timeoutId = setTimeout(
+      () =>
+        controller.abort(
+          new Error(`Discord API timeout after ${timeoutMs}ms`),
+        ),
+      timeoutMs,
+    );
+    const externalSignals = [init.signal, requestOptions?.signal].filter(
+      (signal): signal is AbortSignal => signal != null,
+    );
+    const listeners = externalSignals.map((signal) => {
+      const listener = () => controller.abort(signal.reason);
+      if (signal.aborted) listener();
+      else signal.addEventListener("abort", listener, { once: true });
+      return { signal, listener };
+    });
 
     try {
       const headers = new Headers(init.headers);
@@ -414,23 +474,34 @@ export class DiscordChannelAdapter implements DiscordRichChannelAdapter {
       }
 
       const apiBaseUrl = (this.config.apiBaseUrl ?? DEFAULT_API_BASE).replace(/\/+$/, "");
-      const response = await this.fetchFn(`${apiBaseUrl}${path}`, {
-        ...init,
-        headers,
-        signal: controller.signal,
-      });
+      const response = await raceWithAbort(
+        () => this.fetchFn(`${apiBaseUrl}${path}`, {
+          ...init,
+          headers,
+          signal: controller.signal,
+        }),
+        controller.signal,
+      );
+      throwIfAborted(controller.signal);
+      const body = await raceWithAbort(
+        () => response.text(),
+        controller.signal,
+      );
+      throwIfAborted(controller.signal);
 
       if (!response.ok) {
-        const body = await response.text().catch(() => "");
         const snippet = body.trim().slice(0, 500);
         throw new Error(
           `Discord API error ${response.status}: ${snippet || response.statusText}`
         );
       }
 
-      return response;
+      return { response, body };
     } finally {
       clearTimeout(timeoutId);
+      for (const { signal, listener } of listeners) {
+        signal.removeEventListener("abort", listener);
+      }
     }
   }
 }
