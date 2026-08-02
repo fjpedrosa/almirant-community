@@ -9,8 +9,9 @@
  * Used as a safety net for any uncommitted changes left after the session.
  */
 
+import type { ExecutionBoundary } from "@almirant/shared";
 import type { CollectedChanges } from "./change-collector";
-import { GITHUB_BOT_EMAIL, GITHUB_BOT_NAME } from "./github-identity";
+import type { GitCommitIdentity } from "./github-identity";
 import {
   filterUserModifiedPaths,
   isRunnerManagedRepoPath,
@@ -34,13 +35,34 @@ export interface PushChangesParams {
   gitToken: string;
   /** Job ID for commit message attribution. */
   jobId: string;
+  /** Server-resolved commit identity. Never accept this from a webhook payload. */
+  gitIdentity: GitCommitIdentity;
+  /** Live execution-deadline fence for every archive/git subprocess. */
+  executionBoundary: ExecutionBoundary;
 }
+
+export type PushChangesCommandOptions = {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  signal: AbortSignal;
+  timeoutMs: number;
+};
+
+export type PushChangesDeps = {
+  runCommand?: (
+    command: string,
+    args: string[],
+    options: PushChangesCommandOptions,
+  ) => Promise<{ stdout: string; stderr: string }>;
+};
 
 export interface PushChangesResult {
   /** Whether the push succeeded. */
   success: boolean;
   /** Number of files in the commit. */
   modifiedFileCount: number;
+  /** Exact local commit created by this runner before the push. */
+  commitSha?: string;
   /** Error message if push failed. */
   errorMessage?: string;
 }
@@ -52,9 +74,19 @@ export interface PushChangesResult {
  * so `git remote -v` always shows a clean HTTPS URL.
  */
 export const pushChanges = async (
-  params: PushChangesParams
+  params: PushChangesParams,
+  deps: PushChangesDeps = {},
 ): Promise<PushChangesResult> => {
-  const { collected, repoUrl, branch, gitToken, jobId } = params;
+  const {
+    collected,
+    repoUrl,
+    branch,
+    gitToken,
+    jobId,
+    gitIdentity,
+    executionBoundary,
+  } = params;
+  executionBoundary.assertOpen();
   const { tmpdir } = await import("node:os");
   const { mkdtemp, rm, readFile, writeFile, chmod, stat } = await import("node:fs/promises");
   const { join } = await import("node:path");
@@ -64,6 +96,7 @@ export const pushChanges = async (
   const { pipeline } = await import("node:stream/promises");
   const { Readable } = await import("node:stream");
   const execFileAsync = promisify(execFile);
+  executionBoundary.assertOpen();
 
   const log = (msg: string) => console.log(`[runner-push:${jobId}] ${msg}`);
   const warn = (msg: string) => console.warn(`[runner-push:${jobId}] ${msg}`);
@@ -74,13 +107,30 @@ export const pushChanges = async (
   const run = async (
     cmd: string,
     args: string[],
-    opts?: { cwd?: string; env?: Record<string, string> }
+    opts?: { cwd?: string; env?: NodeJS.ProcessEnv }
   ): Promise<{ stdout: string; stderr: string }> => {
-    return execFileAsync(cmd, args, {
+    executionBoundary.assertOpen();
+    const timeoutMs = executionBoundary.timeoutMs(60_000);
+    const signal = executionBoundary.signal(timeoutMs);
+    const commandOptions: PushChangesCommandOptions = {
       cwd: opts?.cwd,
       env: { ...process.env, ...opts?.env },
-      maxBuffer: 50 * 1024 * 1024,
-    });
+      signal,
+      timeoutMs,
+    };
+    const result = deps.runCommand
+      ? await deps.runCommand(cmd, args, commandOptions)
+      : await execFileAsync(cmd, args, {
+          cwd: commandOptions.cwd,
+          env: commandOptions.env,
+          maxBuffer: 50 * 1024 * 1024,
+          signal: commandOptions.signal,
+          timeout: commandOptions.timeoutMs,
+          killSignal: "SIGTERM",
+          encoding: "utf8",
+        });
+    executionBoundary.assertOpen();
+    return result;
   };
 
   log(`Archive mode: ${archiveMode}; archive buffer size: ${collected.archiveBuffer.length} bytes`);
@@ -94,7 +144,9 @@ export const pushChanges = async (
     return { success: true, modifiedFileCount: 0 };
   }
 
+  executionBoundary.assertOpen();
   const tempDir = await mkdtemp(join(tmpdir(), "almirant-push-"));
+  executionBoundary.assertOpen();
   const cloneDir = join(tempDir, "repo");
   const tarPath = join(tempDir, "workspace.tar");
   const patchPath = join(tempDir, "changes.patch");
@@ -103,7 +155,9 @@ export const pushChanges = async (
   try {
     // Write askpass script so token never appears in remote URL
     await writeFile(askpassPath, `#!/bin/sh\necho "${gitToken}"\n`);
+    executionBoundary.assertOpen();
     await chmod(askpassPath, 0o700);
+    executionBoundary.assertOpen();
 
     // Write archive to disk when this collection mode produced one. Selective
     // mode may legitimately have no tar if there are only tracked changes.
@@ -112,7 +166,9 @@ export const pushChanges = async (
         Readable.from(collected.archiveBuffer),
         createWriteStream(tarPath),
       );
+      executionBoundary.assertOpen();
       const tarStat = await stat(tarPath);
+      executionBoundary.assertOpen();
       log(`Tar written: ${tarStat.size} bytes`);
 
       // List top-level entries to verify archive structure
@@ -121,11 +177,13 @@ export const pushChanges = async (
         const topDirs = [...new Set(tarList.split("\n").filter(Boolean).map(e => e.split("/")[0]))];
         log(`Archive top-level entries: ${topDirs.join(", ")}`);
       } catch {
+        executionBoundary.assertOpen();
         try {
           const { stdout: tarList } = await run("tar", ["tf", tarPath]);
           const firstEntries = tarList.split("\n").filter(Boolean).slice(0, 10);
           log(`Archive first 10 entries: ${firstEntries.join(", ")}`);
         } catch (listErr) {
+          executionBoundary.assertOpen();
           warn(`Could not list archive contents: ${listErr instanceof Error ? listErr.message : String(listErr)}`);
         }
       }
@@ -147,6 +205,7 @@ export const pushChanges = async (
             "repo/.git/HEAD",
           ]);
           const headContent = await readFile(join(headTmpDir, ".git", "HEAD"), "utf8");
+          executionBoundary.assertOpen();
           const match = headContent.match(/^ref: refs\/heads\/(.+)/);
           if (match?.[1]?.trim() && match[1].trim() !== "main") {
             detectedBranch = match[1].trim();
@@ -156,6 +215,7 @@ export const pushChanges = async (
           await rm(headTmpDir, { recursive: true, force: true }).catch(() => undefined);
         }
       } catch {
+        executionBoundary.assertOpen();
         log(`Could not detect branch from archive — using param: ${branch}`);
       }
     } else {
@@ -175,6 +235,7 @@ export const pushChanges = async (
       ], { env: gitEnv });
       log(`Cloned branch ${detectedBranch} successfully`);
     } catch {
+      executionBoundary.assertOpen();
       log(`Branch ${detectedBranch} not on remote — cloning default and creating`);
       await run("git", [
         "clone", "--depth=1",
@@ -199,6 +260,7 @@ export const pushChanges = async (
     } else {
       if (collected.fullDiff.trim()) {
         await writeFile(patchPath, collected.fullDiff);
+        executionBoundary.assertOpen();
         await run("git", [
           "apply",
           "--binary",
@@ -243,11 +305,18 @@ export const pushChanges = async (
 
     // Commit
     await run("git", [
-      "-c", `user.name=${GITHUB_BOT_NAME}`,
-      "-c", `user.email=${GITHUB_BOT_EMAIL}`,
+      "-c", `user.name=${gitIdentity.name}`,
+      "-c", `user.email=${gitIdentity.email}`,
       "commit",
       "-m", `chore: apply changes from job ${jobId}`,
     ], { cwd: cloneDir });
+    const { stdout: localHead } = await run("git", ["rev-parse", "HEAD"], {
+      cwd: cloneDir,
+    });
+    const commitSha = localHead.trim().toLowerCase();
+    if (!/^[a-f0-9]{40}$/.test(commitSha)) {
+      throw new Error("Runner-created commit SHA is invalid");
+    }
 
     // Push using GIT_ASKPASS
     const { stderr: pushStderr } = await run("git", ["push", "origin", detectedBranch], {
@@ -259,8 +328,13 @@ export const pushChanges = async (
     // Clean up askpass immediately after push
     await rm(askpassPath, { force: true }).catch(() => undefined);
 
-    return { success: true, modifiedFileCount: modifiedFiles.length };
+    return {
+      success: true,
+      modifiedFileCount: modifiedFiles.length,
+      commitSha,
+    };
   } catch (error) {
+    executionBoundary.assertOpen();
     const msg = error instanceof Error ? error.message : String(error);
     warn(`Push failed: ${msg}`);
     return {

@@ -8,6 +8,7 @@
  * Phase 3: Archive-overlay push (last resort)
  */
 
+import type { ExecutionBoundary } from "@almirant/shared";
 import {
   createOpenCodeSessionManager,
   type AlmirantWorkerClient,
@@ -18,8 +19,36 @@ import type { RunnerJobEventLogger } from "../observability/job-event-logger";
 import { WORKSPACE_REPO_PATH } from "../workspace/container-spec-builder";
 import { collectAndPushChanges } from "./pr-manager";
 import type { ClaimedJob } from "@almirant/remote-agent";
+import { runDeadlineBoundContainerOperation } from "../workspace/container-operation";
+import {
+  createJobSafeConsole,
+  type JobSecretRedactor,
+} from "../security/job-secret-redactor";
 
 const PROTECTED_PUSH_BRANCHES = new Set(["main", "master"]);
+
+const raceWithAbort = async <T>(
+  operation: () => Promise<T>,
+  signal: AbortSignal,
+): Promise<T> => {
+  if (signal.aborted) {
+    throw signal.reason ?? new Error("post-session operation aborted");
+  }
+  const pending = operation();
+  pending.catch(() => undefined);
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => {
+      reject(signal.reason ?? new Error("post-session operation aborted"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([pending, aborted]);
+  } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+};
 
 export const isProtectedPushBranch = (branch: string): boolean =>
   PROTECTED_PUSH_BRANCHES.has(branch.trim().toLowerCase());
@@ -57,6 +86,7 @@ export const buildStageUserChangesCommand = (): string =>
 export type PushPipelineDeps = {
   containerManager: ContainerDriver;
   workerClient: AlmirantWorkerClient;
+  sessionManagerFactory?: typeof createOpenCodeSessionManager;
 };
 
 export type PushPipelineParams = {
@@ -67,6 +97,9 @@ export type PushPipelineParams = {
   repositoryId?: string;
   containerServeBaseUrl: string | null;
   eventLogger: RunnerJobEventLogger;
+  redactor: JobSecretRedactor;
+  /** Live execution-deadline fence for every push-phase subprocess/HTTP call. */
+  executionBoundary: ExecutionBoundary;
 };
 
 // ---------------------------------------------------------------------------
@@ -78,6 +111,8 @@ export type ReleasePrimarySessionParams = {
   sessionId: string;
   containerServeBaseUrl: string | null;
   eventLogger: RunnerJobEventLogger;
+  redactor: JobSecretRedactor;
+  executionBoundary?: ExecutionBoundary;
   /** Optional override for testing — by default, uses createOpenCodeSessionManager. */
   sessionManagerFactory?: (baseUrl: string) => Pick<OpenCodeSessionManager, "deleteSession">;
 };
@@ -101,7 +136,16 @@ export type ReleasePrimarySessionParams = {
 export async function releasePrimarySession(
   params: ReleasePrimarySessionParams,
 ): Promise<boolean> {
-  const { jobId, sessionId, containerServeBaseUrl, eventLogger, sessionManagerFactory } = params;
+  const {
+    jobId,
+    sessionId,
+    containerServeBaseUrl,
+    eventLogger,
+    redactor,
+    executionBoundary,
+    sessionManagerFactory,
+  } = params;
+  const safeConsole = createJobSafeConsole(redactor);
 
   if (!containerServeBaseUrl || !sessionId) {
     return false;
@@ -114,8 +158,17 @@ export async function releasePrimarySession(
           baseUrl: containerServeBaseUrl,
           timeoutMs: 10_000,
         });
-    await manager.deleteSession(sessionId);
-    console.log(`[job:${jobId}] Primary session ${sessionId} deleted before push`);
+    executionBoundary?.assertOpen();
+    const signal =
+      executionBoundary?.signal(10_000) ?? AbortSignal.timeout(10_000);
+    const timeoutMs =
+      executionBoundary?.timeoutMs(10_000) ?? 10_000;
+    await raceWithAbort(
+      () => manager.deleteSession(sessionId, { signal, timeoutMs }),
+      signal,
+    );
+    executionBoundary?.assertOpen();
+    safeConsole.log(`[job:${jobId}] Primary session ${sessionId} deleted before push`);
     eventLogger.info(
       "finish",
       "session.primary_deleted",
@@ -125,7 +178,7 @@ export async function releasePrimarySession(
     return true;
   } catch (deleteErr) {
     const message = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
-    console.warn(`[job:${jobId}] Failed to delete primary session (non-fatal): ${message}`);
+    safeConsole.warn(`[job:${jobId}] Failed to delete primary session (non-fatal): ${message}`);
     eventLogger.warn(
       "finish",
       "session.primary_delete_failed",
@@ -149,23 +202,34 @@ export async function releasePrimarySession(
 export async function extractBranchName(
   containerManager: ContainerDriver,
   containerId: string,
+  executionBoundary: ExecutionBoundary,
 ): Promise<string | null> {
   try {
-    const { exitCode, stdout } = await containerManager.execInContainer(
-      containerId,
-      ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-      "/workspace/repo",
+    const { exitCode, stdout } = await runDeadlineBoundContainerOperation(
+      executionBoundary,
+      15_000,
+      () => containerManager.execInContainer(
+        containerId,
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        "/workspace/repo",
+      ),
     );
     if (exitCode === 0 && stdout.trim() && stdout.trim() !== "main") {
       return stdout.trim();
     }
   } catch {
+    executionBoundary.assertOpen();
     // Exec failed (e.g. Docker proxy doesn't support hijack).
     // Fall back to reading .git/HEAD from the container archive.
     try {
-      const headArchive = await containerManager.extractWorkspaceArchive(
-        containerId,
-        "/workspace/repo/.git/HEAD",
+      const headArchive = await runDeadlineBoundContainerOperation(
+        executionBoundary,
+        15_000,
+        () => containerManager.extractWorkspaceArchive(
+          containerId,
+          "/workspace/repo/.git/HEAD",
+          10_000,
+        ),
       );
       const { tmpdir } = await import("node:os");
       const { mkdtemp, rm, readFile } = await import("node:fs/promises");
@@ -180,7 +244,16 @@ export async function extractBranchName(
       try {
         const headTarPath = join(tmpDir, "head.tar");
         await pipeline(Readable.from(headArchive), createWriteStream(headTarPath));
-        await promisify(execFile)("tar", ["xf", headTarPath, "-C", tmpDir]);
+        const hostTimeoutMs = executionBoundary.timeoutMs(10_000);
+        await promisify(execFile)(
+          "tar",
+          ["xf", headTarPath, "-C", tmpDir],
+          {
+            timeout: hostTimeoutMs,
+            signal: executionBoundary.signal(hostTimeoutMs),
+          },
+        );
+        executionBoundary.assertOpen();
         const headContent = await readFile(join(tmpDir, "HEAD"), "utf8");
         const match = headContent.match(/^ref: refs\/heads\/(.+)/);
         if (match?.[1]?.trim() && match[1].trim() !== "main") {
@@ -190,6 +263,7 @@ export async function extractBranchName(
         await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
       }
     } catch {
+      executionBoundary.assertOpen();
       // Both methods failed — branch detection is best-effort
     }
   }
@@ -210,15 +284,30 @@ export async function executePushPipeline(
   params: PushPipelineParams,
 ): Promise<{ pushSucceeded: boolean }> {
   const { containerManager, workerClient } = deps;
-  const { containerId, job, repoUrl, pushBranch, repositoryId, containerServeBaseUrl, eventLogger } = params;
+  const {
+    containerId,
+    job,
+    repoUrl,
+    pushBranch,
+    repositoryId,
+    containerServeBaseUrl,
+    eventLogger,
+    redactor,
+    executionBoundary,
+  } = params;
+  const safeConsole = createJobSafeConsole(redactor);
 
   let pushSucceeded = false;
 
-  const containerRunning = await containerManager.isContainerRunning(containerId);
-  console.log(`[job:${job.id}] Container running: ${containerRunning}`);
+  const containerRunning = await runDeadlineBoundContainerOperation(
+    executionBoundary,
+    15_000,
+    () => containerManager.isContainerRunning(containerId),
+  );
+  safeConsole.log(`[job:${job.id}] Container running: ${containerRunning}`);
 
   if (isProtectedPushBranch(pushBranch)) {
-    console.warn(`[job:${job.id}] Blocking post-session push to protected branch "${pushBranch}"`);
+    safeConsole.warn(`[job:${job.id}] Blocking post-session push to protected branch "${pushBranch}"`);
     eventLogger.warn("push", "push.blocked_protected_branch", "Blocked post-session push to protected branch", {
       branch: pushBranch,
       containerId,
@@ -229,16 +318,27 @@ export async function executePushPipeline(
   // --- Push Phase 1: Serve-based push (works through Docker proxy) ---
   if (!pushSucceeded && containerRunning && containerServeBaseUrl) {
     try {
-      console.log(`[job:${job.id}] Pushing via serve session at ${containerServeBaseUrl}...`);
-      const serveSessionManager = createOpenCodeSessionManager({
+      safeConsole.log(`[job:${job.id}] Pushing via serve session at ${containerServeBaseUrl}...`);
+      const serveSessionManager = (
+        deps.sessionManagerFactory ?? createOpenCodeSessionManager
+      )({
         baseUrl: containerServeBaseUrl,
-        timeoutMs: 30_000,
+        timeoutMs: executionBoundary.timeoutMs(30_000),
       });
 
-      const pushSession = await serveSessionManager.createSession({
-        cwd: WORKSPACE_REPO_PATH,
-      });
-      console.log(`[job:${job.id}] Push session created: ${pushSession.id}`);
+      executionBoundary.assertOpen();
+      const sessionCreateTimeoutMs = executionBoundary.timeoutMs(30_000);
+      const pushSession = await serveSessionManager.createSession(
+        {
+          cwd: WORKSPACE_REPO_PATH,
+        },
+        {
+          timeoutMs: sessionCreateTimeoutMs,
+          signal: executionBoundary.signal(sessionCreateTimeoutMs),
+        },
+      );
+      executionBoundary.assertOpen();
+      safeConsole.log(`[job:${job.id}] Push session created: ${pushSession.id}`);
 
       const pushPrompt = [
         "Run these bash commands exactly as shown. Do NOT explain or ask — just run them and report raw output.",
@@ -265,17 +365,32 @@ export async function executePushPipeline(
         "```",
       ].join("\n");
 
-      await serveSessionManager.sendPromptAsync(pushSession.id, { prompt: pushPrompt });
+      const promptTimeoutMs = executionBoundary.timeoutMs(30_000);
+      await serveSessionManager.sendPromptAsync(
+        pushSession.id,
+        { prompt: pushPrompt },
+        {
+          timeoutMs: promptTimeoutMs,
+          signal: executionBoundary.signal(promptTimeoutMs),
+        },
+      );
+      executionBoundary.assertOpen();
 
       // Wait for the push session to complete by consuming SSE events
       const pushAbort = new AbortController();
-      const pushTimeout = setTimeout(() => pushAbort.abort(), 120_000); // 2min timeout
+      const pushTimeout = setTimeout(
+        () => pushAbort.abort(),
+        executionBoundary.timeoutMs(120_000),
+      );
       let pushSessionOutput = "";
 
       try {
         const eventStream = serveSessionManager.streamSessionEvents(
           undefined,
-          pushAbort.signal,
+          AbortSignal.any([
+            pushAbort.signal,
+            executionBoundary.signal(120_000),
+          ]),
         );
 
         let idle = false;
@@ -309,7 +424,7 @@ export async function executePushPipeline(
 
         if (idle) {
           // Log the FULL output for debugging
-          console.log(`[job:${job.id}] Push session output (${pushSessionOutput.length} chars):\n${pushSessionOutput.slice(-2000)}`);
+          safeConsole.log(`[job:${job.id}] Push session output (${pushSessionOutput.length} chars):\n${pushSessionOutput.slice(-2000)}`);
 
           // Check for explicit exit code marker from our command
           const exitCodeMatch = pushSessionOutput.match(/PUSH_EXIT_CODE=(\d+)/);
@@ -318,31 +433,33 @@ export async function executePushPipeline(
 
           if (exitCodeMatch && exitCodeMatch[1] === "0") {
             pushSucceeded = true;
-            console.log(`[job:${job.id}] Serve-based push confirmed EXIT_CODE=0`);
+            safeConsole.log(`[job:${job.id}] Serve-based push confirmed EXIT_CODE=0`);
             eventLogger.info("push", "push.serve_success", "Serve-based push succeeded (EXIT_CODE=0)", { branch: pushBranch });
           } else if (gitPushSuccess && !gitPushErrors) {
             pushSucceeded = true;
-            console.log(`[job:${job.id}] Serve-based push succeeded (output pattern match)`);
+            safeConsole.log(`[job:${job.id}] Serve-based push succeeded (output pattern match)`);
             eventLogger.info("push", "push.serve_success", "Serve-based push succeeded", { branch: pushBranch });
           } else if (gitPushErrors) {
-            console.warn(`[job:${job.id}] Serve-based push had errors: ${pushSessionOutput.slice(-500)}`);
+            safeConsole.warn(`[job:${job.id}] Serve-based push had errors: ${pushSessionOutput.slice(-500)}`);
             eventLogger.warn("push", "push.serve_error", "Serve-based push had errors", {
               output: pushSessionOutput.slice(-500),
             });
           } else {
             // No clear indicators — DON'T assume success
-            console.warn(`[job:${job.id}] Serve-based push: could not determine outcome`);
+            safeConsole.warn(`[job:${job.id}] Serve-based push: could not determine outcome`);
             eventLogger.warn("push", "push.serve_unknown", "Could not determine push outcome from output");
           }
         } else {
-          console.warn(`[job:${job.id}] Push session timed out or was aborted`);
+          safeConsole.warn(`[job:${job.id}] Push session timed out or was aborted`);
         }
       } finally {
         clearTimeout(pushTimeout);
       }
+      executionBoundary.assertOpen();
     } catch (serveError) {
+      executionBoundary.assertOpen();
       const serveErr = serveError instanceof Error ? serveError.message : String(serveError);
-      console.warn(`[job:${job.id}] Serve-based push failed: ${serveErr}`);
+      safeConsole.warn(`[job:${job.id}] Serve-based push failed: ${serveErr}`);
       eventLogger.warn("push", "push.serve_failed", "Serve-based push failed", { errorMessage: serveErr });
     }
   }
@@ -352,19 +469,37 @@ export async function executePushPipeline(
     try {
       const unstageManagedPathsCommand = buildUnstageRunnerManagedPathsCommand();
       const stageUserChangesCommand = buildStageUserChangesCommand();
-      const pushResult = await containerManager.execInContainer(
-        containerId,
-        ["sh", "-c", `cd ${WORKSPACE_REPO_PATH} && ${unstageManagedPathsCommand} && ${stageUserChangesCommand} && (git diff --cached --quiet || git commit -m "chore: apply remaining changes") && git push origin ${pushBranch}`],
-        WORKSPACE_REPO_PATH,
+      const execTimeoutMs = executionBoundary.timeoutMs(60_000);
+      const execTimeoutSeconds = Math.max(
+        0.001,
+        execTimeoutMs / 1_000,
+      ).toFixed(3);
+      const pushResult = await runDeadlineBoundContainerOperation(
+        executionBoundary,
+        execTimeoutMs,
+        () => containerManager.execInContainer(
+          containerId,
+          [
+            "timeout",
+            "--signal=TERM",
+            "--kill-after=1s",
+            `${execTimeoutSeconds}s`,
+            "sh",
+            "-c",
+            `cd ${WORKSPACE_REPO_PATH} && ${unstageManagedPathsCommand} && ${stageUserChangesCommand} && (git diff --cached --quiet || git commit -m "chore: apply remaining changes") && git push origin ${pushBranch}`,
+          ],
+          WORKSPACE_REPO_PATH,
+        ),
       );
       if (pushResult.exitCode === 0) {
         pushSucceeded = true;
-        console.log(`[job:${job.id}] Exec-based push succeeded`);
+        safeConsole.log(`[job:${job.id}] Exec-based push succeeded`);
       } else {
-        console.warn(`[job:${job.id}] Exec-based push failed: ${pushResult.stderr || pushResult.stdout}`);
+        safeConsole.warn(`[job:${job.id}] Exec-based push failed: ${pushResult.stderr || pushResult.stdout}`);
       }
     } catch (execError) {
-      console.warn(`[job:${job.id}] Exec not available: ${execError instanceof Error ? execError.message : String(execError)}`);
+      executionBoundary.assertOpen();
+      safeConsole.warn(`[job:${job.id}] Exec not available: ${execError instanceof Error ? execError.message : String(execError)}`);
     }
   }
 
@@ -372,19 +507,26 @@ export async function executePushPipeline(
   if (!pushSucceeded && containerRunning) {
     try {
       // Verify workspace exists before attempting archive extraction.
-      const workspaceCheck = await containerManager.execInContainer(
-        containerId,
-        ["test", "-d", WORKSPACE_REPO_PATH],
-        "/",
-      ).catch(() => ({ exitCode: 1, stdout: "", stderr: "exec failed" }));
+      const workspaceCheck = await runDeadlineBoundContainerOperation(
+        executionBoundary,
+        15_000,
+        () => containerManager.execInContainer(
+          containerId,
+          ["test", "-d", WORKSPACE_REPO_PATH],
+          "/",
+        ),
+      ).catch(() => {
+        executionBoundary.assertOpen();
+        return { exitCode: 1, stdout: "", stderr: "exec failed" };
+      });
 
       if (workspaceCheck.exitCode !== 0) {
-        console.warn(`[job:${job.id}] Workspace ${WORKSPACE_REPO_PATH} not accessible, skipping archive-overlay push`);
+        safeConsole.warn(`[job:${job.id}] Workspace ${WORKSPACE_REPO_PATH} not accessible, skipping archive-overlay push`);
         eventLogger.warn("push", "push.workspace_gone", "Workspace not accessible for archive-overlay push", {
           containerId,
         });
       } else {
-        console.log(`[job:${job.id}] Falling back to archive-overlay push...`);
+        safeConsole.log(`[job:${job.id}] Falling back to archive-overlay push...`);
         await collectAndPushChanges(
           { workerClient, containerManager },
           {
@@ -394,14 +536,17 @@ export async function executePushPipeline(
             repoUrl,
             branch: pushBranch,
             eventLogger,
+            executionBoundary,
           },
         );
+        executionBoundary.assertOpen();
         pushSucceeded = true;
-        console.log(`[job:${job.id}] Archive-overlay push succeeded`);
+        safeConsole.log(`[job:${job.id}] Archive-overlay push succeeded`);
       }
     } catch (error) {
+      executionBoundary.assertOpen();
       const pushErr = error instanceof Error ? error.message : String(error);
-      console.warn(`[job:${job.id}] Archive-overlay push failed: ${pushErr}`);
+      safeConsole.warn(`[job:${job.id}] Archive-overlay push failed: ${pushErr}`);
       eventLogger.warn("push", "push.archive_failed", "Archive-overlay push failed", {
         errorMessage: pushErr,
         containerId,
@@ -411,7 +556,7 @@ export async function executePushPipeline(
 
   if (!pushSucceeded) {
     const reason = containerRunning ? "all push methods failed" : "container dead (tmpfs lost)";
-    console.error(`[job:${job.id}] PUSH FAILED: ${reason}`);
+    safeConsole.error(`[job:${job.id}] PUSH FAILED: ${reason}`);
     eventLogger.warn("push", "push.all_failed", `Push failed: ${reason}`, {
       containerId,
       containerRunning,
