@@ -88,6 +88,13 @@ import { agentObservations } from "./agent-observations";
 import { workItemEffortEstimates } from "./work-item-effort-estimates";
 import { effortEstimationRequests } from "./effort-estimation-requests";
 import { effortEstimatorConfigs } from "./effort-estimator-configs";
+import {
+  agentOutputBindings,
+  agentOutputDeliveries,
+  agentOutputSinks,
+  agentOutputSubmissions,
+  scheduledAgentOutputSinks,
+} from "./agent-output";
 
 export const tagsRelations = relations(tags, ({ one, many }) => ({
   workspace: one(workspace, {
@@ -305,6 +312,7 @@ export const agentJobsRelations = relations(agentJobs, ({ one, many }) => ({
   aiSessions: many(aiSessions),
   workerInteractions: many(workerInteractions),
   sessionEvents: many(sessionEvents),
+  outputSubmission: one(agentOutputSubmissions),
 }));
 
 export const workerInteractionsRelations = relations(workerInteractions, ({ one }) => ({
@@ -1427,11 +1435,12 @@ export const scheduledAgentConfigsRelations = relations(scheduledAgentConfigs, (
   }),
   runs: many(scheduledAgentRuns),
   mcpServers: many(scheduledAgentMcpServers),
+  outputSinks: many(scheduledAgentOutputSinks),
   assignedWorkItems: many(workItems),
 }));
 
 // Scheduled Agent Run Relations
-export const scheduledAgentRunsRelations = relations(scheduledAgentRuns, ({ one }) => ({
+export const scheduledAgentRunsRelations = relations(scheduledAgentRuns, ({ one, many }) => ({
   config: one(scheduledAgentConfigs, {
     fields: [scheduledAgentRuns.configId],
     references: [scheduledAgentConfigs.id],
@@ -1440,7 +1449,87 @@ export const scheduledAgentRunsRelations = relations(scheduledAgentRuns, ({ one 
     fields: [scheduledAgentRuns.workspaceId],
     references: [workspace.id],
   }),
+  agentJob: one(agentJobs, {
+    fields: [scheduledAgentRuns.agentJobId],
+    references: [agentJobs.id],
+  }),
+  outputBindings: many(agentOutputBindings),
+  outputSubmissions: many(agentOutputSubmissions),
 }));
+
+export const agentOutputSinksRelations = relations(
+  agentOutputSinks,
+  ({ one, many }) => ({
+    workspace: one(workspace, {
+      fields: [agentOutputSinks.workspaceId],
+      references: [workspace.id],
+    }),
+    owner: one(user, {
+      fields: [agentOutputSinks.ownerUserId],
+      references: [user.id],
+    }),
+    scheduledAgents: many(scheduledAgentOutputSinks),
+    bindings: many(agentOutputBindings),
+    submissions: many(agentOutputSubmissions),
+  }),
+);
+
+export const scheduledAgentOutputSinksRelations = relations(
+  scheduledAgentOutputSinks,
+  ({ one }) => ({
+    config: one(scheduledAgentConfigs, {
+      fields: [scheduledAgentOutputSinks.configId],
+      references: [scheduledAgentConfigs.id],
+    }),
+    sink: one(agentOutputSinks, {
+      fields: [scheduledAgentOutputSinks.sinkId],
+      references: [agentOutputSinks.id],
+    }),
+  }),
+);
+
+export const agentOutputBindingsRelations = relations(
+  agentOutputBindings,
+  ({ one }) => ({
+    run: one(scheduledAgentRuns, {
+      fields: [agentOutputBindings.runId],
+      references: [scheduledAgentRuns.id],
+    }),
+    sink: one(agentOutputSinks, {
+      fields: [agentOutputBindings.sinkId],
+      references: [agentOutputSinks.id],
+    }),
+  }),
+);
+
+export const agentOutputSubmissionsRelations = relations(
+  agentOutputSubmissions,
+  ({ one }) => ({
+    run: one(scheduledAgentRuns, {
+      fields: [agentOutputSubmissions.runId],
+      references: [scheduledAgentRuns.id],
+    }),
+    job: one(agentJobs, {
+      fields: [agentOutputSubmissions.jobId],
+      references: [agentJobs.id],
+    }),
+    sink: one(agentOutputSinks, {
+      fields: [agentOutputSubmissions.sinkId],
+      references: [agentOutputSinks.id],
+    }),
+    delivery: one(agentOutputDeliveries),
+  }),
+);
+
+export const agentOutputDeliveriesRelations = relations(
+  agentOutputDeliveries,
+  ({ one }) => ({
+    submission: one(agentOutputSubmissions, {
+      fields: [agentOutputDeliveries.submissionId],
+      references: [agentOutputSubmissions.id],
+    }),
+  }),
+);
 
 // Skills Relations
 export const skillsRelations = relations(skills, ({ one }) => ({

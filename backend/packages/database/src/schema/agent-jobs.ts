@@ -11,6 +11,7 @@ import {
   varchar,
   boolean,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import {
   agentJobStatusEnum,
   agentJobTypeEnum,
@@ -264,6 +265,20 @@ export const agentJobs = pgTable(
     index("agent_jobs_created_at_idx").on(table.createdAt),
     index("agent_jobs_created_by_user_idx").on(table.createdByUserId),
     index("agent_jobs_workspace_idx").on(table.workspaceId),
+    // Two dispatch authorities (the backend scheduled-agent-dispatcher tick
+    // and the runner-side scheduler over /workers/*) can race to create a
+    // job for the same deterministic candidate. Both authorities already
+    // read-then-write against an "active job exists" filter, but that check
+    // is not atomic with the INSERT. This partial unique index closes the
+    // race: at most one active (non-terminal) job per (work_item_id,
+    // job_type) pair. Callers translate the resulting 23505 into a
+    // "duplicate skipped" outcome instead of a hard failure — see
+    // `DuplicateActiveJobError` in agent-job-repository.ts.
+    uniqueIndex("agent_jobs_work_item_job_type_active_uidx")
+      .on(table.workItemId, table.jobType)
+      .where(
+        sql`${table.workItemId} IS NOT NULL AND ${table.status} IN ('queued', 'running', 'finalizing', 'waiting_for_input', 'paused')`,
+      ),
   ]
 );
 

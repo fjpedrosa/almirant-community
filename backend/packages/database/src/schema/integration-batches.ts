@@ -8,6 +8,7 @@ import {
   uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { integrationBatchStatusEnum } from "./enums";
 import { workspace } from "./workspace";
 import { projects, projectRepositories } from "./projects";
@@ -56,6 +57,20 @@ export const integrationBatches = pgTable(
       table.repositoryId,
       table.releaseNumber,
     ),
+    // Guards against two concurrent `queueReleaseIntegration` runs both
+    // finding "no active batch" and creating two open batches for the same
+    // repository. `integration_batches_repository_release_number_idx` above
+    // only catches the narrow case where both racers compute the identical
+    // next release number — if they observe different MAX(release_number)
+    // snapshots (a real possibility across two separate, non-transactional
+    // read-then-write calls) it lets two distinct open batches through. This
+    // partial unique index closes that gap: at most one open batch (queued,
+    // running, awaiting_release, merging) per (workspace_id, repository_id).
+    uniqueIndex("integration_batches_repository_open_uidx")
+      .on(table.workspaceId, table.repositoryId)
+      .where(
+        sql`${table.status} IN ('queued', 'running', 'awaiting_release', 'merging')`,
+      ),
   ]
 );
 
