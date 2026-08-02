@@ -37,6 +37,9 @@ const createWorkerClientMock = (collector: JobLogEntryPayload[][]): AlmirantWork
     getWorkspaceFile: async () => {
       throw new Error("not used");
     },
+    getAgentPluginBundle: async () => {
+      throw new Error("not used");
+    },
     getEvidenceArtifact: async () => {
       throw new Error("not used");
     },

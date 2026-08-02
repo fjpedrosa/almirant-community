@@ -30,7 +30,8 @@ import {
 import { provisionUploadedFilesWorkspace } from "./workspace/uploaded-files-provisioner";
 import { resolveEvidenceArtifactsForJob } from "./workspace/evidence-artifact-policy";
 import { provisionEvidenceArtifacts } from "./workspace/evidence-artifact-provisioner";
-import type { EvidenceArtifactDescriptor } from "@almirant/shared";
+import { materializeAgentPlugins } from "./workspace/agent-plugin-materializer";
+import type { EvidenceArtifactDescriptor, AgentRuntimePluginReference } from "@almirant/shared";
 import type { ContainerDriver } from "./workspace/container-driver";
 import {
   UUID_RE,
@@ -1209,6 +1210,53 @@ export const createJobExecutor = (
             claudeMd: injectionResult.claudeMdAction,
             agentsMd: injectionResult.agentsMdAction,
           });
+        }
+      }
+
+      // Resolve selected agent plugins only after the isolated container HOME
+      // and workspace exist, but before the first runtime session request.
+      // Ported from cloud (community issue #85, lote 13) -- the materializer
+      // itself (services/runner/src/workspace/agent-plugin-materializer.ts)
+      // already landed in PR #84; this is the wiring that actually calls it.
+      // No AbortSignal threading here (community's executeJob does not carry
+      // one through this scope, unlike cloud's `signal.throwIfAborted()`
+      // calls) and `containerManager` is used directly -- community has no
+      // "guarded" wrapper around it.
+      const rawAgentPlugins = ctx.jobConfig.agentPlugins;
+      const agentPlugins = Array.isArray(rawAgentPlugins)
+        ? (rawAgentPlugins as AgentRuntimePluginReference[])
+        : [];
+      if (ctx.containerId && agentPlugins.length > 0) {
+        eventLogger.info(
+          "skills",
+          "plugins.materialization_started",
+          "Preparing selected agent plugins in the isolated job container",
+          { pluginCount: agentPlugins.length },
+        );
+        try {
+          const pluginResult = await materializeAgentPlugins({
+            containerId: ctx.containerId,
+            workspacePath: WORKSPACE_REPO_PATH,
+            runtime: ctx.runtimeExecutor!.platformRuntime,
+            references: agentPlugins,
+            downloadBundle: (pluginId) => workerClient.getAgentPluginBundle(job.id, pluginId),
+            containerManager,
+          });
+          eventLogger.info(
+            "skills",
+            "plugins.materialized",
+            "Selected agent plugins are ready before the runtime session",
+            pluginResult,
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          eventLogger.error(
+            "skills",
+            "plugins.materialization_failed",
+            `Agent plugin preparation failed: ${message}`,
+            { pluginCount: agentPlugins.length },
+          );
+          throw error;
         }
       }
 
