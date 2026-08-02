@@ -783,7 +783,31 @@ export type AlmirantWorkerClient = {
   heartbeat: (payload: WorkerHeartbeatPayload) => Promise<unknown>;
   claimJobs: (payload: ClaimJobsPayload) => Promise<ClaimedJob[]>;
   createJob: (payload: CreateWorkerJobPayload) => Promise<ClaimedJob>;
-  updateJobStatus: (jobId: string, payload: UpdateJobStatusPayload) => Promise<unknown>;
+  updateJobStatus: (
+    jobId: string,
+    payload: UpdateJobStatusPayload,
+    requestOptions?: WorkerClientRequestOptions,
+  ) => Promise<unknown>;
+  /**
+   * Extend one inclusive durable reservation for an exact active claim.
+   * Optional only so old embedded worker-client implementations remain usable;
+   * a claim advertising reservation ends MUST have this capability.
+   */
+  ensureSequenceReservation?: (
+    jobId: string,
+    channel: ProducerSequenceChannel,
+    payload: EnsureSequenceReservationPayload,
+    requestOptions?: WorkerClientRequestOptions,
+  ) => Promise<EnsureSequenceReservationResponse>;
+  /**
+   * Freeze producer high-water marks and wait for database coverage.
+   * Optional for legacy APIs that do not advertise receipt reservations.
+   */
+  prepareSequenceHandoff?: (
+    jobId: string,
+    payload: PrepareSequenceHandoffPayload,
+    requestOptions?: WorkerClientRequestOptions,
+  ) => Promise<PrepareSequenceHandoffResponse>;
   getProviderKeys: (
     providers?: ProviderKeyProvider[],
     context?: {
@@ -801,13 +825,22 @@ export type AlmirantWorkerClient = {
   getGithubToken: (repositoryId: string) => Promise<InstallationTokenResponse>;
   getRepoConfig: (projectId: string) => Promise<RepoConfigResponse>;
   checkQuota: (provider: string, workspaceId?: string) => Promise<QuotaCheckResponse>;
-  createInteraction: (jobId: string, payload: CreateInteractionPayload) => Promise<WorkerInteraction>;
+  createInteraction: (
+    jobId: string,
+    payload: CreateInteractionPayload,
+    requestOptions?: WorkerClientRequestOptions,
+  ) => Promise<WorkerInteraction>;
   pollInteraction: (jobId: string, interactionId: string) => Promise<WorkerInteraction>;
   streamJobOutput: (
     jobId: string,
-    payload: StreamJobOutputPayload
+    payload: StreamJobOutputPayload,
+    requestOptions?: WorkerClientRequestOptions,
   ) => Promise<StreamJobOutputResponse>;
-  sendJobLogs: (jobId: string, payload: SendJobLogsPayload) => Promise<SendJobLogsResponse>;
+  sendJobLogs: (
+    jobId: string,
+    payload: SendJobLogsPayload,
+    requestOptions?: WorkerClientRequestOptions,
+  ) => Promise<SendJobLogsResponse>;
   getJobStatus: (jobId: string) => Promise<JobStatusResponse>;
   getJobConfig: (jobId: string) => Promise<{ jobType: string; config: Record<string, unknown> | null; status: string }>;
   getWorkspaceFile: (jobId: string, fileId: string) => Promise<WorkspaceFileDownloadResponse>;
