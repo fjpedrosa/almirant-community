@@ -34,6 +34,16 @@ export type ContainerDriver = {
   waitContainer(containerId: string): Promise<number>;
   getContainerIp(containerId: string, preferNetwork?: string): Promise<string>;
   connectToNetwork(containerId: string, networkName: string): Promise<void>;
+  /** Docker-only verified proxy discovery; absent drivers cannot run untrusted jobs. */
+  resolveAgentEgressProxy?(networkName: string, configuredProxyUrl: string): Promise<string>;
+  /** Docker-only validation for the separate runner-to-agent network. */
+  assertAgentControlNetwork?(networkName: string): Promise<void>;
+  /** Docker-only post-connect assertion; absent drivers cannot run untrusted jobs. */
+  assertContainerNetworkIsolation?(
+    containerId: string,
+    expectedNetworkName: string,
+    allowedAdditionalNetworks?: string[],
+  ): Promise<void>;
   createNetwork(name: string): Promise<string>;
   removeNetwork(name: string): Promise<void>;
   getRunnerNetworkName(): Promise<string | null>;
