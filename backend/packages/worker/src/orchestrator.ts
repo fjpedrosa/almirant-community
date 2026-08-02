@@ -15,13 +15,17 @@
 import { logger } from "@almirant/config";
 import {
   claimJobs,
-  updateJobStatus,
+  updateLegacyClaimedJobStatus,
   getDependencies,
   getDependents,
   getJobById,
   listAgentJobs,
 } from "@almirant/database";
-import type { AgentJobDb } from "@almirant/database";
+import type {
+  AgentJobDb,
+  AgentJobStatus,
+  UpdateJobStatusData,
+} from "@almirant/database";
 import { classifyError } from "./error-classifier";
 import { getSkillMemoryMb } from "./skill-resources";
 import * as os from "node:os";
@@ -184,6 +188,14 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
   const postponedJobs = new Set<string>();
   /** Work item ids whose jobs have completed during this orchestrator session. */
   const completedJobWorkItemIds = new Set<string>();
+  const legacyClaimSnapshots = new Map<
+    string,
+    {
+      workerId: string;
+      expectedStatus: AgentJobStatus;
+      updatedAt: Date;
+    }
+  >();
 
   // RAM budget
   const RUNNER_RAM_RESERVED_MB = Number(
@@ -209,6 +221,34 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
       ? Math.max(0, Date.now() - job.startedAt.getTime())
       : 0;
 
+  const transitionLegacyClaim = async (
+    jobId: string,
+    status: AgentJobStatus,
+    data?: UpdateJobStatusData,
+  ): Promise<AgentJobDb | null> => {
+    const claimSnapshot = legacyClaimSnapshots.get(jobId);
+    if (!claimSnapshot) return null;
+
+    legacyClaimSnapshots.delete(jobId);
+    return updateLegacyClaimedJobStatus(
+      jobId,
+      status,
+      {
+        workerId: claimSnapshot.workerId,
+        expectedStatus: claimSnapshot.expectedStatus,
+        expectedUpdatedAt: claimSnapshot.updatedAt,
+      },
+      data,
+    );
+  };
+
+  const terminalizeLegacyClaim = async (
+    jobId: string,
+    status: "completed" | "failed",
+    data?: UpdateJobStatusData,
+  ): Promise<AgentJobDb | null> =>
+    transitionLegacyClaim(jobId, status, data);
+
   let timer: ReturnType<typeof setInterval> | null = null;
   let tickInProgress = false;
   let stopRequested = false;
@@ -231,10 +271,20 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
         if (getRamAvailableMb() <= 0) break;
         if (stopRequested) break;
 
-        const claimed = await claimJobs(workerId, 1);
+        const claimed = await claimJobs(workerId, 1, undefined, {
+          durableSequenceReceipts: false,
+        });
         if (claimed.length === 0) break;
 
         const job = claimed[0]!;
+        legacyClaimSnapshots.set(job.id, {
+          workerId,
+          expectedStatus: job.status,
+          updatedAt:
+            job.updatedAt instanceof Date
+              ? job.updatedAt
+              : new Date(job.updatedAt),
+        });
         const skillName = job.config?.skillName;
         const configuredMemory = job.config?.resourceEstimate?.estimatedMemoryMb;
         const memoryNeeded =
@@ -247,11 +297,18 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
           const segmentMs = computeSegmentMs(job);
           const newCumulative = (job.cumulativeDurationMs ?? 0) + segmentMs;
 
-          await updateJobStatus(job.id, "queued", {
+          const released = await transitionLegacyClaim(job.id, "queued", {
             workerId: null,
             startedAt: null,
             cumulativeDurationMs: newCumulative,
           });
+          if (!released) {
+            logger.warn(
+              { jobId: job.id, workerId },
+              "Skipped stale insufficient-RAM release after claim ownership changed",
+            );
+            break;
+          }
           logger.info(
             {
               jobId: job.id,
@@ -284,12 +341,21 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
           const segmentMs = computeSegmentMs(job);
           const newCumulative = (job.cumulativeDurationMs ?? 0) + segmentMs;
 
-          await updateJobStatus(job.id, "queued", {
+          const postponed = await transitionLegacyClaim(job.id, "queued", {
             workerId: null,
             availableAt: postponeUntil,
             startedAt: null,
             cumulativeDurationMs: newCumulative,
           });
+
+          if (!postponed) {
+            jobMemoryMap.delete(job.id);
+            logger.warn(
+              { jobId: job.id, workerId },
+              "Skipped stale dependency postponement after claim ownership changed",
+            );
+            continue;
+          }
 
           // Release memory commitment for postponed job
           jobMemoryMap.delete(job.id);
@@ -378,9 +444,17 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
       if (!dependentWorkItemIds.has(postponedJob.workItemId)) continue;
 
       // Clear the availableAt so it becomes immediately claimable.
-      await updateJobStatus(postponedJob.id, "queued", {
-        availableAt: null,
-      });
+      const unblocked = await updateLegacyClaimedJobStatus(
+        postponedJob.id,
+        "queued",
+        {
+          workerId: postponedJob.workerId,
+          expectedStatus: postponedJob.status,
+          expectedUpdatedAt: postponedJob.updatedAt,
+        },
+        { availableAt: null },
+      );
+      if (!unblocked) continue;
 
       postponedJobs.delete(postponedJobId);
 
@@ -425,20 +499,6 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
     );
     const availableAt = new Date(Date.now() + effectiveDelay);
 
-    // Persist sessionId so the next claim gets it for resume.
-    // This is done as a separate call to ensure sessionId is written even
-    // if scheduleRetry below fails.
-    if (sessionId) {
-      try {
-        await updateJobStatus(jobId, "queued", { sessionId });
-      } catch (persistErr) {
-        logger.debug(
-          { jobId, err: persistErr },
-          "Failed to persist sessionId for resume",
-        );
-      }
-    }
-
     // Compute cumulative duration before re-queuing.
     const currentJob = await getJobById(jobId);
     const segmentMs = currentJob?.job.startedAt instanceof Date
@@ -448,7 +508,7 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
 
     // Put the job back to "queued" with a future availableAt.
     // retryCount is preserved (not incremented) -- quota pauses are not failures.
-    await updateJobStatus(jobId, "queued", {
+    const resumed = await transitionLegacyClaim(jobId, "queued", {
       retryCount,
       availableAt,
       errorMessage,
@@ -456,7 +516,9 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
       workerId: null,
       startedAt: null,
       cumulativeDurationMs: newCumulative,
+      sessionId,
     });
+    if (!resumed) return false;
 
     // Track in the in-memory postponed set so the background timer can log
     // when the job becomes claimable again.
@@ -475,24 +537,31 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
 
     // Fetch the job to determine which work item it belongs to.
     const jobRecord = await getJobById(jobId);
-    const workItemId = jobRecord?.job.workItemId ?? null;
-
     const now = new Date();
     const segmentMs = jobRecord?.job.startedAt instanceof Date
       ? Math.max(0, now.getTime() - jobRecord.job.startedAt.getTime())
       : 0;
     const totalDuration = (jobRecord?.job.cumulativeDurationMs ?? 0) + segmentMs;
 
-    await updateJobStatus(jobId, "completed", {
+    const updated = await terminalizeLegacyClaim(jobId, "completed", {
       completedAt: now,
       durationMs: totalDuration > 0 ? totalDuration : undefined,
     });
+    if (!updated) {
+      logger.warn(
+        { jobId, workerId },
+        "Ignored stale legacy completion after job ownership or status changed",
+      );
+      return;
+    }
+
+    const workItemId = updated.workItemId ?? null;
 
     logger.info({ jobId, workItemId }, "Job completed");
 
     if (workItemId) {
       completedJobWorkItemIds.add(workItemId);
-      const orgId = jobRecord?.job.workspaceId;
+      const orgId = updated.workspaceId;
       if (orgId) {
         await reevaluatePostponedDependents(workItemId, orgId);
       }
@@ -535,7 +604,7 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
           "Quota/rate-limit error with no retry delay -- failing permanently",
         );
         const now = new Date();
-        await updateJobStatus(jobId, "failed", {
+        await terminalizeLegacyClaim(jobId, "failed", {
           failedAt: now,
           errorMessage: classified.message,
           errorType: classified.type,
@@ -555,7 +624,7 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
           "Job failed: retry window exceeds 6h maximum",
         );
         const now = new Date();
-        await updateJobStatus(jobId, "failed", {
+        await terminalizeLegacyClaim(jobId, "failed", {
           failedAt: now,
           errorMessage: classified.message,
           errorType: classified.type,
@@ -607,7 +676,7 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
         "scheduleQuotaResume rejected -- failing job permanently",
       );
       const now = new Date();
-      await updateJobStatus(jobId, "failed", {
+      await terminalizeLegacyClaim(jobId, "failed", {
         failedAt: now,
         errorMessage: classified.message,
         errorType: classified.type,
@@ -650,7 +719,7 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
           `Job failed (${classified.type}), retrying`,
         );
 
-        await updateJobStatus(jobId, "queued", {
+        const retried = await transitionLegacyClaim(jobId, "queued", {
           retryCount: nextRetryCount,
           availableAt,
           errorMessage: classified.message,
@@ -659,6 +728,12 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
           startedAt: null,
           cumulativeDurationMs: newCumulative,
         });
+        if (!retried) {
+          logger.warn(
+            { jobId, workerId },
+            "Ignored stale legacy retry after job ownership or status changed",
+          );
+        }
         return;
       }
     }
@@ -667,11 +742,19 @@ export const createOrchestrator = (config: OrchestratorConfig): Orchestrator => 
     // Permanent failure
     // -----------------------------------------------------------------
     const now = new Date();
-    await updateJobStatus(jobId, "failed", {
+    const failed = await terminalizeLegacyClaim(jobId, "failed", {
       failedAt: now,
       errorMessage: classified.message,
       errorType: classified.type,
     });
+
+    if (!failed) {
+      logger.warn(
+        { jobId, workerId },
+        "Ignored stale legacy failure after job ownership or status changed",
+      );
+      return;
+    }
 
     logger.warn(
       { jobId, errorMessage: classified.message, errorType: classified.type },
