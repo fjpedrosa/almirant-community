@@ -38,10 +38,28 @@ const realFetch = globalThis.fetch;
 let fetchCalls: string[] = [];
 let nextResponse: () => Response = () => new Response("null", { status: 200 });
 let fetchThrows = false;
+let fetchPending = false;
 
-globalThis.fetch = (async (input: RequestInfo | URL) => {
+globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   fetchCalls.push(String(input));
   if (fetchThrows) throw new Error("network down");
+  if (fetchPending) {
+    return new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      if (!signal) return;
+
+      const rejectOnAbort = () => {
+        reject(signal.reason);
+      };
+
+      if (signal.aborted) {
+        rejectOnAbort();
+        return;
+      }
+
+      signal.addEventListener("abort", rejectOnAbort, { once: true });
+    });
+  }
   return nextResponse();
 }) as typeof fetch;
 
@@ -54,6 +72,7 @@ const jsonResponse = (body: unknown, status = 200): Response =>
 beforeEach(() => {
   fetchCalls = [];
   fetchThrows = false;
+  fetchPending = false;
   nextResponse = () => new Response("null", { status: 200 });
 });
 
@@ -132,6 +151,43 @@ describe("getAuthBootstrapStatus", () => {
       needsInitialAdminSetup: false,
       allowRegistration: false,
     });
+  });
+
+  it("FAILS CLOSED when the backend request reaches its timeout", async () => {
+    fetchPending = true;
+    const realSetTimeout = globalThis.setTimeout;
+    const realClearTimeout = globalThis.clearTimeout;
+    let timeoutCallback: (() => void) | undefined;
+
+    globalThis.setTimeout = ((
+      callback: TimerHandler,
+      delay?: number,
+    ): ReturnType<typeof setTimeout> => {
+      void delay;
+      timeoutCallback = callback as () => void;
+      return 303 as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = (() => {}) as typeof clearTimeout;
+
+    try {
+      const { getAuthBootstrapStatus } = await import("./auth-bootstrap");
+      const status = getAuthBootstrapStatus();
+      for (let attempt = 0; attempt < 5 && !timeoutCallback; attempt += 1) {
+        await Promise.resolve();
+      }
+
+      expect(timeoutCallback).toBeFunction();
+      timeoutCallback?.();
+
+      expect(await status).toEqual({
+        hasUsers: true,
+        needsInitialAdminSetup: false,
+        allowRegistration: false,
+      });
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+      globalThis.clearTimeout = realClearTimeout;
+    }
   });
 
   it("FAILS CLOSED when the payload is malformed (missing boolean fields)", async () => {
