@@ -30,6 +30,11 @@ export * from "./repositories";
 
 // Re-export work item type guards (value exports)
 export { isLeafType, isParentType } from "./domain/types";
+export {
+  DEVELOPMENT_BOARD_WORKFLOW,
+  getDevelopmentBoardColumns,
+  type DevelopmentBoardColumnDefinition,
+} from "./domain/development-board-workflow";
 
 // Re-export selected domain types (selective to avoid conflicts with schema table types)
 export type {

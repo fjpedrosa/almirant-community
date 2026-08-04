@@ -996,7 +996,7 @@ export const registerSkillContextTools = (server: McpServer) => {
 
   server.tool(
     "get_validate_context",
-    "Resolve identifiers into leaf tasks, classify by board column (validatable in Reviewing, skipped otherwise), include board mappings with Validating/Release/In Progress columns, and parent item summaries. Pass includeValidating=true on retries to also pick up items already moved to Validating.",
+    "Resolve identifiers into leaf tasks, classify by board column (validatable in To Review, skipped otherwise), include board mappings with Validating/To Release/In Progress columns, and parent item summaries. Pass includeValidating=true on retries to also pick up items already moved to Validating.",
     {
       ids: z.array(z.string().min(1)).min(1).describe("List of task IDs/UUIDs to validate"),
       projectId: z.string().uuid().optional().describe("Project ID (defaults to MCP session project)"),
@@ -1070,7 +1070,7 @@ export const registerSkillContextTools = (server: McpServer) => {
           } else {
             skipped.push({
               ...item,
-              skipReason: `Column '${item.columnName}' is not Reviewing${params.includeValidating ? " or Validating" : ""}`,
+              skipReason: `Column '${item.columnName}' is not To Review${params.includeValidating ? " or Validating" : ""}`,
             });
           }
         }
@@ -1255,7 +1255,7 @@ export const registerSkillContextTools = (server: McpServer) => {
 
   server.tool(
     "get_document_context",
-    "Resolve identifiers into leaf tasks in the Release column, include metadata (documentation, testResults, changedFiles), board mappings, parent summaries, and existing project documents.",
+    "Resolve identifiers into leaf tasks in the To Release column, include metadata (documentation, testResults, changedFiles), board mappings, parent summaries, and existing project documents.",
     {
       ids: z.array(z.string().min(1)).min(1).describe("List of task IDs/UUIDs to document"),
       projectId: z.string().uuid().optional().describe("Project ID (defaults to MCP session project)"),
@@ -1342,7 +1342,7 @@ export const registerSkillContextTools = (server: McpServer) => {
           } else {
             skipped.push({
               ...item,
-              skipReason: `Column '${item.columnName}' is not Release`,
+              skipReason: `Column '${item.columnName}' is not To Release`,
             });
           }
         }

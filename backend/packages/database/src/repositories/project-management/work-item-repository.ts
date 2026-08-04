@@ -2096,12 +2096,12 @@ export const getWorkItemsByBoard = async (
 // Canonical order for column roles used by the area-wide Kanban view
 const ROLE_CANONICAL_ORDER: Record<ColumnRole, number> = {
   backlog: 0,
-  in_progress: 1,
-  review: 2,
-  validating: 3,
-  release: 4,
-  done: 5,
-  todo: 90,
+  todo: 1,
+  in_progress: 2,
+  review: 3,
+  validating: 4,
+  release: 5,
+  done: 6,
   needs_fix: 91,
   to_document: 92,
   testing: 93,
@@ -2771,7 +2771,7 @@ export const findColumnByNameInBoard = async (
   return column ?? null;
 };
 
-const findColumnByRoleInBoard = async (
+export const findColumnByRoleInBoard = async (
   boardId: string,
   role: ColumnRole
 ): Promise<{ id: string; name: string; isDone: boolean | null } | null> => {

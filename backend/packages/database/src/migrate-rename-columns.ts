@@ -2,6 +2,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { eq } from "drizzle-orm";
 import postgres from "postgres";
 import * as schema from "./schema";
+import { getDevelopmentBoardColumns } from "./domain/development-board-workflow";
 
 const connectionString = process.env.DATABASE_URL!;
 const client = postgres(connectionString);
@@ -11,10 +12,10 @@ const db = drizzle(client, { schema });
  * Migration script: normalize Desarrollo boards to the canonical workflow.
  *
  * Canonical visible flow:
- * 0-Backlog, 1-In Progress, 2-To Review, 3-Validating, 4-To Release, 5-Done
+ * 0-Backlog, 1-To Do, 2-In Progress, 3-To Review, 4-Validating,
+ * 5-To Release, 6-Done
  *
  * Legacy/internal roles are removed from Desarrollo boards:
- * - todo       -> Backlog
  * - needs_fix  -> In Progress
  * - testing    -> Validating
  * - to_document -> To Release
@@ -31,17 +32,9 @@ type TemplateColumn = NonNullable<typeof schema.boardTemplates.$inferInsert.colu
 type BoardColumn = typeof schema.boardColumns.$inferSelect;
 type ColumnRole = NonNullable<BoardColumn["role"]>;
 
-const CANONICAL_COLUMNS: TemplateColumn[] = [
-  { name: "Backlog", color: "#94a3b8", order: 0, isDone: false, role: "backlog" },
-  { name: "In Progress", color: "#f59e0b", order: 1, isDone: false, role: "in_progress" },
-  { name: "To Review", color: "#8b5cf6", order: 2, isDone: false, role: "review" },
-  { name: "Validating", color: "#ec4899", order: 3, isDone: false, role: "validating" },
-  { name: "To Release", color: "#a855f7", order: 4, isDone: false, role: "release" },
-  { name: "Done", color: "#22c55e", order: 5, isDone: true, role: "done" },
-];
+const CANONICAL_COLUMNS: TemplateColumn[] = getDevelopmentBoardColumns();
 
 const LEGACY_ROLE_TARGETS: Partial<Record<ColumnRole, ColumnRole>> = {
-  todo: "backlog",
   needs_fix: "in_progress",
   testing: "validating",
   to_document: "release",
@@ -162,7 +155,7 @@ async function migrateRenameColumns() {
     .where(eq(schema.boardTemplates.area, "desarrollo"));
 
   console.log("Updated Desarrollo board template columns JSON.");
-  console.log("\nMigration complete. Desarrollo boards now use the 6-column canonical workflow.");
+  console.log("\nMigration complete. Desarrollo boards now use the seven-column canonical workflow.");
 
   await client.end();
   process.exit(0);
