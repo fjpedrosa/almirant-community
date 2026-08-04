@@ -10,7 +10,7 @@ runner-document, ideate, create-tasks, nightly-fix, pr, dod-review.
 ## MCP Server
 
 The `almirant` MCP server is configured and provides tools for managing
-work items, boards, sprints, documents, and project data.
+work items, boards, milestones, documents, and project data.
 
 ## Conventions
 

@@ -409,8 +409,6 @@ interface DiscordNotificationPrefsResponse {
   notifyWorkItemDeleted: boolean;
   notifyCommentAdded: boolean;
   notifyAttachmentAdded: boolean;
-  notifySprintStarted: boolean;
-  notifySprintClosed: boolean;
   notifyMilestoneCompleted: boolean;
   notifyPrOpened: boolean;
   notifyPrMerged: boolean;
@@ -940,60 +938,6 @@ export const integrationBatchesApi = {
     }),
 };
 
-// Sprints API
-export const sprintsApi = {
-  listByBoard: (boardId: string) =>
-    request<unknown>(`/boards/${boardId}/sprints`),
-
-  getActive: (boardId: string) =>
-    request<unknown>(`/boards/${boardId}/sprints/active`),
-
-  getNextNumber: (boardId: string) =>
-    request<unknown>(`/boards/${boardId}/sprints/next-number`),
-
-  getDonePreview: (boardId: string, params?: { from?: string; to?: string }) => {
-    const searchParams = new URLSearchParams();
-    if (params?.from) searchParams.set('from', params.from);
-    if (params?.to) searchParams.set('to', params.to);
-    const qs = searchParams.toString();
-    return request<unknown>(`/boards/${boardId}/sprints/done-preview${qs ? `?${qs}` : ''}`);
-  },
-
-  create: (boardId: string, data: { name: string; startDate?: string; endDate?: string }) =>
-    request<unknown>(`/boards/${boardId}/sprints`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  close: (boardId: string, sprintId: string) =>
-    request<unknown>(`/boards/${boardId}/sprints/${sprintId}/close`, {
-      method: "POST",
-    }),
-
-  closeAdHoc: (boardId: string, name: string) =>
-    request<unknown>(`/boards/${boardId}/sprints/close-adhoc`, {
-      method: "POST",
-      body: JSON.stringify({ name }),
-    }),
-
-  closeByDateRange: (boardId: string, data: { name: string; startDate: string; endDate: string }) =>
-    request<unknown>(`/boards/${boardId}/sprints/close-by-date`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  getWorkItems: (boardId: string, sprintId: string) =>
-    request<unknown>(`/boards/${boardId}/sprints/${sprintId}/work-items`),
-
-  getReport: (sprintId: string, compareCount?: number, projectId?: string) => {
-    const params = new URLSearchParams();
-    if (compareCount) params.set('compareCount', String(compareCount));
-    if (projectId) params.set('projectId', projectId);
-    const qs = params.toString();
-    return request<unknown>(`/sprints/${sprintId}/report${qs ? `?${qs}` : ''}`);
-  },
-};
-
 // Attachments API
 export const attachmentsApi = {
   list: (workItemId: string) =>
@@ -1214,7 +1158,6 @@ export const emailNotificationsApi = {
       notifyWorkItemAssigned: boolean;
       notifyWorkItemDone: boolean;
       notifyReviewCompleted: boolean;
-      notifySprintClosed: boolean;
       notifyUserActions: boolean;
       createdAt: string;
       updatedAt: string;
@@ -1229,7 +1172,6 @@ export const emailNotificationsApi = {
       notifyWorkItemAssigned: boolean;
       notifyWorkItemDone: boolean;
       notifyReviewCompleted: boolean;
-      notifySprintClosed: boolean;
       notifyUserActions: boolean;
       createdAt: string;
       updatedAt: string;

@@ -173,17 +173,6 @@ const MCP_ACTION_LABELS: Record<string, string> = {
   add_tag_to_idea_item: "Tag idea",
   remove_tag_from_idea_item: "Remove idea tag",
   list_idea_item_tags: "Idea tags",
-  // Sprints
-  list_sprints: "List sprints",
-  get_sprint: "Get sprint",
-  get_active_sprint: "Active sprint",
-  create_sprint: "Create sprint",
-  close_sprint: "Close sprint",
-  close_sprint_adhoc: "Close sprint ad-hoc",
-  close_sprint_by_date: "Close sprint by date",
-  get_sprint_work_items: "Sprint items",
-  preview_done_items: "Preview done items",
-  regenerate_sprint_changelog: "Regenerate changelog",
   // Milestones
   list_milestones: "List milestones",
   get_milestone: "Get milestone",

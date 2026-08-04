@@ -7,7 +7,7 @@
  * be unit-tested with synthetic snapshots.
  */
 
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import {
   db,
   integrationBatches,
@@ -89,7 +89,7 @@ export const loadReleaseChangelogSnapshot = async (
           metadata: workItems.metadata,
         })
         .from(workItems)
-        .where(inArray(workItems.id, workItemIds))
+        .where(and(inArray(workItems.id, workItemIds), isNull(workItems.archivedAt)))
     : [];
   const workItemsById = new Map(workItemRows.map((w) => [w.id, w]));
 

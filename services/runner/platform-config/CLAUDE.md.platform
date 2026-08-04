@@ -10,7 +10,7 @@ runner-document, ideate, create-tasks, nightly-fix, pr.
 ## MCP Server
 
 The `almirant` MCP server is configured and provides tools for managing
-work items, boards, sprints, documents, project data, and shared memory.
+work items, boards, milestones, documents, project data, and shared memory.
 
 ## Shared Memory Protocol
 

@@ -25,7 +25,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { Search, RotateCcw, CalendarDays, SlidersHorizontal, Columns3, Rows3, X } from "lucide-react";
+import { Search, RotateCcw, SlidersHorizontal, Columns3, Rows3, X } from "lucide-react";
 import { SortDropdown, type SortOption } from "@/domains/shared/presentation/components/sort-dropdown";
 import {
   Sheet,
@@ -37,7 +37,6 @@ import { showToast } from "@/domains/shared/presentation/utils/show-toast";
 import { useTranslations } from "next-intl";
 import { useWorkItemsByBoard, useWorkItemsByArea } from "../../application/hooks/use-work-item-board";
 import { useMinuteNow } from "../../application/hooks/use-minute-now";
-import { useSprintFilter } from "../../application/hooks/use-sprint-filter";
 import { useWorkItemKanban } from "../../application/hooks/use-work-item-kanban";
 import { useCreateWorkItemForm } from "../../application/hooks/use-create-work-item-form";
 // useEditWorkItemForm removed - edit flow now uses side panel via useWorkItemDetailPanel
@@ -75,10 +74,6 @@ import { PendingFilesSection } from "../components/pending-files-section";
 import { SelectionActionBar } from "../components/selection-action-bar";
 import { SavedViewsContainer } from "./saved-views-container";
 import { DynamicFilters } from "@/domains/shared/presentation/components/filters/dynamic-filters";
-import { ShareProgressBanner } from "@/domains/shared/presentation/components/share-progress-banner";
-import { ShareToXDialog } from "@/domains/sprints/presentation/components/share-to-x-dialog";
-import { useLast7dShareSource } from "@/domains/sprints/application/hooks/use-last-7d-share-source";
-import { useSprintShare } from "@/domains/sprints/application/hooks/use-sprint-share";
 import { typeBadgeColors } from "../components/work-item-style";
 import { KanbanBoardSkeleton } from "@/components/skeletons";
 import { uploadsApi } from "@/lib/api/client";
@@ -168,24 +163,9 @@ const sortColumnItems = (
 };
 
 const OPEN_WORK_ITEM_EVENT = "mc:open-work-item";
-const SHARE_CTA_COOLDOWN_MS = 6 * 60 * 60 * 1000;
-
-const getShareCtaStorageKey = (boardId: string) =>
-  `share-cta:last7d:${boardId}:dismissed-at`;
 
 type PromptCopyItem = Pick<WorkItemWithContext, "id" | "title" | "description" | "metadata">;
 type CliCommandCopyItem = Pick<WorkItemWithContext, "id" | "taskId" | "parentId" | "parentTaskId" | "type">;
-
-const shouldShowShareCta = (boardId: string) => {
-  if (typeof window === "undefined") return false;
-  const value = localStorage.getItem(getShareCtaStorageKey(boardId));
-  if (!value) return true;
-
-  const lastDismissedAt = Number(value);
-  if (!Number.isFinite(lastDismissedAt)) return true;
-
-  return Date.now() - lastDismissedAt >= SHARE_CTA_COOLDOWN_MS;
-};
 
 export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
   activeBoardId,
@@ -225,24 +205,6 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
     isPrefsLoaded,
   } = useBoardFilters(assigneeOptions, { boardId: activeBoardId, area });
 
-  // Sprint filter (only for single-board view, not area view)
-  const {
-    sprintOptions,
-    selectedSprintId,
-    setSelectedSprintId,
-    isSprintResolved,
-  } = useSprintFilter(activeBoardId);
-
-  // Merge sprint filter into filterParams
-  const mergedFilterParams = useMemo(() => {
-    if (!selectedSprintId && !filterParams) return undefined;
-    const params: Record<string, string> = { ...(filterParams ?? {}) };
-    if (selectedSprintId) {
-      params.sprintId = selectedSprintId;
-    }
-    return Object.keys(params).length > 0 ? params : undefined;
-  }, [filterParams, selectedSprintId]);
-
   // Collapsed groups state (shared across all columns)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
@@ -271,12 +233,9 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
     });
   }, []);
 
-  // Single-board: hold the fetch until the sprint auto-selection resolves so it
-  // fires ONCE with the correct sprint filter (no empty-filter fetch + refetch).
   const boardQuery = useWorkItemsByBoard(
     area ? "" : activeBoardId,
-    area ? undefined : mergedFilterParams,
-    area ? true : isSprintResolved,
+    area ? undefined : filterParams,
   );
   const areaQuery = useWorkItemsByArea(area ?? "", area ? filterParams : undefined);
   const { data: columnData, isLoading } = area ? areaQuery : boardQuery;
@@ -555,37 +514,9 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
     skipGenerate,
   } = useGenerateDocs();
 
-  const [shareBannerVisible, setShareBannerVisible] = useState(false);
-  const { source: last7dShareSource, isLoading: isLoadingLast7dShare } =
-    useLast7dShareSource(activeBoardId, true);
-  const last7dShare = useSprintShare(last7dShareSource);
-
-  const handleDismissShareBanner = useCallback(() => {
-    setShareBannerVisible(false);
-    if (typeof window === "undefined") return;
-    localStorage.setItem(
-      getShareCtaStorageKey(activeBoardId),
-      String(Date.now())
-    );
-  }, [activeBoardId]);
-
-  const handleShareFromBanner = useCallback(() => {
-    setShareBannerVisible(false);
-    if (typeof window !== "undefined") {
-      localStorage.setItem(
-        getShareCtaStorageKey(activeBoardId),
-        String(Date.now())
-      );
-    }
-    last7dShare.openDialog();
-  }, [activeBoardId, last7dShare]);
-
   const handleMovedToDone = useCallback((workItemId: string, workItemTitle: string) => {
     promptForDocs(workItemId, workItemTitle);
-    if (shouldShowShareCta(activeBoardId)) {
-      setShareBannerVisible(true);
-    }
-  }, [activeBoardId, promptForDocs]);
+  }, [promptForDocs]);
 
   const {
     localColumns,
@@ -962,29 +893,12 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
     return () => resetAiProcessing.mutate(panelItemId);
   }, [panelItemJob, isPanelItemAiActive, panelItemId, cancelAgentJob, resetAiProcessing]);
 
-  // Keep the skeleton up while the single-board query is intentionally held for
-  // sprint resolution (a disabled query reports isLoading=false), so the board
-  // never flashes empty before firing with the correct sprint filter.
-  if (isLoading || !isPrefsLoaded || (!area && !isSprintResolved)) {
+  if (isLoading || !isPrefsLoaded) {
     return <KanbanBoardSkeleton />;
   }
 
   return (
     <>
-      {shareBannerVisible && (
-        <div className="mb-4 max-w-[1200px] mx-auto w-full">
-          <ShareProgressBanner
-            title={t("board.shareBanner.title")}
-            description={t("board.shareBanner.description")}
-            shareLabel={t("board.shareBanner.share")}
-            dismissLabel={t("board.shareBanner.notNow")}
-            closeLabel={t("board.shareBanner.close")}
-            onShare={handleShareFromBanner}
-            onDismiss={handleDismissShareBanner}
-            onClose={handleDismissShareBanner}
-          />
-        </div>
-      )}
       <div className="mb-4 max-w-[1200px] mx-auto w-full">
         <DynamicFilters
           config={baseFiltersConfig}
@@ -1009,34 +923,6 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
 
               {/* Desktop: inline filter controls */}
               <div className="hidden md:flex md:items-center md:gap-2">
-                {!area && sprintOptions.length > 0 && (
-                  <Select
-                    value={selectedSprintId ?? "__all__"}
-                    onValueChange={(value) => setSelectedSprintId(value === "__all__" ? null : value)}
-                  >
-                    <SelectTrigger
-                      size="sm"
-                      className={cn(
-                        "h-8 text-xs gap-1.5 max-w-[180px]",
-                        selectedSprintId && "border-violet-500/50 text-violet-600 dark:text-violet-400 bg-violet-500/10"
-                      )}
-                    >
-                      <CalendarDays className={cn(
-                        "h-3.5 w-3.5 shrink-0",
-                        selectedSprintId ? "text-violet-600 dark:text-violet-400" : "text-muted-foreground"
-                      )} />
-                      <SelectValue placeholder="Sprint" />
-                    </SelectTrigger>
-                    <SelectContent align="start">
-                      <SelectItem value="__all__">{t("kanban.sprintFilter.all")}</SelectItem>
-                      {sprintOptions.map((sprint) => (
-                        <SelectItem key={sprint.id} value={sprint.id}>
-                          {sprint.name}{sprint.isActive ? ` (${t("kanban.sprintFilter.active")})` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
                 <SortDropdown
                   options={sortOptions}
                   sortBy={sortBy}
@@ -1105,34 +991,6 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
                   <SheetContent side="right" className="w-[300px] overflow-y-auto">
                     <SheetTitle className="sr-only">{t("board.filters")}</SheetTitle>
                     <div className="flex flex-col gap-3 p-4">
-                      {!area && sprintOptions.length > 0 && (
-                        <Select
-                          value={selectedSprintId ?? "__all__"}
-                          onValueChange={(value) => setSelectedSprintId(value === "__all__" ? null : value)}
-                        >
-                          <SelectTrigger
-                            size="sm"
-                            className={cn(
-                              "h-8 text-xs gap-1.5",
-                              selectedSprintId && "border-violet-500/50 text-violet-600 dark:text-violet-400 bg-violet-500/10"
-                            )}
-                          >
-                            <CalendarDays className={cn(
-                              "h-3.5 w-3.5 shrink-0",
-                              selectedSprintId ? "text-violet-600 dark:text-violet-400" : "text-muted-foreground"
-                            )} />
-                            <SelectValue placeholder="Sprint" />
-                          </SelectTrigger>
-                          <SelectContent align="start">
-                            <SelectItem value="__all__">{t("kanban.sprintFilter.all")}</SelectItem>
-                            {sprintOptions.map((sprint) => (
-                              <SelectItem key={sprint.id} value={sprint.id}>
-                                {sprint.name}{sprint.isActive ? ` (${t("kanban.sprintFilter.active")})` : ""}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
                       <SortDropdown
                         options={sortOptions}
                         sortBy={sortBy}
@@ -1192,50 +1050,23 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
               </div>
 
               {/* Mobile: active filter chips displayed below search bar */}
-              {(selectedSprintId || viewMode === "compact") && (
+              {viewMode === "compact" && (
                 <div className="flex flex-wrap gap-1.5 mt-2 md:hidden">
-                  {/* Sprint chip */}
-                  {selectedSprintId && (() => {
-                    const selectedSprint = sprintOptions.find((s) => s.id === selectedSprintId);
-                    return (
-                      <Badge
-                        variant="secondary"
-                        className="h-6 pl-2 pr-1 text-xs gap-1 border-violet-500/50 text-violet-600 dark:text-violet-400 bg-violet-500/10"
-                      >
-                        <CalendarDays className="h-3 w-3" />
-                        <span className="truncate max-w-[120px]">
-                          {selectedSprint?.name ?? "Sprint"}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedSprintId(null)}
-                          className="ml-0.5 rounded-full hover:bg-violet-500/20 p-0.5"
-                          aria-label={t("board.clearFilter")}
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </Badge>
-                    );
-                  })()}
-
-                  {/* View mode chip */}
-                  {viewMode === "compact" && (
-                    <Badge
-                      variant="secondary"
-                      className="h-6 pl-2 pr-1 text-xs gap-1 border-emerald-500/50 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
+                  <Badge
+                    variant="secondary"
+                    className="h-6 pl-2 pr-1 text-xs gap-1 border-emerald-500/50 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
+                  >
+                    <Rows3 className="h-3 w-3" />
+                    <span>{t("board.viewMode.compact")}</span>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("normal")}
+                      className="ml-0.5 rounded-full hover:bg-emerald-500/20 p-0.5"
+                      aria-label={t("board.clearFilter")}
                     >
-                      <Rows3 className="h-3 w-3" />
-                      <span>{t("board.viewMode.compact")}</span>
-                      <button
-                        type="button"
-                        onClick={() => setViewMode("normal")}
-                        className="ml-0.5 rounded-full hover:bg-emerald-500/20 p-0.5"
-                        aria-label={t("board.clearFilter")}
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </Badge>
-                  )}
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
                 </div>
               )}
             </div>
@@ -1541,16 +1372,6 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
         />
       )}
 
-      <ShareToXDialog
-        open={last7dShare.isDialogOpen}
-        onOpenChange={last7dShare.setIsDialogOpen}
-        draft={last7dShare.draft}
-        isPreparing={isLoadingLast7dShare || last7dShare.isPreparing}
-        isCopying={last7dShare.isCopying}
-        onCopyThread={last7dShare.copyThread}
-        onOpenIntent={last7dShare.openIntent}
-        isShareAvailable={last7dShare.isShareAvailable}
-      />
 
       <GenerateDocsDialog
         open={isGenerateDocsOpen}

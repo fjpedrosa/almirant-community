@@ -8,8 +8,7 @@ type FieldContext =
   | 'description'
   | 'definitionOfDone'
   | 'prompt'
-  | 'multiPrompt'
-  | 'sharePost';
+  | 'multiPrompt';
 
 export const isAiConfigured = (): boolean => {
   return !!env.OPENAI_API_KEY;
@@ -133,36 +132,12 @@ Transformation rules:
 
 Return ONLY the formatted prompt in Markdown, no explanations or preamble.`,
 
-  sharePost: `You are a social copywriting assistant that creates a SINGLE post for X (Twitter).
-
-Input is internal product progress context. Convert it into a friendly, public-facing update in ENGLISH.
-
-Hard constraints:
-- Output ONE post only (never a thread)
-- Maximum 280 characters total
-- At most 1 emoji total
-- Keep the first line as a witty value hook (hook + value in the same line)
-- Add concise bullet points using "• " prefixes
-- Use 1 to 5 bullets maximum
-- If many items do not fit, the final bullet should be: "+X more improvements"
-- Never include internal IDs (MC-123, A-123), file paths, or implementation jargon
-- End with this CTA exactly:
-  Built with Almirant — plan, control, document, ship: https://almirant.ai
-
-Tone:
-- Friendly and confident, not cringe
-- Focus on user value/outcomes, not engineering internals
-
-Return ONLY the final post text, no quotes, no explanations, no markdown fences.`,
 };
 
 /**
  * Build a locale-aware system prompt for the given field context.
- * For sharePost, always returns English (intentional for Twitter posts).
  */
 const buildSystemPrompt = (fieldContext: FieldContext, locale: string): string => {
-  if (fieldContext === 'sharePost') return SYSTEM_PROMPTS.sharePost;
-
   const langName = localeToLanguageName(locale);
   const langInstruction = `You MUST write all output in ${langName}.`;
 

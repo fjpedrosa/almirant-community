@@ -8,7 +8,6 @@ describe("shouldFetchRepos (project detail eager github repos gating)", () => {
 
   it("is false for any other tab (no eager installation-wide pagination)", () => {
     expect(shouldFetchRepos("overview")).toBe(false);
-    expect(shouldFetchRepos("sprints")).toBe(false);
     expect(shouldFetchRepos("notes")).toBe(false);
     expect(shouldFetchRepos("settings")).toBe(false);
     expect(shouldFetchRepos("")).toBe(false);

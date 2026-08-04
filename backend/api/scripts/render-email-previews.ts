@@ -20,7 +20,6 @@ import {
   buildEmailWorkItemAssigned,
   buildEmailWorkItemDone,
   buildEmailReviewCompleted,
-  buildEmailSprintClosed,
   buildEmailUserActions,
   buildEmailMemberRemoved,
 } from '../src/lib/email/templates';
@@ -142,10 +141,10 @@ const wiMoved = buildEmailWorkItemMoved({
   taskId: 'A-1234',
   title: 'Implement user onboarding flow',
   projectName: 'Almirant',
-  boardName: 'Sprint 12',
+  boardName: 'Release 12',
   fromColumnName: 'In Progress',
   toColumnName: 'To Review',
-  url: 'https://almirant.ai/boards/sprint-12/A-1234',
+  url: 'https://almirant.ai/boards/release-12/A-1234',
   locale: 'en',
 });
 emails.push({ title: 'Work Item Moved (EN)', ...wiMoved });
@@ -155,9 +154,9 @@ const wiAssigned = buildEmailWorkItemAssigned({
   taskId: 'A-1235',
   title: 'Fix login redirect bug',
   projectName: 'Almirant',
-  boardName: 'Sprint 12',
+  boardName: 'Release 12',
   assignee: 'Alex Rivera',
-  url: 'https://almirant.ai/boards/sprint-12/A-1235',
+  url: 'https://almirant.ai/boards/release-12/A-1235',
   locale: 'en',
 });
 emails.push({ title: 'Work Item Assigned (EN)', ...wiAssigned });
@@ -167,8 +166,8 @@ const wiDone = buildEmailWorkItemDone({
   taskId: 'A-1236',
   title: 'Add dark mode support',
   projectName: 'Almirant',
-  boardName: 'Sprint 12',
-  url: 'https://almirant.ai/boards/sprint-12/A-1236',
+  boardName: 'Release 12',
+  url: 'https://almirant.ai/boards/release-12/A-1236',
   locale: 'en',
 });
 emails.push({ title: 'Work Item Completed (EN)', ...wiDone });
@@ -179,7 +178,7 @@ const reviewPass = buildEmailReviewCompleted({
   title: 'Refactor auth middleware',
   result: 'pass',
   summary: 'All tests passing. Code follows repository pattern correctly. No security issues found. The session validation logic is clean and well-structured.',
-  url: 'https://almirant.ai/boards/sprint-12/A-1237',
+  url: 'https://almirant.ai/boards/release-12/A-1237',
   locale: 'en',
 });
 emails.push({ title: 'Review Passed (EN)', ...reviewPass });
@@ -190,28 +189,17 @@ const reviewFail = buildEmailReviewCompleted({
   title: 'Add CSV export endpoint',
   result: 'fail',
   summary: 'Missing input validation on the date range parameter. The endpoint does not handle pagination correctly for large datasets. SQL injection risk in the raw query on line 45.',
-  url: 'https://almirant.ai/boards/sprint-12/A-1238',
+  url: 'https://almirant.ai/boards/release-12/A-1238',
   locale: 'en',
 });
 emails.push({ title: 'Review Failed (EN)', ...reviewFail });
 
-// 13. Sprint Closed
-const sprintClosed = buildEmailSprintClosed({
-  sprintName: 'Sprint 12',
-  completedCount: 18,
-  totalCount: 22,
-  boardName: 'Development',
-  url: 'https://almirant.ai/sprints/sprint-12',
-  locale: 'en',
-});
-emails.push({ title: 'Sprint Closed (EN)', ...sprintClosed });
-
-// 14. User Actions Required
+// 13. User Actions Required
 const userActions = buildEmailUserActions({
   taskId: 'A-1239',
   title: 'Deploy staging environment',
   userActions: 'Please verify the staging deployment is working correctly and run the smoke tests before promoting to production.',
-  url: 'https://almirant.ai/boards/sprint-12/A-1239',
+  url: 'https://almirant.ai/boards/release-12/A-1239',
   locale: 'en',
 });
 emails.push({ title: 'User Actions Required (EN)', ...userActions });

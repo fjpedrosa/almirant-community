@@ -19,9 +19,8 @@ export const useWorkItemsByBoard = (
     queryKey: scopedKey,
     queryFn: () => workItemsApi.getByBoard(boardId, filterParams, "board") as Promise<WorkItemsByColumn[]>,
     // Gate on a confirmed org: otherwise the query fires once under `org:none`
-    // and refetches under `org:<id>`, doubling the ~550KB board fetch. The
-    // `enabled` flag additionally lets callers hold the fetch until the sprint
-    // filter is resolved, so it fires once with the correct filter.
+    // and refetches under `org:<id>`, doubling the board fetch. The optional
+    // `enabled` flag lets callers defer the query when the board is not ready.
     enabled: !!boardId && !!confirmedActiveTeamId && enabled,
     placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000, // 5 minutes - board updates via mutations, not polling

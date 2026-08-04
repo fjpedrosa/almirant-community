@@ -4,7 +4,6 @@ import { registerBoardsTools } from "../tools/boards.tools";
 import { registerWorkItemsTools } from "../tools/work-items.tools";
 import { registerTagsTools } from "../tools/tags.tools";
 import { registerDocumentsTools } from "../tools/documents.tools";
-import { registerSprintsTools } from "../tools/sprints.tools";
 import { registerDependenciesTools } from "../tools/dependencies.tools";
 import { registerSkillContextTools } from "../tools/skill-context.tools";
 import { registerSkillsTools } from "../tools/skills.tools";
@@ -41,7 +40,6 @@ export const setupPublicMcpServer = async (server: McpServer) => {
   registerWorkItemsTools(server);
   registerTagsTools(server);
   registerDocumentsTools(server);
-  registerSprintsTools(server);
   registerDependenciesTools(server);
   registerSkillContextTools(server);
   registerSkillsTools(server);

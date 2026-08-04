@@ -23,7 +23,6 @@ const notificationEvents: NotificationEventConfig[] = [
   { key: "notifyWorkItemAssigned", titleKey: "workItemAssigned", descKey: "workItemAssignedDesc" },
   { key: "notifyWorkItemDone", titleKey: "workItemDone", descKey: "workItemDoneDesc" },
   { key: "notifyReviewCompleted", titleKey: "reviewCompleted", descKey: "reviewCompletedDesc" },
-  { key: "notifySprintClosed", titleKey: "sprintClosed", descKey: "sprintClosedDesc" },
   { key: "notifyUserActions", titleKey: "userActions", descKey: "userActionsDesc" },
 ];
 

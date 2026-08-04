@@ -18,7 +18,6 @@ import {
   createWsMock,
   createLoggerMock,
   createTelegramMock,
-  createSprintReportMock,
   createAiServiceMock,
   createAiPricingMock,
   createS3Mock,
@@ -162,36 +161,6 @@ const orgAwareOverrides: Record<string, unknown> = {
     if (orgId === ORG_A) return [testBoard];
     return [];
   },
-
-  // Sprints
-  getSprintsByBoard: async (...args: unknown[]) => {
-    const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return [{ id: "sprint-1", boardId: testBoard.id, name: "Sprint 1", status: "active" }];
-    return [];
-  },
-  getSprintById: async (...args: unknown[]) => {
-    const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return { id: "sprint-1", boardId: testBoard.id, name: "Sprint 1", status: "active" };
-    return null;
-  },
-  getActiveSprint: async (...args: unknown[]) => {
-    const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return { id: "sprint-1", boardId: testBoard.id, name: "Sprint 1", status: "active" };
-    return null;
-  },
-  createSprint: async (...args: unknown[]) => {
-    const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    return { id: "sprint-new-1", boardId: "board-new-1", name: "Sprint New", status: "active", workspaceId: orgId };
-  },
-  closeSprint: async () => null,
-  closeSprintAdHoc: async () => null,
-  closeSprintByDate: async () => null,
-  getSprintWorkItems: async (...args: unknown[]) => {
-    const orgId = typeof args[0] === "string" ? args[0] : undefined;
-    if (orgId === ORG_A) return [testWorkItem];
-    return [];
-  },
-  getDoneItemsPreview: async () => [],
 
   // Ideas
   getIdeaItems: async (...args: unknown[]) => {
@@ -626,26 +595,12 @@ mock.module("../../domains/integrations/telegram/services/telegram/notifications
   createTelegramMock(),
 );
 mock.module("../../shared/services/email/notifications", () => ({
-  emailNotifySprintClosed: () => {},
   emailNotifyWorkItemAssigned: () => {},
   emailNotifyWorkItemDone: () => {},
   emailNotifyWorkItemMoved: () => {},
   emailNotifyReviewCompleted: () => {},
   emailNotifyUserActions: () => {},
 }));
-
-// --- Sprint services ---
-mock.module(
-  "../../domains/project-management/sprints/services/sprint-visual-report-service",
-  () => createSprintReportMock(),
-);
-mock.module(
-  "../../domains/project-management/sprints/services/sprint-changelog-service",
-  () => ({
-    kickoffSprintChangelogGeneration: () => {},
-    generateSprintChangelog: async () => "",
-  }),
-);
 
 // --- work-items.tools.ts dependencies ---
 mock.module(
@@ -819,12 +774,6 @@ const TOOL_PARAMS: Record<string, Record<string, unknown>> = {
   add_seed_comment: { seedId: testSeed.id, content: "test comment" },
   list_seed_comments: { seedId: testSeed.id },
 
-  // Sprints — pass Org A IDs
-  list_sprints: { boardId: testBoard.id },
-  get_sprint: { id: "sprint-1" },
-  get_active_sprint: { boardId: testBoard.id },
-  get_sprint_work_items: { sprintId: "sprint-1" },
-
   // Work item extras — pass Org A IDs
   create_work_item: { title: "Test WI from Org B", boardColumnId: "col-test-1", type: "task" },
   get_work_item_events: { workItemId: testWorkItem.id },
@@ -849,12 +798,6 @@ const TOOL_PARAMS: Record<string, Record<string, unknown>> = {
 
   // Boards
   create_board: { name: "Org B Board" },
-
-  // Sprints — creation
-  create_sprint: { boardId: testBoard.id, name: "Org B Sprint" },
-  close_sprint: { boardId: testBoard.id },
-  close_sprint_adhoc: { boardId: testBoard.id },
-  close_sprint_by_date: { boardId: testBoard.id, cutoffDate: "2026-01-01" },
 
   // Todos
   create_todo_item: { title: "Org B Todo" },

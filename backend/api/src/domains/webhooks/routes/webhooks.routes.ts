@@ -21,8 +21,8 @@ type WebhookTrigger =
   | "work_item_deleted"
   | "comment_added"
   | "attachment_added"
-  | "sprint_closed"
   | "milestone_completed";
+const LEGACY_SPRINT_TRIGGER = "sprint_closed";
 
 export const webhooksRoutes = new Elysia({ prefix: "/webhooks" })
   .use(sessionContextTypes)
@@ -65,6 +65,11 @@ export const webhooksRoutes = new Elysia({ prefix: "/webhooks" })
         if (!body.trigger) {
           set.status = 400;
           return errorResponse("Trigger is required");
+        }
+
+        if (body.trigger === LEGACY_SPRINT_TRIGGER) {
+          set.status = 400;
+          return errorResponse("Unsupported webhook trigger");
         }
 
         // Validate URL format
@@ -160,6 +165,11 @@ export const webhooksRoutes = new Elysia({ prefix: "/webhooks" })
             set.status = 400;
             return errorResponse("Invalid URL format");
           }
+        }
+
+        if (body.trigger === LEGACY_SPRINT_TRIGGER) {
+          set.status = 400;
+          return errorResponse("Unsupported webhook trigger");
         }
 
         const webhook = await updateWebhook(orgId, params.id, {

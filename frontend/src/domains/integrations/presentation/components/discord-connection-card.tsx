@@ -71,7 +71,7 @@ export const DiscordConnectionCard: React.FC<DiscordConnectionCardProps> = ({
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
               Connect the Almirant bot to your Discord server to receive
-              notifications about work items, sprints, and more.
+              notifications about work items and more.
             </p>
             <Button onClick={onConnect} disabled={isConnecting} size="sm">
               {isConnecting && (

@@ -1,5 +1,6 @@
 # Environmental Agent Architecture
 
+> **Historical design note:** This document describes an earlier sprint-based agent concept. It is retained for architectural history and is not an active product contract.
 > A per-project ambient agent accessible via WhatsApp, Telegram, Discord, and Slack for conversational planning, seed capture, and project management.
 
 ## Table of Contents

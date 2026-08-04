@@ -9,7 +9,6 @@ import {
   getEmailNotificationSettingsByUserId,
   getWorkItemById,
   isEmailEventEnabled,
-  listEmailNotificationRecipients,
 } from "@almirant/database";
 import { sendEmail } from "../email-service";
 import { getFrontendBaseUrl } from "../../../domains/integrations/telegram/services/telegram-utils";
@@ -18,7 +17,6 @@ import {
   buildEmailWorkItemAssigned,
   buildEmailWorkItemDone,
   buildEmailReviewCompleted,
-  buildEmailSprintClosed,
   buildEmailUserActions,
 } from "./templates";
 
@@ -216,49 +214,6 @@ export const emailNotifyReviewCompleted = async (args: {
     await sendEmail({ to: recipient.email, subject, html });
   } catch (err) {
     logger.error(err, "emailNotifyReviewCompleted failed");
-  }
-};
-
-export const emailNotifySprintClosed = async (args: {
-  sprintId: string;
-  boardId: string;
-  sprintName: string;
-  completedCount: number;
-  totalCount: number;
-}): Promise<void> => {
-  try {
-    const recipients = await listEmailNotificationRecipients({
-      event: "sprint_closed",
-    });
-    if (recipients.length === 0) return;
-
-    const baseUrl = getFrontendBaseUrl();
-    const board = await getBoardByIdInternal(args.boardId);
-    const area = board?.area ?? "desarrollo";
-    const url = `${baseUrl}/boards/${area}/sprints/${args.sprintId}`;
-
-    const { subject, html } = buildEmailSprintClosed({
-      sprintName: args.sprintName,
-      completedCount: args.completedCount,
-      totalCount: args.totalCount,
-      boardName: board?.name ?? null,
-      url,
-    });
-
-    await Promise.all(
-      recipients.map(async (r) => {
-        try {
-          await sendEmail({ to: r.email, subject, html });
-        } catch (err) {
-          logger.error(
-            { err, email: r.email },
-            "emailNotifySprintClosed: send to recipient failed"
-          );
-        }
-      })
-    );
-  } catch (err) {
-    logger.error(err, "emailNotifySprintClosed failed");
   }
 };
 

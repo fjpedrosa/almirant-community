@@ -74,8 +74,6 @@ const MCP_ACTION_LABELS: Record<string, string> = {
   promote_seed: "Promote Seed",
   create_idea_item: "Create Idea",
   list_idea_items: "List Ideas",
-  get_active_sprint: "Active Sprint",
-  get_sprint_work_items: "Sprint Items",
   create_milestone: "Create Milestone",
   get_milestone_progress: "Milestone Progress",
   generate_work_item_prompt: "Generate Prompt",
@@ -101,9 +99,6 @@ const MCP_ACTION_LABELS: Record<string, string> = {
   list_members: "List Members",
   get_current_user: "Current User",
   list_milestones: "List Milestones",
-  list_sprints: "List Sprints",
-  create_sprint: "Create Sprint",
-  close_sprint: "Close Sprint",
   get_quota_usage: "Quota Usage",
 };
 

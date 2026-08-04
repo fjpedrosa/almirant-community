@@ -9,7 +9,7 @@ export const useBoardAreaPage = (area: string) => {
   const { data: boards, isLoading: boardsLoading } = useBoardsByArea(area);
 
   const boardList = (boards as BoardWithStats[]) ?? EMPTY_BOARDS;
-  // Use the first board as the active one for metadata purposes (sprints, etc.)
+  // Use the first board as the active board for the area Kanban view.
   const activeBoardId = boardList[0]?.id || "";
   const activeBoard = boardList[0];
 

@@ -10,6 +10,8 @@ import {
   db,
   workItems,
   boardColumns,
+  and,
+  isNull,
   eq,
 } from "@almirant/database";
 
@@ -32,7 +34,7 @@ export const getParentForSync = async (
   const [item] = await db
     .select({ parentId: workItems.parentId })
     .from(workItems)
-    .where(eq(workItems.id, workItemId))
+    .where(and(eq(workItems.id, workItemId), isNull(workItems.archivedAt)))
     .limit(1);
 
   if (!item?.parentId) return null;
@@ -47,7 +49,7 @@ export const getParentForSync = async (
       parentId: workItems.parentId,
     })
     .from(workItems)
-    .where(eq(workItems.id, item.parentId))
+    .where(and(eq(workItems.id, item.parentId), isNull(workItems.archivedAt)))
     .limit(1);
 
   return parent ?? null;

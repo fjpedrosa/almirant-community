@@ -58,21 +58,6 @@ export const es: Translations = {
         board: 'Board',
       },
     },
-    sprint: {
-      subject: {
-        closed: 'Sprint cerrado: {name}',
-      },
-      heading: {
-        closed: 'Sprint cerrado',
-      },
-      preheader: {
-        closed: 'Sprint "{name}" cerrado - {completed}/{total} completados',
-      },
-      meta: {
-        sprint: 'Sprint',
-        completed: 'Completados',
-      },
-    },
     ideaHub: {
       subject: {
         created: 'Nueva idea creada: {title}',

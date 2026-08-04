@@ -32,13 +32,6 @@ const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
     ],
   },
   {
-    name: "Sprints",
-    toggles: [
-      { key: "notifySprintStarted", label: "Sprint started" },
-      { key: "notifySprintClosed", label: "Sprint closed" },
-    ],
-  },
-  {
     name: "Milestones",
     toggles: [{ key: "notifyMilestoneCompleted", label: "Milestone completed" }],
   },

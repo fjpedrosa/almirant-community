@@ -12,7 +12,6 @@ export type TelegramNotificationSettingsUpdate = Partial<{
   notifyWorkItemAssigned: boolean;
   notifyWorkItemDone: boolean;
   notifyReviewCompleted: boolean;
-  notifySprintClosed: boolean;
   notifyUserActions: boolean;
 }>;
 
@@ -82,7 +81,6 @@ type NotificationEventKey =
   | "work_item_assigned"
   | "work_item_done"
   | "review_completed"
-  | "sprint_closed"
   | "user_actions";
 
 const isEventEnabled = (
@@ -102,8 +100,6 @@ const isEventEnabled = (
       return settings.notifyWorkItemDone;
     case "review_completed":
       return settings.notifyReviewCompleted;
-    case "sprint_closed":
-      return settings.notifySprintClosed;
     case "user_actions":
       return settings.notifyUserActions;
   }

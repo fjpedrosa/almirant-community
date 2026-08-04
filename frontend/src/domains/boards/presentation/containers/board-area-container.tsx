@@ -1,13 +1,10 @@
 "use client";
 
-import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { History } from "lucide-react";
 import { useBoardAreaPage } from "../../application/hooks/use-board-area-page";
 import { DynamicWorkItemBoard } from "@/components/dynamic-work-item-board";
-import { SprintHistoryContainer } from "@/domains/sprints/presentation/containers/sprint-history-container";
 import type { BoardAreaContainerProps } from "../../domain/types";
 
 const areaToKey: Record<string, string> = {
@@ -28,7 +25,6 @@ export const BoardAreaContainer: React.FC<BoardAreaContainerProps> = ({
     activeBoardId,
     activeBoard,
   } = useBoardAreaPage(area);
-  const [sprintPanelOpen, setSprintPanelOpen] = useState(false);
 
   if (boardsLoading) {
     return (
@@ -52,16 +48,6 @@ export const BoardAreaContainer: React.FC<BoardAreaContainerProps> = ({
         <div className="flex items-center gap-4">
           <h1 className="text-3xl font-bold">{areaToKey[area] ? t(`areas.${areaToKey[area]}`) : area}</h1>
         </div>
-        {activeBoardId && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSprintPanelOpen(true)}
-          >
-            <History className="h-4 w-4 mr-1.5" />
-            Sprints
-          </Button>
-        )}
       </div>
 
       {boards.length === 0 ? (
@@ -79,14 +65,6 @@ export const BoardAreaContainer: React.FC<BoardAreaContainerProps> = ({
         />
       )}
 
-      {activeBoardId && (
-        <SprintHistoryContainer
-          boardId={activeBoardId}
-          open={sprintPanelOpen}
-          onOpenChange={setSprintPanelOpen}
-          area={area}
-        />
-      )}
     </div>
   );
 };

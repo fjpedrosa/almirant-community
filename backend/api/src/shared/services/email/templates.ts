@@ -282,44 +282,6 @@ export const buildEmailReviewCompleted = (args: {
   };
 };
 
-export const buildEmailSprintClosed = (args: {
-  sprintName: string;
-  completedCount: number;
-  totalCount: number;
-  boardName: string | null;
-  url: string;
-  locale?: Locale;
-}): EmailTemplate => {
-  const locale = args.locale ?? 'en';
-  const pct = args.totalCount > 0 ? Math.round((args.completedCount / args.totalCount) * 100) : 0;
-
-  const sprintLabel = t(locale, 'emails.sprint.meta.sprint');
-  const completedLabel = t(locale, 'emails.sprint.meta.completed');
-  const boardLabel = t(locale, 'emails.workItem.meta.board');
-
-  const rows =
-    metaRow(sprintLabel, args.sprintName) +
-    metaRow(completedLabel, `${args.completedCount} / ${args.totalCount} (${pct}%)`) +
-    (args.boardName ? metaRow(boardLabel, args.boardName) : "");
-
-  const body =
-    `<p style="margin:0 0 8px;font-size:16px;font-weight:600;color:#111827;">${escapeHtml(t(locale, 'emails.sprint.heading.closed'))}</p>` +
-    metaTable(rows);
-
-  return {
-    subject: t(locale, 'emails.sprint.subject.closed', { name: args.sprintName }),
-    html: wrapInLayout({
-      preheader: t(locale, 'emails.sprint.preheader.closed', { name: args.sprintName, completed: args.completedCount, total: args.totalCount }),
-      heading: t(locale, 'emails.sprint.heading.closed'),
-      headingIcon: "&#128202;",
-      body,
-      ctaUrl: args.url,
-      ctaLabel: t(locale, 'emails.common.viewReport'),
-      locale,
-    }),
-  };
-};
-
 export const buildEmailUserActions = (args: {
   taskId: string | null;
   title: string;

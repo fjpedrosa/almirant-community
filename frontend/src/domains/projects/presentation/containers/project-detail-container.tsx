@@ -16,9 +16,8 @@ import { ProjectOverviewTab } from "../components/project-overview-tab";
 import { ProjectReposTab } from "../components/project-repos-tab";
 import { ProjectNotesTab } from "../components/project-notes-tab";
 import { EditProjectDialog } from "../components/edit-project-dialog";
-import { ProjectSprintsContainer } from "./project-sprints-container";
 import { ProjectSettingsContainer } from "./project-settings-container";
-import { Eye, GitBranch, Zap, StickyNote, Settings } from "lucide-react";
+import { Eye, GitBranch, StickyNote, Settings } from "lucide-react";
 import { useCurrentUserTeams } from "@/domains/teams/application/hooks/use-current-user-teams";
 import { shouldFetchRepos } from "../../domain/repos-tab";
 
@@ -184,10 +183,6 @@ export const ProjectDetailContainer: React.FC<ProjectDetailContainerProps> = ({
             <GitBranch className="h-4 w-4" />
             {t("tabs.repos")}
           </TabsTrigger>
-          <TabsTrigger value="sprints" className="flex items-center gap-1.5">
-            <Zap className="h-4 w-4" />
-            {t("tabs.sprints")}
-          </TabsTrigger>
           <TabsTrigger value="notes" className="flex items-center gap-1.5">
             <StickyNote className="h-4 w-4" />
             {t("tabs.notes")}
@@ -234,10 +229,6 @@ export const ProjectDetailContainer: React.FC<ProjectDetailContainerProps> = ({
             onGithubRepoSelect={handleGithubRepoSelect}
             isGithubConnected={isGithubConnected}
           />
-        </TabsContent>
-
-        <TabsContent value="sprints" className="space-y-4">
-          <ProjectSprintsContainer projectId={projectId} />
         </TabsContent>
 
         <TabsContent value="notes" className="space-y-4">

@@ -114,28 +114,6 @@ export const buildReviewCompletedMessage = (args: {
   };
 };
 
-export const buildSprintClosedMessage = (args: {
-  sprintName: string;
-  completedCount: number;
-  totalCount: number;
-  boardName: string | null;
-  url: string;
-}) => {
-  const sprintName = escapeTelegramMarkdownV2(args.sprintName);
-  const boardName = escapeTelegramMarkdownV2(args.boardName ?? "");
-
-  const text =
-    `*📊 Sprint cerrado*\n` +
-    `Sprint: *${sprintName}*\n` +
-    `Completados: *${args.completedCount}/${args.totalCount}*\n` +
-    (boardName ? `Board: ${boardName}` : "");
-
-  return {
-    text,
-    replyMarkup: buildInlineUrlButton("Ver reporte", args.url),
-  };
-};
-
 export const buildUserActionsMessage = (args: {
   taskId: string | null;
   title: string;

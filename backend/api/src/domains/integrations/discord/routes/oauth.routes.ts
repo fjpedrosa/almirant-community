@@ -97,6 +97,15 @@ const registerSlashCommandsInGuild = async (
 // Routes
 // ---------------------------------------------------------------------------
 
+
+const withoutLegacySprintNotificationPreferences = <T extends object>(prefs: T | null) => {
+  if (!prefs) return prefs;
+  const visible = { ...prefs } as Record<string, unknown>;
+  delete visible.notifySprintStarted;
+  delete visible.notifySprintClosed;
+  return visible;
+};
+
 export const discordOauthRoutes = new Elysia({
   prefix: "/integrations/discord",
 })
@@ -695,9 +704,7 @@ export const discordOauthRoutes = new Elysia({
           notifyWorkItemDeleted: false,
           notifyCommentAdded: false,
           notifyAttachmentAdded: false,
-          notifySprintStarted: true,
-          notifySprintClosed: true,
-          notifyMilestoneCompleted: true,
+                  notifyMilestoneCompleted: true,
           notifyPrOpened: true,
           notifyPrMerged: true,
           notifyCiFailed: true,
@@ -706,7 +713,9 @@ export const discordOauthRoutes = new Elysia({
           notifySeedPromoted: true,
         };
 
-        return successResponse(prefs ?? DEFAULT_NOTIFICATION_PREFS);
+        return successResponse(
+          withoutLegacySprintNotificationPreferences(prefs ?? DEFAULT_NOTIFICATION_PREFS),
+        );
       } catch (error) {
         logger.error(error, "Failed to get Discord notification preferences");
         set.status = 500;
@@ -746,7 +755,7 @@ export const discordOauthRoutes = new Elysia({
           ...body,
         });
 
-        return successResponse(upserted);
+        return successResponse(withoutLegacySprintNotificationPreferences(upserted));
       } catch (error) {
         logger.error(error, "Failed to update Discord notification preferences");
         set.status = 500;
@@ -773,8 +782,6 @@ export const discordOauthRoutes = new Elysia({
         notifyWorkItemDeleted: t.Optional(t.Boolean()),
         notifyCommentAdded: t.Optional(t.Boolean()),
         notifyAttachmentAdded: t.Optional(t.Boolean()),
-        notifySprintStarted: t.Optional(t.Boolean()),
-        notifySprintClosed: t.Optional(t.Boolean()),
         notifyMilestoneCompleted: t.Optional(t.Boolean()),
         notifyPrOpened: t.Optional(t.Boolean()),
         notifyPrMerged: t.Optional(t.Boolean()),

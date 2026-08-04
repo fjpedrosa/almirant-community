@@ -23,7 +23,6 @@ const formSchema = z.object({
     "work_item_deleted",
     "comment_added",
     "attachment_added",
-    "sprint_closed",
     "milestone_completed",
   ]),
 });
@@ -37,7 +36,6 @@ export const triggerLabels: Record<string, string> = {
   work_item_deleted: "Work item eliminado",
   comment_added: "Comentario a\u00f1adido",
   attachment_added: "Adjunto a\u00f1adido",
-  sprint_closed: "Sprint cerrado",
   milestone_completed: "Milestone completado",
 };
 
