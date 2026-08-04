@@ -378,7 +378,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
       search: z.string().optional().describe("Search by title or description"),
       projectId: z.string().uuid().optional().describe("Filter by project ID"),
       boardId: z.string().uuid().optional().describe("Filter by board ID"),
-      boardColumnId: z.string().uuid().optional().describe("Filter by board column ID (e.g. Backlog, In Progress, Reviewing)"),
+      boardColumnId: z.string().uuid().optional().describe("Filter by board column ID (e.g. Backlog, To Do, In Progress, To Review)"),
       parentId: z.string().uuid().optional().describe("Filter by parent work item ID (e.g. get children of a feature)"),
       type: z.enum(["epic", "feature", "story", "task", "idea"]).optional().describe("Filter by work item type"),
       priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("Filter by priority level"),
@@ -1195,7 +1195,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
   // -------------------------------------------------------
   server.tool(
     "move_work_item",
-    "Move a work item to a different board column (e.g. Backlog → In Progress → Reviewing → Validating → Release → Done). For leaf items (task, idea), moves directly. For parent items (epic, feature, story), cascades the move to all descendant leaf tasks.",
+    "Move a work item to a different board column (e.g. Backlog → To Do → In Progress → To Review → Validating → To Release → Done). For leaf items (task, idea), moves directly. For parent items (epic, feature, story), cascades the move to all descendant leaf tasks.",
     {
       workItemId: z.string().uuid().describe("The ID of the work item to move"),
       boardColumnId: z.string().uuid().describe("The ID of the target board column"),
@@ -1295,7 +1295,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
         const updated = await getWorkItemById(params.workItemId, workspaceId);
 
         // Toggle AI processing flag for MCP-driven moves.
-        // Start when moving into In Progress, stop when moving into Reviewing/Validating/Release/Done.
+        // Start when moving into In Progress, stop when moving into To Review/Validating/To Release/Done.
         const inferredRole = (column.role && column.role !== "other")
           ? column.role
           : inferRoleFromName(column.name ?? "");
@@ -2611,12 +2611,12 @@ export const registerWorkItemsTools = (server: McpServer) => {
   // -------------------------------------------------------
   server.tool(
     "complete_validation",
-    "Atomically complete validation for a task: move a passing task to its destination column (normally Release), clear AI processing flags, merge documentation and test results metadata, and record the AI session. If a legacy Validating or To Document column ID is passed, the tool auto-redirects to Release when that column exists on the board.",
+    "Atomically complete validation for a task: move a passing task to its destination column (normally To Release), clear AI processing flags, merge documentation and test results metadata, and record the AI session. If a legacy Validating or To Document column ID is passed, the tool auto-redirects to To Release when that column exists on the board.",
     {
       workItemId: z.string().uuid().describe("The work item ID to complete validation for"),
-      releaseColumnId: z.string().uuid().optional().describe("Destination column for a passing validation result. Prefer the board's Release column ID."),
-      toDocumentColumnId: z.string().uuid().optional().describe("Deprecated legacy alias. If a Release column exists, the tool auto-redirects there."),
-      validatingColumnId: z.string().uuid().optional().describe("Legacy alias for the destination column. If you accidentally pass the board's Validating column, the tool auto-redirects to Release when available."),
+      releaseColumnId: z.string().uuid().optional().describe("Destination column for a passing validation result. Prefer the board's To Release column ID."),
+      toDocumentColumnId: z.string().uuid().optional().describe("Deprecated legacy alias. If a To Release column exists, the tool auto-redirects there."),
+      validatingColumnId: z.string().uuid().optional().describe("Legacy alias for the destination column. If you accidentally pass the board's Validating column, the tool auto-redirects to To Release when available."),
       documentation: z.object({
         summary: z.string().optional().describe("1-2 sentence summary of what was validated"),
         screenshots: z.array(z.string()).optional().describe("Attachment URLs of screenshots"),
@@ -2704,13 +2704,13 @@ export const registerWorkItemsTools = (server: McpServer) => {
           return {
             content: [{
               type: "text" as const,
-              text: "Error: Could not resolve a destination column for a passing validation result. Pass `releaseColumnId` or ensure the board has a Release column.",
+              text: "Error: Could not resolve a destination column for a passing validation result. Pass `releaseColumnId` or ensure the board has a To Release column.",
             }],
             isError: true,
           };
         }
 
-        // 3. Move to the resolved destination column (normally Release)
+        // 3. Move to the resolved destination column (normally To Release)
         const moveSuccess = await moveWorkItem(params.workItemId, destinationColumn.id, 0);
         if (!moveSuccess) {
           return {
@@ -2849,12 +2849,12 @@ export const registerWorkItemsTools = (server: McpServer) => {
         notifyWorkItemMoved({
           workItemId: params.workItemId,
           fromColumnName: workItem.columnName ?? "Validating",
-          toColumnName: destinationColumn.name ?? "Release",
+          toColumnName: destinationColumn.name ?? "To Release",
         }).catch(() => {});
         emailNotifyWorkItemMoved({
           workItemId: params.workItemId,
           fromColumnName: workItem.columnName ?? "Validating",
-          toColumnName: destinationColumn.name ?? "Release",
+          toColumnName: destinationColumn.name ?? "To Release",
         }).catch(() => {});
 
         return {
@@ -2886,7 +2886,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
   // -------------------------------------------------------
   server.tool(
     "complete_validation_fail",
-    "Complete a failed validation for a task: move back to In Progress for corrective work, record diagnosis as structured event and visible comment, clear AI processing flags, and record the AI session. Legacy Needs Fix columns are supported only as a fallback.",
+    "Complete a failed validation for a task: move back to In Progress for corrective work, record diagnosis as structured event and visible comment, clear AI processing flags, and record the AI session. Legacy Needs Fix columns are supported only as a fallback; canonical boards use In Progress.",
     {
       workItemId: z.string().uuid().describe("The work item ID that failed validation"),
       inProgressColumnId: z.string().uuid().optional().describe("The ID of the In Progress column. If omitted, auto-detected from the board."),
@@ -2916,7 +2916,7 @@ export const registerWorkItemsTools = (server: McpServer) => {
           };
         }
 
-        // 2. Find the In Progress column (legacy fallback: Needs Fix)
+        // 2. Find the canonical In Progress column (legacy fallback: Needs Fix)
         let targetColumn: { id: string; name: string } | undefined;
 
         if (params.inProgressColumnId ?? params.needsFixColumnId) {

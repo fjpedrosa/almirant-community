@@ -28,6 +28,7 @@ import {
   getDependencies,
   getDependents,
   findColumnByNameInBoard,
+  findColumnByRoleInBoard,
   moveWorkItem,
   setWorkItemAiProcessing,
   setWorkItemAiError,
@@ -2566,12 +2567,23 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         }
       }
 
-      // Best-effort: on permanent failure, move the linked work item to "Needs Attention" if that column exists.
+      // Best-effort: on permanent failure, requeue the linked work item so an
+      // automation lane can pick it up again on the next tick.
+      //
+      // Route permanent failures to canonical In Progress first. The fix lane
+      // selects this role only when metadata.lastValidationResult='fail'; the
+      // metadata write below therefore remains part of the same best-effort
+      // requeue and preserves the failure signal. Legacy Needs Fix/Backlog
+      // roles remain compatibility fallbacks until the canonical migration runs.
       if (isWorkItemJob && status === "failed" && existing.workItem?.id && existing.workItem.boardId) {
         try {
-          const needsAttention = await findColumnByNameInBoard(existing.workItem.boardId, "Needs Attention");
-          if (needsAttention?.id) {
-            await moveWorkItem(existing.workItem.id, needsAttention.id, 0, {
+          const requeueColumn =
+            (await findColumnByRoleInBoard(existing.workItem.boardId, "in_progress"))
+            ?? (await findColumnByRoleInBoard(existing.workItem.boardId, "needs_fix"))
+            ?? (await findColumnByRoleInBoard(existing.workItem.boardId, "backlog"));
+
+          if (requeueColumn?.id) {
+            await moveWorkItem(existing.workItem.id, requeueColumn.id, 0, {
               triggeredBy: "worker",
               provenance: { source: "worker", workerId: existing.job.workerId ?? undefined },
             });

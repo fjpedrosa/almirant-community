@@ -734,6 +734,7 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
             t.Literal("needs_fix"),
             t.Literal("validating"),
             t.Literal("to_document"),
+            t.Literal("release"),
             t.Literal("done"),
             t.Literal("other"),
           ])
@@ -823,6 +824,7 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
             t.Literal("needs_fix"),
             t.Literal("validating"),
             t.Literal("to_document"),
+            t.Literal("release"),
             t.Literal("done"),
             t.Literal("other"),
           ])

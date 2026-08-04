@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
+import { getDevelopmentBoardColumns } from "./domain/development-board-workflow";
 
 const connectionString = process.env.DATABASE_URL!;
 const client = postgres(connectionString);
@@ -48,14 +49,7 @@ async function seed() {
       name: "Development",
       description: "Software development board with full flow from backlog to production",
       area: "desarrollo" as const,
-      columns: [
-        { name: "Backlog", color: "#94a3b8", order: 0, isDone: false, role: "backlog" },
-        { name: "In Progress", color: "#f59e0b", order: 1, isDone: false, role: "in_progress" },
-        { name: "Reviewing", color: "#8b5cf6", order: 2, isDone: false, role: "review" },
-        { name: "Validating", color: "#ec4899", order: 3, isDone: false, role: "validating" },
-        { name: "Release", color: "#a855f7", order: 4, isDone: false, role: "release" },
-        { name: "Done", color: "#22c55e", order: 5, isDone: true, role: "done" },
-      ],
+      columns: getDevelopmentBoardColumns(),
       isBuiltIn: true,
     },
     {

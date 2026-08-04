@@ -16,11 +16,15 @@ import type {
   BoardArea,
   ColumnRole,
 } from "../../domain/types";
+import { getDevelopmentBoardColumns } from "../../domain/development-board-workflow";
 
 const syncIsDoneWithRole = (role: ColumnRole | undefined, isDone: boolean | undefined) => {
   if (role === "done") return true;
   return isDone;
 };
+
+const isCanonicalDevelopmentColumns = (columns: unknown[]): boolean =>
+  JSON.stringify(columns) === JSON.stringify(getDevelopmentBoardColumns());
 
 // Helper: enrich a board with columns and totalItems
 const enrichBoard = async (board: typeof boards.$inferSelect): Promise<BoardWithStats> => {
@@ -47,23 +51,7 @@ const enrichBoard = async (board: typeof boards.$inferSelect): Promise<BoardWith
   } as BoardWithStats;
 };
 
-// Default columns for provisioned boards
-const DEFAULT_BOARD_COLUMNS: Array<{
-  name: string;
-  color: string;
-  order: number;
-  isDone: boolean;
-  role: ColumnRole;
-}> = [
-  { name: "Backlog", color: "#94a3b8", order: 0, isDone: false, role: "backlog" },
-  { name: "In Progress", color: "#f59e0b", order: 1, isDone: false, role: "in_progress" },
-  { name: "Reviewing", color: "#8b5cf6", order: 2, isDone: false, role: "review" },
-  { name: "Validating", color: "#ec4899", order: 3, isDone: false, role: "validating" },
-  { name: "Release", color: "#a855f7", order: 4, isDone: false, role: "release" },
-  { name: "Done", color: "#22c55e", order: 5, isDone: true, role: "done" },
-];
-
-// Provision a default "Desarrollo" board with the canonical 6-column workflow (idempotent)
+// Provision a default "Desarrollo" board with the canonical workflow (idempotent)
 export const provisionDefaultBoard = async (
   workspaceId: string
 ): Promise<{ provisioned: true; board: BoardWithStats } | { provisioned: false }> => {
@@ -100,7 +88,7 @@ export const provisionDefaultBoard = async (
 
   // Insert all canonical workflow columns
   await db.insert(boardColumns).values(
-    DEFAULT_BOARD_COLUMNS.map((col) => ({
+    getDevelopmentBoardColumns().map((col) => ({
       boardId: newBoard.id,
       name: col.name,
       color: col.color,
@@ -163,19 +151,32 @@ export const createBoard = async (
   workspaceId: string,
   data: CreateBoardRequest
 ): Promise<BoardWithStats> => {
+  const area = data.area || "general";
   const [newBoard] = await db
     .insert(boards)
     .values({
       workspaceId,
       name: data.name,
       description: data.description,
-      area: data.area || "general",
+      area,
       isDefault: data.isDefault || false,
       allowedTypes: data.allowedTypes ?? null,
     })
     .returning();
 
   if (!newBoard) throw new Error("Failed to create board");
+  if (area === "desarrollo") {
+    await db.insert(boardColumns).values(
+      getDevelopmentBoardColumns().map((column) => ({
+        boardId: newBoard.id,
+        name: column.name,
+        color: column.color,
+        order: column.order,
+        role: column.role,
+        isDone: column.isDone,
+      })),
+    );
+  }
   return getBoardById(newBoard.id, workspaceId) as Promise<BoardWithStats>;
 };
 
@@ -185,28 +186,37 @@ export const updateBoard = async (
   id: string,
   data: UpdateBoardRequest
 ): Promise<BoardWithStats | null> => {
-  // Verify board belongs to workspace
-  const [boardRow] = await db
-    .select({ id: boards.id })
-    .from(boards)
-    .where(
-      and(
-        eq(boards.id, id),
-        eq(boards.workspaceId, workspaceId)
-      )
-    )
-    .limit(1);
+  const updated = await db.transaction(async (tx) => {
+    // Lock the board row so concurrent transitions cannot both insert columns.
+    const [board] = await tx.select({ id: boards.id, area: boards.area }).from(boards)
+      .where(and(eq(boards.id, id), eq(boards.workspaceId, workspaceId))).for("update");
 
-  if (!boardRow) return null;
+    if (!board) return null;
 
-  const [updated] = await db
-    .update(boards)
-    .set({
-      ...data,
-      updatedAt: new Date(),
-    })
-    .where(eq(boards.id, id))
-    .returning();
+    if (board.area !== "desarrollo" && data.area === "desarrollo") {
+      const developmentColumns = await tx.select({
+        name: boardColumns.name, role: boardColumns.role, order: boardColumns.order,
+        color: boardColumns.color, isDone: boardColumns.isDone,
+      }).from(boardColumns).where(eq(boardColumns.boardId, id))
+        .orderBy(asc(boardColumns.order)).for("update");
+
+      if (developmentColumns.length > 0 && !isCanonicalDevelopmentColumns(developmentColumns)) {
+        throw new Error("Cannot move populated noncanonical board to Desarrollo");
+      }
+
+      if (developmentColumns.length === 0) {
+        await tx.insert(boardColumns).values(getDevelopmentBoardColumns().map((column) => ({
+          boardId: id, name: column.name, color: column.color, order: column.order,
+          role: column.role, isDone: column.isDone,
+        })));
+      }
+    }
+
+    const [updatedBoard] = await tx.update(boards).set({ ...data, updatedAt: new Date() })
+      .where(eq(boards.id, id)).returning();
+
+    return updatedBoard ?? null;
+  });
 
   if (!updated) return null;
 
@@ -265,7 +275,9 @@ export const createBoardFromTemplate = async (
   if (!newBoard) throw new Error("Failed to create board from template");
 
   // Create all columns from template's columns JSONB array
-  const templateColumns = template.columns as Array<{
+  const templateColumns = (template.area === "desarrollo"
+    ? getDevelopmentBoardColumns()
+    : template.columns) as Array<{
     name: string;
     color: string;
     order: number;
