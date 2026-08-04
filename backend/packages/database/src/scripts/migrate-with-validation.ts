@@ -13,6 +13,17 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { maybeRunBugFixAttemptPreflight } from "./bug-fix-attempts-migration-preflight";
 import { withMigrationAdvisoryLock } from "./migration-advisory-lock";
 import {
+  COMPATIBLE_MIGRATION_HASHES,
+  planCompatibleMigrationLedgerRepairs,
+  type AppliedMigrationRecord,
+} from "./migration-compatibility-repair";
+import {
+  executeObsoleteCursorNormalizations,
+  planObsoleteCursorNormalizations,
+  toMigrationLedgerRecord,
+  type MigrationLedgerRecord,
+} from "./migration-cursor-normalization";
+import {
   assertPendingMigrationsApplied,
   readMigrationFileHash,
 } from "./migration-application-verifier";
@@ -32,49 +43,6 @@ interface JournalEntry {
   tag: string;
   breakpoints: boolean;
 }
-
-const COMPATIBLE_MIGRATION_HASHES: Record<string, string[]> = {
-  "0046_happy_junta": [
-    "fc0c02c60e024a6af78f03b8ba31db4c1d829aa84113e9d40a26ab157228f3ca",
-  ],
-  "0069_many_thor_girl": [
-    "41c375aac8e4109d8241d2ae7ab79fc2f8cce837c1ee59daf9f2d0a0ac438430",
-  ],
-  "0070_add_check_constraint": [
-    "4166fa19039c93df60d0fb15223f62c5e926f2e76dd2bba987c2ed8acaa16592",
-  ],
-  "0071_data_migrate_todos": [
-    "29bfc2da1b09418ebf87f8d3ff624818f36de26995bb22396071aa2b591d7047",
-  ],
-  "0075_wet_lilith": [
-    "6e017de3ef2bdf24963ba30479b45b4e80ac8633476a3b48e346ce592c13a8fe",
-  ],
-  "0080_wet_doctor_strange": [
-    "d23564a678a687efce3ac89823a14f3d4484f2f48aae5e497fc8e9cf490c7d4d",
-  ],
-  "0085_data_migrate_seeds": [
-    "2a8e554fa08dee11bd3c4dda5214e9dfd528808627ce3c450a4bfbfc1de6b30d",
-  ],
-  "0119_overconfident_warhawk": [
-    "f0ff4f550c3ccc88da5aaa213986061b2adfd11bbf929a8f776fc8c26b7f224d",
-  ],
-  "0121_faithful_gideon": [
-    "18dcd9ab58d5dd59ca7bc3e5d962c9fe19f3f2c9eb4a8e8238c3ee26a616a59a",
-  ],
-  // #73: 0147 unconditionally re-added the oauth_states_user_id_user_id_fk FK
-  // that 0046 already creates, breaking a from-scratch install. Guarded with
-  // DROP CONSTRAINT IF EXISTS before the ADD CONSTRAINT (idempotent either way).
-  "0147_recreate_oauth_states": [
-    "87de2d6c15c40cbbfea5108ad53e66f83c702c1cb17baf4409a3b119e61f2930",
-  ],
-  // #88: 0191's comment literally contained the `--> statement-breakpoint`
-  // marker between backticks, which drizzle's naive string-split treats as a
-  // real breakpoint, breaking a from-scratch install. Comment reworded only —
-  // no executable SQL byte changed.
-  "0191_rename_bug_job_types": [
-    "95135b4ad3676835168d34c483d7882a4880da198c3af44651594217f0a615c4",
-  ],
-};
 
 // ── 1. Validate journal ordering ────────────────────────────────────────────
 const journal: { entries: JournalEntry[] } = JSON.parse(
@@ -143,14 +111,15 @@ const getMigrationHash = (entry: JournalEntry): string => {
 
 const loadAppliedHashes = async (): Promise<{
   hashes: Set<string>;
+  migrations: MigrationLedgerRecord[];
   hasMigrationsTable: boolean;
 }> => {
   const hashes = new Set<string>();
 
   try {
-    const applied = await sql`
-      SELECT hash, created_at FROM "drizzle"."__drizzle_migrations" ORDER BY created_at ASC
-    `;
+    const applied = (await sql`
+      SELECT id, hash, created_at FROM "drizzle"."__drizzle_migrations" ORDER BY created_at ASC
+    `) as Array<{ id: string | number; hash: string; created_at: string | number }>;
 
     for (const row of applied) {
       hashes.add(row.hash);
@@ -159,12 +128,14 @@ const loadAppliedHashes = async (): Promise<{
     console.log(`📋 Already applied: ${applied.length} migrations in DB`);
     return {
       hashes,
+      migrations: applied.map(toMigrationLedgerRecord),
       hasMigrationsTable: true,
     };
   } catch {
     console.log("📋 No __drizzle_migrations table yet (first run)");
     return {
       hashes,
+      migrations: [],
       hasMigrationsTable: false,
     };
   }
@@ -183,43 +154,81 @@ const getPendingEntries = (appliedHashes: Set<string>): JournalEntry[] => {
   return result;
 };
 
-const backfillCompatibleMigrationHashes = async (
-  appliedHashes: Set<string>,
+const repairCompatibleMigrationHashes = async (
+  appliedMigrations: readonly AppliedMigrationRecord[],
   hasMigrationsTable: boolean
 ): Promise<boolean> => {
   if (!hasMigrationsTable) {
     return false;
   }
 
-  let inserted = false;
+  const repairs = planCompatibleMigrationLedgerRepairs({
+    entries,
+    migrationHashes,
+    compatibleHashes: COMPATIBLE_MIGRATION_HASHES,
+    appliedMigrations,
+  });
 
-  for (const entry of entries) {
-    const currentHash = getMigrationHash(entry);
-    const compatibleHashes = COMPATIBLE_MIGRATION_HASHES[entry.tag] ?? [];
-
-    if (compatibleHashes.length === 0 || appliedHashes.has(currentHash)) {
-      continue;
+  for (const repair of repairs) {
+    if (repair.action === "insert") {
+      await sql`
+        INSERT INTO "drizzle"."__drizzle_migrations" ("hash", "created_at")
+        SELECT ${repair.hash}, ${repair.createdAt}
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM "drizzle"."__drizzle_migrations"
+          WHERE "hash" = ${repair.hash}
+        )
+      `;
+    } else {
+      await sql`
+        UPDATE "drizzle"."__drizzle_migrations"
+        SET "created_at" = ${repair.createdAt}
+        WHERE "hash" = ${repair.hash}
+          AND "created_at" <> ${repair.createdAt}
+      `;
     }
-
-    const matchedLegacyHash = compatibleHashes.find((hash) => appliedHashes.has(hash));
-    if (!matchedLegacyHash) {
-      continue;
-    }
-
-    await sql`
-      INSERT INTO "drizzle"."__drizzle_migrations" ("hash", "created_at")
-      VALUES (${currentHash}, ${Date.now()})
-    `;
-
-    appliedHashes.add(currentHash);
-    inserted = true;
 
     console.log(
-      `🧩 Backfilled compatibility hash for ${entry.tag} (legacy hash ${matchedLegacyHash.slice(0, 12)}...).`
+      `🧩 ${repair.action === "insert" ? "Backfilled" : "Repaired"} compatibility hash for ${repair.tag} (legacy hash ${repair.legacyHash.slice(0, 12)}...).`
     );
   }
 
-  return inserted;
+  return repairs.length > 0;
+};
+
+const normalizeObsoleteMigrationCursor = async (
+  appliedMigrations: readonly MigrationLedgerRecord[],
+  hasMigrationsTable: boolean,
+): Promise<boolean> => {
+  if (!hasMigrationsTable) {
+    return false;
+  }
+
+  const repairs = planObsoleteCursorNormalizations({
+    entries,
+    migrationHashes,
+    appliedMigrations,
+  });
+
+  await executeObsoleteCursorNormalizations(repairs, async (repair) => {
+    const updated = await sql<Array<{ id: number }>>`
+      UPDATE "drizzle"."__drizzle_migrations"
+      SET "created_at" = ${repair.createdAt}
+      WHERE "id" = ${repair.id}
+        AND "hash" = ${repair.hash}
+        AND "created_at" = ${repair.expectedCreatedAt}
+      RETURNING "id"
+    `;
+    return updated;
+  });
+  for (const repair of repairs) {
+    console.log(
+      `🧩 Normalized obsolete migration ledger row ${repair.id} before ${entries.at(-1)?.tag}.`,
+    );
+  }
+
+  return repairs.length > 0;
 };
 
 try {
@@ -235,18 +244,24 @@ try {
       // advisory-lock critical section. Self-hosted empty-database bootstrap
       // runs upstream of this script (see self-hosted-db-maintenance.ts); by
       // the time this script runs, a migration ledger is expected to exist.
-      let { hashes: appliedHashes, hasMigrationsTable } =
-        await loadAppliedHashes();
+      let appliedState = await loadAppliedHashes();
       if (
-        await backfillCompatibleMigrationHashes(
-          appliedHashes,
-          hasMigrationsTable,
+        await repairCompatibleMigrationHashes(
+          appliedState.migrations,
+          appliedState.hasMigrationsTable,
         )
       ) {
-        ({ hashes: appliedHashes, hasMigrationsTable } =
-          await loadAppliedHashes());
+        appliedState = await loadAppliedHashes();
       }
-      const pendingEntries = getPendingEntries(appliedHashes);
+      if (
+        await normalizeObsoleteMigrationCursor(
+          appliedState.migrations,
+          appliedState.hasMigrationsTable,
+        )
+      ) {
+        appliedState = await loadAppliedHashes();
+      }
+      const pendingEntries = getPendingEntries(appliedState.hashes);
       const initiallyPendingMigrations = pendingEntries.map((entry) => ({
         tag: entry.tag,
         hash: getMigrationHash(entry),
