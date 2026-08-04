@@ -152,11 +152,16 @@ export const normalizePersistedScheduledAgentRuntime = (
   }
 
   const efforts = getAgentModelReasoningEfforts(aiProvider, model);
-  if (efforts?.includes(reasoningLevel)) {
-    return { runtime, omittedReasoningLevels: [] };
-  }
-
-  if (efforts === null) {
+  // `getAgentModelReasoningEfforts` uses an empty array for model catalogue
+  // fallthroughs too. Haiku is the only explicit no-effort runtime currently
+  // supported by this compatibility boundary; all other stale values must
+  // reach strict validation and fail closed.
+  if (
+    efforts === null ||
+    efforts.length !== 0 ||
+    aiProvider !== "anthropic" ||
+    model !== "claude-haiku-4-5"
+  ) {
     return { runtime, omittedReasoningLevels: [] };
   }
 

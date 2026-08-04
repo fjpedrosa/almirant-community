@@ -293,4 +293,23 @@ describe("normalizePersistedScheduledAgentRuntime", () => {
       reasoningLevel: "low",
     }).runtime.reasoningLevel).toBe("low");
   });
+
+  it("keeps an invalid effort for GLM 5.1 so strict validation can reject it", () => {
+    expect(normalizePersistedScheduledAgentRuntime({
+      provider: "zipu",
+      codingAgent: "opencode",
+      aiProvider: "zai",
+      aiModel: "glm-5.1",
+      reasoningLevel: "max",
+    })).toEqual({
+      runtime: {
+        provider: "zipu",
+        codingAgent: "opencode",
+        aiProvider: "zai",
+        aiModel: "glm-5.1",
+        reasoningLevel: "max",
+      },
+      omittedReasoningLevels: [],
+    });
+  });
 });
