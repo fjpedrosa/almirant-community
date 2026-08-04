@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   assertValidScheduledAgentRuntime,
   canonicalizeAiModelForStorage,
+  normalizePersistedScheduledAgentRuntime,
 } from "./scheduled-agent-runtime-validation";
 
 describe("assertValidScheduledAgentRuntime", () => {
@@ -91,6 +92,16 @@ describe("assertValidScheduledAgentRuntime", () => {
       aiModel: "gpt-5.5-pro",
       reasoningLevel: "high",
     })).not.toThrow();
+  });
+
+  it("continues to reject a newly submitted Haiku reasoning level", () => {
+    expect(() => assertValidScheduledAgentRuntime({
+      provider: "claude-code",
+      codingAgent: "claude-code",
+      aiProvider: "anthropic",
+      aiModel: "claude-haiku-4-5",
+      reasoningLevel: "low",
+    })).toThrow(/reasoningLevel 'low' is not supported by model 'claude-haiku-4-5'/);
   });
 
   it("does not reinterpret none or minimal for current Codex models", () => {
@@ -246,5 +257,59 @@ describe("canonicalizeAiModelForStorage", () => {
     expect(canonicalizeAiModelForStorage("   ")).toBeNull();
     expect(canonicalizeAiModelForStorage(null)).toBeNull();
     expect(canonicalizeAiModelForStorage(undefined)).toBeNull();
+  });
+});
+
+describe("normalizePersistedScheduledAgentRuntime", () => {
+  it("omits a legacy Haiku reasoning level while retaining the selected runtime", () => {
+    expect(normalizePersistedScheduledAgentRuntime({
+      provider: "claude-code",
+      codingAgent: "claude-code",
+      aiProvider: "anthropic",
+      aiModel: "claude-haiku-4-5",
+      reasoningLevel: "low",
+    })).toEqual({
+      runtime: {
+        provider: "claude-code",
+        codingAgent: "claude-code",
+        aiProvider: "anthropic",
+        aiModel: "claude-haiku-4-5",
+        reasoningLevel: undefined,
+      },
+      omittedReasoningLevels: [{
+        model: "claude-haiku-4-5",
+        aiProvider: "anthropic",
+        reasoningLevel: "low",
+      }],
+    });
+  });
+
+  it("keeps a supported effort unchanged", () => {
+    expect(normalizePersistedScheduledAgentRuntime({
+      provider: "claude-code",
+      codingAgent: "claude-code",
+      aiProvider: "anthropic",
+      aiModel: "claude-sonnet-5",
+      reasoningLevel: "low",
+    }).runtime.reasoningLevel).toBe("low");
+  });
+
+  it("keeps an invalid effort for GLM 5.1 so strict validation can reject it", () => {
+    expect(normalizePersistedScheduledAgentRuntime({
+      provider: "zipu",
+      codingAgent: "opencode",
+      aiProvider: "zai",
+      aiModel: "glm-5.1",
+      reasoningLevel: "max",
+    })).toEqual({
+      runtime: {
+        provider: "zipu",
+        codingAgent: "opencode",
+        aiProvider: "zai",
+        aiModel: "glm-5.1",
+        reasoningLevel: "max",
+      },
+      omittedReasoningLevels: [],
+    });
   });
 });

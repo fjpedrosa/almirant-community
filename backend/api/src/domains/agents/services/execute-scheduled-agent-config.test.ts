@@ -38,6 +38,7 @@ const state = {
   plugins: [] as Array<Record<string, unknown>>,
   marketplaces: [] as Array<Record<string, unknown>>,
   putBindingCalls: [] as unknown[],
+  warnings: [] as unknown[][],
 };
 
 const buildMcpProfile = (id: string, overrides: Record<string, unknown> = {}) => ({
@@ -93,20 +94,40 @@ mock.module("@almirant/database", () =>
   }),
 );
 
-mock.module("@almirant/config", () => createLoggerMock());
+mock.module("@almirant/config", () => {
+  const config = createLoggerMock();
+  config.logger.warn = (...args: unknown[]) => {
+    state.warnings.push(args);
+  };
+  return {
+    ...config,
+    env: {
+      ...config.env,
+      ENCRYPTION_KEY: "0".repeat(64),
+    },
+  };
+});
 
 mock.module("../../../shared/ws/ws-connection-manager", () => ({
   wsConnectionManager: { broadcastToWorkspace: mock(() => undefined) },
 }));
 
 mock.module("./scheduled-agent-effective-model-resolver", () => ({
-  resolveScheduledAgentEffectiveRuntimes: mock(async () => [
-    { provider: "claude-code", codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-opus-5", reasoningLevel: "high" },
+  resolveScheduledAgentEffectiveRuntimes: mock(async (input: {
+    provider: string;
+    codingAgent: string;
+    aiProvider: string;
+    aiModel: string;
+    reasoningLevel: string | null;
+  }) => [
+    {
+      provider: input.provider,
+      codingAgent: input.codingAgent,
+      aiProvider: input.aiProvider,
+      model: input.aiModel,
+      reasoningLevel: input.reasoningLevel,
+    },
   ]),
-}));
-
-mock.module("./scheduled-agent-runtime-validation", () => ({
-  assertValidScheduledAgentRuntime: mock(() => undefined),
 }));
 
 // scheduled-agent-project-context is deliberately NOT mocked: it is where the
@@ -150,6 +171,7 @@ describe("executeScheduledAgentConfig repository resolution", () => {
     state.plugins = [];
     state.marketplaces = [];
     state.putBindingCalls.length = 0;
+    state.warnings = [];
   });
 
   it("uses the repository of the agent's project", async () => {
@@ -235,6 +257,34 @@ describe("executeScheduledAgentConfig durable dispatch occurrence", () => {
     expect(created).toBe(false);
     expect(job.id).toBe(runId);
     expect(state.created).toHaveLength(0);
+  });
+
+  it("reuses a pending reservation and creates a job after omitting legacy Haiku effort", async () => {
+    state.reservationCreated = false;
+
+    const { created } = await executeScheduledAgentConfigWithResult(
+      agentConfig(null, {
+        aiModel: "claude-haiku-4-5",
+        reasoningLevel: "low",
+      }),
+      { createdByUserId: null, trigger: "schedule", dueKey: "schedule:2026-08-04" },
+    );
+
+    expect(created).toBe(true);
+    expect(state.created).toHaveLength(1);
+    expect(state.created[0]?.config.reasoningLevel).toBeUndefined();
+    expect(state.warnings).toEqual([[
+      {
+        scheduledConfigId: configId,
+        workspaceId: "ws-1",
+        omittedReasoningLevels: [{
+          model: "claude-haiku-4-5",
+          aiProvider: "anthropic",
+          reasoningLevel: "low",
+        }],
+      },
+      "Scheduled agent omitted unsupported persisted reasoning level",
+    ]]);
   });
 });
 

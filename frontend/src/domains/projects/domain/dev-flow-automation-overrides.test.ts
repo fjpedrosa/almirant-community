@@ -96,6 +96,22 @@ describe("serializeDevFlowAutomationOverride", () => {
     });
   });
 
+  it("omits a legacy Haiku reasoning override during serialization", () => {
+    expect(serializeDevFlowAutomationOverride(
+      override({
+        codingAgent: "claude-code",
+        aiProvider: "anthropic",
+        model: "claude-haiku-4-5",
+        reasoningLevel: "low",
+      }),
+    )).toEqual({
+      codingAgent: "claude-code",
+      aiProvider: "anthropic",
+      model: "claude-haiku-4-5",
+      schedule: null,
+    });
+  });
+
   it("includes enabled: false explicitly (not dropped as falsy)", () => {
     const wire = serializeDevFlowAutomationOverride(override({ enabled: false }));
     expect(wire.enabled).toBe(false);
@@ -255,6 +271,17 @@ describe("overridesByAutomationIdFromStatuses", () => {
 
     expect(Object.keys(result).sort()).toEqual(["backlog-drain", "dod-remediation"]);
     expect(result["dod-remediation"]!.reasoningLevel).toBe("low");
+  });
+
+  it("clears an unsupported legacy override while hydrating a Haiku automation", () => {
+    const result = overridesByAutomationIdFromStatuses([
+      status({
+        overrides: { ...EMPTY_DEV_FLOW_AUTOMATION_OVERRIDE, reasoningLevel: "low" },
+        effective: { ...effective, model: "claude-haiku-4-5", reasoningLevel: "low" },
+      }),
+    ]);
+
+    expect(result["backlog-drain"]!.reasoningLevel).toBeNull();
   });
 
   it("returns an empty object for an empty automations array", () => {

@@ -29,6 +29,17 @@ type RuntimeValidationInput = {
   targetConfig?: unknown;
 };
 
+export type PersistedScheduledAgentRuntime = Pick<
+  RuntimeValidationInput,
+  "provider" | "codingAgent" | "aiProvider" | "aiModel" | "reasoningLevel"
+>;
+
+type OmittedPersistedReasoningLevel = {
+  model: string;
+  aiProvider: AiProvider;
+  reasoningLevel: string;
+};
+
 const CODING_AGENTS_BY_PROVIDER: Record<AgentProvider, ReadonlySet<CodingAgent>> = {
   "claude-code": new Set(["claude-code"]),
   codex: new Set(["codex", "codex-cli", "opencode"]),
@@ -120,6 +131,44 @@ const inferAiProviderFromModel = (model: string | null | undefined): AiProvider 
   }
 
   return null;
+};
+
+/**
+ * Compatibility boundary for runtimes already persisted before model effort
+ * support changed. Request validation intentionally remains strict.
+ */
+export const normalizePersistedScheduledAgentRuntime = (
+  runtime: PersistedScheduledAgentRuntime,
+): {
+  runtime: PersistedScheduledAgentRuntime;
+  omittedReasoningLevels: OmittedPersistedReasoningLevel[];
+} => {
+  const model = normalize(runtime.aiModel);
+  const aiProvider = asAiProvider(normalize(runtime.aiProvider)) ?? inferAiProviderFromModel(model);
+  const reasoningLevel = normalize(runtime.reasoningLevel);
+
+  if (!model || !aiProvider || !reasoningLevel) {
+    return { runtime, omittedReasoningLevels: [] };
+  }
+
+  const efforts = getAgentModelReasoningEfforts(aiProvider, model);
+  // `getAgentModelReasoningEfforts` uses an empty array for model catalogue
+  // fallthroughs too. Haiku is the only explicit no-effort runtime currently
+  // supported by this compatibility boundary; all other stale values must
+  // reach strict validation and fail closed.
+  if (
+    efforts === null ||
+    efforts.length !== 0 ||
+    aiProvider !== "anthropic" ||
+    model !== "claude-haiku-4-5"
+  ) {
+    return { runtime, omittedReasoningLevels: [] };
+  }
+
+  return {
+    runtime: { ...runtime, reasoningLevel: undefined },
+    omittedReasoningLevels: [{ model, aiProvider, reasoningLevel }],
+  };
 };
 
 const fail = (message: string): never => {

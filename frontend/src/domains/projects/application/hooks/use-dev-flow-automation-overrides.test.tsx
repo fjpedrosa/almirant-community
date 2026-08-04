@@ -175,6 +175,32 @@ describe("useDevFlowAutomationOverrides", () => {
     expect(result.current.drafts["backlog-drain"]!.override.reasoningLevel).toBe("low");
   });
 
+  it("clears effort when a row switches from an effort-capable model to Haiku", async () => {
+    const { useDevFlowAutomationOverrides } = await import("./use-dev-flow-automation-overrides");
+    const automations = [automation({
+      effective: {
+        ...effective,
+        model: "claude-sonnet-5",
+        reasoningLevel: "low",
+      },
+    })];
+
+    const { result } = renderHook(() => useDevFlowAutomationOverrides("proj-haiku", automations, cardSettings), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    act(() => {
+      result.current.handleFieldChange("backlog-drain", "model", "claude-sonnet-5");
+    });
+    act(() => {
+      result.current.handleFieldChange("backlog-drain", "reasoningLevel", "low");
+    });
+    act(() => {
+      result.current.handleFieldChange("backlog-drain", "model", "claude-haiku-4-5");
+    });
+
+    expect(result.current.drafts["backlog-drain"]!.override.reasoningLevel).toBeNull();
+  });
+
   it("handleScheduleChange stages a schedule override without touching other staged fields", async () => {
     const { useDevFlowAutomationOverrides } = await import("./use-dev-flow-automation-overrides");
     const automations = [automation()];
