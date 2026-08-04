@@ -8,6 +8,7 @@ import {
   EMPTY_DEV_FLOW_AUTOMATION_OVERRIDE,
   buildDevFlowAutomationsPatchPayload,
   devFlowAutomationOverridesEqual,
+  normalizeDevFlowAutomationOverride,
 } from "../../domain/dev-flow-automation-overrides";
 import type { DevFlowAutomationDraftEntry } from "../../domain/dev-flow-automation-overrides";
 import type {
@@ -70,9 +71,13 @@ export const useDevFlowAutomationOverrides = (
   const { data: aiConfig, isLoading } = useProjectAiConfigQuery(projectId);
 
   const serverOverrideFor = useCallback(
-    (automationId: string): ProjectDevFlowAutomationOverride =>
-      automations.find((automation) => automation.automationId === automationId)?.overrides ??
-      EMPTY_DEV_FLOW_AUTOMATION_OVERRIDE,
+    (automationId: string): ProjectDevFlowAutomationOverride => {
+      const automation = automations.find((item) => item.automationId === automationId);
+      return normalizeDevFlowAutomationOverride(
+        automation?.overrides ?? EMPTY_DEV_FLOW_AUTOMATION_OVERRIDE,
+        automation?.effective,
+      );
+    },
     [automations],
   );
 
@@ -144,13 +149,13 @@ export const useDevFlowAutomationOverrides = (
     ) => {
       setDraftsByAutomationId((current) => ({
         ...current,
-        [automationId]: {
+        [automationId]: normalizeDevFlowAutomationOverride({
           ...(current[automationId] ?? serverOverrideFor(automationId)),
           [field]: value,
-        },
+        }, automations.find((item) => item.automationId === automationId)?.effective),
       }));
     },
-    [serverOverrideFor],
+    [automations, serverOverrideFor],
   );
 
   const handleScheduleChange = useCallback(

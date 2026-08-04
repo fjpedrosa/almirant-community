@@ -41,6 +41,7 @@ import {
   resolveCanonicalModelId,
   reconcileModelWithAvailable,
 } from "@/lib/ai-models-catalog";
+import { normalizeReasoningEffort } from "@/lib/ai-model-reasoning";
 import {
   isZonedDateTimeInPast,
   isoToZonedDateTimeLocal,
@@ -350,7 +351,11 @@ export const resolveScheduledAgentSubmitRuntimeFields = (
     codingAgent: values.codingAgent || undefined,
     aiProvider: values.aiProvider || undefined,
     aiModel: values.aiModel || undefined,
-    reasoningLevel: values.reasoningLevel || undefined,
+    reasoningLevel: normalizeReasoningEffort({
+      codingAgent: values.codingAgent,
+      aiProvider: values.aiProvider,
+      model: values.aiModel,
+    }, values.reasoningLevel),
   };
 };
 
@@ -540,7 +545,11 @@ export const useAgentFormDrawer = ({
         // casing (e.g. "GLM-5.2") or as a dated snapshot still matches a Select
         // option; fall back to the raw value rather than dropping it.
         aiModel: resolveCanonicalModelId(config.aiModel) ?? config.aiModel ?? "",
-        reasoningLevel: (config.reasoningLevel as FormValues["reasoningLevel"]) ?? undefined,
+        reasoningLevel: normalizeReasoningEffort({
+          codingAgent: config.codingAgent,
+          aiProvider: config.aiProvider,
+          model: config.aiModel,
+        }, config.reasoningLevel) as FormValues["reasoningLevel"],
         selectedPluginIds: toolingSelection.selectedPluginIds,
         selectedMcpServerIds: toolingSelection.selectedMcpServerIds,
         agentKind: inferred.agentKind,

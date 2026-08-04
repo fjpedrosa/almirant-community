@@ -60,6 +60,7 @@ const state = {
   consumeOnceCalls: [] as string[],
   workspaceOwnerUserId: null as string | null,
   workspaceOwnerCalls: [] as string[],
+  errorLogs: [] as unknown[][],
 };
 
 const resetState = () => {
@@ -90,6 +91,7 @@ const resetState = () => {
   state.consumeOnceCalls = [];
   state.workspaceOwnerUserId = null;
   state.workspaceOwnerCalls = [];
+  state.errorLogs = [];
 };
 
 mock.module("@almirant/database", () =>
@@ -154,7 +156,13 @@ mock.module("@almirant/database", () =>
   }),
 );
 
-mock.module("@almirant/config", () => createLoggerMock());
+mock.module("@almirant/config", () => {
+  const config = createLoggerMock();
+  config.logger.error = (...args: unknown[]) => {
+    state.errorLogs.push(args);
+  };
+  return config;
+});
 
 mock.module("./release-integration-queue-service", () => ({
   queueReleaseIntegration: async (input: Record<string, unknown>) => {
@@ -455,6 +463,14 @@ describe("runScheduledAgentDispatchOnce", () => {
     expect(state.standaloneCalls[0]?.configId).toBe("config-ok");
     // The failing config never reached lastRunAt.
     expect(state.lastRunUpdates).toEqual([]);
+    expect(state.errorLogs).toHaveLength(1);
+    const [context] = state.errorLogs[0]!;
+    expect(context).toEqual(expect.objectContaining({
+      err: expect.any(Error),
+      configId: "config-throw",
+      workspaceId: "workspace-1",
+    }));
+    expect((context as { err: Error }).err.message).toContain("backlog-drain candidate lookup failed");
   });
 
   it("round-robins configs across workspaces instead of exhausting one first", async () => {

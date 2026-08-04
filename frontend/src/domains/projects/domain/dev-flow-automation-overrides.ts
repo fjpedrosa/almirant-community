@@ -5,6 +5,7 @@ import type {
   ProjectDevFlowAutomationRow,
   ProjectDevFlowAutomationStatus,
 } from "./types";
+import { normalizeReasoningEffort } from "@/lib/ai-model-reasoning";
 
 /**
  * The fully-inherited override state: every field defers to the card-level
@@ -38,6 +39,23 @@ export const devFlowAutomationOverridesEqual = (
       a.schedule.expression === b.schedule.expression &&
       a.schedule.timezone === b.schedule.timezone));
 
+export const normalizeDevFlowAutomationOverride = (
+  override: ProjectDevFlowAutomationOverride,
+  effective?: ProjectDevFlowAutomationEffective,
+): ProjectDevFlowAutomationOverride => {
+  const model = override.model ?? effective?.model;
+  if (!model) return override;
+
+  return {
+    ...override,
+    reasoningLevel: normalizeReasoningEffort({
+      codingAgent: override.codingAgent ?? effective?.codingAgent,
+      aiProvider: override.aiProvider ?? effective?.aiProvider,
+      model,
+    }, override.reasoningLevel) ?? null,
+  };
+};
+
 /**
  * Serializes a full override draft into the wire shape expected by one
  * automationId's entry in `PATCH /projects/:id/ai-config`'s
@@ -55,21 +73,24 @@ export const devFlowAutomationOverridesEqual = (
 export const serializeDevFlowAutomationOverride = (
   override: ProjectDevFlowAutomationOverride,
 ): DevFlowAutomationOverridePatchWire => {
+  const normalizedOverride = normalizeDevFlowAutomationOverride(override);
   const wire: DevFlowAutomationOverridePatchWire = {};
 
-  if (override.enabled !== null) wire.enabled = override.enabled;
-  if (override.codingAgent !== null) wire.codingAgent = override.codingAgent;
-  if (override.aiProvider !== null) wire.aiProvider = override.aiProvider;
-  if (override.model !== null) wire.model = override.model;
-  if (override.reasoningLevel !== null) wire.reasoningLevel = override.reasoningLevel;
-  if (override.maxConcurrentJobs !== null) wire.maxConcurrentJobs = override.maxConcurrentJobs;
+  if (normalizedOverride.enabled !== null) wire.enabled = normalizedOverride.enabled;
+  if (normalizedOverride.codingAgent !== null) wire.codingAgent = normalizedOverride.codingAgent;
+  if (normalizedOverride.aiProvider !== null) wire.aiProvider = normalizedOverride.aiProvider;
+  if (normalizedOverride.model !== null) wire.model = normalizedOverride.model;
+  if (normalizedOverride.reasoningLevel !== null) wire.reasoningLevel = normalizedOverride.reasoningLevel;
+  if (normalizedOverride.maxConcurrentJobs !== null) wire.maxConcurrentJobs = normalizedOverride.maxConcurrentJobs;
 
   wire.schedule =
-    override.schedule === null
+    normalizedOverride.schedule === null
       ? null
       : {
-          expression: override.schedule.expression,
-          ...(override.schedule.timezone !== null ? { timezone: override.schedule.timezone } : {}),
+          expression: normalizedOverride.schedule.expression,
+          ...(normalizedOverride.schedule.timezone !== null
+            ? { timezone: normalizedOverride.schedule.timezone }
+            : {}),
         };
 
   return wire;
@@ -109,7 +130,10 @@ export const overridesByAutomationIdFromStatuses = (
   Object.fromEntries(
     automations.map((automation) => [
       automation.automationId,
-      automation.overrides ?? EMPTY_DEV_FLOW_AUTOMATION_OVERRIDE,
+      normalizeDevFlowAutomationOverride(
+        automation.overrides ?? EMPTY_DEV_FLOW_AUTOMATION_OVERRIDE,
+        automation.effective,
+      ),
     ]),
   );
 

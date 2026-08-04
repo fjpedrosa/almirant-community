@@ -620,4 +620,20 @@ describe("resolveScheduledAgentSubmitRuntimeFields", () => {
       reasoningLevel: "xhigh",
     });
   });
+
+  it("omits a stale reasoning level when the selected model is Haiku", () => {
+    expect(
+      resolveScheduledAgentSubmitRuntimeFields({
+        codingAgent: "claude-code",
+        aiProvider: "anthropic",
+        aiModel: "claude-haiku-4-5",
+        reasoningLevel: "low",
+      }),
+    ).toEqual({
+      codingAgent: "claude-code",
+      aiProvider: "anthropic",
+      aiModel: "claude-haiku-4-5",
+      reasoningLevel: undefined,
+    });
+  });
 });

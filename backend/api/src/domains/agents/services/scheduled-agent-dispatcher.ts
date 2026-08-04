@@ -374,7 +374,7 @@ const executeBacklogDrain = async (
         continue;
       }
       logger.error(
-        { error, configId: config.id, workItemId: candidate.id },
+        { err: error, configId: config.id, workItemId: candidate.id },
         "scheduled-agent-dispatcher: backlog-drain failed to create job",
       );
     }
@@ -476,7 +476,7 @@ const executeDodRemediation = async (
         continue;
       }
       logger.error(
-        { error, configId: config.id, workItemId: candidate.id },
+        { err: error, configId: config.id, workItemId: candidate.id },
         "scheduled-agent-dispatcher: dod-remediation failed to create job",
       );
     }
@@ -588,7 +588,7 @@ const executeDodReview = async (
         continue;
       }
       logger.error(
-        { error, configId: config.id, workItemId: candidate.id },
+        { err: error, configId: config.id, workItemId: candidate.id },
         "scheduled-agent-dispatcher: dod-review failed to create job",
       );
     }
@@ -727,7 +727,7 @@ const executeCandidateBased = async (
         continue;
       }
       logger.error(
-        { error, configId: config.id, workItemId: candidate.id },
+        { err: error, configId: config.id, workItemId: candidate.id },
         "scheduled-agent-dispatcher: failed to create job for candidate",
       );
     }
@@ -943,7 +943,7 @@ export const runScheduledAgentDispatchOnce = async (
   } catch (error) {
     summary.errors += 1;
     summary.finishedAt = new Date().toISOString();
-    logger.error({ error }, "scheduled-agent-dispatcher: failed to list enabled scheduled agent configs");
+    logger.error({ err: error }, "scheduled-agent-dispatcher: failed to list enabled scheduled agent configs");
     return summary;
   }
 
@@ -971,7 +971,7 @@ export const runScheduledAgentDispatchOnce = async (
     } catch (error) {
       summary.errors += 1;
       logger.error(
-        { error, configId: config.id, workspaceId: config.workspaceId, configName: config.name },
+        { err: error, configId: config.id, workspaceId: config.workspaceId, configName: config.name },
         "scheduled-agent-dispatcher: config processing failed",
       );
     }
@@ -993,7 +993,7 @@ export const startScheduledAgentDispatcher = (opts: { intervalMs: number }): (()
       const summary = await runScheduledAgentDispatchOnce(new Date());
       logger.info({ summary }, "scheduled-agent-dispatcher: tick complete");
     } catch (error) {
-      logger.error({ error }, "scheduled-agent-dispatcher: tick failed; will retry");
+      logger.error({ err: error }, "scheduled-agent-dispatcher: tick failed; will retry");
     } finally {
       running = false;
     }

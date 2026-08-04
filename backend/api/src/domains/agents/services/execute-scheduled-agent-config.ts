@@ -12,7 +12,10 @@ import type { ScheduledAgentConfigDb } from "@almirant/database";
 import { env, logger } from "@almirant/config";
 import { wsConnectionManager } from "../../../shared/ws/ws-connection-manager";
 import { resolveScheduledAgentEffectiveRuntimes } from "./scheduled-agent-effective-model-resolver";
-import { assertValidScheduledAgentRuntime } from "./scheduled-agent-runtime-validation";
+import {
+  assertValidScheduledAgentRuntime,
+  normalizePersistedScheduledAgentRuntime,
+} from "./scheduled-agent-runtime-validation";
 import { resolveScheduledAgentProjectContext } from "./scheduled-agent-project-context";
 import { resolveAgentTooling } from "./agent-tooling-resolution";
 import {
@@ -237,7 +240,35 @@ export const executeScheduledAgentConfigWithResult = async (
     projectId: resolvedProjectId,
     targetConfig: config.targetConfig,
   });
-  const [resolvedRuntime] = effectiveRuntimes;
+  const normalizedRuntimes = effectiveRuntimes.map((runtime) => {
+    const normalized = normalizePersistedScheduledAgentRuntime({
+      provider: runtime.provider,
+      codingAgent: runtime.codingAgent,
+      aiProvider: runtime.aiProvider,
+      aiModel: runtime.model,
+      reasoningLevel: runtime.reasoningLevel,
+    });
+    return {
+      runtime: { ...runtime, reasoningLevel: normalized.runtime.reasoningLevel },
+      omittedReasoningLevels: normalized.omittedReasoningLevels,
+    };
+  });
+  const normalizedEffectiveRuntimes = normalizedRuntimes.map(({ runtime }) => runtime);
+  const omittedReasoningLevels = normalizedRuntimes.flatMap(
+    ({ omittedReasoningLevels }) => omittedReasoningLevels,
+  );
+  if (omittedReasoningLevels.length > 0) {
+    logger.warn(
+      {
+        scheduledConfigId: config.id,
+        workspaceId: config.workspaceId,
+        omittedReasoningLevels,
+      },
+      "Scheduled agent omitted unsupported persisted reasoning level",
+    );
+  }
+
+  const [resolvedRuntime] = normalizedEffectiveRuntimes;
   if (!resolvedRuntime) {
     throw new Error("Invalid scheduled agent runtime: could not resolve an effective execution runtime");
   }
@@ -250,7 +281,7 @@ export const executeScheduledAgentConfigWithResult = async (
     aiProvider: config.aiProvider,
     aiModel: config.aiModel,
     reasoningLevel: config.reasoningLevel,
-    effectiveRuntimes,
+    effectiveRuntimes: normalizedEffectiveRuntimes,
     targetConfig: config.targetConfig,
   });
 
