@@ -184,17 +184,6 @@ export const createDatabaseMocks = (overrides: Record<string, unknown> = {}) => 
   getWorkItemsByBoard: async () => [{ column: testBoardColumn, items: [testWorkItem], count: 1 }],
   getBoardTemplates: async () => [],
   getBoardsByArea: async () => [testBoard],
-  getSprintsByBoard: async () => [],
-  getActiveSprint: async () => null,
-  getSprintById: async () => null,
-  createSprint: async () => ({ id: "sprint-1", name: "Sprint 1", status: "active" }),
-  closeSprint: async () => ({ id: "sprint-1", name: "Sprint 1", status: "closed" }),
-  closeSprintAdHoc: async () => ({ id: "sprint-1", name: "Sprint 1", status: "closed" }),
-  closeSprintByDate: async () => ({ id: "sprint-1", name: "Sprint 1", status: "closed" }),
-  getSprintWorkItems: async () => [],
-  getNextSprintNumber: async () => 1,
-  getDoneItemsPreview: async () => [],
-  getCompletedWorkItemsByDateRange: async () => [],
 
   // Integration batches
   getActiveBatchForRepository: async () => null,
@@ -643,7 +632,6 @@ export const createAiServiceMock = () => ({
 /** Telegram notifications mock */
 export const createTelegramMock = () => ({
   notifyReviewCompleted: () => {},
-  notifySprintClosed: () => {},
   notifyWorkItemAssigned: () => {},
   notifyWorkItemDone: () => {},
   notifyWorkItemMoved: () => {},
@@ -673,11 +661,6 @@ export const createScreenshotMock = () => ({
   captureAndStoreScreenshot: async () => {},
   isLocalProjectScreenshotUrl: () => false,
   readLocalProjectScreenshot: async () => null,
-});
-
-/** Sprint visual report mock */
-export const createSprintReportMock = () => ({
-  kickoffSprintVisualReportGeneration: () => {},
 });
 
 /** GitHub service mock — all named exports with sensible defaults.

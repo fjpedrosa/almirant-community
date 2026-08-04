@@ -144,7 +144,7 @@ export const registerSeedMemoryTools = (server: McpServer) => {
       topicKey: z
         .string()
         .describe(
-          "Slug identifier, e.g. 'automated-sprint-reports'"
+          "Slug identifier, e.g. 'automated-release-reports'"
         ),
       title: z.string().describe("Descriptive title"),
       seedId: z

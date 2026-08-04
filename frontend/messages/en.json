@@ -333,10 +333,6 @@
       "expandAll": "Expand all",
       "ungrouped": "Ungrouped",
       "noSubItems": "No sub-items",
-      "sprintFilter": {
-        "all": "All items",
-        "active": "active"
-      },
       "sort": {
         "label": "Sort items",
         "manual": "Manual",
@@ -553,13 +549,6 @@
       "viewMode": {
         "normal": "Normal view",
         "compact": "Compact view"
-      },
-      "shareBanner": {
-        "title": "You just finished a task",
-        "description": "Share what you shipped in the last 7 days on X to trigger your viral loop.",
-        "share": "Share progress",
-        "notNow": "Not now",
-        "close": "Close banner"
       }
     },
     "savedViews": {
@@ -791,7 +780,6 @@
       "overview": "Overview",
       "repos": "Repositories",
       "boards": "Boards",
-      "sprints": "Sprints",
       "docLinks": "Documentation",
       "notes": "Notes",
       "github": "GitHub"
@@ -823,17 +811,6 @@
       "title": "Project boards",
       "items": "items",
       "noBoards": "No boards created for this project"
-    },
-    "sprintsTab": {
-      "title": "Project sprints",
-      "items": "items",
-      "board": "Board",
-      "open": "Open",
-      "closed": "Closed",
-      "completed": "Closed",
-      "noSprints": "No sprints found for this project",
-      "viewReport": "View report",
-      "closedOn": "Closed on {date}"
     },
     "docsTab": {
       "title": "Documentation links",
@@ -1337,8 +1314,6 @@
       "workItemDoneDesc": "When a work item is marked as done",
       "reviewCompleted": "Review Completed",
       "reviewCompletedDesc": "When a review is completed on your work item",
-      "sprintClosed": "Sprint Closed",
-      "sprintClosedDesc": "When a sprint is closed",
       "userActions": "Action Items",
       "userActionsDesc": "When there are pending actions for you",
       "saving": "Saving...",
@@ -1484,120 +1459,6 @@
       "title": "Workspace Invitation",
       "signInToAccept": "Continue to sign in or create your account",
       "goHome": "Go to home"
-    }
-  },
-  "sprints": {
-    "title": "Sprints",
-    "createSprint": "Create Sprint",
-    "closeSprint": "Close Sprint",
-    "create": "Create",
-    "activeSprint": "Active sprint",
-    "history": "History",
-    "noSprints": "No sprints yet",
-    "noSprintsHint": "Create a sprint or directly close completed tasks.",
-    "open": "Open",
-    "closed": "Closed",
-    "noItems": "No items",
-    "activeHint": "Completed tasks will be associated with this sprint when closing it.",
-    "viewFullReport": "View full report",
-    "backToBoard": "Back to board",
-    "shareBanner": {
-      "title": "Sprint closed. Share your progress",
-      "description": "Sprint \"{sprintName}\" is closed. Share it on X to boost discovery.",
-      "share": "Share on X",
-      "notNow": "Not now",
-      "close": "Close banner"
-    },
-    "form": {
-      "name": "Name",
-      "startDate": "Start date",
-      "endDate": "End date"
-    },
-    "close": {
-      "title": "Close Sprint",
-      "descAdHoc": "A sprint will be created and closed with the completed tasks.",
-      "descActive": "\"{name}\" will be closed and completed tasks will be archived.",
-      "allTasks": "All tasks",
-      "byDateRange": "By date range",
-      "sprintName": "Sprint name",
-      "completedTasks": "Completed tasks ({count})",
-      "tasksInRange": "Tasks in range ({count})",
-      "noCompletedTasks": "No completed tasks to archive. The sprint will be closed empty.",
-      "selectDateRange": "Select a date range to see the completed tasks in that period.",
-      "closing": "Closing...",
-      "closeButton": "Close Sprint",
-      "closeWithCount": "Close Sprint ({count} items)",
-      "closeByDate": "Close by dates",
-      "closeByDateWithCount": "Close by dates ({count} items)",
-      "startDate": "Start date",
-      "endDate": "End date"
-    },
-    "report": {
-      "velocity": "Velocity",
-      "tasksPerDay": "tasks/day",
-      "completed": "Completed",
-      "ofTotal": "{percentage}% of total",
-      "pending": "Pending",
-      "carryover": "carry over to next",
-      "avgTime": "Avg time",
-      "perTask": "per task",
-      "distributionByType": "Distribution by type",
-      "distributionByPriority": "Distribution by priority",
-      "distributionByAssignee": "Distribution by assignee",
-      "userContributions": "User Contributions",
-      "tasksCreated": "Created",
-      "tasksCompleted": "Completed",
-      "tasksAssigned": "Assigned",
-      "noData": "No data",
-      "unassigned": "Unassigned",
-      "completedTab": "Completed ({count})",
-      "pendingTab": "Pending ({count})",
-      "noCompletedTasks": "No completed tasks in this sprint",
-      "noPendingTasks": "No pending carryover tasks",
-      "tableTitle": "Title",
-      "tableType": "Type",
-      "tablePriority": "Priority",
-      "tableAssignee": "Assignee",
-      "tableCompleted": "Completed",
-      "aiCost": "AI Cost",
-      "sessions": "Sessions",
-      "tokens": "Tokens",
-      "estimatedCost": "Estimated cost",
-      "velocityTrend": "Velocity trend",
-      "velocityLabel": "Velocity: {value} tasks/day",
-      "totalItems": "total items",
-      "vsFormer": "vs previous",
-      "sameAsPrevious": "Same as previous",
-      "viewFullReport": "View full report",
-      "screenshots": "Screenshots ({count})",
-      "viewVisualReport": "View visual report",
-      "unknownGroup": "No feature",
-      "changelog": "Changelog",
-      "summaryTab": "Summary",
-      "changelogTab": "Changelog",
-      "shareToX": "Share to X",
-      "share": {
-        "title": "Share on X",
-        "description": "Preview the post, copy it, and publish on X.",
-        "loading": "Preparing post...",
-        "empty": "No shareable content available yet.",
-        "hint": "X opens with this post prefilled. You can copy and tweak it before publishing.",
-        "copy": "Copy post",
-        "copying": "Copying...",
-        "openX": "Open X",
-        "tweets": "{count} post(s)",
-        "characters": "{count} characters",
-        "toastNoContent": "No content available to share yet.",
-        "toastCopySuccess": "Post copied to clipboard.",
-        "toastCopyError": "Could not copy the post.",
-        "toastOpenMulti": "X opened with the first post and the full draft is in your clipboard.",
-        "toastOpenSingle": "X opened with the post ready to publish."
-      }
-    },
-    "summary": {
-      "completed": "completed",
-      "velocity": "tasks/day",
-      "aiCost": "AI"
     }
   },
   "imports": {
@@ -2085,7 +1946,6 @@
       "notifyWorkItemAssigned": "Work item assigned to you",
       "notifyWorkItemDone": "Work item completed (Done)",
       "notifyReviewCompleted": "AI review completed (pass/fail)",
-      "notifySprintClosed": "Sprint closed",
       "notifyUserActions": "Post-task required actions (userActions)"
     }
   },
@@ -3218,7 +3078,7 @@
         "title": "Control without the terminal",
         "description": "Know what's happening without checking six terminals. A dashboard that shows status, progress, and where your attention is actually needed.",
         "bullets1": "Real-time agent status and task progress",
-        "bullets2": "Cost tracking per task, sprint, and project",
+        "bullets2": "Cost tracking per task and project",
         "bullets3": "Step in on blocked tasks, review completed PRs, on your schedule"
       }
     },
@@ -3250,7 +3110,7 @@
       }
     },
     "social": {
-      "quote": "The tools we use to run AI agents were built for individual sessions, not for managing a project across weeks and sprints. We're building the layer that's missing.",
+      "quote": "The tools we use to run AI agents were built for individual sessions, not for managing a project across weeks and milestones. We're building the layer that's missing.",
       "attribution": "— The Almirant team, building in public"
     },
     "cta": {
@@ -3366,7 +3226,7 @@
             "1 user seat",
             "Mission Control Kanban",
             "Up to 3 projects with full planning",
-            "Sprints with automatic reports & changelog",
+            "Automatic progress reports and changelog",
             "Capture ideas & personal to-dos",
             "AI agents for every development phase",
             "Run agents locally from your preferred coding tool",
@@ -3483,7 +3343,6 @@
         "features": {
           "unlimitedProjects": "Projects",
           "missionControlKanban": "Mission Control Kanban",
-          "sprintsRoadmap": "Sprints",
           "dependencies": "Dependencies tracking",
           "ideasSeedsTodos": "Ideas, seeds & to-dos",
           "tokenSharing": "AI token sharing",

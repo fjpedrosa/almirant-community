@@ -1,5 +1,4 @@
 import type { PaginationMeta } from "@/domains/shared/domain/types";
-import type { SprintStatus } from "@/domains/sprints/domain/types";
 import type { GithubAvailableRepo, GithubInstallation } from "@/domains/github/domain/types";
 import type {
   BuiltinAutomationId,
@@ -25,8 +24,6 @@ export type NotificationPrefKey =
   | "notifyWorkItemDeleted"
   | "notifyCommentAdded"
   | "notifyAttachmentAdded"
-  | "notifySprintStarted"
-  | "notifySprintClosed"
   | "notifyMilestoneCompleted"
   | "notifyPrOpened"
   | "notifyPrMerged"
@@ -768,33 +765,6 @@ export interface ProjectNotesTabProps {
   onDeleteNote: (noteId: string) => void;
   isCreating: boolean;
   isSaving: boolean;
-}
-
-// Sprint item with board context (for project sprints tab)
-export interface ProjectSprintItem {
-  id: string;
-  boardId: string;
-  boardName: string;
-  name: string;
-  status: SprintStatus;
-  startDate: string | null;
-  endDate: string | null;
-  closedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  workItemCount: number;
-}
-
-// Project sprints container props
-export interface ProjectSprintsContainerProps {
-  projectId: string;
-}
-
-// Project sprints tab props (presentational)
-export interface ProjectSprintsTabProps {
-  sprints: ProjectSprintItem[];
-  isLoading: boolean;
-  onSprintClick?: (sprintId: string) => void;
 }
 
 // ──────────────────────────────────────────────

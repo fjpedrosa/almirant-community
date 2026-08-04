@@ -14,7 +14,6 @@ type WebhookTrigger =
   | "work_item_deleted"
   | "comment_added"
   | "attachment_added"
-  | "sprint_closed"
   | "milestone_completed";
 
 interface WebhookPayload {

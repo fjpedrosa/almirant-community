@@ -20,8 +20,6 @@ export async function handleHelpCommand(
       "- `/assign <TASK_ID> <email|nombre|me>` Asignar un work item\n\n" +
       "🚀 *Avanzados*\n" +
       "- `/create <tipo> <titulo>` Crear work item (flujo con botones)\n" +
-      "- `/sprint` Sprint activo del board actual\n" +
-      "- `/sprint close` Cerrar sprint (con confirmación)\n" +
       "- `/search <texto>` Buscar work items por título\n\n" +
       "Notas:\n" +
       "- `TASK_ID` es algo como `MC-123`.\n" +

@@ -10,7 +10,6 @@ import {
   taskIdCounters,
   workItemEvents,
   user,
-  sprintWorkItems,
 } from "../../schema";
 import { eq, and, or, ilike, desc, asc, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { getAssigneesByWorkItem, getAssigneesByWorkItemIds } from "./assignee-repository";
@@ -178,7 +177,7 @@ const hydrateWorkItemRelations = async (
               taskId: workItems.taskId,
             })
             .from(workItems)
-            .where(eq(workItems.id, item.parentId))
+            .where(and(eq(workItems.id, item.parentId), isNull(workItems.archivedAt)))
             .limit(1)
         : Promise.resolve([]),
       db
@@ -189,7 +188,7 @@ const hydrateWorkItemRelations = async (
           priority: workItems.priority,
         })
         .from(workItems)
-        .where(eq(workItems.parentId, item.id)),
+        .where(and(eq(workItems.parentId, item.id), isNull(workItems.archivedAt))),
       db
         .select({
           id: tags.id,
@@ -306,7 +305,7 @@ const batchHydrateWorkItemRelations = async (
         ? db
             .select({ id: workItems.id, title: workItems.title, type: workItems.type, taskId: workItems.taskId })
             .from(workItems)
-            .where(inArray(workItems.id, uniqueParentIds))
+            .where(and(inArray(workItems.id, uniqueParentIds), isNull(workItems.archivedAt)))
         : Promise.resolve([]),
       // 2. Children (all children of any item in the batch)
       db
@@ -318,7 +317,7 @@ const batchHydrateWorkItemRelations = async (
           parentId: workItems.parentId,
         })
         .from(workItems)
-        .where(inArray(workItems.parentId, itemIds)),
+        .where(and(inArray(workItems.parentId, itemIds), isNull(workItems.archivedAt))),
       // 3. Tags (join workItemTags + tags)
       db
         .select({
@@ -435,6 +434,7 @@ export const getWorkItems = async (
     .where(eq(projects.workspaceId, workspaceId));
   const conditions = [
     sql`${workItems.projectId} IN (${orgProjectIds})`,
+    isNull(workItems.archivedAt),
   ];
 
   if (filters?.search) {
@@ -506,15 +506,15 @@ export const getWorkItemById = async (
 ): Promise<WorkItemWithRelations | null> => {
   const itemQuery = workspaceId
     ? db
-        .select({ item: workItems })
-        .from(workItems)
-        .innerJoin(projects, eq(workItems.projectId, projects.id))
-        .where(and(eq(workItems.id, id), eq(projects.workspaceId, workspaceId)))
-        .limit(1)
+            .select({ item: workItems })
+            .from(workItems)
+            .innerJoin(projects, eq(workItems.projectId, projects.id))
+            .where(and(eq(workItems.id, id), isNull(workItems.archivedAt), eq(projects.workspaceId, workspaceId)))
+            .limit(1)
     : db
         .select({ item: workItems })
         .from(workItems)
-        .where(eq(workItems.id, id))
+        .where(and(eq(workItems.id, id), isNull(workItems.archivedAt)))
         .limit(1);
 
   const [result] = await itemQuery;
@@ -535,7 +535,7 @@ export const getWorkItemsByIds = async (
     .select({ item: workItems })
     .from(workItems)
     .innerJoin(projects, eq(workItems.projectId, projects.id))
-    .where(and(inArray(workItems.id, uniqueIds), eq(projects.workspaceId, workspaceId)));
+      .where(and(inArray(workItems.id, uniqueIds), isNull(workItems.archivedAt), eq(projects.workspaceId, workspaceId)));
 
   return batchHydrateWorkItemRelations(rows.map((r) => r.item));
 };
@@ -554,6 +554,7 @@ export const getWorkItemsByTaskIds = async (
     .where(
       and(
         inArray(workItems.taskId, uniqueTaskIds),
+        isNull(workItems.archivedAt),
         eq(projects.workspaceId, workspaceId)
       )
     );
@@ -643,7 +644,7 @@ export const isAncestorCompleted = async (
         title: workItems.title,
       })
       .from(workItems)
-      .where(eq(workItems.id, currentId))
+      .where(and(eq(workItems.id, currentId), isNull(workItems.archivedAt)))
       .limit(1);
 
     if (!item) break;
@@ -718,7 +719,7 @@ export const isParentNotInBacklog = async (
       title: workItems.title,
     })
     .from(workItems)
-    .where(eq(workItems.id, parentId))
+    .where(and(eq(workItems.id, parentId), isNull(workItems.archivedAt)))
     .limit(1);
 
   if (!parent) {
@@ -767,6 +768,13 @@ export const createWorkItem = async (
   const resolvedBoardColumnId = workItemData.boardColumnId
     ? await resolveBoardColumnIdForBoard(workItemData.boardId, workItemData.boardColumnId)
     : null;
+  const [resolvedColumn] = resolvedBoardColumnId
+    ? await db
+        .select({ isDone: boardColumns.isDone })
+        .from(boardColumns)
+        .where(eq(boardColumns.id, resolvedBoardColumnId))
+        .limit(1)
+    : [];
 
   // Enforce board-level type restrictions (if configured). Default is permissive.
   const [boardRow] = await db
@@ -817,7 +825,7 @@ export const createWorkItem = async (
       const [maxPos] = await db
         .select({ maxPosition: sql<number>`coalesce(max(${workItems.position}), -1)` })
         .from(workItems)
-        .where(eq(workItems.boardColumnId, resolvedBoardColumnId));
+        .where(and(eq(workItems.boardColumnId, resolvedBoardColumnId), isNull(workItems.archivedAt)));
       position = (maxPos?.maxPosition ?? -1) + 1;
     } else {
       position = 0;
@@ -851,6 +859,7 @@ export const createWorkItem = async (
       boardColumnId: resolvedBoardColumnId,
       taskId,
       position,
+      enteredDoneAt: resolvedColumn?.isDone ? new Date() : null,
       dueDate: dueDate ? new Date(dueDate) : undefined,
       priority: workItemData.priority || "medium",
       metadata: workItemData.metadata || {},
@@ -912,7 +921,7 @@ export const updateWorkItem = async (
     .select()
     .from(workItems)
     .innerJoin(boards, eq(workItems.boardId, boards.id))
-    .where(and(eq(workItems.id, id), eq(boards.workspaceId, workspaceId)))
+    .where(and(eq(workItems.id, id), isNull(workItems.archivedAt), eq(boards.workspaceId, workspaceId)))
     .limit(1)
     .then((rows) => rows.map((r) => r.work_items));
 
@@ -941,7 +950,7 @@ export const updateWorkItem = async (
   const [updated] = await db
     .update(workItems)
     .set(updateData)
-    .where(eq(workItems.id, id))
+    .where(and(eq(workItems.id, id), isNull(workItems.archivedAt)))
     .returning();
 
   if (!updated) return null;
@@ -1083,7 +1092,7 @@ export const deleteWorkItem = async (
     })
     .from(workItems)
     .innerJoin(boards, eq(workItems.boardId, boards.id))
-    .where(and(eq(workItems.id, id), eq(boards.workspaceId, workspaceId)))
+    .where(and(eq(workItems.id, id), isNull(workItems.archivedAt), eq(boards.workspaceId, workspaceId)))
     .limit(1);
 
   if (!itemToDelete) return false;
@@ -1108,11 +1117,10 @@ export const deleteWorkItem = async (
 
   const result = await db
     .delete(workItems)
-    .where(eq(workItems.id, id))
+    .where(and(eq(workItems.id, id), isNull(workItems.archivedAt)))
     .returning();
   return result.length > 0;
 };
-
 
 // Utility: check if metadata contains incomplete checklist items
 export const hasIncompleteChecklist = (
@@ -1164,7 +1172,6 @@ export const hasIncompleteChecklist = (
   };
 };
 
-
 // Move work item to a new column and/or position
 export const moveWorkItem = async (
   id: string,
@@ -1181,11 +1188,14 @@ export const moveWorkItem = async (
           metadata: workItems.metadata,
           boardId: workItems.boardId,
           boardColumnId: workItems.boardColumnId,
+          enteredDoneAt: workItems.enteredDoneAt,
           position: workItems.position,
+          isDone: boardColumns.isDone,
         })
         .from(workItems)
         .innerJoin(boards, eq(workItems.boardId, boards.id))
-        .where(and(eq(workItems.id, id), eq(boards.workspaceId, workspaceId)))
+        .leftJoin(boardColumns, eq(workItems.boardColumnId, boardColumns.id))
+        .where(and(eq(workItems.id, id), isNull(workItems.archivedAt), eq(boards.workspaceId, workspaceId)))
         .limit(1)
     : db
         .select({
@@ -1193,10 +1203,13 @@ export const moveWorkItem = async (
           metadata: workItems.metadata,
           boardId: workItems.boardId,
           boardColumnId: workItems.boardColumnId,
+          enteredDoneAt: workItems.enteredDoneAt,
           position: workItems.position,
+          isDone: boardColumns.isDone,
         })
         .from(workItems)
-        .where(eq(workItems.id, id))
+        .leftJoin(boardColumns, eq(workItems.boardColumnId, boardColumns.id))
+        .where(and(eq(workItems.id, id), isNull(workItems.archivedAt)))
         .limit(1);
 
   const [currentItem] = await currentItemQuery;
@@ -1268,11 +1281,19 @@ export const moveWorkItem = async (
     }
   }
 
-  // Calculate updated metadata with finishedAt
+  // Calculate the persistent Done-entry clock independently of mutable metadata.
+  const now = new Date();
+  const wasDone = currentItem.isDone === true;
+  const isDone = destColumn.isDone === true;
+  const enteredDoneAt = isDone
+    ? (wasDone ? currentItem.enteredDoneAt ?? now : now)
+    : null;
+
+  // Calculate updated metadata with finishedAt (legacy display/document metadata).
   const currentMetadata = (currentItem.metadata as Record<string, unknown>) ?? {};
   let updatedMetadata: Record<string, unknown>;
   if (destColumn.isDone) {
-    updatedMetadata = { ...currentMetadata, finishedAt: new Date().toISOString() };
+    updatedMetadata = { ...currentMetadata, finishedAt: now.toISOString() };
   } else {
     const { finishedAt: _, ...rest } = currentMetadata;
     updatedMetadata = rest;
@@ -1360,9 +1381,10 @@ export const moveWorkItem = async (
       boardColumnId: targetBoardColumnId,
       position,
       metadata: updatedMetadata,
+      enteredDoneAt,
       updatedAt: new Date(),
     })
-    .where(eq(workItems.id, id))
+    .where(and(eq(workItems.id, id), isNull(workItems.archivedAt)))
     .returning();
 
   if (!updated) return false;
@@ -1396,7 +1418,7 @@ export const changeParent = async (
     .select({ parentId: workItems.parentId })
     .from(workItems)
     .innerJoin(boards, eq(workItems.boardId, boards.id))
-    .where(and(eq(workItems.id, id), eq(boards.workspaceId, workspaceId)))
+    .where(and(eq(workItems.id, id), isNull(workItems.archivedAt), eq(boards.workspaceId, workspaceId)))
     .limit(1);
 
   if (!currentItem) return false;
@@ -1407,7 +1429,7 @@ export const changeParent = async (
       parentId,
       updatedAt: new Date(),
     })
-    .where(eq(workItems.id, id))
+    .where(and(eq(workItems.id, id), isNull(workItems.archivedAt)))
     .returning();
 
   if (!updated) return false;
@@ -1437,7 +1459,6 @@ export interface WorkItemBoardFilters {
   assignee?: string;
   projectId?: string;
   tagIds?: string; // comma-separated tag IDs
-  sprintId?: string;
 }
 
 // Build a map of item ID -> ancestor chain (parent, grandparent, great-grandparent)
@@ -1473,7 +1494,7 @@ const buildAncestryMap = async (
         parentId: workItems.parentId,
       })
       .from(workItems)
-      .where(inArray(workItems.id, parentIdsToFetch));
+      .where(and(inArray(workItems.id, parentIdsToFetch), isNull(workItems.archivedAt)));
 
     const parentMap = new Map(parents.map((p) => [p.id, p]));
 
@@ -1510,7 +1531,7 @@ const buildAncestryMap = async (
  *  - Walks up to 3 levels deep (epic→feature→story→task) to find leaf items
  *    (items with a boardColumnId set). Intermediate items (boardColumnId=NULL)
  *    are descended into.
- *  - Includes archived children — virtual status reflects all descendants.
+ *  - Ignores archived children so active hierarchy status stays visible.
  *  - No leaf descendants -> backlog column
  *  - All leaves in a "done" column -> done column
  *  - Otherwise -> column of the least advanced leaf (lowest order)
@@ -1758,7 +1779,6 @@ export const computeVirtualColumns = async (
   return { virtualColumnMap, childrenSummaries };
 };
 
-
 /**
  * Selective projection for board/area queries.
  * Includes all columns except replaces `description` with a truncated
@@ -1785,6 +1805,7 @@ const workItemBoardSelect = {
   taskId: workItems.taskId,
   createdByUserId: workItems.createdByUserId,
   archivedAt: workItems.archivedAt,
+  enteredDoneAt: workItems.enteredDoneAt,
   createdAt: workItems.createdAt,
   updatedAt: workItems.updatedAt,
 };
@@ -1886,17 +1907,6 @@ export const getWorkItemsByBoard = async (
           .select({ workItemId: workItemTags.workItemId })
           .from(workItemTags)
           .where(inArray(workItemTags.tagId, tagIdList))
-      )
-    );
-  }
-  if (filters?.sprintId) {
-    conditions.push(
-      inArray(
-        workItems.id,
-        db
-          .select({ workItemId: sprintWorkItems.workItemId })
-          .from(sprintWorkItems)
-          .where(eq(sprintWorkItems.sprintId, filters.sprintId))
       )
     );
   }
@@ -2013,7 +2023,7 @@ export const getWorkItemsByBoard = async (
         count: sql<number>`count(*)::int`,
       })
       .from(workItems)
-      .where(inArray(workItems.parentId, allItemIds))
+      .where(and(inArray(workItems.parentId, allItemIds), isNull(workItems.archivedAt)))
       .groupBy(workItems.parentId),
     // Projects
     uniqueProjectIds.length > 0
@@ -2374,7 +2384,7 @@ export const getWorkItemsByArea = async (
         count: sql<number>`count(*)::int`,
       })
       .from(workItems)
-      .where(inArray(workItems.parentId, allItemIds))
+      .where(and(inArray(workItems.parentId, allItemIds), isNull(workItems.archivedAt)))
       .groupBy(workItems.parentId),
     uniqueProjectIds.length > 0
       ? db
@@ -2451,11 +2461,19 @@ export const getWorkItemHierarchy = async (
   workspaceId: string,
   parentId: string
 ): Promise<WorkItemWithRelations[]> => {
+  const [parent] = await db
+    .select({ id: workItems.id })
+    .from(workItems)
+    .innerJoin(projects, eq(workItems.projectId, projects.id))
+    .where(and(eq(workItems.id, parentId), isNull(workItems.archivedAt), eq(projects.workspaceId, workspaceId)))
+    .limit(1);
+  if (!parent) return [];
+
   const children = await db
     .select({ item: workItems })
     .from(workItems)
     .innerJoin(projects, eq(workItems.projectId, projects.id))
-    .where(and(eq(workItems.parentId, parentId), eq(projects.workspaceId, workspaceId)))
+    .where(and(eq(workItems.parentId, parentId), isNull(workItems.archivedAt), eq(projects.workspaceId, workspaceId)))
     .orderBy(asc(workItems.position), asc(workItems.createdAt));
 
   return batchHydrateWorkItemRelations(children.map((r) => r.item));
@@ -2480,18 +2498,22 @@ export const getLeafTaskIdsUnder = async (
       FROM work_items wi
       INNER JOIN projects p ON wi.project_id = p.id
       WHERE wi.id = ${rootWorkItemId}
+        AND wi.archived_at IS NULL
         AND p.workspace_id = ${workspaceId}
       UNION ALL
       SELECT child.id, child.type, child.archived_at, child.parent_id
       FROM work_items child
       INNER JOIN descendants d ON child.parent_id = d.id
+      WHERE child.archived_at IS NULL
     )
     SELECT d.id
     FROM descendants d
-    WHERE d.archived_at IS NULL
-      AND d.type = 'task'
+    WHERE d.type = 'task'
       AND NOT EXISTS (
-        SELECT 1 FROM work_items c WHERE c.parent_id = d.id
+        SELECT 1
+        FROM work_items c
+        WHERE c.parent_id = d.id
+          AND c.archived_at IS NULL
       )
   `);
 
@@ -2511,10 +2533,20 @@ export const bulkMoveWorkItems = async (
 
   // Fetch current items to update their metadata and resolve destination by board when needed (org-scoped via board)
   const allItems = await db
-    .select({ id: workItems.id, taskId: workItems.taskId, type: workItems.type, boardId: workItems.boardId, metadata: workItems.metadata })
+    .select({
+      id: workItems.id,
+      taskId: workItems.taskId,
+      type: workItems.type,
+      boardId: workItems.boardId,
+      boardColumnId: workItems.boardColumnId,
+      enteredDoneAt: workItems.enteredDoneAt,
+      metadata: workItems.metadata,
+      sourceIsDone: boardColumns.isDone,
+    })
     .from(workItems)
     .innerJoin(boards, eq(workItems.boardId, boards.id))
-    .where(and(inArray(workItems.id, workItemIds), eq(boards.workspaceId, workspaceId)));
+    .leftJoin(boardColumns, eq(workItems.boardColumnId, boardColumns.id))
+    .where(and(inArray(workItems.id, workItemIds), isNull(workItems.archivedAt), eq(boards.workspaceId, workspaceId)));
 
   // Filter out parent-type items (epic/feature/story) - they have implicit status
   const currentItems = allItems.filter(
@@ -2579,7 +2611,7 @@ export const bulkMoveWorkItems = async (
         maxPos: sql<number>`coalesce(max(${workItems.position}), -1)`,
       })
       .from(workItems)
-      .where(inArray(workItems.boardColumnId, targetColumnIds))
+      .where(and(inArray(workItems.boardColumnId, targetColumnIds), isNull(workItems.archivedAt)))
       .groupBy(workItems.boardColumnId);
     for (const r of posResults) {
       if (r.boardColumnId) maxPositions.set(r.boardColumnId, r.maxPos);
@@ -2635,15 +2667,21 @@ export const bulkMoveWorkItems = async (
       updatedMetadata = rest;
     }
 
+    const wasDone = item.sourceIsDone === true;
+    const enteredDoneAt = destination.isDone
+      ? (wasDone ? item.enteredDoneAt ?? now : now)
+      : null;
+
     await db
       .update(workItems)
       .set({
         boardColumnId: destination.id,
         position: nextPos,
         metadata: updatedMetadata,
+        enteredDoneAt,
         updatedAt: now,
       })
-      .where(eq(workItems.id, item.id));
+      .where(and(eq(workItems.id, item.id), isNull(workItems.archivedAt)));
   }
 
   return true;
@@ -2660,7 +2698,7 @@ export const saveGeneratedPrompt = async (
     .select({ id: workItems.id })
     .from(workItems)
     .innerJoin(boards, eq(workItems.boardId, boards.id))
-    .where(and(eq(workItems.id, id), eq(boards.workspaceId, workspaceId)))
+    .where(and(eq(workItems.id, id), isNull(workItems.archivedAt), eq(boards.workspaceId, workspaceId)))
     .limit(1);
 
   if (!existingItem) return false;
@@ -2672,7 +2710,7 @@ export const saveGeneratedPrompt = async (
       metadata: sql`jsonb_set(jsonb_set(coalesce(${workItems.metadata}, '{}'), '{generatedPrompt}', ${JSON.stringify(prompt)}::jsonb), '{promptGeneratedAt}', ${JSON.stringify(now)}::jsonb)`,
       updatedAt: new Date(),
     })
-    .where(eq(workItems.id, existingItem.id))
+    .where(and(eq(workItems.id, existingItem.id), isNull(workItems.archivedAt)))
     .returning();
 
   return !!updated;
@@ -2691,7 +2729,7 @@ export const bulkChangePriority = async (
     .select({ id: workItems.id })
     .from(workItems)
     .innerJoin(boards, eq(workItems.boardId, boards.id))
-    .where(and(inArray(workItems.id, workItemIds), eq(boards.workspaceId, workspaceId)));
+    .where(and(inArray(workItems.id, workItemIds), isNull(workItems.archivedAt), eq(boards.workspaceId, workspaceId)));
 
   const verifiedIds = verifiedItems.map((i) => i.id);
   if (verifiedIds.length === 0) return false;
@@ -2702,7 +2740,7 @@ export const bulkChangePriority = async (
       priority,
       updatedAt: new Date(),
     })
-    .where(inArray(workItems.id, verifiedIds))
+    .where(and(inArray(workItems.id, verifiedIds), isNull(workItems.archivedAt)))
     .returning();
 
   return result.length > 0;
@@ -2728,7 +2766,7 @@ export const getDirectChildrenBasic = async (
       boardColumnId: workItems.boardColumnId,
     })
     .from(workItems)
-    .where(eq(workItems.parentId, parentId));
+    .where(and(eq(workItems.parentId, parentId), isNull(workItems.archivedAt)));
 };
 
 /** Get a single board column by ID */
@@ -2803,7 +2841,7 @@ export const getDescendantLeafIds = async (parentId: string): Promise<string[]> 
         boardColumnId: workItems.boardColumnId,
       })
       .from(workItems)
-      .where(inArray(workItems.parentId, currentParentIds));
+      .where(and(inArray(workItems.parentId, currentParentIds), isNull(workItems.archivedAt)));
 
     const nextParentIds: string[] = [];
     for (const child of children) {
@@ -2834,7 +2872,7 @@ export const bulkMoveChildrenToColumn = async (
       boardColumnId: targetColumnId,
       updatedAt: new Date(),
     })
-    .where(inArray(workItems.id, childIds))
+    .where(and(inArray(workItems.id, childIds), isNull(workItems.archivedAt)))
     .returning({ id: workItems.id });
   return result.length;
 };
@@ -2849,7 +2887,7 @@ export const setWorkItemAiProcessing = async (
     .select({ id: workItems.id })
     .from(workItems)
     .innerJoin(boards, eq(workItems.boardId, boards.id))
-    .where(and(eq(workItems.id, workItemId), eq(boards.workspaceId, workspaceId)))
+    .where(and(eq(workItems.id, workItemId), isNull(workItems.archivedAt), eq(boards.workspaceId, workspaceId)))
     .limit(1);
 
   if (!item) return false;
@@ -2860,7 +2898,7 @@ export const setWorkItemAiProcessing = async (
       isAiProcessing,
       updatedAt: new Date(),
     })
-    .where(eq(workItems.id, workItemId))
+    .where(and(eq(workItems.id, workItemId), isNull(workItems.archivedAt)))
     .returning({ id: workItems.id });
 
   return !!updated;
@@ -2888,7 +2926,7 @@ export const clearWorkItemAiState = async (
       )`,
       updatedAt: new Date(),
     })
-    .where(eq(workItems.id, workItemId))
+    .where(and(eq(workItems.id, workItemId), isNull(workItems.archivedAt)))
     .returning({ id: workItems.id });
 
   return !!updated;
@@ -2917,7 +2955,7 @@ export const setWorkItemAiError = async (
         isAiProcessing: false,
         updatedAt: new Date(),
       })
-      .where(eq(workItems.id, workItemId))
+      .where(and(eq(workItems.id, workItemId), isNull(workItems.archivedAt)))
       .returning({ id: workItems.id });
     return !!updated;
   }
@@ -2929,7 +2967,7 @@ export const setWorkItemAiError = async (
       metadata: sql`coalesce(${workItems.metadata}, '{}') - 'lastAiError'`,
       updatedAt: new Date(),
     })
-    .where(eq(workItems.id, workItemId))
+    .where(and(eq(workItems.id, workItemId), isNull(workItems.archivedAt)))
     .returning({ id: workItems.id });
   return !!updated;
 };
@@ -3066,7 +3104,7 @@ export const getValidationCandidates = async (
       })
       .from(workItems)
       .leftJoin(projects, eq(workItems.projectId, projects.id))
-      .where(inArray(workItems.id, missingIds));
+      .where(and(inArray(workItems.id, missingIds), isNull(workItems.archivedAt)));
 
     const nextIds = new Set<string>();
     for (const p of parents) {
@@ -3226,7 +3264,7 @@ export const getDefinitionOfDoneReviewCandidates = async (
       })
       .from(workItems)
       .leftJoin(projects, eq(workItems.projectId, projects.id))
-      .where(inArray(workItems.id, missingIds));
+      .where(and(inArray(workItems.id, missingIds), isNull(workItems.archivedAt)));
 
     const nextIds = new Set<string>();
     for (const parent of parents) {
@@ -3412,11 +3450,12 @@ export const resetStaleChildWorkItems = async (
             db
               .select({ id: parentItems.id })
               .from(parentItems)
-              .where(eq(parentItems.parentId, parentWorkItemId))
+              .where(and(eq(parentItems.parentId, parentWorkItemId), isNull(parentItems.archivedAt)))
           )
         ),
         eq(workItems.isAiProcessing, true),
-        sql`lower(trim(${boardColumns.name})) IN ('in progress', 'validating')`
+        sql`lower(trim(${boardColumns.name})) IN ('in progress', 'validating')`,
+        isNull(workItems.archivedAt),
       )
     );
 
@@ -3447,7 +3486,7 @@ export const resetStaleChildWorkItems = async (
     await db
       .update(workItems)
       .set({ boardColumnId: backlogColumn.id, isAiProcessing: false, updatedAt: now })
-      .where(inArray(workItems.id, itemIds));
+      .where(and(inArray(workItems.id, itemIds), isNull(workItems.archivedAt)));
 
     resetIds.push(...itemIds);
   }
@@ -3463,7 +3502,7 @@ export const resetStaleChildWorkItems = async (
     await db
       .update(workItems)
       .set({ boardColumnId: reviewColumn.id, isAiProcessing: false, updatedAt: now })
-      .where(inArray(workItems.id, itemIds));
+      .where(and(inArray(workItems.id, itemIds), isNull(workItems.archivedAt)));
 
     resetIds.push(...itemIds);
   }

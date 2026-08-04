@@ -1555,6 +1555,13 @@
       "when": 1785791297132,
       "tag": "0227_canonical_development_board_workflow",
       "breakpoints": true
+    },
+    {
+      "idx": 228,
+      "version": "7",
+      "when": 1785833811416,
+      "tag": "0228_entered_done_retention",
+      "breakpoints": true
     }
   ]
 }

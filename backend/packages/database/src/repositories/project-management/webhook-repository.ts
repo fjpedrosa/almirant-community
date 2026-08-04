@@ -1,18 +1,20 @@
 import { db } from "../../client";
 import { webhooks, webhookLogs } from "../../schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, not } from "drizzle-orm";
 
 // Infer types from schema (avoids dependency on domain/types which has stale values)
 type Webhook = typeof webhooks.$inferSelect;
 type WebhookLog = typeof webhookLogs.$inferSelect;
 type WebhookTrigger = Webhook["trigger"];
+const LEGACY_SPRINT_TRIGGER = "sprint_closed" as WebhookTrigger;
+const activeWebhookCondition = not(eq(webhooks.trigger, LEGACY_SPRINT_TRIGGER));
 
 // Get all webhooks
 export const getWebhooks = async (workspaceId: string): Promise<Webhook[]> => {
   return db
     .select()
     .from(webhooks)
-    .where(eq(webhooks.workspaceId, workspaceId))
+    .where(and(eq(webhooks.workspaceId, workspaceId), activeWebhookCondition))
     .orderBy(desc(webhooks.createdAt));
 };
 
@@ -24,7 +26,7 @@ export const getWebhookById = async (
   const [webhook] = await db
     .select()
     .from(webhooks)
-    .where(and(eq(webhooks.id, id), eq(webhooks.workspaceId, workspaceId)))
+    .where(and(eq(webhooks.id, id), eq(webhooks.workspaceId, workspaceId), activeWebhookCondition))
     .limit(1);
 
   return webhook || null;
@@ -35,12 +37,14 @@ export const getWebhooksByTrigger = async (
   workspaceId: string,
   trigger: WebhookTrigger
 ): Promise<Webhook[]> => {
+  if (trigger === LEGACY_SPRINT_TRIGGER) return [];
   return db
     .select()
     .from(webhooks)
     .where(
       and(
         eq(webhooks.trigger, trigger),
+        activeWebhookCondition,
         eq(webhooks.isActive, true),
         eq(webhooks.workspaceId, workspaceId)
       )
@@ -58,6 +62,9 @@ export const createWebhook = async (
     headers?: Record<string, string>;
   }
 ): Promise<Webhook> => {
+  if (data.trigger === LEGACY_SPRINT_TRIGGER) {
+    throw new Error("Unsupported webhook trigger");
+  }
   const [newWebhook] = await db
     .insert(webhooks)
     .values({
@@ -86,13 +93,16 @@ export const updateWebhook = async (
     headers?: Record<string, string>;
   }
 ): Promise<Webhook | null> => {
+  if (data.trigger === LEGACY_SPRINT_TRIGGER) {
+    throw new Error("Unsupported webhook trigger");
+  }
   const [updated] = await db
     .update(webhooks)
     .set({
       ...data,
       updatedAt: new Date(),
     })
-    .where(and(eq(webhooks.id, id), eq(webhooks.workspaceId, workspaceId)))
+    .where(and(eq(webhooks.id, id), eq(webhooks.workspaceId, workspaceId), activeWebhookCondition))
     .returning();
 
   return updated || null;
@@ -114,7 +124,7 @@ export const getWebhookLogs = async (
   const [webhook] = await db
     .select({ id: webhooks.id })
     .from(webhooks)
-    .where(and(eq(webhooks.id, webhookId), eq(webhooks.workspaceId, workspaceId)))
+    .where(and(eq(webhooks.id, webhookId), eq(webhooks.workspaceId, workspaceId), activeWebhookCondition))
     .limit(1);
 
   if (!webhook) return [];

@@ -85,21 +85,6 @@ export interface EmailTranslations {
       board: string;
     };
   };
-  sprint: {
-    subject: {
-      closed: string;
-    };
-    heading: {
-      closed: string;
-    };
-    preheader: {
-      closed: string;
-    };
-    meta: {
-      sprint: string;
-      completed: string;
-    };
-  };
   ideaHub: {
     subject: {
       created: string;

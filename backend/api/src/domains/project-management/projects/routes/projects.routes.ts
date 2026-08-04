@@ -91,6 +91,15 @@ const NIGHTLY_VALIDATION_PROVIDER_SCHEMA = t.Union([
   t.Literal("grok"),
 ]);
 const DEFAULT_NIGHTLY_VALIDATION_PROVIDER = "claude-code" as const;
+
+const withoutLegacySprintNotificationPreferences = <T extends object>(prefs: T | null) => {
+  if (!prefs) return prefs;
+  const visible = { ...prefs } as Record<string, unknown>;
+  delete visible.notifySprintStarted;
+  delete visible.notifySprintClosed;
+  return visible;
+};
+
 export const classifyRepositoryAttachError = (cause: unknown) => {
   if (cause instanceof RepositoryUrlValidationError) {
     return { status: 400 as const, message: cause.message, log: false };
@@ -1643,8 +1652,6 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
       notifyWorkItemDeleted: false,
       notifyCommentAdded: false,
       notifyAttachmentAdded: false,
-      notifySprintStarted: true,
-      notifySprintClosed: true,
       notifyMilestoneCompleted: true,
       notifyPrOpened: true,
       notifyPrMerged: true,
@@ -1660,8 +1667,8 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
     ]);
 
     return successResponse({
-      preferences: projectPrefs,
-      orgDefaults: orgPrefs ?? DEFAULT_NOTIFICATION_PREFS,
+      preferences: withoutLegacySprintNotificationPreferences(projectPrefs),
+      orgDefaults: withoutLegacySprintNotificationPreferences(orgPrefs ?? DEFAULT_NOTIFICATION_PREFS),
     });
   }, {
     params: t.Object({
@@ -1690,7 +1697,7 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
       ...body,
     });
 
-    return successResponse(upserted);
+    return successResponse(withoutLegacySprintNotificationPreferences(upserted));
   }, {
     params: t.Object({
       id: t.String(),
@@ -1706,8 +1713,6 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
       notifyWorkItemDeleted: t.Optional(t.Boolean()),
       notifyCommentAdded: t.Optional(t.Boolean()),
       notifyAttachmentAdded: t.Optional(t.Boolean()),
-      notifySprintStarted: t.Optional(t.Boolean()),
-      notifySprintClosed: t.Optional(t.Boolean()),
       notifyMilestoneCompleted: t.Optional(t.Boolean()),
       notifyPrOpened: t.Optional(t.Boolean()),
       notifyPrMerged: t.Optional(t.Boolean()),

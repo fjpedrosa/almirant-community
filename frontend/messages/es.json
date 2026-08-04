@@ -333,10 +333,6 @@
       "expandAll": "Expandir todos",
       "ungrouped": "Sin agrupar",
       "noSubItems": "Sin sub-items",
-      "sprintFilter": {
-        "all": "Todos los items",
-        "active": "activo"
-      },
       "sort": {
         "label": "Ordenar items",
         "manual": "Manual",
@@ -553,13 +549,6 @@
       "viewMode": {
         "normal": "Vista normal",
         "compact": "Vista compacta"
-      },
-      "shareBanner": {
-        "title": "Acabas de terminar una tarea",
-        "description": "Comparte en X lo completado en los ultimos 7 dias y activa el loop viral.",
-        "share": "Compartir avance",
-        "notNow": "Ahora no",
-        "close": "Cerrar banner"
       }
     },
     "savedViews": {
@@ -791,7 +780,6 @@
       "overview": "Resumen",
       "repos": "Repositorios",
       "boards": "Boards",
-      "sprints": "Sprints",
       "docLinks": "Documentación",
       "notes": "Notas",
       "github": "GitHub"
@@ -823,17 +811,6 @@
       "title": "Boards del proyecto",
       "items": "items",
       "noBoards": "No hay boards creados para este proyecto"
-    },
-    "sprintsTab": {
-      "title": "Sprints del proyecto",
-      "items": "items",
-      "board": "Board",
-      "open": "Abierto",
-      "closed": "Cerrado",
-      "completed": "Cerrado",
-      "noSprints": "No hay sprints para este proyecto",
-      "viewReport": "Ver informe",
-      "closedOn": "Cerrado el {date}"
     },
     "docsTab": {
       "title": "Links de documentación",
@@ -1337,8 +1314,6 @@
       "workItemDoneDesc": "Cuando un work item se marca como completado",
       "reviewCompleted": "Review Completada",
       "reviewCompletedDesc": "Cuando se completa una review en tu work item",
-      "sprintClosed": "Sprint Cerrado",
-      "sprintClosedDesc": "Cuando se cierra un sprint",
       "userActions": "Acciones Pendientes",
       "userActionsDesc": "Cuando tienes acciones pendientes",
       "saving": "Guardando...",
@@ -1484,120 +1459,6 @@
       "title": "Invitación al workspace",
       "signInToAccept": "Continúa para iniciar sesión o crear tu cuenta",
       "goHome": "Ir al inicio"
-    }
-  },
-  "sprints": {
-    "title": "Sprints",
-    "createSprint": "Crear Sprint",
-    "closeSprint": "Cerrar Sprint",
-    "create": "Crear",
-    "activeSprint": "Sprint activo",
-    "history": "Historial",
-    "noSprints": "No hay sprints todavía",
-    "noSprintsHint": "Crea un sprint o cierra directamente las tareas completadas.",
-    "open": "Abierto",
-    "closed": "Cerrado",
-    "noItems": "Sin items",
-    "activeHint": "Las tareas completadas se asociarán a este sprint al cerrarlo.",
-    "viewFullReport": "Ver informe completo",
-    "backToBoard": "Volver al board",
-    "shareBanner": {
-      "title": "Sprint cerrado. Comparte el avance",
-      "description": "El sprint \"{sprintName}\" se ha cerrado. Compártelo en X para generar visibilidad.",
-      "share": "Compartir en X",
-      "notNow": "Ahora no",
-      "close": "Cerrar banner"
-    },
-    "form": {
-      "name": "Nombre",
-      "startDate": "Fecha inicio",
-      "endDate": "Fecha fin"
-    },
-    "close": {
-      "title": "Cerrar Sprint",
-      "descAdHoc": "Se creará y cerrará un sprint con las tareas completadas.",
-      "descActive": "Se cerrará \"{name}\" y se archivarán las tareas completadas.",
-      "allTasks": "Todas las tareas",
-      "byDateRange": "Por rango de fechas",
-      "sprintName": "Nombre del sprint",
-      "completedTasks": "Tareas completadas ({count})",
-      "tasksInRange": "Tareas en rango ({count})",
-      "noCompletedTasks": "No hay tareas completadas para archivar. El sprint se cerrará vacío.",
-      "selectDateRange": "Selecciona un rango de fechas para ver las tareas completadas en ese periodo.",
-      "closing": "Cerrando...",
-      "closeButton": "Cerrar Sprint",
-      "closeWithCount": "Cerrar Sprint ({count} items)",
-      "closeByDate": "Cerrar por fechas",
-      "closeByDateWithCount": "Cerrar por fechas ({count} items)",
-      "startDate": "Fecha inicio",
-      "endDate": "Fecha fin"
-    },
-    "report": {
-      "velocity": "Velocidad",
-      "tasksPerDay": "tareas/día",
-      "completed": "Completadas",
-      "ofTotal": "{percentage}% del total",
-      "pending": "Pendientes",
-      "carryover": "arrastre al siguiente",
-      "avgTime": "Tiempo medio",
-      "perTask": "por tarea",
-      "distributionByType": "Distribución por tipo",
-      "distributionByPriority": "Distribución por prioridad",
-      "distributionByAssignee": "Distribución por asignado",
-      "userContributions": "Contribución por usuario",
-      "tasksCreated": "creadas",
-      "tasksCompleted": "completadas",
-      "tasksAssigned": "asignadas",
-      "noData": "Sin datos",
-      "unassigned": "Sin asignar",
-      "completedTab": "Completadas ({count})",
-      "pendingTab": "Pendientes ({count})",
-      "noCompletedTasks": "No hay tareas completadas en este sprint",
-      "noPendingTasks": "No hay tareas pendientes de arrastre",
-      "tableTitle": "Título",
-      "tableType": "Tipo",
-      "tablePriority": "Prioridad",
-      "tableAssignee": "Asignado",
-      "tableCompleted": "Completado",
-      "aiCost": "Coste IA",
-      "sessions": "Sesiones",
-      "tokens": "Tokens",
-      "estimatedCost": "Coste estimado",
-      "velocityTrend": "Tendencia de velocidad",
-      "velocityLabel": "Velocidad: {value} tareas/día",
-      "totalItems": "items totales",
-      "vsFormer": "vs anterior",
-      "sameAsPrevious": "Igual al anterior",
-      "viewFullReport": "Ver informe completo",
-      "screenshots": "Screenshots ({count})",
-      "viewVisualReport": "Ver reporte visual",
-      "unknownGroup": "Sin feature",
-      "changelog": "Changelog",
-      "summaryTab": "Resumen",
-      "changelogTab": "Changelog",
-      "shareToX": "Share to X",
-      "share": {
-        "title": "Compartir en X",
-        "description": "Previsualiza el post, copialo y publicalo en X.",
-        "loading": "Preparando post...",
-        "empty": "No hay contenido disponible para compartir todavia.",
-        "hint": "Se abre X con este post precargado. Puedes copiarlo y ajustarlo antes de publicar.",
-        "copy": "Copiar post",
-        "copying": "Copiando...",
-        "openX": "Abrir X",
-        "tweets": "{count} post(s)",
-        "characters": "{count} caracteres",
-        "toastNoContent": "No hay contenido para compartir todavia.",
-        "toastCopySuccess": "Post copiado al portapapeles.",
-        "toastCopyError": "No se pudo copiar el post.",
-        "toastOpenMulti": "Se abrio X con el primer post y el borrador completo esta en portapapeles.",
-        "toastOpenSingle": "Se abrio X con el post listo para publicar."
-      }
-    },
-    "summary": {
-      "completed": "completadas",
-      "velocity": "tareas/dia",
-      "aiCost": "IA"
     }
   },
   "imports": {
@@ -2085,7 +1946,6 @@
       "notifyWorkItemAssigned": "Work item asignado a ti",
       "notifyWorkItemDone": "Work item completado (Done)",
       "notifyReviewCompleted": "Review AI completado (pass/fail)",
-      "notifySprintClosed": "Sprint cerrado",
       "notifyUserActions": "Acciones requeridas post-tarea (userActions)"
     }
   },
@@ -3219,7 +3079,7 @@
         "title": "Control sin la terminal",
         "description": "Saber qué está pasando sin revisar seis terminales. Un dashboard que muestra estado, progreso, y dónde realmente se necesita tu atención.",
         "bullets1": "Estado de agentes y progreso de tareas en tiempo real",
-        "bullets2": "Seguimiento de costes por tarea, sprint y proyecto",
+        "bullets2": "Seguimiento de costes por tarea y proyecto",
         "bullets3": "Intervén en tareas bloqueadas, revisa PRs completados, a tu ritmo"
       }
     },
@@ -3251,7 +3111,7 @@
       }
     },
     "social": {
-      "quote": "Las herramientas que usamos para correr agentes IA fueron construidas para sesiones individuales, no para gestionar un proyecto a lo largo de semanas y sprints. Estamos construyendo la capa que falta.",
+      "quote": "Las herramientas que usamos para ejecutar agentes IA fueron construidas para sesiones individuales, no para gestionar un proyecto a lo largo de semanas y hitos. Estamos construyendo la capa que falta.",
       "attribution": "— El equipo de Almirant, construyendo en público"
     },
     "cta": {
@@ -3367,7 +3227,7 @@
             "1 usuario",
             "Mission Control Kanban",
             "Hasta 3 proyectos con planificación completa",
-            "Sprints con informes automáticos y changelog",
+            "Informes automáticos de progreso y changelog",
             "Captura ideas y tareas pendientes personales",
             "Agentes IA para cada fase del desarrollo",
             "Ejecuta agentes en local desde tu herramienta favorita",
@@ -3484,7 +3344,6 @@
         "features": {
           "unlimitedProjects": "Proyectos",
           "missionControlKanban": "Mission Control Kanban",
-          "sprintsRoadmap": "Sprints",
           "dependencies": "Seguimiento de dependencias",
           "ideasSeedsTodos": "Ideas, seeds y to-dos",
           "tokenSharing": "Compartir tokens de IA",

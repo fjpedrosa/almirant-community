@@ -132,6 +132,19 @@ export const WebSocketProvider = ({ children }: { children: ReactNode }) => {
     return unsubscribe;
   }, []);
 
+  // Retention sweeps invalidate all affected work-item/board caches in one event.
+  // This is intentionally silent: archiving is a background maintenance action.
+  useEffect(() => {
+    const unsubscribe = subscribeRef.current("work-items:invalidated", (message: WsServerMessage) => {
+      if (message.type !== "work-items:invalidated") return;
+
+      queryClientRef.current.invalidateQueries({ queryKey: ["work-items"] });
+      queryClientRef.current.invalidateQueries({ queryKey: ["boards"] });
+    });
+
+    return unsubscribe;
+  }, []);
+
   // Subscribe to work-item:updated to invalidate React Query cache + notify
   useEffect(() => {
     const unsubscribe = subscribeRef.current("work-item:updated", (message: WsServerMessage) => {

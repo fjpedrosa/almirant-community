@@ -97,7 +97,6 @@ export interface EmailNotificationSettings {
   notifyWorkItemAssigned: boolean;
   notifyWorkItemDone: boolean;
   notifyReviewCompleted: boolean;
-  notifySprintClosed: boolean;
   notifyUserActions: boolean;
   createdAt: string;
   updatedAt: string;
@@ -110,7 +109,6 @@ export type EmailNotificationToggleKey = Extract<
   | "notifyWorkItemAssigned"
   | "notifyWorkItemDone"
   | "notifyReviewCompleted"
-  | "notifySprintClosed"
   | "notifyUserActions"
 >;
 

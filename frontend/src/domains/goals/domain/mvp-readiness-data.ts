@@ -10,7 +10,6 @@ export const MVP_LAUNCH_GOAL_DATA: GoalMeetingDataset = {
   successCriteria: [
     "Worker desplegado en VPS con guia operativa clara.",
     "Flujo completo validado en produccion: user -> enqueue -> worker -> PR.",
-    "Share to Twitter disponible via copy-to-clipboard.",
     "Captura por voz en Telegram transcrita con Whisper.",
   ],
   measurementNotes: [
@@ -29,12 +28,6 @@ export const MVP_LAUNCH_GOAL_DATA: GoalMeetingDataset = {
       title: "Pieza 2: Planning conversacional",
       progress: 60,
       note: "Texto operativo, voz pendiente para caso movil.",
-    },
-    {
-      id: "share-to-twitter",
-      title: "Pieza 3: Share to Twitter",
-      progress: 30,
-      note: "Base de contenido disponible, falta output de sharing.",
     },
     {
       id: "platform-base",
@@ -69,19 +62,6 @@ export const MVP_LAUNCH_GOAL_DATA: GoalMeetingDataset = {
       progress: 0,
       risk: "high",
       targetDate: "2026-02-26",
-    },
-    {
-      id: "share-to-twitter-copy",
-      title: "Boton Share to Twitter con copy-to-clipboard",
-      description:
-        "Formatear hilo y copiar al portapapeles sin depender de API de X.",
-      block: "B",
-      requiredForLaunch: true,
-      weight: 20,
-      status: "planned",
-      progress: 0,
-      risk: "medium",
-      targetDate: "2026-02-27",
     },
     {
       id: "telegram-voice-whisper",
@@ -120,18 +100,6 @@ export const MVP_LAUNCH_GOAL_DATA: GoalMeetingDataset = {
       progress: 0,
       risk: "low",
       targetDate: "2026-03-10",
-    },
-    {
-      id: "twitter-api-autopost",
-      title: "Integracion directa con Twitter API",
-      description: "Automatizar publicacion del hilo sin paso manual.",
-      block: "C",
-      requiredForLaunch: false,
-      weight: 15,
-      status: "planned",
-      progress: 0,
-      risk: "low",
-      targetDate: "2026-03-15",
     },
     {
       id: "weekly-summary-scheduler",

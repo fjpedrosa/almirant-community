@@ -29,7 +29,6 @@ type NotificationEventKey =
   | "work_item_assigned"
   | "work_item_done"
   | "review_completed"
-  | "sprint_closed"
   | "user_actions";
 
 // ---------------------------------------------------------------------------

@@ -54,6 +54,7 @@ export const workItems = pgTable(
     // backlog drain may pick it up.
     scheduledAgentConfigId: uuid("scheduled_agent_config_id")
       .references(() => scheduledAgentConfigs.id, { onDelete: "set null" }),
+    enteredDoneAt: timestamp("entered_done_at", { withTimezone: true }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -69,6 +70,9 @@ export const workItems = pgTable(
     index("work_items_priority_idx").on(table.priority),
     index("work_items_assignee_idx").on(table.assignee),
     index("work_items_archived_at_idx").on(table.archivedAt),
+    index("work_items_entered_done_at_active_idx")
+      .on(table.enteredDoneAt, table.id)
+      .where(sql`${table.archivedAt} IS NULL`),
     index("work_items_task_id_idx").on(table.taskId),
     index("work_items_created_by_user_idx").on(table.createdByUserId),
     index("work_items_scheduled_agent_config_id_idx").on(table.scheduledAgentConfigId),

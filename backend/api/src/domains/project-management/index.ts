@@ -1,7 +1,6 @@
 import { Elysia } from "elysia";
 import { boardsModule } from "./boards";
 import { projectsModule } from "./projects";
-import { sprintsModule } from "./sprints";
 import { importsModule } from "./imports";
 import { workItemsModule } from "./work-items";
 import { tagsModule } from "./tags";
@@ -15,7 +14,6 @@ export const projectManagementModule = {
     new Elysia()
       .use(boardsModule.protected())
       .use(projectsModule.protected())
-      .use(sprintsModule.protected())
       .use(importsModule.protected())
       .use(workItemsModule.protected())
       .use(tagsModule())

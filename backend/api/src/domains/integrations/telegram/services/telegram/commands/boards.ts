@@ -1,4 +1,4 @@
-import { getActiveSprint, getAllBoards, getWorkItemsByBoard } from "@almirant/database";
+import { getAllBoards, getWorkItemsByBoard } from "@almirant/database";
 import type { TelegramReplyMarkup } from "../../telegram-bot";
 import type { TelegramMessageContext, TelegramOutboundMessage } from "../types";
 import { fuzzyPickOne } from "../format";
@@ -63,10 +63,7 @@ export async function handleBoardCommand(
     };
   }
 
-  const [columns, sprint] = await Promise.all([
-    getWorkItemsByBoard(workspaceId, picked.id),
-    getActiveSprint(workspaceId, picked.id),
-  ]);
+  const columns = await getWorkItemsByBoard(workspaceId, picked.id);
 
   telegramState.setActiveBoard(ctx.chatId, { id: picked.id, name: picked.name });
 
@@ -79,7 +76,6 @@ export async function handleBoardCommand(
     parseMode: "Markdown",
     text:
       `*Board:* ${picked.name}\n\n` +
-      (sprint ? `🏃 *Sprint activo:* ${sprint.name}\n\n` : "🏃 *Sprint activo:* (ninguno)\n\n") +
       "📊 *Columnas*\n" +
       colLines,
   };

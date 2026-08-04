@@ -4,7 +4,6 @@ import {
   createWsMock,
   createLoggerMock,
   createTelegramMock,
-  createSprintReportMock,
   createAiServiceMock,
   createAiPricingMock,
   createS3Mock,
@@ -87,31 +86,17 @@ mock.module("../setup", () => ({
   },
 }));
 
-// --- Telegram & email notifications (sprints.tools.ts, work-items.tools.ts) ---
+// --- Telegram & email notifications (work-items.tools.ts) ---
 mock.module("../../domains/integrations/telegram/services/telegram/notifications", () =>
   createTelegramMock(),
 );
 mock.module("../../shared/services/email/notifications", () => ({
-  emailNotifySprintClosed: () => {},
   emailNotifyWorkItemAssigned: () => {},
   emailNotifyWorkItemDone: () => {},
   emailNotifyWorkItemMoved: () => {},
   emailNotifyReviewCompleted: () => {},
   emailNotifyUserActions: () => {},
 }));
-
-// --- Sprint services ---
-mock.module(
-  "../../domains/project-management/sprints/services/sprint-visual-report-service",
-  () => createSprintReportMock(),
-);
-mock.module(
-  "../../domains/project-management/sprints/services/sprint-changelog-service",
-  () => ({
-    kickoffSprintChangelogGeneration: () => {},
-    generateSprintChangelog: async () => "",
-  }),
-);
 
 // --- work-items.tools.ts dependencies ---
 mock.module(
@@ -186,8 +171,7 @@ describe("buildPublicToolsRegistry", () => {
       "get_work_item",
       "list_idea_items",
       "list_boards",
-      "list_sprints",
-      "list_documents",
+          "list_documents",
       "create_work_item",
       "get_current_user",
     ];

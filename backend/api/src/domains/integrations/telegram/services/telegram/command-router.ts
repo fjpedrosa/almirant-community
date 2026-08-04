@@ -1,5 +1,4 @@
 import {
-  getActiveSprint,
   getBoardByIdInternal,
   getProjects,
   getWorkItemById,
@@ -21,11 +20,6 @@ import {
   handleCreateColumnCallback,
   handleCreateCommand,
 } from "./commands/create";
-import {
-  handleSprintCloseCommand,
-  handleSprintCloseConfirmCallback,
-  handleSprintCommand,
-} from "./commands/sprint";
 import { handleSearchCommand } from "./commands/search";
 import type { TelegramCallbackContext, TelegramMessageContext } from "./types";
 import { callbackStore } from "./callback-store";
@@ -92,14 +86,6 @@ export async function routeTelegramCommand(
       const res = await handleCreateCommand(ctx, type, title);
       return { text: res.text, replyMarkup: res.replyMarkup };
     }
-    case "sprint": {
-      if (parsed.parts[0]?.toLowerCase() === "close") {
-        const res = await handleSprintCloseCommand(ctx);
-        return { text: res.text, replyMarkup: res.replyMarkup };
-      }
-      const res = await handleSprintCommand(ctx);
-      return { text: res.text, replyMarkup: res.replyMarkup };
-    }
     case "search": {
       const res = await handleSearchCommand(ctx, parsed.args);
       return { text: res.text, replyMarkup: res.replyMarkup };
@@ -122,18 +108,6 @@ export async function routeTelegramCommand(
       const picked = projects[0]!;
       telegramState.setActiveProject(ctx.chatId, { id: picked.id, name: picked.name });
       return { text: `✅ Proyecto activo: *${picked.name}*` };
-    }
-    case "report": {
-      const st = telegramState.get(ctx.chatId);
-      if (!st.activeBoardId) {
-        return { text: "Usa `/board <nombre>` para seleccionar un board primero." };
-      }
-      const board = await getBoardByIdInternal(st.activeBoardId);
-      const sprint = board ? await getActiveSprint(board.workspaceId, board.id) : null;
-      if (!board || !sprint) return { text: "No hay sprint activo." };
-      const baseUrl = getFrontendBaseUrl();
-      const link = `${baseUrl}/boards/${board.area}/sprints/${sprint.id}`;
-      return { text: `📈 Reporte del sprint: ${link}` };
     }
     default:
       return { text: "Comando no reconocido. Usa `/help`." };
@@ -284,19 +258,6 @@ export async function routeTelegramCallback(
     const res = await handleCreateColumnCallback(ctx, token, colId);
     if (!res) return { kind: "edit", text: "Acción expirada. Reintenta `/create ...`." };
     return { kind: "edit", text: res };
-  }
-
-  if (scope === "sprint" && action === "close") {
-    const sub = parts[3] ?? "";
-    const token = parts[4] ?? "";
-    if (sub === "confirm") {
-      const res = await handleSprintCloseConfirmCallback(ctx, token);
-      if (!res) return { kind: "edit", text: "Acción expirada. Reintenta `/sprint close`." };
-      return { kind: "edit", text: res };
-    }
-    if (sub === "cancel") {
-      return { kind: "edit", text: "Cancelado." };
-    }
   }
 
   return { kind: "noop" };

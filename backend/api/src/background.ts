@@ -18,6 +18,7 @@ import { startUserStorageDeletionSweeper } from "./domains/storage/services/user
 import { startCloudBackgroundJobs } from "./cloud/background-jobs";
 import { startScheduledAgentDispatcher } from "./domains/agents/services/scheduled-agent-dispatcher";
 import { startQueuedReceiptResidueReconciler } from "./domains/agents/services/queued-receipt-residue-reconciler";
+import { startDoneRetentionSweeper } from "./domains/project-management/work-items/services/done-retention-sweeper";
 
 interface BackgroundJobHandles {
   stop: () => Promise<void>;
@@ -42,6 +43,7 @@ export const isScheduledAgentDispatcherEnabled = (
 ): boolean => flag === "true";
 
 export const startBackgroundJobs = (): BackgroundJobHandles => {
+  const stopDoneRetentionSweeper = startDoneRetentionSweeper();
   const stopStaleJobRecovery = startStaleJobRecovery({
     intervalMs: 120_000,
     offlineThresholdMs: 90_000,
@@ -127,6 +129,7 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
 
   return {
     stop: async () => {
+      stopDoneRetentionSweeper();
       stopStaleJobRecovery();
       stopInteractionTimeoutSweeper();
       stopPlanningSessionIdleSweeper();

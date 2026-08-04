@@ -4,13 +4,11 @@ import {
   getTelegramAccountByAssignee,
   getTelegramNotificationSettingsByUserId,
   getWorkItemById,
-  listTelegramNotificationRecipients,
 } from "@almirant/database";
 import { telegramBot } from "../telegram-bot";
 import { getFrontendBaseUrl } from "../telegram-utils";
 import {
   buildReviewCompletedMessage,
-  buildSprintClosedMessage,
   buildWorkItemAssignedMessage,
   buildWorkItemDoneMessage,
   buildWorkItemMovedMessage,
@@ -188,50 +186,6 @@ export const notifyReviewCompleted = async (args: {
     });
   } catch (err) {
     logger.error(err, "notifyReviewCompleted failed");
-  }
-};
-
-export const notifySprintClosed = async (args: {
-  sprintId: string;
-  boardId: string;
-  sprintName: string;
-  completedCount: number;
-  totalCount: number;
-}) => {
-  try {
-    const recipients = await listTelegramNotificationRecipients({ event: "sprint_closed" });
-    if (recipients.length === 0) return;
-
-    const baseUrl = getFrontendBaseUrl();
-    const board = await getBoardByIdInternal(args.boardId);
-    const area = board?.area ?? "desarrollo";
-    const url = `${baseUrl}/boards/${area}/sprints/${args.sprintId}`;
-
-    const msg = buildSprintClosedMessage({
-      sprintName: args.sprintName,
-      completedCount: args.completedCount,
-      totalCount: args.totalCount,
-      boardName: board?.name ?? null,
-      url,
-    });
-
-    await Promise.all(
-      recipients.map(async (r) => {
-        try {
-          if (!allowSendForChat(r.chatId)) return;
-          await telegramBot.sendMessage({
-            chatId: r.chatId,
-            text: msg.text,
-            parseMode: "MarkdownV2",
-            replyMarkup: msg.replyMarkup,
-          });
-        } catch (err) {
-          logger.error(err, "notifySprintClosed send failed");
-        }
-      })
-    );
-  } catch (err) {
-    logger.error(err, "notifySprintClosed failed");
   }
 };
 

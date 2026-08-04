@@ -18,7 +18,7 @@ the `mcp:internal` permission in their payload.
 
 ## Tool Matrix
 
-### Public Mount (/mcp) - 21 Tool Groups
+### Public Mount (/mcp) - 20 Tool Groups
 
 All tools registered here are available to authenticated users via API keys
 or session tokens. No extra permission required beyond valid authentication.
@@ -30,22 +30,21 @@ or session tokens. No extra permission required beyond valid authentication.
 | 3 | `registerWorkItemsTools` | `tools/work-items.tools.ts` | Tasks, bugs, stories |
 | 4 | `registerTagsTools` | `tools/tags.tools.ts` | Tag management |
 | 5 | `registerDocumentsTools` | `tools/documents.tools.ts` | Document operations |
-| 6 | `registerSprintsTools` | `tools/sprints.tools.ts` | Sprint planning |
-| 7 | `registerDependenciesTools` | `tools/dependencies.tools.ts` | Work item dependencies |
-| 8 | `registerSkillContextTools` | `tools/skill-context.tools.ts` | Skill/context retrieval |
-| 9 | `registerQuotaTools` | `tools/quota.tools.ts` | Usage quota queries |
-| 10 | `registerIdeasTools` | `tools/ideas.tools.ts` | Idea capture and triage |
-| 11 | `registerAuthTools` | `tools/auth.tools.ts` | Auth context info |
-| 12 | `registerMilestonesTools` | `tools/milestones.tools.ts` | Milestone tracking |
-| 13 | `registerMembersTools` | `tools/members.tools.ts` | Team member queries |
-| 14 | `registerTodosTools` | `tools/todos.tools.ts` | Todo list operations |
-| 15 | `registerSeedsTools` | `tools/seeds.tools.ts` | Seed data management |
-| 16 | `registerExpensesTools` | `tools/expenses.tools.ts` | Expense tracking |
-| 17 | `registerCommitTools` | `tools/commits.tools.ts` | Commit metadata |
-| 18 | `registerMemoryTools` | `tools/memory.tools.ts` | Agent memory (org-scoped) |
-| 19 | `registerWorkItemMemoryTools` | `tools/workitem-memory.tools.ts` | Work item memory |
-| 20 | `registerTodoMemoryTools` | `tools/todo-memory.tools.ts` | Todo memory |
-| 21 | `registerSeedMemoryTools` | `tools/seed-memory.tools.ts` | Seed memory |
+| 6 | `registerDependenciesTools` | `tools/dependencies.tools.ts` | Work item dependencies |
+| 7 | `registerSkillContextTools` | `tools/skill-context.tools.ts` | Skill/context retrieval |
+| 8 | `registerQuotaTools` | `tools/quota.tools.ts` | Usage quota queries |
+| 9 | `registerIdeasTools` | `tools/ideas.tools.ts` | Idea capture and triage |
+| 10 | `registerAuthTools` | `tools/auth.tools.ts` | Auth context info |
+| 11 | `registerMilestonesTools` | `tools/milestones.tools.ts` | Milestone tracking |
+| 12 | `registerMembersTools` | `tools/members.tools.ts` | Team member queries |
+| 13 | `registerTodosTools` | `tools/todos.tools.ts` | Todo list operations |
+| 14 | `registerSeedsTools` | `tools/seeds.tools.ts` | Seed data management |
+| 15 | `registerExpensesTools` | `tools/expenses.tools.ts` | Expense tracking |
+| 16 | `registerCommitTools` | `tools/commits.tools.ts` | Commit metadata |
+| 17 | `registerMemoryTools` | `tools/memory.tools.ts` | Agent memory (org-scoped) |
+| 18 | `registerWorkItemMemoryTools` | `tools/workitem-memory.tools.ts` | Work item memory |
+| 19 | `registerTodoMemoryTools` | `tools/todo-memory.tools.ts` | Todo memory |
+| 20 | `registerSeedMemoryTools` | `tools/seed-memory.tools.ts` | Seed memory |
 
 ### Internal Mount (/mcp/internal) - 4 Tool Groups
 

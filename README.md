@@ -15,7 +15,7 @@ This repository ships the source code and a local stack that boots the core prod
 
 ## What is Almirant?
 
-Almirant is a project management and CRM platform that combines traditional work-item tracking (boards, sprints, milestones, roadmaps) with an LLM-native planning pipeline and agent orchestration.
+Almirant is a project management and CRM platform that combines traditional work-item tracking (boards, work items, milestones, roadmaps) with an LLM-native planning pipeline and agent orchestration.
 
 ### Core capabilities in this repo
 

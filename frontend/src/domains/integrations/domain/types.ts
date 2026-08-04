@@ -1128,8 +1128,6 @@ export type NotificationPrefKey =
   | "notifyWorkItemDeleted"
   | "notifyCommentAdded"
   | "notifyAttachmentAdded"
-  | "notifySprintStarted"
-  | "notifySprintClosed"
   | "notifyMilestoneCompleted"
   | "notifyPrOpened"
   | "notifyPrMerged"

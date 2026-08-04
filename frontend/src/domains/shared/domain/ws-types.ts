@@ -5,8 +5,7 @@ export type AiFieldContext =
   | "description"
   | "definitionOfDone"
   | "prompt"
-  | "multiPrompt"
-  | "sharePost";
+  | "multiPrompt";
 
 // --- Client -> Server messages ---
 
@@ -167,6 +166,14 @@ export interface WsServerWorkItemUpdated {
     workItemId: string;
     boardId?: string;
     changes: Record<string, unknown>;
+  };
+}
+
+export interface WsServerWorkItemsInvalidated {
+  type: "work-items:invalidated";
+  payload: {
+    workItemIds: string[];
+    boardIds: string[];
   };
 }
 
@@ -777,6 +784,7 @@ export type WsServerMessage =
   | WsServerAiSessionRecorded
   | WsServerWorkItemCreated
   | WsServerWorkItemUpdated
+  | WsServerWorkItemsInvalidated
   | WsServerWorkItemDeleted
   | WsServerWorkItemReviewCompleted
   | WsServerAgentJobStatusChanged

@@ -89,7 +89,9 @@ export const telegramRoutes = new Elysia({ prefix: "/telegram" })
 
     try {
       const settings = await getOrCreateTelegramNotificationSettings(user.id);
-      return successResponse(settings);
+      if (!settings) return successResponse(settings);
+      const { notifySprintClosed: _legacyNotifySprintClosed, ...visibleSettings } = settings;
+      return successResponse(visibleSettings);
     } catch (err) {
       ctx.set.status = 500;
       return errorResponse(
@@ -113,7 +115,9 @@ export const telegramRoutes = new Elysia({ prefix: "/telegram" })
 
       try {
         const updated = await upsertTelegramNotificationSettings(user.id, body);
-        return successResponse(updated);
+        if (!updated) return successResponse(updated);
+        const { notifySprintClosed: _legacyNotifySprintClosed, ...visibleUpdated } = updated;
+        return successResponse(visibleUpdated);
       } catch (err) {
         set.status = 500;
         return errorResponse(
@@ -129,7 +133,6 @@ export const telegramRoutes = new Elysia({ prefix: "/telegram" })
         notifyWorkItemAssigned: t.Optional(t.Boolean()),
         notifyWorkItemDone: t.Optional(t.Boolean()),
         notifyReviewCompleted: t.Optional(t.Boolean()),
-        notifySprintClosed: t.Optional(t.Boolean()),
         notifyUserActions: t.Optional(t.Boolean()),
       }),
     }

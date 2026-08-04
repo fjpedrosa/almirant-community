@@ -81,7 +81,6 @@ export const aiRoutes = new Elysia({ prefix: "/ai" })
           t.Literal("definitionOfDone"),
           t.Literal("prompt"),
           t.Literal("multiPrompt"),
-          t.Literal("sharePost"),
         ]),
         providerKeyId: t.Optional(t.String()),
       }),
