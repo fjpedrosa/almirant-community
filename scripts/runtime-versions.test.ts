@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
@@ -70,7 +70,6 @@ describe("agent runtime version manifest", () => {
       ".env.example",
       ".env.production.example",
       "docker-compose.yml",
-      "docker-compose.local.yml",
       "docker-compose.prod.yml",
       "services/runner/docker-compose.prod.yml",
       "services/runner/src/shared/config.ts",
@@ -83,6 +82,11 @@ describe("agent runtime version manifest", () => {
     expect(read("backend/packages/remote-agent/src/agents/opencode/types.ts")).toContain(
       `opencode-shim:${versions.openCode}`,
     );
+  });
+
+  test("keeps deprecated local and preview compose variants absent", () => {
+    expect(existsSync(join(root, "docker-compose.local.yml"))).toBe(false);
+    expect(existsSync(join(root, "docker-compose.preview.yml"))).toBe(false);
   });
 
   test("keeps Claude Code above the minimum required by ultracode", () => {

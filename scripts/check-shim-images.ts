@@ -43,7 +43,6 @@ const explicitFiles = new Set([
   ".env.example",
   ".env.production.example",
   "docker-compose.yml",
-  "docker-compose.local.yml",
   "docker-compose.prod.yml",
 ]);
 
