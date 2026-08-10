@@ -6,7 +6,8 @@ import { randomBytes } from "crypto";
  *
  * Instead of injecting the global worker API key into agent containers,
  * the runner requests a short-lived JWT with limited permissions.
- * The MCP endpoints validate these tokens via the session-token-auth middleware.
+ * The MCP endpoints validate these tokens through `createMcpAuthenticator`
+ * in `src/mcp/auth/authenticate.ts`.
  */
 
 export interface SessionTokenPayload {
@@ -37,7 +38,7 @@ export interface SessionTokenPayload {
   jti: string;
 }
 
-/** Prefix so middleware can quickly identify session tokens vs regular API keys */
+/** Prefix so `createMcpAuthenticator` can identify session tokens before API keys. */
 export const SESSION_TOKEN_PREFIX = "st_";
 /** Synthetic user used by unattended automation when no human creator exists. */
 export const AUTOMATION_BOT_USER_ID = "auto-fix-bot";
