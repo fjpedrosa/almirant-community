@@ -23,4 +23,13 @@ describe("API orphan source contract", () => {
 
     expect(existsSync(resolve(apiRoot, liveAdminGuardPath))).toBe(true);
   });
+
+  test("keeps recurrence retired and fingerprint live", () => {
+    for (const [path, present] of [["src/mcp/tools/error-recurrence.ts", false],
+      ["src/mcp/tools/error-recurrence.test.ts", false],
+      ["src/mcp/tools/error-fingerprint.ts", true],
+      ["src/mcp/tools/error-fingerprint.test.ts", true]] as const) {
+      expect(existsSync(resolve(apiRoot, path))).toBe(present);
+    }
+  });
 });
