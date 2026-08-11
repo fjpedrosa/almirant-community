@@ -5,22 +5,35 @@ on:
     paths:
       - 'backend/packages/database/migrations/**'
       - 'scripts/audit-migrations.sh'
+      - 'scripts/audit-migrations.contract.test.sh'
       - '.github/workflows/migrations-audit.yml'
   push:
     branches: [main]
     paths:
       - 'backend/packages/database/migrations/**'
       - 'scripts/audit-migrations.sh'
+      - 'scripts/audit-migrations.contract.test.sh'
 
 jobs:
   audit:
-    name: No new orphans / duplicate idx / missing files
+    name: Ledger integrity and PR migration count
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Fetch pull request base
+        if: github.event_name == 'pull_request'
+        env:
+          MIGRATIONS_BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: git fetch --no-tags --depth=1 origin "$MIGRATIONS_BASE_REF"
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Contract test
+        run: /bin/bash scripts/audit-migrations.contract.test.sh
       - name: Audit
+        env:
+          MIGRATIONS_BASE_REF: ${{ github.event.pull_request.base.sha }}
         run: bash scripts/audit-migrations.sh

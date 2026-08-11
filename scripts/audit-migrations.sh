@@ -12,9 +12,11 @@
 #   3. No two journal entries share the same idx
 #   4. The latest journal `when` timestamp is strictly after the previous one
 #      (runtime migrations block the same condition before touching the DB.)
+#   5. When MIGRATIONS_BASE_REF is a fetched immutable commit SHA, the current
+#      journal preserves its tag history and appends at most one new tag.
 #
 # Checks (WARNING — printed but exit 0):
-#   5. Historical journal `when` timestamps are strictly increasing
+#   6. Historical journal `when` timestamps are strictly increasing
 #      (Drizzle uses `when`, not `idx`, to decide what to apply.
 #      Historical disorder cannot be repaired without a coordinated
 #      reset across all live instances — tracked separately.)
@@ -40,16 +42,19 @@ done
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MIG_DIR="$REPO_DIR/backend/packages/database/migrations"
 JOURNAL="$MIG_DIR/meta/_journal.json"
+BASE_REF="${MIGRATIONS_BASE_REF:-}"
 
 [ -f "$JOURNAL" ] || { printf '✗ Journal not found: %s\n' "$JOURNAL" >&2; exit 1; }
 
-STRICT="$STRICT" python3 - "$MIG_DIR" "$JOURNAL" <<'PY'
-import json, sys, os
+STRICT="$STRICT" python3 - "$MIG_DIR" "$JOURNAL" "$BASE_REF" "$REPO_DIR" <<'PY'
+import json, sys, os, re, subprocess
 from pathlib import Path
 from collections import Counter
 
 mig_dir = Path(sys.argv[1])
 journal = json.load(open(sys.argv[2]))
+base_ref = sys.argv[3]
+repo_dir = Path(sys.argv[4])
 entries = journal['entries']
 strict = os.environ.get('STRICT', '0') == '1'
 
@@ -58,6 +63,7 @@ sql_files = {p.stem for p in mig_dir.glob('*.sql')}
 
 blocking = []
 warnings = []
+new_tag_count = None
 
 # 1. Orphan .sql files (BLOCKING).
 for tag in sorted(sql_files - journal_tags):
@@ -84,7 +90,65 @@ if len(entries) >= 2:
             f"<= previous {previous['tag']} ({previous['when']})"
         )
 
-# 5. Historical monotonic `when` timestamps (WARNING).
+# 5. Pull request migration-count policy (BLOCKING).
+if base_ref:
+    if not re.fullmatch(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", base_ref):
+        blocking.append(
+            "MIGRATIONS_BASE_REF must be a full commit SHA; "
+            "fetch and pass the pull request base SHA"
+        )
+    else:
+        commit_check = subprocess.run(
+            ["git", "-C", str(repo_dir), "cat-file", "-e", f"{base_ref}^{{commit}}"],
+            capture_output=True,
+            text=True,
+        )
+        if commit_check.returncode != 0:
+            blocking.append(
+                f"base commit is unavailable locally: {base_ref}; "
+                "fetch the pull request base SHA before running the audit"
+            )
+        else:
+            base_journal_result = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo_dir),
+                    "show",
+                    f"{base_ref}:backend/packages/database/migrations/meta/_journal.json",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if base_journal_result.returncode != 0:
+                blocking.append(
+                    f"base journal is unavailable at {base_ref}; "
+                    "verify the base SHA and repository history"
+                )
+            else:
+                try:
+                    base_entries = json.loads(base_journal_result.stdout)["entries"]
+                    base_tags = [entry["tag"] for entry in base_entries]
+                    current_tags = [entry["tag"] for entry in entries]
+                except (json.JSONDecodeError, KeyError, TypeError) as error:
+                    blocking.append(
+                        f"base journal cannot be parsed at {base_ref}: {error}"
+                    )
+                else:
+                    if current_tags[:len(base_tags)] != base_tags:
+                        blocking.append(
+                            "current journal does not preserve base tag history; "
+                            "base tags were removed, reordered, or rewritten"
+                        )
+                    else:
+                        new_tag_count = len(current_tags) - len(base_tags)
+                        if new_tag_count > 1:
+                            blocking.append(
+                                f"pull request introduces {new_tag_count} migration journal tags; "
+                                "at most 1 is allowed"
+                            )
+
+# 6. Historical monotonic `when` timestamps (WARNING).
 last_when = -1
 last_tag = None
 for index, e in enumerate(entries):
@@ -117,5 +181,11 @@ if warnings:
 if blocking or (strict and warnings):
     sys.exit(1)
 
+if new_tag_count is None:
+    print("✓ migration-count policy skipped "
+          "(no MIGRATIONS_BASE_REF; default-branch ledger audit only)")
+else:
+    print(f"✓ migration-count policy allows {new_tag_count} new journal tag(s) "
+          f"relative to {base_ref[:12]}")
 print(f"✓ migrations chain is healthy ({len(entries)} entries, {len(sql_files)} .sql files)")
 PY
