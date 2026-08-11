@@ -662,16 +662,6 @@ mock.module("../../domains/debug/services/attempt-workflow-guards", () => ({
   getAttemptWorkflowGuardError: () => null,
 }));
 
-// --- error-diagnosis.tools.ts dependencies ---
-mock.module("../../domains/debug/services/error-fingerprint-service", () => ({
-  computeFingerprint: () => "fp-test",
-  normalizeStackTrace: (s: string) => s,
-}));
-mock.module("../../domains/debug/services/error-recurrence-service", () => ({
-  findRecurrences: async () => [],
-  getRecurrenceStats: async () => ({ total: 0, unique: 0 }),
-}));
-
 // --- commits.tools.ts dependency ---
 mock.module("../../domains/project-management/commits/services/commit-linker", () => ({
   linkCommitToWorkItems: async () => [],
