@@ -19,7 +19,7 @@
 #     schema.org JSON-LD).
 #   - Files that mirror Better-Auth request/response shapes (teams domain,
 #     accept-invitation, dashboard layout, auth-client mocks) and files where
-#     "organization" is fully semantic (organization-json-ld.tsx, pglite-poc).
+#     "organization" is fully semantic (organization-json-ld.tsx).
 #   - frontend/src/lib/auth.ts and auth-permissions.ts: curated by hand
 #     (Better-Auth plugin schema mapping lives in
 #     frontend/src/lib/better-auth-organization-schema.ts).
@@ -66,7 +66,7 @@ mv_if frontend/src/domains/integrations/application/hooks/use-organization-setti
 # Files skipped entirely. They either mirror Better-Auth request/response
 # shapes (field names are part of the Better-Auth wire contract) or use
 # "organization" with external semantics.
-SKIP_REGEX='^frontend/src/domains/teams/|^frontend/src/domains/auth/application/hooks/use-accept-invitation|^frontend/src/app/\(app-shell\)/\(dashboard\)/layout\.tsx$|^frontend/src/lib/auth\.ts$|^frontend/src/lib/auth-permissions\.ts$|^frontend/src/lib/better-auth-organization-schema|^frontend/src/components/seo/organization-json-ld\.tsx$|^frontend/src/domains/api-keys/presentation/containers/api-keys-page-container\.test\.tsx$|^frontend/src/domains/integrations/presentation/components/github-account-picker-dialog\.tsx$|^backend/packages/database/src/pglite-poc/|^backend/packages/database/migrations/|^scripts/codemods/'
+SKIP_REGEX='^frontend/src/domains/teams/|^frontend/src/domains/auth/application/hooks/use-accept-invitation|^frontend/src/app/\(app-shell\)/\(dashboard\)/layout\.tsx$|^frontend/src/lib/auth\.ts$|^frontend/src/lib/auth-permissions\.ts$|^frontend/src/lib/better-auth-organization-schema|^frontend/src/components/seo/organization-json-ld\.tsx$|^frontend/src/domains/api-keys/presentation/containers/api-keys-page-container\.test\.tsx$|^frontend/src/domains/integrations/presentation/components/github-account-picker-dialog\.tsx$|^backend/packages/database/migrations/|^scripts/codemods/'
 
 TARGETS=$(git ls-files -- frontend/src backend services packages worker/src \
   | grep -E '\.(ts|tsx)$' \
