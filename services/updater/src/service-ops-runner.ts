@@ -34,7 +34,6 @@ export interface ServiceOpsRunnerConfig {
   repoPath: string;
   composeFile: string;
   envFile: string;
-  hostRepoPath?: string;
 }
 
 const nowIso = (): string => new Date().toISOString();
@@ -118,7 +117,6 @@ export class ServiceOpsRunner {
       repoPath: this.cfg.repoPath,
       composeFile: this.cfg.composeFile,
       envFile: this.cfg.envFile,
-      hostRepoPath: this.cfg.hostRepoPath,
       buildSha: null,
       onLog,
     };

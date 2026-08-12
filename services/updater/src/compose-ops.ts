@@ -31,15 +31,12 @@ export interface ComposeContext {
   envFile: string;
   buildSha: string | null;
   profiles?: string[];
-  /** Host stack path, when known; absent on older installs (safe fallback). */
-  hostRepoPath?: string;
   onLog?: (line: JobLogLine) => void;
 }
 
 export const composeBaseArgs = (ctx: ComposeContext): string[] => {
   validatePath(ctx.composeFile, "compose file");
   validatePath(ctx.envFile, "env file");
-  if (ctx.hostRepoPath) validatePath(ctx.hostRepoPath, "host repo path");
   const profiles = ctx.profiles ?? [];
   validateServices(profiles);
   return [
@@ -48,9 +45,6 @@ export const composeBaseArgs = (ctx: ComposeContext): string[] => {
     ctx.composeFile,
     "--env-file",
     ctx.envFile,
-    // Anchors relative bind-mount resolution to the host stack dir, not
-    // ctx.repoPath (the updater's own bind mount, used as cwd below).
-    ...(ctx.hostRepoPath ? ["--project-directory", ctx.hostRepoPath] : []),
     ...profiles.flatMap((profile) => ["--profile", profile]),
   ];
 };

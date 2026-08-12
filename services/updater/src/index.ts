@@ -17,8 +17,6 @@ const env = {
   PORT: Number(process.env.PORT ?? "9999"),
   TOKEN: requireEnv("UPDATER_INTERNAL_TOKEN"),
   REPO_PATH: process.env.ALMIRANT_REPO_PATH ?? "/repo",
-  // Host path of REPO_PATH; unset on older installs (compose-ops.ts degrades safely).
-  STACK_HOST_PATH: process.env.ALMIRANT_REPO_HOST_PATH || undefined,
   COMPOSE_FILE: process.env.COMPOSE_FILE ?? "docker-compose.prod.yml",
   ENV_FILE: process.env.ENV_FILE ?? ".env.production",
   BRANCH: process.env.UPDATER_BRANCH ?? "main",
@@ -47,7 +45,6 @@ const runner = new JobRunner({
   envFile: env.ENV_FILE,
   branch: env.BRANCH,
   excludeServices: env.EXCLUDE_SERVICES,
-  hostRepoPath: env.STACK_HOST_PATH,
 });
 
 const infraRunner = new InfraRunner({
@@ -60,7 +57,6 @@ const serviceOpsRunner = new ServiceOpsRunner({
   repoPath: env.REPO_PATH,
   composeFile: env.COMPOSE_FILE,
   envFile: env.ENV_FILE,
-  hostRepoPath: env.STACK_HOST_PATH,
 });
 
 const app = createApp({
@@ -73,7 +69,6 @@ const server = app.listen(env.PORT);
 
 log(`updater listening on port ${env.PORT}`, {
   repoPath: env.REPO_PATH,
-  hostRepoPath: env.STACK_HOST_PATH ?? null,
   composeFile: env.COMPOSE_FILE,
   envFile: env.ENV_FILE,
   branch: env.BRANCH,

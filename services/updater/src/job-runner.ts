@@ -41,7 +41,6 @@ export interface RunnerConfig {
   envFile: string;
   branch: string;
   excludeServices: string[];
-  hostRepoPath?: string;
 }
 
 const nowIso = (): string => new Date().toISOString();
@@ -125,7 +124,6 @@ export class JobRunner {
       repoPath: this.cfg.repoPath,
       composeFile: this.cfg.composeFile,
       envFile: this.cfg.envFile,
-      hostRepoPath: this.cfg.hostRepoPath,
       onLog,
     };
 
