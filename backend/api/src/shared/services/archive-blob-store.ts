@@ -33,8 +33,7 @@ const resolveLocalPath = (key: string): string => {
   return resolved;
 };
 
-// Always true: without a bucket the store falls back to the local disk, which
-// is what keeps retention working on self-hosted installs.
+// Always true: without a bucket the store falls back to the local disk.
 export const isArchiveStoreConfigured = (): boolean => true;
 
 export const putArchiveBlob = async (

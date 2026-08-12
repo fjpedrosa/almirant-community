@@ -103,6 +103,7 @@ export * from "./ask-ingestion-state";
 export * from "./handbook";
 export * from "./session-events";
 export * from "./event-archives";
+export * from "./agent-job-event-archives";
 export * from "./project-members";
 export * from "./push-subscriptions";
 export * from "./analytics-daily-aggregates";
