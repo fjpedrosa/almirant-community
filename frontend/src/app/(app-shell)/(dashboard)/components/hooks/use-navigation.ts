@@ -14,6 +14,7 @@ export const TAB_ROUTES: Record<string, string> = {
   ask: "/ask",
   docs: "/docs",
   handbook: "/handbook",
+  notes: "/notes",
   agents: "/agents",
   settings: "/settings",
   expenses: "/expenses",
@@ -22,7 +23,7 @@ export const TAB_ROUTES: Record<string, string> = {
   teams: "/teams",
 };
 
-const deriveActiveTab = (pathname: string): string => {
+export const deriveActiveTab = (pathname: string): string => {
   if (pathname === "/") {
     return "plan";
   }
@@ -73,6 +74,10 @@ const deriveActiveTab = (pathname: string): string => {
 
   if (pathname.startsWith("/handbook")) {
     return "handbook";
+  }
+
+  if (pathname.startsWith("/notes")) {
+    return "notes";
   }
 
   if (pathname.startsWith("/settings")) {

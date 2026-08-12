@@ -4,6 +4,7 @@
  * Tools import these via the setup.ts shim: `import { ... } from "../setup"`.
  * Direct imports from this file are also valid.
  */
+import { logger } from "@almirant/config";
 
 /**
  * Standard MCP tool result shape returned by tool handlers.
@@ -11,6 +12,22 @@
 export type McpToolResult = {
   content: Array<{ type: "text"; text: string }>;
   isError?: boolean;
+};
+
+/**
+ * Log an unexpected MCP failure server-side while returning a stable message
+ * that cannot disclose SQL, credentials, or driver internals to the caller.
+ */
+export const internalToolError = (
+  error: unknown,
+  logContext: Record<string, unknown>,
+  fallback = "Tool operation failed",
+): McpToolResult => {
+  logger.error({ ...logContext, err: error }, fallback);
+  return {
+    content: [{ type: "text", text: `Error: ${fallback}` }],
+    isError: true,
+  };
 };
 
 /**

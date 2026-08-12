@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "crypto";
-import { db } from "../../client";
+import { db, type Database } from "../../client";
 import { serviceAccounts, apiKeys } from "../../schema";
 import { eq, and, desc } from "drizzle-orm";
 import type { ServiceAccount } from "../../schema/service-accounts";
@@ -128,9 +128,10 @@ export const deactivateServiceAccount = async (
 export const createServiceAccountWithKey = async (
   workspaceId: string,
   name: string,
-  type: "runner" | "integration"
+  type: "runner" | "integration",
+  database: Database = db,
 ): Promise<{ serviceAccount: ServiceAccount; key: string }> => {
-  return db.transaction(async (tx) => {
+  return database.transaction(async (tx) => {
     // Create the service account
     const [sa] = await tx
       .insert(serviceAccounts)
@@ -163,9 +164,10 @@ export const createServiceAccountWithKey = async (
 // Idempotent: returns null if a runner SA already exists.
 // ---------------------------------------------------------------------------
 export const provisionDefaultServiceAccount = async (
-  workspaceId: string
+  workspaceId: string,
+  database: Database = db,
 ): Promise<{ serviceAccount: ServiceAccount; key: string } | null> => {
-  const existing = await db
+  const existing = await database
     .select()
     .from(serviceAccounts)
     .where(
@@ -179,7 +181,7 @@ export const provisionDefaultServiceAccount = async (
 
   if (existing.length > 0) return null; // Already provisioned
 
-  return createServiceAccountWithKey(workspaceId, "Default Runner", "runner");
+  return createServiceAccountWithKey(workspaceId, "Default Runner", "runner", database);
 };
 
 // ---------------------------------------------------------------------------

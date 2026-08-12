@@ -106,3 +106,6 @@ services/runner/PUSH_DEBUG_LOG.md
 # Local experimental tools
 .local-tools/
 frontend/src/app/(app-shell)/__bridge-lens/
+
+# Generated Playwright authentication state (contains live signed credentials)
+frontend/e2e/.auth-state.json

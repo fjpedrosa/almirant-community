@@ -1,4 +1,4 @@
-import { db } from "../../client";
+import { db, type Database } from "../../client";
 import {
   boards,
   boardColumns,
@@ -53,10 +53,11 @@ const enrichBoard = async (board: typeof boards.$inferSelect): Promise<BoardWith
 
 // Provision a default "Desarrollo" board with the canonical workflow (idempotent)
 export const provisionDefaultBoard = async (
-  workspaceId: string
+  workspaceId: string,
+  database: Database = db,
 ): Promise<{ provisioned: true; board: BoardWithStats } | { provisioned: false }> => {
   // Check if a default desarrollo board already exists
-  const [existing] = await db
+  const [existing] = await database
     .select({ id: boards.id })
     .from(boards)
     .where(
@@ -73,7 +74,7 @@ export const provisionDefaultBoard = async (
   }
 
   // Create the board
-  const [newBoard] = await db
+  const [newBoard] = await database
     .insert(boards)
     .values({
       workspaceId,
@@ -87,7 +88,7 @@ export const provisionDefaultBoard = async (
   if (!newBoard) throw new Error("Failed to provision default board");
 
   // Insert all canonical workflow columns
-  await db.insert(boardColumns).values(
+  await database.insert(boardColumns).values(
     getDevelopmentBoardColumns().map((col) => ({
       boardId: newBoard.id,
       name: col.name,
@@ -98,7 +99,31 @@ export const provisionDefaultBoard = async (
     }))
   );
 
-  const board = await getBoardById(newBoard.id, workspaceId);
+  const [boardRow] = await database
+    .select()
+    .from(boards)
+    .where(eq(boards.id, newBoard.id))
+    .limit(1);
+  const columnsResult = await database
+    .select()
+    .from(boardColumns)
+    .where(eq(boardColumns.boardId, newBoard.id))
+    .orderBy(asc(boardColumns.order));
+  const itemsCountResult = await database
+    .select({ count: sql<number>`count(*)::int` })
+    .from(workItems)
+    .where(and(eq(workItems.boardId, newBoard.id), isNull(workItems.archivedAt)));
+  const board = boardRow
+    ? {
+        ...boardRow,
+        isDefault: boardRow.isDefault ?? false,
+        columns: columnsResult.map((column) => ({
+          ...column,
+          isDone: column.isDone ?? false,
+        })),
+        totalItems: itemsCountResult[0]?.count ?? 0,
+      } as BoardWithStats
+    : null;
   if (!board) throw new Error("Failed to retrieve provisioned board");
 
   return { provisioned: true, board };

@@ -5,10 +5,12 @@ export default defineConfig({
   testDir: "./tests",
   // Keep Playwright discovery separate from Bun's default *.spec.ts test globbing.
   testMatch: /.*\.e2e\.ts/,
-  fullyParallel: true,
+  // Notes journeys mutate CAS-backed daily pages; serialize projects/files so
+  // desktop and mobile never race the same authenticated fixture.
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: 1,
   reporter: "html",
   timeout: 30_000,
 

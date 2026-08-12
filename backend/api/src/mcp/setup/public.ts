@@ -25,6 +25,7 @@ import { registerHandbookTools } from "../tools/handbook.tools";
 import { registerIntegrationBatchesTools } from "../tools/integration-batches.tools";
 import { registerStorageTools } from "../tools/storage.tools";
 import { registerAgentOutputTools } from "../tools/agent-output.tools";
+import { registerNotesTools } from "../tools/notes.tools";
 import { agentOutputCapabilityService } from "../../domains/agents/services/agent-output-runtime";
 
 /**
@@ -61,4 +62,5 @@ export const setupPublicMcpServer = async (server: McpServer) => {
   registerIntegrationBatchesTools(server);
   registerStorageTools(server);
   registerAgentOutputTools(server, agentOutputCapabilityService);
+  registerNotesTools(server);
 };

@@ -24,6 +24,14 @@ export const importStatusEnum = pgEnum("import_status", [
   "failed",
 ]);
 
+export const notePageKindEnum = pgEnum("note_page_kind", ["page", "daily"]);
+export const notePageVisibilityEnum = pgEnum("note_page_visibility", ["private", "workspace"]);
+export const notePageProvenanceEnum = pgEnum("note_page_provenance", ["web", "mcp", "user", "agent"]);
+export const noteActorKindEnum = pgEnum("note_actor_kind", ["user", "agent"]);
+export const notePageShareRoleEnum = pgEnum("note_page_share_role", ["viewer", "editor"]);
+export const noteLegacySourceTypeEnum = pgEnum("note_legacy_source_type", ["todo", "idea", "seed"]);
+export const noteLegacyDispositionEnum = pgEnum("note_legacy_disposition", ["pending", "converted", "discarded"]);
+
 // Project Management Enums
 export const projectStatusEnum = pgEnum("project_status", [
   "active",

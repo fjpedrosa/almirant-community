@@ -44,9 +44,10 @@ describe("migration 0227 canonical development workflow", () => {
     );
     const canonicalEntry = migrationJournal.entries[canonicalEntryIndex];
     const previousEntry = migrationJournal.entries[canonicalEntryIndex - 1];
-    expect(canonicalEntryIndex).toBe(migrationJournal.entries.length - 1);
+    const nextEntry = migrationJournal.entries[canonicalEntryIndex + 1];
     expect(canonicalEntry?.idx).toBe(227);
     expect(previousEntry?.idx).toBe(226);
+    expect(nextEntry?.idx).toBe(228);
     expect(canonicalEntry?.idx).toBeGreaterThan(previousEntry?.idx ?? -1);
     expect(migrationJournal.entries.some((entry) => entry.tag === "0255_canonical_development_board_workflow")).toBe(false);
   });

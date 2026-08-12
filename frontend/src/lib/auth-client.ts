@@ -16,7 +16,7 @@ import {
 const resolveAuthBaseURL = (): string | undefined => {
   const raw = process.env.NEXT_PUBLIC_AUTH_URL || process.env.NEXT_PUBLIC_API_URL;
   if (!raw || raw.startsWith("/")) return undefined;
-  return raw;
+  return raw.replace(/\/+$/, "").replace(/\/api$/, "");
 };
 
 export const authClient = createAuthClient({

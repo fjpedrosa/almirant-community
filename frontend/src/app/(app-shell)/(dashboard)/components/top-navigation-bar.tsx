@@ -13,6 +13,7 @@ import {
   Inbox,
   Brain,
   LibraryBig,
+  NotebookTabs,
 } from "lucide-react";
 import { AlmirantLogo } from "@/components/icons/almirant-logo";
 import { Button } from "@/components/ui/button";
@@ -181,8 +182,7 @@ export const TopNavigationBar: React.FC<TopNavigationBarProps> = ({
                 </div>
 
                 {/* Resources Section: Brain items + Agents */}
-                {(!brainHidden && hasBrainItems) || !agentsHidden ? (
-                  <div className="mt-3">
+                <div className="mt-3">
                     <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       <Brain className="h-3.5 w-3.5" />
                       Resources
@@ -205,6 +205,14 @@ export const TopNavigationBar: React.FC<TopNavigationBarProps> = ({
                             </Link>
                           );
                         })}
+                    <Link
+                      href={TAB_ROUTES.notes}
+                      prefetch
+                      className={mobileLinkClassName(activeTab === "notes")}
+                    >
+                      <NotebookTabs className="h-4 w-4" />
+                      {t("notes")}
+                    </Link>
                     {!agentsHidden && (
                       <Link
                         href={TAB_ROUTES.agents}
@@ -215,8 +223,7 @@ export const TopNavigationBar: React.FC<TopNavigationBarProps> = ({
                         {t("agents")}
                       </Link>
                     )}
-                  </div>
-                ) : null}
+                </div>
               </nav>
               {/* Feedback badge — pinned to bottom. Wrapped in SheetClose so
                   this menu is dismissed as the feedback sheet opens: two
@@ -298,6 +305,10 @@ export const TopNavigationBar: React.FC<TopNavigationBarProps> = ({
                 isTriggerActiveOverride={isBrainActive}
               />
             )}
+            <Link href={TAB_ROUTES.notes} prefetch className={navLinkClassName(activeTab === "notes")}>
+              <NotebookTabs className="h-4 w-4" />
+              {t("notes")}
+            </Link>
             {!agentsHidden && (
               <Link href={TAB_ROUTES.agents} prefetch className={navLinkClassName(activeTab === "agents")}>
                 <Bot className="h-4 w-4" />

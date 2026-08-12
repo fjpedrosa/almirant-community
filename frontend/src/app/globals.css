@@ -546,3 +546,161 @@
 .animate-agent-color-shift {
   animation: agent-color-shift 2s ease-in-out infinite;
 }
+
+/* Notes editor: restrained reading rhythm with visible, native-feeling blocks. */
+.notes-editor-content {
+  color: var(--foreground);
+  font-size: 1rem;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.notes-editor-content > * + * {
+  margin-top: 0.85rem;
+}
+
+.notes-editor-paragraph {
+  min-height: 1.75rem;
+}
+
+.notes-editor-h1 {
+  margin-top: 1.8rem;
+  font-size: 1.8rem;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+
+.notes-editor-h2 {
+  margin-top: 1.5rem;
+  font-size: 1.35rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+}
+
+.notes-editor-quote {
+  border-inline-start: 3px solid var(--border);
+  color: var(--muted-foreground);
+  padding-inline-start: 1rem;
+}
+
+.notes-editor-link {
+  color: var(--primary);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklch, var(--primary), transparent 55%);
+  text-underline-offset: 0.2em;
+}
+
+.notes-editor-list {
+  list-style-position: outside;
+  margin-inline-start: 1.4rem;
+}
+
+ul.notes-editor-list {
+  list-style-type: disc;
+}
+
+ol.notes-editor-list {
+  list-style-type: decimal;
+}
+
+.notes-editor-listitem + .notes-editor-listitem {
+  margin-top: 0.25rem;
+}
+
+.notes-check-list {
+  list-style: none;
+  margin-inline-start: 0;
+  padding-inline-start: 0;
+}
+
+.notes-check-listitem {
+  min-height: 1.9rem;
+  outline: none;
+  padding-inline-start: 1.85rem;
+  position: relative;
+}
+
+.notes-check-listitem::before {
+  border: 1.5px solid var(--muted-foreground);
+  border-radius: 0.3rem;
+  content: "";
+  height: 1rem;
+  inset-inline-start: 0.15rem;
+  position: absolute;
+  top: 0.36rem;
+  width: 1rem;
+}
+
+.notes-check-listitem[aria-checked="true"]::before {
+  background: var(--primary);
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 3px var(--background);
+}
+
+.notes-check-listitem[aria-checked="true"] {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.notes-check-listitem:focus-visible::before {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.notes-check-audit {
+  color: var(--muted-foreground);
+  display: block;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  margin-top: 0.15rem;
+  text-decoration: none;
+}
+
+.notes-editor-inline-code {
+  background: var(--muted);
+  border-radius: 0.3rem;
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  padding: 0.12rem 0.32rem;
+}
+
+.notes-editor-code {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  overflow-x: auto;
+  padding: 1rem;
+  tab-size: 2;
+  white-space: pre;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-notes-shell],
+  [data-notes-shell] *,
+  [data-notes-calendar],
+  [data-notes-calendar] *,
+  [data-notes-surface],
+  [data-notes-surface] *,
+  [data-notes-surface]::before,
+  [data-notes-surface]::after {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  [data-notes-shell] .animate-spin,
+  [data-notes-surface] .animate-spin {
+    animation: none !important;
+  }
+  .notes-editor-content *,
+  .notes-editor-content *::before,
+  .notes-editor-content *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

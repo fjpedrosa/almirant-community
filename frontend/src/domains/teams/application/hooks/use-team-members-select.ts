@@ -7,6 +7,10 @@ import type { TeamMemberUser } from "../../domain/types";
 import { teamKeys } from "./use-teams";
 import { useActiveTeam } from "./use-active-team";
 
+/** Query key for the Better-Auth member payload (never the generic team detail key). */
+export const teamMembersQueryKey = (activeTeamId: string | null) =>
+  teamKeys.members(activeTeamId ?? "members-select");
+
 /**
  * Fetches team members for use in multi-select assignment components.
  *
@@ -21,8 +25,12 @@ export const useTeamMembersSelect = () => {
   } = useActiveTeam();
   const hasActiveTeam = !!activeTeamId;
 
-  const { data: fullOrg, isLoading: isLoadingMembers } = useQuery({
-    queryKey: teamKeys.detail(activeTeamId ?? "members-select"),
+  const { data: fullOrg, isLoading: isLoadingMembers, error, refetch } = useQuery({
+    // Keep Better-Auth's member payload isolated from the generic team-detail
+    // query. Those queries share an organisation id but have different data
+    // contracts; reusing the detail key can leave the member select with a
+    // stale/non-member payload after navigating between dashboard areas.
+    queryKey: teamMembersQueryKey(activeTeamId),
     queryFn: async () => {
       const result = await authClient.organization.getFullOrganization();
       if (result.error) {
@@ -50,5 +58,7 @@ export const useTeamMembersSelect = () => {
     members,
     isLoading: isLoadingOrg || isLoadingMembers,
     hasActiveTeam,
+    error,
+    refetch,
   };
 };

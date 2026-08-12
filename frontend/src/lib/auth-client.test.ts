@@ -88,6 +88,14 @@ describe("auth-client baseURL resolution", () => {
     expect(capturedConfig?.baseURL).toBe("https://api.almirant.ai");
   });
 
+  it("strips the API path when falling back to NEXT_PUBLIC_API_URL", async () => {
+    process.env.NEXT_PUBLIC_API_URL = "https://api.almirant.ai/api";
+
+    await freshModule();
+
+    expect(capturedConfig?.baseURL).toBe("https://api.almirant.ai");
+  });
+
   it("leaves baseURL undefined (same-origin) when both are unset", async () => {
     await freshModule();
 

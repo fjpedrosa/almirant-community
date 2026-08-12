@@ -140,3 +140,4 @@ export * from "./debug/incident-bundle-repository";
 
 // ── effort estimation ──
 export * from "./work-item-effort-repository";
+export * from "./notes/notes-repository";

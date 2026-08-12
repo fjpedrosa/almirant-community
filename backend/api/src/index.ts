@@ -20,29 +20,19 @@ import { errorMiddleware } from "./shared/middleware/error.middleware";
 import { loggerMiddleware } from "./shared/middleware/logger.middleware";
 import { setupPublicMcpServer } from "./mcp/setup/public";
 import { createMcpAuthenticator } from "./mcp/auth/authenticate";
-import { sessionAuthMiddleware, requireAuth, requireWorkspace } from "./shared/middleware/session-auth.middleware";
+import { createProtectedApi } from "./composition/protected-api";
 
 // Domain modules
-import { documentCategoriesModule } from "./domains/documents/categories";
 import { documentsModule } from "./domains/documents";
 import { authModule } from "./domains/auth";
 import { observabilityModule } from "./domains/observability";
 import { notificationsModule } from "./domains/notifications";
-import { billingModule } from "./domains/billing";
-import { connectionsModule } from "./domains/connections";
-import { ideationModule } from "./domains/ideation";
-import { aiModule } from "./domains/ai";
 import { integrationsModule } from "./domains/integrations";
 import { projectManagementModule } from "./domains/project-management";
-import { webhooksModule } from "./domains/webhooks";
 import { agentsModule } from "./domains/agents";
 import { instanceModule } from "./domains/instance";
-import { storageModule } from "./domains/storage";
 import { cloudRoutes } from "./cloud/route-registration";
-import { handbookModule } from "./domains/handbook";
 import { feedbackModule } from "./domains/feedback";
-import { debugModule } from "./domains/debug";
-import { adminRoutes } from "./domains/admin";
 import { wsHandler } from "./shared/ws/ws-handler";
 import { startBackgroundJobs } from "./background";
 import { bootstrapExtensions, bootstrapRuntimeSettings } from "./bootstrap";
@@ -242,51 +232,7 @@ const app = new Elysia({
   .use(integrationsModule.pullRequests())
   // Internal runner release-integration routes (API key auth, no session)
   .use(projectManagementModule.internal())
-  .group("/api", (app) =>
-    app
-      // Alias for deployments whose worker API URL includes `/api`.
-      // Must be mounted before session middleware, otherwise runner API keys
-      // are interpreted as user sessions and receive 401.
-      .use(projectManagementModule.internal())
-      .use(sessionAuthMiddleware)
-      .use(requireAuth)
-      // ── Auth-only routes (no active workspace required) ──────────────
-      // These routes need an authenticated user but must work before the
-      // user has selected/created a workspace (e.g. right after login).
-      .use(authModule.authOnly())
-      .use(projectManagementModule.authOnly())
-      .use(storageModule.authOnly())
-      // Instance onboarding (admin-only, no org required)
-      .use(instanceModule.protected())
-      // ── Workspace-scoped routes ─────────────────────────────────────
-      // All remaining routes require an active workspace in the session.
-      // Returns 403 "No active workspace" if none is set.
-      .use(requireWorkspace)
-      .use(projectManagementModule.protected())
-      .use(webhooksModule.protected())
-      .use(agentsModule.protected())
-      .use(documentsModule.protected())
-      .use(handbookModule.protected())
-      .use(documentCategoriesModule())
-      .use(authModule.protected())
-      .use(integrationsModule.protected())
-      .use(aiModule.protected())
-      .use(notificationsModule.protected())
-      .use(connectionsModule.protected())
-      .use(observabilityModule.protected())
-      .use(ideationModule.protected())
-      .use(billingModule.protected())
-      // Feedback widget submission + screenshots (session auth, workspace-scoped)
-      .use(feedbackModule.protected())
-      // Debug incident-bundle surface (/api/debug/*) — session + workspace
-      // scoped.
-      .use(debugModule.protected())
-      // Admin route group (/api/admin/*) — self-guards with requireAdmin.
-      // See backend/api/src/domains/admin/routes/index.ts for the full
-      // scope of mounted admin surfaces.
-      .use(adminRoutes)
-      .use(documentsModule.uploads())
-  )
+  .use(createProtectedApi())
   // Extension point for downstream distributions (e.g. Almirant Cloud) to
   // mount additional routes. Inert by default — see
   // src/cloud/route-registration.ts.
