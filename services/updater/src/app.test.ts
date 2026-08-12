@@ -802,10 +802,10 @@ describe("compose-ops validation", () => {
     expect(result.stderr).toContain("no services to recreate");
   });
 
-  test("composeBaseArgs omits --project-directory when no host path is configured", async () => {
+  test("composeBaseArgs resolves every path from the working directory", async () => {
     const { composeBaseArgs } = await import("./compose-ops");
     const args = composeBaseArgs({
-      repoPath: "/repo",
+      repoPath: "/home/ubuntu/.almirant/stack",
       composeFile: "docker-compose.prod.yml",
       envFile: ".env.production",
       buildSha: null,
@@ -820,37 +820,17 @@ describe("compose-ops validation", () => {
     ]);
   });
 
-  test("composeBaseArgs pins --project-directory to the host stack path when configured", async () => {
+  // --project-directory moves env_file lookups to a host path the containerised CLI cannot read.
+  test("composeBaseArgs never pins --project-directory", async () => {
     const { composeBaseArgs } = await import("./compose-ops");
-    const args = composeBaseArgs({
-      repoPath: "/repo",
+    const legacyContext = {
+      repoPath: "/home/ubuntu/.almirant/stack",
       composeFile: "docker-compose.prod.yml",
       envFile: ".env.production",
       buildSha: null,
       hostRepoPath: "/opt/almirant",
-    });
+    };
 
-    expect(args).toEqual([
-      "compose",
-      "-f",
-      "docker-compose.prod.yml",
-      "--env-file",
-      ".env.production",
-      "--project-directory",
-      "/opt/almirant",
-    ]);
-  });
-
-  test("composeBaseArgs rejects an invalid host repo path", async () => {
-    const { composeBaseArgs } = await import("./compose-ops");
-    expect(() =>
-      composeBaseArgs({
-        repoPath: "/repo",
-        composeFile: "docker-compose.prod.yml",
-        envFile: ".env.production",
-        buildSha: null,
-        hostRepoPath: "/opt/not a valid path",
-      }),
-    ).toThrow(/Invalid host repo path/);
+    expect(composeBaseArgs(legacyContext)).not.toContain("--project-directory");
   });
 });
