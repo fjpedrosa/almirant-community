@@ -1,4 +1,4 @@
-import { and, asc, eq, exists, inArray, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { db } from "../../client";
 import {
   agentJobEventArchives,
@@ -86,7 +86,12 @@ export const getAgentJobsEligibleForNativeArchive = async (
     .where(
       and(
         inArray(agentJobs.status, [...TERMINAL_JOB_STATUSES]),
-        lte(sql`coalesce(${agentJobs.completedAt}, ${agentJobs.updatedAt})`, before),
+        // Compare typed columns: a Date bound against coalesce() has no type
+        // mapper and the driver rejects it.
+        or(
+          and(isNotNull(agentJobs.completedAt), lte(agentJobs.completedAt, before)),
+          and(isNull(agentJobs.completedAt), lte(agentJobs.updatedAt, before)),
+        ),
         exists(
           db
             .select({ one: sql`1` })

@@ -9,7 +9,7 @@ import {
   boards,
   user,
 } from "../../schema";
-import { and, asc, desc, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type { PaginationParams } from "../../domain/types";
 import { hydrateSeedRelations } from "./seed-repository";
 import type {
@@ -493,7 +493,12 @@ export const getPlanningSessionsEligibleForArchive = async (
     .where(
       and(
         inArray(planningSessions.status, ["completed", "archived"]),
-        lt(sql`coalesce(${planningSessions.completedAt}, ${planningSessions.updatedAt})`, before),
+        // Compare typed columns: a Date bound against coalesce() has no type
+        // mapper and the driver rejects it.
+        or(
+          and(isNotNull(planningSessions.completedAt), lt(planningSessions.completedAt, before)),
+          and(isNull(planningSessions.completedAt), lt(planningSessions.updatedAt, before)),
+        ),
       ),
     )
     .orderBy(asc(sql`coalesce(${planningSessions.completedAt}, ${planningSessions.updatedAt})`))
