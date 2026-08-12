@@ -5,6 +5,7 @@ import {
   boolean,
   varchar,
 } from "drizzle-orm/pg-core";
+import { workspace } from "./workspace";
 
 // BetterAuth required tables - column names must match exactly
 
@@ -29,7 +30,7 @@ export const session = pgTable("session", {
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
-  activeWorkspaceId: text("active_workspace_id"),
+  activeWorkspaceId: text("active_workspace_id").references(() => workspace.id, { onDelete: "set null" }),
 });
 
 export const account = pgTable("account", {

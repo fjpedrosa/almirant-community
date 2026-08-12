@@ -144,5 +144,17 @@ describe("createAuthInstance rate limiting behind a proxy", () => {
       window: 60,
       max: 30,
     });
+    expect(options.rateLimit!.customRules!["/organization/get-full-organization"]).toEqual({
+      window: 60,
+      max: 1000,
+    });
+    expect(options.rateLimit!.customRules!["/organization/list"]).toEqual({
+      window: 60,
+      max: 1000,
+    });
+    expect(options.rateLimit!.customRules!["/get-session"]).toEqual({
+      window: 60,
+      max: 1000,
+    });
   });
 });

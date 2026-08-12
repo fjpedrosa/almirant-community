@@ -95,6 +95,13 @@ import {
   agentOutputSubmissions,
   scheduledAgentOutputSinks,
 } from "./agent-output";
+import {
+  noteChecklistItems,
+  noteLegacyArchiveItems,
+  notePageLinks,
+  notePageShares,
+  notePages,
+} from "./notes";
 
 export const tagsRelations = relations(tags, ({ one, many }) => ({
   workspace: one(workspace, {
@@ -313,6 +320,11 @@ export const agentJobsRelations = relations(agentJobs, ({ one, many }) => ({
   workerInteractions: many(workerInteractions),
   sessionEvents: many(sessionEvents),
   outputSubmission: one(agentOutputSubmissions),
+  createdNotePages: many(notePages, { relationName: "notePageCreatedAgentJob" }),
+  updatedNotePages: many(notePages, { relationName: "notePageUpdatedAgentJob" }),
+  completedNoteChecklistItems: many(noteChecklistItems, { relationName: "noteChecklistCompletedAgentJob" }),
+  updatedNoteChecklistItems: many(noteChecklistItems, { relationName: "noteChecklistUpdatedAgentJob" }),
+  dispositionNoteLegacyItems: many(noteLegacyArchiveItems, { relationName: "noteLegacyDispositionAgentJob" }),
 }));
 
 export const workerInteractionsRelations = relations(workerInteractions, ({ one }) => ({
@@ -1667,4 +1679,49 @@ export const agentObservationsRelations = relations(agentObservations, ({ one })
     fields: [agentObservations.agentJobId],
     references: [agentJobs.id],
   }),
+}));
+
+export const notePagesRelations = relations(notePages, ({ one, many }) => ({
+  workspace: one(workspace, { fields: [notePages.workspaceId], references: [workspace.id] }),
+  owner: one(user, { fields: [notePages.ownerUserId], references: [user.id] }),
+  createdBy: one(user, { fields: [notePages.createdByUserId], references: [user.id], relationName: "notePageCreatedBy" }),
+  updatedBy: one(user, { fields: [notePages.updatedByUserId], references: [user.id], relationName: "notePageUpdatedBy" }),
+  createdByAgentJob: one(agentJobs, { fields: [notePages.createdByAgentJobId], references: [agentJobs.id], relationName: "notePageCreatedAgentJob" }),
+  updatedByAgentJob: one(agentJobs, { fields: [notePages.updatedByAgentJobId], references: [agentJobs.id], relationName: "notePageUpdatedAgentJob" }),
+  parent: one(notePages, { fields: [notePages.parentId], references: [notePages.id], relationName: "notePageParent" }),
+  children: many(notePages, { relationName: "notePageParent" }),
+  shares: many(notePageShares),
+  checklistItems: many(noteChecklistItems),
+  sourceLinks: many(notePageLinks, { relationName: "notePageSource" }),
+  targetLinks: many(notePageLinks, { relationName: "notePageTarget" }),
+}));
+
+export const notePageSharesRelations = relations(notePageShares, ({ one }) => ({
+  page: one(notePages, { fields: [notePageShares.pageId], references: [notePages.id] }),
+  workspace: one(workspace, { fields: [notePageShares.workspaceId], references: [workspace.id] }),
+  actor: one(user, { fields: [notePageShares.actorUserId], references: [user.id], relationName: "noteShareActor" }),
+  sharedWith: one(user, { fields: [notePageShares.sharedWithUserId], references: [user.id], relationName: "noteShareRecipient" }),
+  actorAgentJob: one(agentJobs, { fields: [notePageShares.actorAgentJobId], references: [agentJobs.id], relationName: "noteShareAgentJob" }),
+}));
+
+export const noteChecklistItemsRelations = relations(noteChecklistItems, ({ one }) => ({
+  page: one(notePages, { fields: [noteChecklistItems.pageId], references: [notePages.id] }),
+  workspace: one(workspace, { fields: [noteChecklistItems.workspaceId], references: [workspace.id] }),
+  completedBy: one(user, { fields: [noteChecklistItems.completedByUserId], references: [user.id] }),
+  updatedBy: one(user, { fields: [noteChecklistItems.updatedByUserId], references: [user.id], relationName: "noteChecklistUpdatedBy" }),
+  completedByAgentJob: one(agentJobs, { fields: [noteChecklistItems.completedByAgentJobId], references: [agentJobs.id], relationName: "noteChecklistCompletedAgentJob" }),
+  updatedByAgentJob: one(agentJobs, { fields: [noteChecklistItems.updatedByAgentJobId], references: [agentJobs.id], relationName: "noteChecklistUpdatedAgentJob" }),
+}));
+
+export const notePageLinksRelations = relations(notePageLinks, ({ one }) => ({
+  workspace: one(workspace, { fields: [notePageLinks.workspaceId], references: [workspace.id] }),
+  sourcePage: one(notePages, { fields: [notePageLinks.sourcePageId], references: [notePages.id], relationName: "notePageSource" }),
+  targetPage: one(notePages, { fields: [notePageLinks.targetPageId], references: [notePages.id], relationName: "notePageTarget" }),
+}));
+
+export const noteLegacyArchiveItemsRelations = relations(noteLegacyArchiveItems, ({ one }) => ({
+  workspace: one(workspace, { fields: [noteLegacyArchiveItems.workspaceId], references: [workspace.id] }),
+  convertedPage: one(notePages, { fields: [noteLegacyArchiveItems.convertedPageId], references: [notePages.id] }),
+  dispositionBy: one(user, { fields: [noteLegacyArchiveItems.dispositionByUserId], references: [user.id] }),
+  dispositionByAgentJob: one(agentJobs, { fields: [noteLegacyArchiveItems.dispositionByAgentJobId], references: [agentJobs.id], relationName: "noteLegacyDispositionAgentJob" }),
 }));

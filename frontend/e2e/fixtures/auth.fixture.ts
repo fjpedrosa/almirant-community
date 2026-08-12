@@ -9,17 +9,20 @@ const AUTH_STATE_PATH = resolve(__dirname, "../.auth-state.json");
  * 1. SESSION_TOKEN env variable (manual override)
  * 2. .auth-state.json written by global-setup.ts (automatic)
  */
-function getSessionToken(): string | undefined {
+type AuthState = {
+  token?: string;
+  projects?: Record<string, { token?: string }>;
+};
+
+function getSessionToken(projectName?: string): string | undefined {
   if (process.env.SESSION_TOKEN) {
     return process.env.SESSION_TOKEN;
   }
 
   if (existsSync(AUTH_STATE_PATH)) {
     try {
-      const state = JSON.parse(readFileSync(AUTH_STATE_PATH, "utf-8")) as {
-        token?: string;
-      };
-      return state.token;
+      const state = JSON.parse(readFileSync(AUTH_STATE_PATH, "utf-8")) as AuthState;
+      return state.projects?.[projectName ?? ""]?.token ?? state.token;
     } catch {
       // Ignore parse errors — fall through to undefined
     }
@@ -44,8 +47,8 @@ function getSessionToken(): string | undefined {
  * or can be overridden with the SESSION_TOKEN env variable.
  */
 export const test = base.extend({
-  page: async ({ page }, runFixture) => {
-    const sessionToken = getSessionToken();
+  page: async ({ page }, runFixture, testInfo) => {
+    const sessionToken = getSessionToken(testInfo.project.name);
 
     if (sessionToken) {
       const baseURL = process.env.BASE_URL ?? "http://localhost:3000";

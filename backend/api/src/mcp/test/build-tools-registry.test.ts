@@ -84,6 +84,10 @@ mock.module("../setup", () => ({
     const perms = extra.authInfo?.extra?.permissions;
     return Array.isArray(perms) ? perms.filter((p: unknown): p is string => typeof p === "string") : [];
   },
+  internalToolError: () => ({
+    content: [{ type: "text" as const, text: "Error: Tool operation failed" }],
+    isError: true,
+  }),
 }));
 
 // --- Telegram & email notifications (work-items.tools.ts) ---

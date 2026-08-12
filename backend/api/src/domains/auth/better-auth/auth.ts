@@ -12,6 +12,7 @@ import {
   schema,
   provisionDefaultBoard,
   provisionDefaultServiceAccount,
+  type Database,
 } from "@almirant/database";
 import { env } from "@almirant/config";
 import { getPublicInstanceConfig } from "../../instance/services/instance-config-service";
@@ -37,6 +38,7 @@ import {
   getInvitationAppBaseUrl,
   normalizeSiteUrl,
 } from "./invitation-app-base-url";
+import { deleteOrganizationAtomically } from "./organization-deletion";
 
 // The API is the Better-Auth issuer: a stable signing secret is mandatory in
 // production so sessions survive restarts and match any peer that validates
@@ -90,7 +92,7 @@ const workspaceName = (
  * production behavior is unchanged.
  */
 interface CreatePersonalOrganizationDeps {
-  db?: typeof db;
+  db?: Database;
   provisionDefaultBoard?: typeof provisionDefaultBoard;
   provisionDefaultServiceAccount?: typeof provisionDefaultServiceAccount;
 }
@@ -141,14 +143,14 @@ export const createPersonalOrganization = async (
 
   // Auto-create default "Desarrollo" board for the new workspace
   try {
-    await provisionBoard(orgId);
+    await provisionBoard(orgId, database);
   } catch (error) {
     console.error("[auth] Failed to create default board for org", orgId, error);
   }
 
   // Auto-provision default "runner" service account + API key
   try {
-    await provisionServiceAccount(orgId);
+    await provisionServiceAccount(orgId, database);
   } catch (error) {
     console.error(
       "[auth] Failed to provision default service account for org",
@@ -317,15 +319,36 @@ type AuthInstance = ReturnType<typeof createAuthInstance>;
 let cachedAuth: AuthInstance | null = null;
 let cachedPublicUrl: string | null | undefined; // undefined = not yet resolved
 
-export const createAuthInstance = (runtimePublicUrl: string | null) =>
-  betterAuth({
+interface AuthInstanceDeps {
+  database?: Database;
+  deleteOrganizationAtomically?: typeof deleteOrganizationAtomically;
+  hasPendingInvitation?: typeof hasPendingInvitation;
+  getAuthBootstrapStatus?: typeof getAuthBootstrapStatus;
+  ensureInitialAdminUser?: typeof ensureInitialAdminUser;
+  provisionDefaultBoard?: typeof provisionDefaultBoard;
+  provisionDefaultServiceAccount?: typeof provisionDefaultServiceAccount;
+}
+
+export const createAuthInstance = (
+  runtimePublicUrl: string | null,
+  deps: AuthInstanceDeps = {},
+) => {
+  const database = deps.database ?? db;
+  const deleteOrganization = deps.deleteOrganizationAtomically ?? deleteOrganizationAtomically;
+  const findPendingInvitation = deps.hasPendingInvitation ?? hasPendingInvitation;
+  const readBootstrapStatus = deps.getAuthBootstrapStatus ?? getAuthBootstrapStatus;
+  const promoteInitialAdmin = deps.ensureInitialAdminUser ?? ensureInitialAdminUser;
+  const provisionBoard = deps.provisionDefaultBoard ?? provisionDefaultBoard;
+  const provisionServiceAccount = deps.provisionDefaultServiceAccount ?? provisionDefaultServiceAccount;
+
+  return betterAuth({
     // Explicit issuer URL (`BETTER_AUTH_URL`) wins; otherwise use the runtime
     // publicUrl from `instance_settings` (set via the onboarding wizard) so the
     // stack doesn't need a restart after initial setup.
     baseURL: env.BETTER_AUTH_URL || runtimePublicUrl || undefined,
     trustedOrigins: getTrustedOrigins(runtimePublicUrl),
     secret: env.BETTER_AUTH_SECRET,
-    database: drizzleAdapter(db, {
+    database: drizzleAdapter(database, {
       provider: "pg",
       schema,
     }),
@@ -397,12 +420,29 @@ export const createAuthInstance = (runtimePublicUrl: string | null) =>
         "/sign-in/social": { window: 60, max: 30 },
         "/sign-in/email": { window: 60, max: 20 },
         "/sign-up/email": { window: 60, max: 20 },
-        "/get-session": { window: 60, max: 200 },
+        "/get-session": { window: 60, max: 1000 },
+        // The dashboard resolves members for sharing on every Notes page
+        // mount. Keep this read-only lookup from exhausting the shared auth
+        // budget during rapid route changes or parallel browser projects.
+        "/organization/get-full-organization": { window: 60, max: 1000 },
+        "/organization/list": { window: 60, max: 1000 },
       },
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
         const session = ctx.context.session ?? (await getSessionFromCtx(ctx));
+
+        if (ctx.path === "/organization/delete") {
+          const body = ctx.body as { organizationId?: string } | undefined;
+          if (!session?.user?.id || !body?.organizationId) {
+            throw new APIError("UNAUTHORIZED", { message: "Not authenticated" });
+          }
+          const deleted = await deleteOrganization({
+            organizationId: body.organizationId,
+            userId: session.user.id,
+          }, { db: database });
+          return ctx.json(deleted);
+        }
 
         // Resolve the workspace the request TARGETS (body override falling back
         // to the active workspace), matching how the Better-Auth organization
@@ -411,7 +451,7 @@ export const createAuthInstance = (runtimePublicUrl: string | null) =>
         const body = ctx.body as { organizationId?: string | null } | undefined;
 
         await assertCanManageOrganizationMembers({
-          findMemberRole: (params) => findOrganizationMemberRole(db, params),
+          findMemberRole: (params) => findOrganizationMemberRole(database, params),
           path: ctx.path,
           userId: session?.user?.id ?? null,
           organizationId: resolveTargetOrganizationId(body, {
@@ -426,8 +466,8 @@ export const createAuthInstance = (runtimePublicUrl: string | null) =>
         create: {
           before: async (user: { email?: string | null }) => {
             const email = (user.email ?? "").toLowerCase();
-            const pendingInvitation = await hasPendingInvitation(email);
-            const bootstrapStatus = await getAuthBootstrapStatus();
+            const pendingInvitation = await findPendingInvitation(email, database);
+            const bootstrapStatus = await readBootstrapStatus(database);
 
             if (
               bootstrapStatus.hasUsers &&
@@ -451,7 +491,7 @@ export const createAuthInstance = (runtimePublicUrl: string | null) =>
           },
           after: async (user: { id: string; name: string; email: string }) => {
             try {
-              const promotedUserId = await ensureInitialAdminUser();
+              const promotedUserId = await promoteInitialAdmin(database);
 
               if (promotedUserId === user.id) {
                 console.log(
@@ -470,6 +510,10 @@ export const createAuthInstance = (runtimePublicUrl: string | null) =>
                 id: user.id,
                 name: user.name,
                 email: user.email,
+              }, {
+                db: database,
+                provisionDefaultBoard: provisionBoard,
+                provisionDefaultServiceAccount: provisionServiceAccount,
               });
             } catch (error) {
               // Log but don't block registration -- the org can be created later
@@ -492,7 +536,7 @@ export const createAuthInstance = (runtimePublicUrl: string | null) =>
             if (session.activeOrganizationId) return;
 
             // 1. Try to inherit activeOrganizationId from the user's most recent session
-            const [previousSession] = await db
+            const [previousSession] = await database
               .select({
                 activeOrganizationId:
                   betterAuthOrganizationColumns.sessionActiveOrganizationId,
@@ -511,7 +555,7 @@ export const createAuthInstance = (runtimePublicUrl: string | null) =>
 
             if (previousSession?.activeOrganizationId) {
               // Verify the user is still a member of that org
-              const [stillMember] = await db
+              const [stillMember] = await database
                 .select({ id: schema.member.id })
                 .from(schema.member)
                 .where(
@@ -537,7 +581,7 @@ export const createAuthInstance = (runtimePublicUrl: string | null) =>
             }
 
             // 2. Fallback: pick the oldest membership (deterministic)
-            const [firstMembership] = await db
+            const [firstMembership] = await database
               .select({
                 organizationId:
                   betterAuthOrganizationColumns.memberOrganizationId,
@@ -568,6 +612,10 @@ export const createAuthInstance = (runtimePublicUrl: string | null) =>
           member: roles.member,
         },
         allowUserToCreateOrganization: true,
+        // Organization deletion is intercepted by the product-owned atomic
+        // command above. Disable the plugin implementation so failures are
+        // closed rather than partially deleting members/invitations.
+        disableOrganizationDeletion: true,
         creatorRole: "owner",
         // The DB table was renamed to "workspace"; Better-Auth maps the logical
         // "organization" model / fields to the Drizzle schema keys below.
@@ -599,6 +647,7 @@ export const createAuthInstance = (runtimePublicUrl: string | null) =>
       }),
     ],
   });
+};
 
 /**
  * Returns the Better-Auth instance, recreating it if the runtime publicUrl

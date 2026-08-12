@@ -4,6 +4,22 @@ export type { Database } from "./client";
 
 // Re-export all schema tables, enums, relations, and types
 export * from "./schema";
+export {
+  createChecklistItemId,
+  projectLexicalDocument,
+  setChecklistItemChecked,
+  snapshotLexicalDocument,
+  validateLexicalDocument,
+} from "./notes/lexical-projector";
+export type {
+  ChecklistCompletionTransition,
+  ChecklistProjection,
+  LexicalDocument,
+  LexicalNode,
+  LexicalProjection,
+  LexicalValidation,
+  LinkProjection,
+} from "./notes/lexical-projector";
 
 // Re-export utility functions
 export { parseMentionsFromHtml } from "./utils/mention-parser";

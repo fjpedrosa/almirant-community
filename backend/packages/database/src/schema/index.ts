@@ -113,3 +113,4 @@ export * from "./work-item-effort-estimates";
 export * from "./effort-estimation-requests";
 export * from "./effort-estimator-configs";
 export * from "./relations";
+export * from "./notes";

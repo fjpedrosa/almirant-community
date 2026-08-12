@@ -16,5 +16,6 @@ export {
   getJobIdFromExtra,
   getPlanningMetadataFromExtra,
   getManagedByAgentFromExtra,
+  internalToolError,
 } from "./setup/shared";
 export type { McpToolResult } from "./setup/shared";

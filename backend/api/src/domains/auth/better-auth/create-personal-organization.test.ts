@@ -68,11 +68,12 @@ describe("createPersonalOrganization", () => {
     // membership is wired to the workspace we just created
     expect(memberInsert.values.workspaceId).toBe(orgId);
 
-    // exactly one call each, with the new org id
+    // The default provisioners must receive the same injected database as the
+    // workspace/member writes; otherwise signup can split across DB roots.
     expect(provisionDefaultBoard).toHaveBeenCalledTimes(1);
-    expect(provisionDefaultBoard).toHaveBeenCalledWith(orgId);
+    expect(provisionDefaultBoard).toHaveBeenCalledWith(orgId, db);
     expect(provisionDefaultServiceAccount).toHaveBeenCalledTimes(1);
-    expect(provisionDefaultServiceAccount).toHaveBeenCalledWith(orgId);
+    expect(provisionDefaultServiceAccount).toHaveBeenCalledWith(orgId, db);
   });
 
   it("falls back to the email local-part for the workspace name when no display name", async () => {
