@@ -10,12 +10,17 @@ const RETIRED_FRONTEND_TARGETS = [
   "src/domains/contact/domain/types.ts",
   "src/domains/contact/presentation/components/contact-form.tsx",
   "src/domains/contact/presentation/containers/contact-form-container.tsx",
+  "src/domains/vercel/application/hooks/use-vercel-connect.ts",
+  "src/domains/vercel/application/hooks/use-vercel-projects.ts",
+  "src/domains/vercel/presentation/components/vercel-connection-button.tsx",
+  "src/domains/vercel/presentation/components/vercel-connection-status.tsx",
+  "src/domains/vercel/presentation/containers/vercel-settings-container.tsx",
 ] as const;
 
 const LIVE_FRONTEND_SENTINEL = "src/app/(app-shell)/page.tsx";
 
 describe("retired frontend surface guard", () => {
-  test("keeps every retired Contact target absent", () => {
+  test("keeps every retired frontend target absent", () => {
     const existingTargets = RETIRED_FRONTEND_TARGETS.filter((relativePath) =>
       existsSync(resolve(FRONTEND_ROOT, relativePath)),
     );
