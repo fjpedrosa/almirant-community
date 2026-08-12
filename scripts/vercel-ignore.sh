@@ -14,7 +14,7 @@
 #
 # Triggers a build when:
 #   - Files changed inside the project folder
-#   - Shared root files changed (package.json, tsconfig.json, bun.lock, .github/)
+#   - Shared root files changed (package.json, bun.lock, .github/)
 #
 # Uses VERCEL_GIT_PREVIOUS_SHA (last successful deploy) as the comparison base.
 # Falls back to HEAD^ if not available, and always builds on first deploy.
@@ -33,7 +33,7 @@ fi
 echo "==> Vercel Ignored Build Step for: $PROJECT_DIR"
 
 # Shared root files/dirs that should trigger a rebuild for all projects
-SHARED_PATHS="package.json tsconfig.json bun.lock .github"
+SHARED_PATHS="package.json bun.lock .github"
 
 # Determine the base commit to compare against
 if [ -n "$VERCEL_GIT_PREVIOUS_SHA" ]; then
