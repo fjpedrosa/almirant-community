@@ -65,34 +65,18 @@ export function planObsoleteCursorNormalizations({
     return [];
   }
 
-  if (!appliedHashes.has(currentHashByTag.get(latest.tag)!)) {
-    for (const entry of entries.slice(0, -1)) {
-      if (!appliedHashes.has(currentHashByTag.get(entry.tag)!)) {
-        throw new Error(
-          `Obsolete cursor normalization requires earlier current migration ${entry.tag} to be applied`,
-        );
-      }
-    }
-  }
-
+  // A no-op outside the single-pending-latest case: this is an optional repair,
+  // never a migration precondition.
   const pendingEntries = entries.filter(
     (entry) => !appliedHashes.has(currentHashByTag.get(entry.tag)!),
   );
-  if (pendingEntries.length === 0) {
-    return [];
-  }
-
   if (pendingEntries.length !== 1) {
-    throw new Error(
-      "Obsolete cursor normalization requires exactly one current migration hash to be pending",
-    );
+    return [];
   }
 
   const pending = pendingEntries[0];
   if (pending !== latest) {
-    throw new Error(
-      "Obsolete cursor normalization requires the pending migration to be the latest journal entry",
-    );
+    return [];
   }
 
   for (const migration of appliedMigrations) {

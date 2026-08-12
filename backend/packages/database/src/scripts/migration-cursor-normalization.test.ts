@@ -90,8 +90,8 @@ describe("planObsoleteCursorNormalizations", () => {
     ).toEqual([]);
   });
 
-  test("refuses when an earlier current migration is missing", () => {
-    expect(() =>
+  test("returns no repairs when more than one current migration is pending (regression: self-hosted instances many migrations behind must not abort)", () => {
+    expect(
       planObsoleteCursorNormalizations({
         entries,
         migrationHashes,
@@ -100,11 +100,11 @@ describe("planObsoleteCursorNormalizations", () => {
           { id: 3, hash: "unknown-hash", createdAt: 1785841794700 },
         ],
       }),
-    ).toThrow("earlier current migration 0257_scheduled_tasks_follow_up");
+    ).toEqual([]);
   });
 
-  test("refuses multiple or non-latest pending migrations", () => {
-    expect(() =>
+  test("returns no repairs when every current migration is pending", () => {
+    expect(
       planObsoleteCursorNormalizations({
         entries,
         migrationHashes,
@@ -112,9 +112,11 @@ describe("planObsoleteCursorNormalizations", () => {
           { id: 1, hash: "hash-0256", createdAt: 1785831919000 },
         ],
       }),
-    ).toThrow("earlier current migration 0257_scheduled_tasks_follow_up");
+    ).toEqual([]);
+  });
 
-    expect(() =>
+  test("returns no repairs when the sole pending migration is not the latest journal entry", () => {
+    expect(
       planObsoleteCursorNormalizations({
         entries,
         migrationHashes,
@@ -123,7 +125,20 @@ describe("planObsoleteCursorNormalizations", () => {
           { id: 2, hash: "hash-0258", createdAt: 1785841794693 },
         ],
       }),
-    ).toThrow("latest journal entry");
+    ).toEqual([]);
+  });
+
+  test("throws when a journal entry has no validated SQL hash", () => {
+    expect(() =>
+      planObsoleteCursorNormalizations({
+        entries,
+        migrationHashes: new Map([
+          ["0256_orange_sentinels", "hash-0256"],
+          ["0257_scheduled_tasks_follow_up", "hash-0257"],
+        ]),
+        appliedMigrations: appliedCurrentMigrations,
+      }),
+    ).toThrow("No validated SQL hash exists for migration 0258_done_retention");
   });
 
   test("refuses a current journal hash whose ledger timestamp reaches the pending target", () => {
