@@ -17,6 +17,11 @@ const RETIRED_FRONTEND_TARGETS = [
   "src/domains/vercel/presentation/containers/vercel-settings-container.tsx",
   "src/domains/teams/presentation/components/team-switcher.tsx",
   "src/domains/teams/presentation/containers/team-switcher-container.tsx",
+  "src/domains/teams/application/hooks/use-team-invitations.ts",
+  "src/domains/teams/presentation/components/invitation-list.tsx",
+  "src/domains/teams/presentation/components/invitation-row.tsx",
+  "src/domains/teams/presentation/components/invitations-section.tsx",
+  "src/domains/teams/presentation/components/member-avatar-group.tsx",
 ] as const;
 
 const LIVE_FRONTEND_SENTINEL = "src/app/(app-shell)/page.tsx";
