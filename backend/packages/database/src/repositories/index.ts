@@ -51,6 +51,7 @@ export * from "./agents/session-event-repository";
 export * from "./agents/session-state-repository";
 export * from "./agents/native-event-repository";
 export * from "./agents/event-archive-repository";
+export * from "./agents/agent-job-event-archive-repository";
 export * from "./agents/bug-fix-attempt-repository";
 export * from "./agents/backlog-drain-repository";
 export * from "./agents/backlog-drain-selection";

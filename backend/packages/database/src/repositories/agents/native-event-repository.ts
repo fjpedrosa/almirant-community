@@ -84,3 +84,14 @@ export const deleteAgentNativeEventsBySessionId = async (
 
   return deleted.length;
 };
+
+export const deleteAgentNativeEventsByJobId = async (
+  agentJobId: string,
+): Promise<number> => {
+  const deleted = await db
+    .delete(agentNativeEvents)
+    .where(eq(agentNativeEvents.agentJobId, agentJobId))
+    .returning({ id: agentNativeEvents.id });
+
+  return deleted.length;
+};
