@@ -801,4 +801,56 @@ describe("compose-ops validation", () => {
     expect(result.ok).toBe(false);
     expect(result.stderr).toContain("no services to recreate");
   });
+
+  test("composeBaseArgs omits --project-directory when no host path is configured", async () => {
+    const { composeBaseArgs } = await import("./compose-ops");
+    const args = composeBaseArgs({
+      repoPath: "/repo",
+      composeFile: "docker-compose.prod.yml",
+      envFile: ".env.production",
+      buildSha: null,
+    });
+
+    expect(args).toEqual([
+      "compose",
+      "-f",
+      "docker-compose.prod.yml",
+      "--env-file",
+      ".env.production",
+    ]);
+  });
+
+  test("composeBaseArgs pins --project-directory to the host stack path when configured", async () => {
+    const { composeBaseArgs } = await import("./compose-ops");
+    const args = composeBaseArgs({
+      repoPath: "/repo",
+      composeFile: "docker-compose.prod.yml",
+      envFile: ".env.production",
+      buildSha: null,
+      hostRepoPath: "/opt/almirant",
+    });
+
+    expect(args).toEqual([
+      "compose",
+      "-f",
+      "docker-compose.prod.yml",
+      "--env-file",
+      ".env.production",
+      "--project-directory",
+      "/opt/almirant",
+    ]);
+  });
+
+  test("composeBaseArgs rejects an invalid host repo path", async () => {
+    const { composeBaseArgs } = await import("./compose-ops");
+    expect(() =>
+      composeBaseArgs({
+        repoPath: "/repo",
+        composeFile: "docker-compose.prod.yml",
+        envFile: ".env.production",
+        buildSha: null,
+        hostRepoPath: "/opt/not a valid path",
+      }),
+    ).toThrow(/Invalid host repo path/);
+  });
 });

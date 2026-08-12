@@ -47,9 +47,10 @@ RUN if [ "$RUN_TYPECHECK" = "true" ]; then \
 FROM oven/bun:1.3.8-alpine
 
 # git: needed for `git fetch`/`git pull` against the bind-mounted repo.
+# openssh-client: git needs `ssh` on PATH to fetch SSH-form remotes (git@host:...).
 # docker-cli + docker-cli-compose: drive the host docker daemon via the
 # bind-mounted /var/run/docker.sock.
-RUN apk add --no-cache git docker-cli docker-cli-compose
+RUN apk add --no-cache git openssh-client docker-cli docker-cli-compose
 
 WORKDIR /app/services/updater
 

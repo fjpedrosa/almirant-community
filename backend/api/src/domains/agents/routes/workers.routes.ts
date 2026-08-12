@@ -892,6 +892,16 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
     }
   })
 
+  // The shared guard accepts any active worker key; bridges are provisioned
+  // with service accounts, so a legacy personal key must not pass preflight.
+  .get("/credential-check", ({ workerApiKey, set }) => {
+    if (!workerApiKey!.serviceAccountId) {
+      set.status = 403;
+      return errorResponse("Service account credential required");
+    }
+    return successResponse({ authenticated: true });
+  })
+
   // GET /workers/provider-keys - Resolve provider keys for workers (decrypted)
   //
   // Note: This endpoint is authenticated with the worker API key (Bearer token).
