@@ -2,6 +2,7 @@ import { env, logger, type Env } from "@almirant/config";
 import { startStaleJobRecovery } from "./domains/agents/services/stale-job-recovery";
 import { startInteractionTimeoutSweeper } from "./domains/observability/services/interaction-timeout-sweeper";
 import { startPlanningSessionIdleSweeper } from "./domains/ideation/planning-sessions/services/planning-session-idle-sweeper";
+import { startPlanningSessionArchiveSweeper } from "./domains/ideation/planning-sessions/services/planning-session-archive-sweeper";
 import { quotaService } from "./domains/billing/quota/services/quota-service-instance";
 import { startUsageReconciliation } from "./domains/billing/quota/services/usage-reconciliation";
 import { startNotificationSweeper } from "./domains/notifications/services/notification-sweeper";
@@ -48,6 +49,7 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
     intervalMs: 120_000,
     offlineThresholdMs: 90_000,
   });
+  const stopPlanningSessionArchiveSweeper = startPlanningSessionArchiveSweeper();
   const stopInteractionTimeoutSweeper = startInteractionTimeoutSweeper({
     intervalMs: 30_000,
   });
@@ -133,6 +135,7 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
       stopStaleJobRecovery();
       stopInteractionTimeoutSweeper();
       stopPlanningSessionIdleSweeper();
+      stopPlanningSessionArchiveSweeper();
       stopQuotaService();
       stopUsageReconciliation();
       stopNotificationSweeper();

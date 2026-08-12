@@ -4,12 +4,11 @@ import type {
   AgentNativeEventDb,
   SessionEventDb,
 } from "@almirant/database";
-import { env } from "@almirant/config";
 import {
-  downloadBufferFromS3,
-  isS3Configured,
-  uploadBufferToS3,
-} from "../../../../shared/services/s3-service";
+  getArchiveBlob,
+  isArchiveStoreConfigured,
+  putArchiveBlob,
+} from "../../../../shared/services/archive-blob-store";
 
 export const PLANNING_SESSION_ARCHIVE_KIND = {
   canonicalEvents: "canonical_events",
@@ -53,21 +52,7 @@ type UploadArchiveBufferArgs = {
   projectorVersion?: number | null;
 };
 
-const getArchiveBucket = (): string | null =>
-  env.S3_PRIVATE_BUCKET ?? env.S3_BUCKET ?? null;
-
-export const isPlanningSessionArchiveConfigured = (): boolean => {
-  const bucket = getArchiveBucket();
-  return !!bucket && isS3Configured(bucket);
-};
-
-const ensureArchiveStorageConfigured = (): string => {
-  const bucket = getArchiveBucket();
-  if (!bucket || !isS3Configured(bucket)) {
-    throw new Error("Planning session archive storage is not configured");
-  }
-  return bucket;
-};
+export const isPlanningSessionArchiveConfigured = isArchiveStoreConfigured;
 
 const buildArchiveKey = (
   planningSessionId: string,
@@ -99,14 +84,13 @@ const uploadPlanningSessionArchiveBuffer = async ({
   lastSequenceNum = null,
   projectorVersion = null,
 }: UploadArchiveBufferArgs): Promise<UploadedPlanningSessionArchive> => {
-  const bucket = ensureArchiveStorageConfigured();
-  const storageKey = buildArchiveKey(planningSessionId, archiveKind, format);
-  const storageUrl = await uploadBufferToS3(body, storageKey, "application/gzip", bucket);
+  const stored = await putArchiveBlob(
+    buildArchiveKey(planningSessionId, archiveKind, format),
+    body,
+  );
 
   return {
-    storageBucket: bucket,
-    storageKey,
-    storageUrl,
+    ...stored,
     format,
     compression: "gzip",
     contentType: "application/gzip",
@@ -189,8 +173,11 @@ export const downloadArchivedSessionSnapshot = async (args: {
   storageKey: string;
   storageBucket?: string | null;
 }): Promise<ArchivedSessionSnapshotPayload> => {
-  const bucket = args.storageBucket ?? getArchiveBucket() ?? undefined;
-  const compressed = await downloadBufferFromS3(args.storageKey, bucket);
+  const compressed = await getArchiveBlob({
+    storageKey: args.storageKey,
+    storageBucket: args.storageBucket ?? null,
+    storageUrl: null,
+  });
   const decompressed = gunzipSync(Buffer.from(compressed));
   const parsed = JSON.parse(decompressed.toString("utf-8")) as ArchivedSessionSnapshotPayload;
 
