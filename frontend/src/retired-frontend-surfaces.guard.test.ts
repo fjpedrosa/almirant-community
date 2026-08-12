@@ -15,6 +15,8 @@ const RETIRED_FRONTEND_TARGETS = [
   "src/domains/vercel/presentation/components/vercel-connection-button.tsx",
   "src/domains/vercel/presentation/components/vercel-connection-status.tsx",
   "src/domains/vercel/presentation/containers/vercel-settings-container.tsx",
+  "src/domains/teams/presentation/components/team-switcher.tsx",
+  "src/domains/teams/presentation/containers/team-switcher-container.tsx",
 ] as const;
 
 const LIVE_FRONTEND_SENTINEL = "src/app/(app-shell)/page.tsx";
