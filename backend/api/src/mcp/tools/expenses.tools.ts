@@ -8,7 +8,7 @@ import {
   getExpenseCategories,
   getRecurringExpenses,
 } from "@almirant/database";
-import { getWorkspaceIdFromExtra } from "../setup";
+import { assertOrgScope } from "../setup";
 
 export const registerExpensesTools = (server: McpServer) => {
 
@@ -28,11 +28,9 @@ export const registerExpensesTools = (server: McpServer) => {
       limit: z.number().int().min(1).max(100).optional().default(20).describe("Items per page"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
         const pagination = {
           page: params.page ?? 1,
           limit: params.limit ?? 20,
@@ -68,11 +66,9 @@ export const registerExpensesTools = (server: McpServer) => {
       id: z.string().uuid().describe("Expense UUID"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
         const expense = await getExpenseById(workspaceId, params.id);
         if (!expense) {
           return { content: [{ type: "text" as const, text: `Error: Expense '${params.id}' not found` }], isError: true };
@@ -105,11 +101,9 @@ export const registerExpensesTools = (server: McpServer) => {
       status: z.enum(["draft","pending_approval","approved","rejected","paid","void"]).optional().default("draft").describe("Expense status"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
         const expense = await createExpense(workspaceId, params as any);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(expense, null, 2) }],
@@ -134,11 +128,9 @@ export const registerExpensesTools = (server: McpServer) => {
       categoryId: z.string().uuid().optional().describe("Filter aggregations by category"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
         const aggregations = await getExpenseAggregations(workspaceId, params);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(aggregations, null, 2) }],
@@ -158,11 +150,9 @@ export const registerExpensesTools = (server: McpServer) => {
     "List all expense categories for the workspace.",
     {},
     async (_params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
         const categories = await getExpenseCategories(workspaceId);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(categories, null, 2) }],
@@ -184,11 +174,9 @@ export const registerExpensesTools = (server: McpServer) => {
       activeOnly: z.boolean().optional().default(true).describe("Only return active subscriptions"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
         const recurring = await getRecurringExpenses(workspaceId, params.activeOnly ? { isActive: true } : undefined);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(recurring, null, 2) }],

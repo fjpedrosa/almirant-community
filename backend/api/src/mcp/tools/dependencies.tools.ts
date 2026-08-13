@@ -7,7 +7,7 @@ import {
   removeDependency,
   getWorkItemById,
 } from "@almirant/database";
-import { getWorkspaceIdFromExtra } from "../setup";
+import { assertOrgScope } from "../setup";
 
 export const registerDependenciesTools = (server: McpServer) => {
   // -------------------------------------------------------
@@ -20,11 +20,9 @@ export const registerDependenciesTools = (server: McpServer) => {
       id: z.string().uuid().describe("Work item ID"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const workItem = await getWorkItemById(params.id, workspaceId);
         if (!workItem) {
@@ -61,11 +59,9 @@ export const registerDependenciesTools = (server: McpServer) => {
       blockedByWorkItemId: z.string().uuid().describe("The work item that blocks it"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         if (params.workItemId === params.blockedByWorkItemId) {
           return {
@@ -110,11 +106,9 @@ export const registerDependenciesTools = (server: McpServer) => {
       blockedByWorkItemId: z.string().uuid().describe("The blocking work item ID to remove"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {

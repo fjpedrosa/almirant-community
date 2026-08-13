@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { checkQuotaAvailable, getCurrentUsage } from "@almirant/database";
 import type { ProviderQuotaDb } from "@almirant/database";
-import { getWorkspaceIdFromExtra } from "../setup";
+import { assertOrgScope } from "../setup";
 
 type AiProviderEnum = ProviderQuotaDb["provider"];
 
@@ -19,11 +19,9 @@ export const registerQuotaTools = (server: McpServer) => {
         .describe("AI provider to check quota for (e.g. 'anthropic', 'openai')"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const availability = await checkQuotaAvailable(workspaceId, params.provider as AiProviderEnum);
         return {
@@ -63,11 +61,9 @@ export const registerQuotaTools = (server: McpServer) => {
         ),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const providers: AiProviderEnum[] = params.provider
           ? [params.provider as AiProviderEnum]
