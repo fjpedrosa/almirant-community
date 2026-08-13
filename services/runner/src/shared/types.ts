@@ -1,4 +1,5 @@
 import type { ClaimedJob, WorkItemDetails } from "@almirant/remote-agent";
+import { classifyContainerFailure } from "./failure-signal";
 
 export type RunnerContainerVolume = {
   source: string;
@@ -165,12 +166,6 @@ export type ErrorClassification =
   | "permanent_config"
   | "permanent_unknown";
 
-const OOM_PATTERNS = /killed|oomkilled|out of memory|memory/i;
-const TIMEOUT_PATTERNS = /timeout|timed out|timed_out/i;
-const DISCONNECT_PATTERNS = /econnreset|socket hang up|sse|disconnect|econnrefused|epipe|fetch failed|unable to connect/i;
-const AUTH_PATTERNS = /\b401\b|\b403\b|unauthorized|forbidden/i;
-const CONFIG_PATTERNS = /invalid config|missing.*config|not found.*repo|repo.*not found|missing.*skill|skill.*not found/i;
-
 export const classifyError = (error: Error | string): ErrorClassification => {
   if (typeof error !== "string") {
     const explicitClassification = (
@@ -190,13 +185,15 @@ export const classifyError = (error: Error | string): ErrorClassification => {
 
   const message = typeof error === "string" ? error : error.message;
 
-  if (OOM_PATTERNS.test(message)) return "recoverable_oom";
-  if (TIMEOUT_PATTERNS.test(message)) return "recoverable_timeout";
-  if (DISCONNECT_PATTERNS.test(message)) return "recoverable_disconnect";
-  if (AUTH_PATTERNS.test(message)) return "permanent_auth";
-  if (CONFIG_PATTERNS.test(message)) return "permanent_config";
-
-  return "permanent_unknown";
+  // No container state is available at this call site, so this always runs
+  // as if Docker could not be inspected — the narrow text fallback is the
+  // only OOM path here, matching classifyContainerFailure's own precedence.
+  return classifyContainerFailure({
+    containerState: null,
+    inspected: false,
+    message,
+    lifecyclePhase: "session",
+  }).classification;
 };
 
 export const isRecoverableError = (classification: ErrorClassification): boolean =>

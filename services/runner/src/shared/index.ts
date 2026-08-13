@@ -4,4 +4,12 @@ export { buildCredentialHelperScript, buildAskpassScript, shouldRefreshToken, TO
 export { buildClaudeMcpConfig, buildCodexMcpConfig } from "./mcp-config-builder";
 export { retryUpdateJobStatus, normalizeJobConfig, getRequestedModel, extractRepositoryName, extractRepoFullName, sleep, buildRecoveryContext } from "./job-helpers";
 export { INTERNAL_MCP_SKILLS, requiresInternalMcp } from "./internal-skills";
+export {
+  classifyContainerFailure,
+  OOM_TEXT_FALLBACK_PATTERN,
+  type ContainerFailureSignal,
+  type ContainerInspectState,
+  type FailureLifecyclePhase,
+  type OomEvidence,
+} from "./failure-signal";
 export * from "./types";

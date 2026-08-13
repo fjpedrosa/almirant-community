@@ -35,6 +35,12 @@ import {
 } from "./job-completion-guards";
 import { isPromptOnlyIntent, resolveJobIntent } from "./job-intent";
 import { resolveJobCodingAgent, retryUpdateJobStatus } from "../shared/job-helpers";
+import {
+  classifyContainerFailure,
+  describeOomFailureEvent,
+  isUnverifiedInspectResult,
+  type ContainerFailureSignal,
+} from "../shared/failure-signal";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,6 +57,8 @@ export type SessionResult = {
   shutdownRequested?: boolean;
   timedOut?: boolean;
   backgroundAgentTimedOut?: boolean;
+  /** Structured Docker-authoritative OOM signal; set only when oom is true. */
+  containerFailureSignal?: ContainerFailureSignal;
 };
 
 export type CompletionEvaluationDeps = {
@@ -547,19 +555,41 @@ export async function evaluateCompletion(
 
   // Detect container-level OOM kills
   if (!result.success && containerId && !result.errorMessage?.includes('[root cause:')) {
+    let failureSignal: ContainerFailureSignal;
     try {
       const containerState = await deps.containerManager.inspectContainer(containerId);
-      if (containerState.oomKilled) {
-        result.errorMessage = result.errorMessage
-          ? `${result.errorMessage} [root cause: Container was OOM-killed by Docker]`
-          : 'Container was OOM-killed by Docker';
-        eventLogger.error("session", "container.oom_killed", "Container was OOM-killed by Docker", {
-          exitCode: containerState.exitCode,
-          containerId,
-        });
-      }
+      // The production driver never rejects this promise on inspect failure —
+      // it resolves with a synthetic all-false state instead (see
+      // isUnverifiedInspectResult) — so `inspected` can't be asserted true here.
+      failureSignal = classifyContainerFailure({
+        containerState,
+        inspected: !isUnverifiedInspectResult(containerState),
+        message: result.errorMessage ?? "",
+        lifecyclePhase: "session",
+      });
     } catch {
-      // Inspection failure is non-fatal
+      // Inspection itself failed (Docker unreachable) — that is "not
+      // inspected", not "not OOM", so the narrow text fallback still gets a
+      // chance instead of silently giving up.
+      failureSignal = classifyContainerFailure({
+        containerState: null,
+        inspected: false,
+        message: result.errorMessage ?? "",
+        lifecyclePhase: "session",
+      });
+    }
+    if (failureSignal.oom) {
+      const { eventType, message } = describeOomFailureEvent(failureSignal);
+      result.errorMessage = result.errorMessage
+        ? `${result.errorMessage} [root cause: ${message}]`
+        : message;
+      result.containerFailureSignal = failureSignal;
+      eventLogger.error("session", eventType, message, {
+        exitCode: failureSignal.exitCode,
+        containerId,
+        evidence: failureSignal.evidence,
+        confidence: failureSignal.confidence,
+      });
     }
   }
 

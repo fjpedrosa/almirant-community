@@ -629,6 +629,332 @@ describe("evaluateCompletion", () => {
     expect(completion.jobCompleted).toBe(true);
     expect(completion.jobStatus).toBe("completed");
   });
+
+  it("attaches an authoritative OOM signal when the container inspect reports OOMKilled", async () => {
+    const containerManager = {
+      inspectContainer: async () => ({
+        running: false,
+        oomKilled: true,
+        exitCode: 137,
+      }),
+    } as unknown as ContainerManager;
+
+    const completion = await evaluateCompletion({
+      workerClient: createWorkerClient([]),
+      containerManager,
+    }, {
+      job: createJob(),
+      result: createResult({
+        success: false,
+        errorMessage: "Session crashed unexpectedly",
+      }),
+      skillName: "scheduled",
+      pushSucceeded: false,
+      requiresPush: false,
+      prFirstResult: null,
+      eventLogger: createEventLogger(),
+      startedAtMs: Date.now() - 5_000,
+      containerId: "container-1",
+      extractedBranchName: null,
+      baseBranch: "main",
+      workerId: "worker-claim-owner",
+    });
+
+    expect(completion.result.containerFailureSignal).toMatchObject({
+      oom: true,
+      evidence: "docker_oom_killed",
+      confidence: "authoritative",
+      classification: "recoverable_oom",
+      inspected: true,
+    });
+  });
+
+  it("does not attach an OOM signal when inspect succeeds and reports no OOM kill", async () => {
+    const containerManager = {
+      inspectContainer: async () => ({
+        running: false,
+        oomKilled: false,
+        exitCode: 1,
+      }),
+    } as unknown as ContainerManager;
+
+    const completion = await evaluateCompletion({
+      workerClient: createWorkerClient([]),
+      containerManager,
+    }, {
+      job: createJob(),
+      result: createResult({
+        success: false,
+        errorMessage: "failed to write memory profile to disk",
+      }),
+      skillName: "scheduled",
+      pushSucceeded: false,
+      requiresPush: false,
+      prFirstResult: null,
+      eventLogger: createEventLogger(),
+      startedAtMs: Date.now() - 5_000,
+      containerId: "container-1",
+      extractedBranchName: null,
+      baseBranch: "main",
+      workerId: "worker-claim-owner",
+    });
+
+    expect(completion.result.containerFailureSignal).toBeUndefined();
+    expect(completion.result.errorMessage).toBe(
+      "failed to write memory profile to disk",
+    );
+  });
+
+  it("keeps the existing root-cause suffix for human-readable error messages", async () => {
+    const containerManager = {
+      inspectContainer: async () => ({
+        running: false,
+        oomKilled: true,
+        exitCode: 137,
+      }),
+    } as unknown as ContainerManager;
+
+    const completion = await evaluateCompletion({
+      workerClient: createWorkerClient([]),
+      containerManager,
+    }, {
+      job: createJob(),
+      result: createResult({
+        success: false,
+        errorMessage: "Session crashed unexpectedly",
+      }),
+      skillName: "scheduled",
+      pushSucceeded: false,
+      requiresPush: false,
+      prFirstResult: null,
+      eventLogger: createEventLogger(),
+      startedAtMs: Date.now() - 5_000,
+      containerId: "container-1",
+      extractedBranchName: null,
+      baseBranch: "main",
+      workerId: "worker-claim-owner",
+    });
+
+    expect(completion.result.errorMessage).toBe(
+      "Session crashed unexpectedly [root cause: Container was OOM-killed by Docker]",
+    );
+  });
+
+  it("emits the authoritative container.oom_killed event code unchanged when Docker's own OOMKilled flag is true", async () => {
+    const errorEvents: Array<{ eventType: string; message: string }> = [];
+    const eventLogger = {
+      info: () => undefined,
+      warn: () => undefined,
+      error: (_phase: string, eventType: string, message: string) => {
+        errorEvents.push({ eventType, message });
+      },
+    } as unknown as RunnerJobEventLogger;
+    const containerManager = {
+      inspectContainer: async () => ({
+        running: false,
+        oomKilled: true,
+        exitCode: 137,
+      }),
+    } as unknown as ContainerManager;
+
+    await evaluateCompletion({
+      workerClient: createWorkerClient([]),
+      containerManager,
+    }, {
+      job: createJob(),
+      result: createResult({
+        success: false,
+        errorMessage: "Session crashed unexpectedly",
+      }),
+      skillName: "scheduled",
+      pushSucceeded: false,
+      requiresPush: false,
+      prFirstResult: null,
+      eventLogger,
+      startedAtMs: Date.now() - 5_000,
+      containerId: "container-1",
+      extractedBranchName: null,
+      baseBranch: "main",
+      workerId: "worker-claim-owner",
+    });
+
+    expect(errorEvents).toEqual([
+      { eventType: "container.oom_killed", message: "Container was OOM-killed by Docker" },
+    ]);
+  });
+
+  it("uses a distinct message and event code for the heuristic exit-137 case instead of asserting Docker's authority", async () => {
+    const errorEvents: Array<{ eventType: string; message: string }> = [];
+    const eventLogger = {
+      info: () => undefined,
+      warn: () => undefined,
+      error: (_phase: string, eventType: string, message: string) => {
+        errorEvents.push({ eventType, message });
+      },
+    } as unknown as RunnerJobEventLogger;
+    const containerManager = {
+      inspectContainer: async () => ({
+        running: false,
+        oomKilled: false,
+        exitCode: 137,
+      }),
+    } as unknown as ContainerManager;
+
+    const completion = await evaluateCompletion({
+      workerClient: createWorkerClient([]),
+      containerManager,
+    }, {
+      job: createJob(),
+      result: createResult({
+        success: false,
+        errorMessage: "agent exited",
+      }),
+      skillName: "scheduled",
+      pushSucceeded: false,
+      requiresPush: false,
+      prFirstResult: null,
+      eventLogger,
+      startedAtMs: Date.now() - 5_000,
+      containerId: "container-1",
+      extractedBranchName: null,
+      baseBranch: "main",
+      workerId: "worker-claim-owner",
+    });
+
+    expect(completion.result.errorMessage).toBe(
+      "agent exited [root cause: Container exited 137 (SIGKILL); Docker reported no OOM flag]",
+    );
+    expect(errorEvents).toEqual([
+      {
+        eventType: "container.oom_suspected",
+        message: "Container exited 137 (SIGKILL); Docker reported no OOM flag",
+      },
+    ]);
+  });
+
+  // DockerContainerManager.inspectContainer never actually throws in
+  // production (it swallows every Docker error and resolves instead — see
+  // the "swallowed inspect failure" test below for that real-world shape).
+  // This covers the secondary case where a container manager implementation
+  // does reject the inspect promise (e.g. genuine AbortSignal cancellation).
+  it("treats a rejected inspect promise as not-inspected rather than not-OOM", async () => {
+    const containerManager = {
+      inspectContainer: async () => {
+        throw new Error("docker daemon unreachable");
+      },
+    } as unknown as ContainerManager;
+
+    const completion = await evaluateCompletion({
+      workerClient: createWorkerClient([]),
+      containerManager,
+    }, {
+      job: createJob(),
+      result: createResult({
+        success: false,
+        errorMessage: "Container was OOMKilled",
+      }),
+      skillName: "scheduled",
+      pushSucceeded: false,
+      requiresPush: false,
+      prFirstResult: null,
+      eventLogger: createEventLogger(),
+      startedAtMs: Date.now() - 5_000,
+      containerId: "container-1",
+      extractedBranchName: null,
+      baseBranch: "main",
+      workerId: "worker-claim-owner",
+    });
+
+    expect(completion.result.containerFailureSignal).toMatchObject({
+      oom: true,
+      evidence: "text_heuristic",
+      confidence: "heuristic",
+      inspected: false,
+    });
+  });
+
+  // DockerContainerManager.inspectContainer never actually throws in
+  // production: it swallows every Docker error internally (daemon
+  // unreachable, "No such container", permission denied) and resolves with a
+  // synthetic { running: false, oomKilled: false, exitCode: null } state. The
+  // above throw-based test cannot fail against the real driver — this is the
+  // shape completion-evaluator must actually treat as "not inspected".
+  it("treats a swallowed inspect failure (the shape the real Docker driver returns) as not-inspected rather than not-OOM", async () => {
+    const containerManager = {
+      inspectContainer: async () => ({
+        running: false,
+        oomKilled: false,
+        exitCode: null,
+      }),
+    } as unknown as ContainerManager;
+
+    const completion = await evaluateCompletion({
+      workerClient: createWorkerClient([]),
+      containerManager,
+    }, {
+      job: createJob(),
+      result: createResult({
+        success: false,
+        errorMessage: "FATAL ERROR: JavaScript heap out of memory",
+      }),
+      skillName: "scheduled",
+      pushSucceeded: false,
+      requiresPush: false,
+      prFirstResult: null,
+      eventLogger: createEventLogger(),
+      startedAtMs: Date.now() - 5_000,
+      containerId: "container-1",
+      extractedBranchName: null,
+      baseBranch: "main",
+      workerId: "worker-claim-owner",
+    });
+
+    expect(completion.result.containerFailureSignal).toMatchObject({
+      oom: true,
+      evidence: "text_heuristic",
+      confidence: "heuristic",
+      inspected: false,
+    });
+    expect(completion.result.errorMessage).toBe(
+      "FATAL ERROR: JavaScript heap out of memory [root cause: Container exited without a confirmed Docker OOM flag; failure text matched a known OOM signature]",
+    );
+  });
+
+  it("does not misreport a genuinely non-OOM failure as inspected-but-unknown when inspect resolves to the swallowed-failure shape", async () => {
+    const containerManager = {
+      inspectContainer: async () => ({
+        running: false,
+        oomKilled: false,
+        exitCode: null,
+      }),
+    } as unknown as ContainerManager;
+
+    const completion = await evaluateCompletion({
+      workerClient: createWorkerClient([]),
+      containerManager,
+    }, {
+      job: createJob(),
+      result: createResult({
+        success: false,
+        errorMessage: "failed to write memory profile to disk",
+      }),
+      skillName: "scheduled",
+      pushSucceeded: false,
+      requiresPush: false,
+      prFirstResult: null,
+      eventLogger: createEventLogger(),
+      startedAtMs: Date.now() - 5_000,
+      containerId: "container-1",
+      extractedBranchName: null,
+      baseBranch: "main",
+      workerId: "worker-claim-owner",
+    });
+
+    expect(completion.result.containerFailureSignal).toBeUndefined();
+    expect(completion.result.errorMessage).toBe(
+      "failed to write memory profile to disk",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

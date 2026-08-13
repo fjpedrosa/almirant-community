@@ -61,6 +61,7 @@ import type {
   ValidateEnvironment,
 } from "./shared/types";
 import { classifyError } from "./shared/types";
+import { classifyContainerFailure, describeOomFailureEvent, isUnverifiedInspectResult, type ContainerFailureSignal } from "./shared/failure-signal";
 import { createRunnerJobEventLogger } from "./observability/job-event-logger";
 import type { RunnerJobEventLogger } from "./observability/job-event-logger";
 import { logTmpfsUsage } from "./observability/resource-monitor";
@@ -192,6 +193,55 @@ type SessionExecutionResult = {
   incompleteReason?: string;
   missingWorkItemIds?: string[];
   pausedForQuota?: QuotaPauseRequest;
+};
+
+export type TeardownFailureEvent = {
+  level: "error" | "warn";
+  eventType: "container.oom_killed" | "container.oom_suspected" | "container.unexpected_exit";
+  message: string;
+  payload: Record<string, unknown>;
+};
+
+/**
+ * Decide which single teardown-time failure event to emit for a container
+ * that exited badly. Unlike the session-phase OOM detection in
+ * completion-evaluator.ts, this only ever runs once execution has already
+ * ended, so a heuristic verdict (Docker's OOMKilled flag is false; only the
+ * exit code says SIGKILL) is reported with the same non-authoritative
+ * wording as describeOomFailureEvent instead of borrowing Docker's own
+ * "OOM-killed by Docker" message.
+ */
+export const resolveTeardownFailureEvent = (
+  teardownFailureSignal: ContainerFailureSignal,
+  diedBadly: boolean,
+  oomAlreadyDetected: boolean,
+  containerId: string,
+): TeardownFailureEvent | null => {
+  if (teardownFailureSignal.oom && !oomAlreadyDetected) {
+    const { eventType, message } = describeOomFailureEvent(teardownFailureSignal);
+    return {
+      level: "error",
+      eventType,
+      message,
+      payload: {
+        exitCode: teardownFailureSignal.exitCode,
+        containerId,
+        evidence: teardownFailureSignal.evidence,
+        confidence: teardownFailureSignal.confidence,
+      },
+    };
+  }
+
+  if (diedBadly) {
+    return {
+      level: "warn",
+      eventType: "container.unexpected_exit",
+      message: "Container exited unexpectedly",
+      payload: { exitCode: teardownFailureSignal.exitCode, containerId },
+    };
+  }
+
+  return null;
 };
 
 // ---------------------------------------------------------------------------
@@ -2005,6 +2055,8 @@ export const createJobExecutor = (
       },
     );
 
+    ctx.oomAlreadyDetected = completion.result.containerFailureSignal?.oom === true;
+
     // Handle early returns (re-queued retryable failures)
     if (completion.earlyReturn) {
       return completion.earlyReturn;
@@ -2061,7 +2113,9 @@ export const createJobExecutor = (
       model: ctx.resolvedModel ?? "",
       durationMs: Date.now() - ctx.startedAtMs,
       status: jobStatus,
-      errorCategory: result.errorMessage ? classifyError(result.errorMessage) : undefined,
+      errorCategory:
+        completion.result.containerFailureSignal?.classification ??
+        (result.errorMessage ? classifyError(result.errorMessage) : undefined),
       retryCount: job.retryCount ?? 0,
       workspaceId: ctx.orgId,
     });
@@ -2274,17 +2328,28 @@ export const createJobExecutor = (
         containerState.exitCode !== null &&
         containerState.exitCode !== 0;
 
-      if (containerState.oomKilled && !ctx.oomAlreadyDetected) {
-        console.warn(`[job:${job.id}] Container was OOM-killed (exit code: ${containerState.exitCode})`);
-        eventLogger.error("session", "container.oom_killed", "Container was OOM-killed by Docker", {
-          exitCode: containerState.exitCode,
-          containerId: ctx.containerId,
-        });
-      } else if (diedBadly) {
-        eventLogger.warn("session", "container.unexpected_exit", "Container exited unexpectedly", {
-          exitCode: containerState.exitCode,
-          containerId: ctx.containerId,
-        });
+      const teardownFailureSignal = classifyContainerFailure({
+        containerState,
+        inspected: !isUnverifiedInspectResult(containerState),
+        message: "",
+        lifecyclePhase: "teardown",
+      });
+      const teardownEvent = resolveTeardownFailureEvent(
+        teardownFailureSignal,
+        diedBadly,
+        ctx.oomAlreadyDetected,
+        ctx.containerId,
+      );
+      if (teardownEvent) {
+        if (teardownEvent.eventType !== "container.unexpected_exit") {
+          console.warn(`[job:${job.id}] Container was OOM-killed (exit code: ${teardownFailureSignal.exitCode})`);
+        }
+        eventLogger[teardownEvent.level](
+          "session",
+          teardownEvent.eventType,
+          teardownEvent.message,
+          teardownEvent.payload,
+        );
       }
 
       // The exit code alone never explains the exit. Whatever the entrypoint
