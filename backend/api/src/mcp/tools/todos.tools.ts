@@ -15,7 +15,7 @@ import {
 import { wsConnectionManager } from "../../shared/ws/ws-connection-manager";
 import {
   getManagedByAgentFromExtra,
-  getWorkspaceIdFromExtra,
+  assertOrgScope,
   getProjectIdFromExtra,
   getUserIdFromExtra,
 } from "../setup";
@@ -61,14 +61,9 @@ export const registerTodosTools = (server: McpServer) => {
       search: z.string().optional(),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const page = params.page ?? 1;
         const limit = params.limit ?? 50;
@@ -123,14 +118,9 @@ export const registerTodosTools = (server: McpServer) => {
       id: z.string().uuid(),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const item = await getTodoItemById(workspaceId, params.id);
 
@@ -166,14 +156,9 @@ export const registerTodosTools = (server: McpServer) => {
       dueDate: z.string().optional(),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const eventContext = getEventContextFromExtra(extra);
 
@@ -220,14 +205,9 @@ export const registerTodosTools = (server: McpServer) => {
       priority: PRIORITY_SCHEMA.optional(),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const eventContext = getEventContextFromExtra(extra);
 
@@ -275,14 +255,9 @@ export const registerTodosTools = (server: McpServer) => {
       id: z.string().uuid(),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const result = await deleteTodoItem(workspaceId, params.id);
 
@@ -320,14 +295,9 @@ export const registerTodosTools = (server: McpServer) => {
       status: TODO_ITEM_STATUS_SCHEMA,
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const eventContext = getEventContextFromExtra(extra);
 
@@ -367,14 +337,9 @@ export const registerTodosTools = (server: McpServer) => {
       ownerUserId: z.string().optional(),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const eventContext = getEventContextFromExtra(extra);
 
@@ -414,14 +379,9 @@ export const registerTodosTools = (server: McpServer) => {
       dueDate: z.string().optional(),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const eventContext = getEventContextFromExtra(extra);
 
@@ -467,14 +427,9 @@ export const registerTodosTools = (server: McpServer) => {
       todoItemId: z.string().uuid(),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const todo = await getTodoItemById(workspaceId, params.todoItemId);
         if (!todo) {
@@ -503,14 +458,9 @@ export const registerTodosTools = (server: McpServer) => {
       content: z.string().min(1),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const todo = await getTodoItemById(workspaceId, params.todoItemId);
         if (!todo) {

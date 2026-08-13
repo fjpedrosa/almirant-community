@@ -3,7 +3,7 @@ import { z } from "zod";
 import { createHash } from "crypto";
 import { createObservation, searchObservations } from "@almirant/database";
 import {
-  getWorkspaceIdFromExtra,
+  assertOrgScope,
   getProjectIdFromExtra,
 } from "../setup";
 import { assertSafeMemoryText } from "../../lib/memory/scrubber";
@@ -64,19 +64,9 @@ export const registerSeedMemoryTools = (server: McpServer) => {
         .describe("Maximum number of results (1-20, default 5)"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: "Error: could not resolve workspaceId from API key",
-              },
-            ],
-            isError: true,
-          };
-        }
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
 
@@ -178,19 +168,9 @@ export const registerSeedMemoryTools = (server: McpServer) => {
         .describe("Project ID (defaults to connection's projectId)"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: "Error: could not resolve workspaceId from API key",
-              },
-            ],
-            isError: true,
-          };
-        }
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
 
