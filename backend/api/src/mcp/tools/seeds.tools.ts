@@ -22,7 +22,7 @@ import type { SeedWithRelations } from "@almirant/database";
 import { wsConnectionManager } from "../../shared/ws/ws-connection-manager";
 import {
   getManagedByAgentFromExtra,
-  getWorkspaceIdFromExtra,
+  assertOrgScope,
   getProjectIdFromExtra,
   getUserIdFromExtra,
 } from "../setup";
@@ -127,14 +127,9 @@ export const registerSeedsTools = (server: McpServer) => {
       selectedForIdeation: z.boolean().optional(),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const page = params.page ?? 1;
         const limit = params.limit ?? 50;
@@ -187,14 +182,9 @@ export const registerSeedsTools = (server: McpServer) => {
       id: z.string().uuid(),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const seed = await getSeedById(workspaceId, params.id);
         if (!seed) {
@@ -228,14 +218,9 @@ export const registerSeedsTools = (server: McpServer) => {
       metadata: z.record(z.string(), z.any()).optional(),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const defaultProjectId = getProjectIdFromExtra(extra);
 
@@ -285,14 +270,9 @@ export const registerSeedsTools = (server: McpServer) => {
       metadata: z.record(z.string(), z.any()).optional(),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const updated = await updateSeed(
           workspaceId,
@@ -341,14 +321,9 @@ export const registerSeedsTools = (server: McpServer) => {
       id: z.string().uuid(),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const deleted = await deleteSeed(workspaceId, params.id);
         if (!deleted) {
@@ -383,14 +358,9 @@ export const registerSeedsTools = (server: McpServer) => {
       status: SEED_STATUS_SCHEMA,
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const updated = await setSeedStatus(
           workspaceId,
@@ -430,14 +400,9 @@ export const registerSeedsTools = (server: McpServer) => {
       projectId: z.string().uuid().optional().describe("Filter seeds by project. Falls back to MCP session default project if not provided."),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const defaultProjectId = getProjectIdFromExtra(extra);
         const projectId = params.projectId ?? defaultProjectId;
@@ -481,14 +446,9 @@ export const registerSeedsTools = (server: McpServer) => {
       ids: z.array(z.string().uuid()).min(1).describe("Array of seed IDs to mark as used (clears selectedForIdeation)"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const count = await bulkSelectSeedsForIdeation(workspaceId, params.ids, false);
         return {
@@ -522,14 +482,9 @@ export const registerSeedsTools = (server: McpServer) => {
       promotedBy: z.string().optional(),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const seed = await getSeedById(workspaceId, params.id);
         if (!seed) {
@@ -635,14 +590,9 @@ export const registerSeedsTools = (server: McpServer) => {
       tagId: z.string().uuid().describe("Tag ID to assign"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const seed = await getSeedById(workspaceId, params.seedId);
         if (!seed) {
@@ -687,14 +637,9 @@ export const registerSeedsTools = (server: McpServer) => {
       tagId: z.string().uuid().describe("Tag ID to remove"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const seed = await getSeedById(workspaceId, params.seedId);
         if (!seed) {
@@ -736,14 +681,9 @@ export const registerSeedsTools = (server: McpServer) => {
       seedId: z.string().uuid().describe("Seed ID"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const seed = await getSeedById(workspaceId, params.seedId);
         if (!seed) {
@@ -776,14 +716,9 @@ export const registerSeedsTools = (server: McpServer) => {
       seedId: z.string().uuid(),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const comments = await getEntityComments("seed", params.seedId);
         return { content: [{ type: "text" as const, text: JSON.stringify(comments, null, 2) }] };
@@ -804,14 +739,9 @@ export const registerSeedsTools = (server: McpServer) => {
       content: z.string().min(1),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const userId = getUserIdFromExtra(extra);
         if (!userId) {
