@@ -17,6 +17,7 @@ const TERMINAL_JOB_STATUSES = [
 
 export interface AgentJobNativeArchiveCandidate {
   id: string;
+  workspaceId: string | null;
   archivableAt: Date;
 }
 
@@ -79,6 +80,7 @@ export const getAgentJobsEligibleForNativeArchive = async (
   const rows = await db
     .select({
       id: agentJobs.id,
+      workspaceId: agentJobs.workspaceId,
       completedAt: agentJobs.completedAt,
       updatedAt: agentJobs.updatedAt,
     })
@@ -105,6 +107,7 @@ export const getAgentJobsEligibleForNativeArchive = async (
 
   return rows.map((row) => ({
     id: row.id,
+    workspaceId: row.workspaceId,
     archivableAt: row.completedAt ?? row.updatedAt,
   }));
 };

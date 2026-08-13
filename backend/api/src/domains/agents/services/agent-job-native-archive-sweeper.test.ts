@@ -30,7 +30,7 @@ const makeDeps = (
 ): AgentJobNativeArchiveSweeperDeps => ({
   logger: silentLogger,
   getAgentJobsEligibleForNativeArchive: async () => [
-    { id: "job-1", archivableAt: new Date("2026-01-01T00:00:00Z") },
+    { id: "job-1", workspaceId: null, archivableAt: new Date("2026-01-01T00:00:00Z") },
   ],
   getAgentJobEventArchive: async () => null,
   getAgentNativeEventsByJobId: async (_jobId, filters) =>
@@ -213,4 +213,34 @@ test("streams a large history in bounded pages without retaining every event", a
   expect(stats.failures).toBe(0);
   expect(uploadCount).toBe(totalEvents);
   expect(largestPage).toBeLessThanOrEqual(pageSize);
+});
+
+test("passes the job's workspace to the archive writer so Cloud tenants stay separated", async () => {
+  let seenWorkspace: string | null | undefined;
+
+  await runAgentJobNativeArchiveSweeperOnce(
+    {},
+    makeDeps({
+      getAgentJobsEligibleForNativeArchive: async () => [
+        { id: "job-1", workspaceId: "ws-42", archivableAt: new Date("2026-01-01T00:00:00Z") },
+      ],
+      uploadAgentJobNativeEventsArchive: async (_jobId, pages, workspaceId) => {
+        seenWorkspace = workspaceId;
+        for await (const _page of pages) void _page;
+        return {
+          storageBucket: null,
+          storageKey: "workspaces/ws-42/agent-jobs/job-1/native_events.ndjson.gz",
+          storageUrl: null,
+          format: "ndjson",
+          compression: "gzip",
+          contentType: "application/gzip",
+          rowCount: 2,
+          lastSequenceNum: 2,
+          checksumSha256: "abc",
+        };
+      },
+    }),
+  );
+
+  expect(seenWorkspace).toBe("ws-42");
 });

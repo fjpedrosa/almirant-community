@@ -43,6 +43,7 @@ export type AgentJobNativeArchiveSweeperDeps = {
   uploadAgentJobNativeEventsArchive: (
     agentJobId: string,
     pages: AsyncIterable<AgentNativeEventDb[]>,
+    workspaceId: string | null,
   ) => Promise<UploadedAgentJobArchive | null>;
   upsertAgentJobEventArchive: typeof upsertAgentJobEventArchive;
   deleteAgentNativeEventsByJobId: (agentJobId: string) => Promise<number>;
@@ -131,7 +132,7 @@ export const runAgentJobNativeArchiveSweeperOnce = async (
 
       if (!existing) {
         const pages = streamNativeEventPages(job.id, eventPageSize, deps);
-        const uploaded = await deps.uploadAgentJobNativeEventsArchive(job.id, pages);
+        const uploaded = await deps.uploadAgentJobNativeEventsArchive(job.id, pages, job.workspaceId);
         if (uploaded === null || uploaded.rowCount === 0) continue;
         await deps.upsertAgentJobEventArchive({
           agentJobId: job.id,
