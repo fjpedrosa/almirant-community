@@ -107,6 +107,20 @@ describe("agent job native archive sweeper", () => {
     expect(stats.failures).toBe(1);
   });
 
+  test("retries metadata after an identical archive publication", async () => {
+    let attempts = 0; let deleted = 0;
+    const deps = makeDeps({
+      upsertAgentJobEventArchive: async () => { if (++attempts === 1) throw new Error("metadata unavailable"); return {} as never; },
+      deleteAgentNativeEventsByJobId: async () => { deleted += 1; return 2; },
+    });
+    const first = await runAgentJobNativeArchiveSweeperOnce({}, deps);
+    const second = await runAgentJobNativeArchiveSweeperOnce({}, deps);
+    expect(first.failures).toBe(1);
+    expect(second.failures).toBe(0);
+    expect(attempts).toBe(2);
+    expect(deleted).toBe(1);
+  });
+
   test("skips re-uploading when an archive already exists but still purges", async () => {
     const uploaded: string[] = [];
     const deleted: string[] = [];
@@ -158,4 +172,45 @@ describe("agent job native archive sweeper", () => {
     expect(receivedCutoff).not.toBeNull();
     expect(Math.abs(receivedCutoff!.getTime() - expected)).toBeLessThan(5_000);
   });
+});
+
+test("streams a large history in bounded pages without retaining every event", async () => {
+  const pageSize = 100;
+  const totalEvents = 2_500;
+  let uploadCount = 0;
+  let largestPage = 0;
+
+  const stats = await runAgentJobNativeArchiveSweeperOnce(
+    { eventPageSize: pageSize },
+    makeDeps({
+      getAgentNativeEventsByJobId: async (_jobId, filters) => {
+        const after = filters?.afterSequence ?? 0;
+        if (after >= totalEvents) return [];
+        const start = after + 1;
+        const end = Math.min(start + pageSize - 1, totalEvents);
+        return Array.from({ length: end - start + 1 }, (_, offset) => makeEvent(start + offset));
+      },
+      uploadAgentJobNativeEventsArchive: async (_jobId, pages) => {
+        for await (const page of pages) {
+          largestPage = Math.max(largestPage, page.length);
+          uploadCount += page.length;
+        }
+        return {
+          storageBucket: null,
+          storageKey: "agent-jobs/job-1/native_events.ndjson.gz",
+          storageUrl: null,
+          format: "ndjson",
+          compression: "gzip",
+          contentType: "application/gzip",
+          rowCount: uploadCount,
+          lastSequenceNum: totalEvents,
+          checksumSha256: "abc",
+        };
+      },
+    }),
+  );
+
+  expect(stats.failures).toBe(0);
+  expect(uploadCount).toBe(totalEvents);
+  expect(largestPage).toBeLessThanOrEqual(pageSize);
 });

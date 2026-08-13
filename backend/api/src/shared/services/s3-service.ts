@@ -1,6 +1,8 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env, logger } from "@almirant/config";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
 
 let s3Client: S3Client | null = null;
 
@@ -58,6 +60,33 @@ export const uploadBufferToS3 = async (
     url = `https://${bucket}.s3.${env.S3_REGION}.amazonaws.com/${key}`;
   }
 
+  logger.info({ key, bucket }, "Uploaded file to S3");
+  return url;
+};
+
+export const uploadFileToS3 = async (
+  filePath: string,
+  key: string,
+  contentType: string,
+  bucketOverride?: string,
+): Promise<string> => {
+  const client = getS3Client();
+  const bucket = bucketOverride ?? env.S3_BUCKET!;
+  const file = await stat(filePath);
+
+  await client.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: createReadStream(filePath),
+      ContentLength: file.size,
+      ContentType: contentType,
+    }),
+  );
+
+  const url = env.S3_ENDPOINT
+    ? `${env.S3_ENDPOINT}/${bucket}/${key}`
+    : `https://${bucket}.s3.${env.S3_REGION}.amazonaws.com/${key}`;
   logger.info({ key, bucket }, "Uploaded file to S3");
   return url;
 };
