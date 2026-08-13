@@ -3,6 +3,8 @@ import { Elysia } from "elysia";
 import {
   createDatabaseMocks,
   createLoggerMock,
+  expectSanitized,
+  FakeDrizzleQueryError,
   withTestOrg,
   restoreRealModules,
 } from "../../../test/mocks";
@@ -16,22 +18,6 @@ import {
 // `internalErrorResponse`, so it must re-register the real module itself
 // rather than trust whatever an earlier-run file left behind.
 const __realResponse = { ...(await import("../../../shared/services/response")) };
-
-// Mirrors the exact shape of the production leak (Cloud issue #237): a
-// DrizzleQueryError embeds the raw SQL, column/table names, and bound
-// params — including a credential hash — directly in `.message`. Any DB
-// call on any admin-facing route can fail this way (connection pool churn,
-// transient network errors, ...).
-class FakeDrizzleQueryError extends Error {
-  constructor() {
-    super(
-      'Failed query: select "workspace"."id", "workspace"."max_concurrent_jobs" from "workspace" ' +
-        'where ("workspace"."api_key_hash" = $1) limit $2 ' +
-        "params: ab12cd34ef56a1b2c3d4e5f6,1",
-    );
-    this.name = "DrizzleQueryError";
-  }
-}
 
 const testFeedbackItem = {
   id: "feedback-item-1",
@@ -48,7 +34,11 @@ const dbMocks = createDatabaseMocks({
     if (commentId === "comment-not-owned") {
       throw new Error("COMMENT_NOT_OWNED");
     }
-    throw new FakeDrizzleQueryError();
+    throw new FakeDrizzleQueryError(
+      'Failed query: select "workspace"."id", "workspace"."max_concurrent_jobs" from "workspace" ' +
+        'where ("workspace"."api_key_hash" = $1) limit $2 ' +
+        "params: ab12cd34ef56a1b2c3d4e5f6,1",
+    );
   },
 });
 
@@ -73,12 +63,7 @@ describe("adminFeedbackRoutes DELETE /feedback-items/:id/comments/:commentId —
     const body = (await res.json()) as { success: boolean; error: string };
 
     expect(res.status).toBe(500);
-    expect(body.success).toBe(false);
-    expect(body.error).toBe("Failed to delete comment");
-    expect(body.error).not.toContain("Failed query");
-    expect(body.error).not.toContain("select");
-    expect(body.error).not.toContain("workspace");
-    expect(body.error).not.toContain("api_key_hash");
+    expectSanitized(body, "Failed to delete comment", ["Failed query", "select", "workspace", "api_key_hash"]);
   });
 
   it("still returns 403 with the curated message when the comment is not owned by the caller", async () => {

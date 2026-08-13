@@ -10,6 +10,7 @@
 //
 // IMPORTANT: mock.module() MUST be called at module scope, NOT inside describe/beforeEach.
 
+import { expect } from "bun:test";
 import {
   testWorkItem,
   testIdeaItem,
@@ -31,6 +32,28 @@ import * as scrubberExports from "../lib/memory/scrubber";
 import * as agentJobEnrichmentExports from "../domains/agents/services/agent-job-enrichment";
 import * as feedbackEventsExports from "../shared/ws/feedback-events";
 import * as scheduledAgentRuntimeValidationExports from "../domains/agents/services/scheduled-agent-runtime-validation";
+
+export class FakeDrizzleQueryError extends Error {
+  constructor(
+    message =
+      'Failed query: select "api_keys"."id", "api_keys"."key_hash" from "api_keys" ' +
+      'where ("api_keys"."key_hash" = $1 and "api_keys"."is_active" = $2) limit $3 ' +
+      "params: ab12cd34ef56a1b2c3d4e5f6,true,1",
+  ) {
+    super(message);
+    this.name = "DrizzleQueryError";
+  }
+}
+
+export const expectSanitized = (
+  body: { success: boolean; error: string },
+  fallback: string,
+  forbiddenFragments: readonly string[],
+): void => {
+  expect(body.success).toBe(false);
+  expect(body.error).toBe(fallback);
+  for (const fragment of forbiddenFragments) expect(body.error).not.toContain(fragment);
+};
 
 // ---------------------------------------------------------------------------
 // Real module snapshots — captured at import time (before any mock.module).
