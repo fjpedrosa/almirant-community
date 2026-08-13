@@ -44,6 +44,7 @@ import {
   buildPaginationMeta,
 } from "../../../shared/services/response";
 import { enrichJobWithFingerprint, enrichJobsWithFingerprint } from "../services/agent-job-enrichment";
+import { readArchivedNativeEvents } from "../services/agent-job-archive-reader";
 import {
   buildDefaultJobResourceEstimate,
   buildWorkItemResourceForecast,
@@ -1852,6 +1853,14 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         afterSequence,
         limit,
       });
+
+      if (events.length > 0) return successResponse(events);
+
+      const archived = await readArchivedNativeEvents(params.id, { afterSequence, limit });
+      if (archived) {
+        set.headers["x-almirant-event-source"] = "archive";
+        return successResponse(archived);
+      }
 
       return successResponse(events);
     },

@@ -7,10 +7,9 @@ import path from "node:path";
 import { createGzip } from "node:zlib";
 import type { AgentNativeEventDb } from "@almirant/database";
 import { putArchiveBlobFromFile } from "../../../shared/services/archive-blob-store";
+import { buildNativeEventsArchiveKey } from "./agent-job-archive-key";
 
-export const AGENT_JOB_ARCHIVE_KIND = {
-  nativeEvents: "native_events",
-} as const;
+export { AGENT_JOB_ARCHIVE_KIND } from "./agent-job-archive-key";
 
 export type UploadedAgentJobArchive = {
   storageBucket: string | null;
@@ -42,6 +41,7 @@ export type AgentNativeEventPages = AsyncIterable<AgentNativeEventDb[]>;
 export const uploadAgentJobNativeEventsArchivePages = async (
   agentJobId: string,
   pages: AgentNativeEventPages,
+  workspaceId: string | null = null,
 ): Promise<UploadedAgentJobArchive | null> => {
   const tempDir = await mkdtemp(path.join(tmpdir(), "almirant-native-events-"));
   const tempPath = path.join(tempDir, "native_events.ndjson.gz");
@@ -71,7 +71,7 @@ export const uploadAgentJobNativeEventsArchivePages = async (
     const checksum = createHash("sha256");
     for await (const chunk of createReadStream(tempPath)) checksum.update(chunk);
     const stored = await putArchiveBlobFromFile(
-      `agent-jobs/${agentJobId}/${AGENT_JOB_ARCHIVE_KIND.nativeEvents}.ndjson.gz`,
+      buildNativeEventsArchiveKey(agentJobId, workspaceId),
       tempPath,
       "application/gzip",
     );
