@@ -1,7 +1,5 @@
-import { createHash } from "node:crypto";
-import { gzipSync } from "node:zlib";
 import type { AgentNativeEventDb } from "@almirant/database";
-import { putArchiveBlob } from "../../../shared/services/archive-blob-store";
+import { putArchiveBlobFromLines } from "../../../shared/services/archive-blob-store";
 
 export const AGENT_JOB_ARCHIVE_KIND = {
   nativeEvents: "native_events",
@@ -24,34 +22,43 @@ const normaliseDate = (value: Date | string | null | undefined): string | null =
   return value instanceof Date ? value.toISOString() : value;
 };
 
+export const toNativeEventLine = (event: AgentNativeEventDb): string =>
+  `${JSON.stringify({
+    ...event,
+    emittedAt: normaliseDate(event.emittedAt),
+    receivedAt: normaliseDate(event.receivedAt),
+    createdAt: normaliseDate(event.createdAt),
+  })}\n`;
+
 export const uploadAgentJobNativeEventsArchive = async (
   agentJobId: string,
-  events: AgentNativeEventDb[],
+  events: AsyncIterable<AgentNativeEventDb>,
 ): Promise<UploadedAgentJobArchive> => {
-  const ndjson = events
-    .map((event) =>
-      `${JSON.stringify({
-        ...event,
-        emittedAt: normaliseDate(event.emittedAt),
-        receivedAt: normaliseDate(event.receivedAt),
-        createdAt: normaliseDate(event.createdAt),
-      })}\n`,
-    )
-    .join("");
+  let rowCount = 0;
+  let lastSequenceNum: number | null = null;
 
-  const body = new Uint8Array(gzipSync(Buffer.from(ndjson, "utf-8")));
-  const stored = await putArchiveBlob(
+  const lines = async function* () {
+    for await (const event of events) {
+      rowCount += 1;
+      lastSequenceNum = event.sequenceNum;
+      yield toNativeEventLine(event);
+    }
+  };
+
+  const stored = await putArchiveBlobFromLines(
     `agent-jobs/${agentJobId}/${AGENT_JOB_ARCHIVE_KIND.nativeEvents}.ndjson.gz`,
-    body,
+    lines(),
   );
 
   return {
-    ...stored,
+    storageBucket: stored.storageBucket,
+    storageKey: stored.storageKey,
+    storageUrl: stored.storageUrl,
     format: "ndjson",
     compression: "gzip",
     contentType: "application/gzip",
-    rowCount: events.length,
-    lastSequenceNum: events.length > 0 ? events[events.length - 1]!.sequenceNum : null,
-    checksumSha256: createHash("sha256").update(body).digest("hex"),
+    rowCount,
+    lastSequenceNum,
+    checksumSha256: stored.checksumSha256,
   };
 };

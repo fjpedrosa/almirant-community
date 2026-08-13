@@ -32,9 +32,12 @@ mock.module("./s3-service", () => ({
   downloadBufferFromS3: async () => Buffer.from("from-s3"),
 }));
 
-const { isArchiveStoreConfigured, putArchiveBlob, getArchiveBlob } = await import(
-  "./archive-blob-store"
-);
+const {
+  isArchiveStoreConfigured,
+  putArchiveBlob,
+  putArchiveBlobFromLines,
+  getArchiveBlob,
+} = await import("./archive-blob-store");
 
 let storageDir: string;
 
@@ -91,5 +94,48 @@ describe("archive blob store", () => {
     expect(s3Uploads).toEqual([
       { key: "agent-jobs/xyz/native_events.ndjson.gz", bucket: "almirant-archives" },
     ]);
+  });
+});
+
+describe("streaming archive writes", () => {
+  const lines = async function* (count: number) {
+    for (let i = 0; i < count; i += 1) {
+      yield `${JSON.stringify({ i, payload: "x".repeat(200) })}\n`;
+    }
+  };
+
+  test("gzips a large stream to local disk without buffering the rows", async () => {
+    const result = await putArchiveBlobFromLines(
+      "agent-jobs/big/native_events.ndjson.gz",
+      lines(50_000),
+    );
+
+    expect(result.storageBucket).toBeNull();
+    expect(result.checksumSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.byteLength).toBeGreaterThan(0);
+
+    const written = readFileSync(
+      join(storageDir, "archives", "agent-jobs", "big", "native_events.ndjson.gz"),
+    );
+    expect(written.byteLength).toBe(result.byteLength);
+  });
+
+  test("round-trips the streamed content", async () => {
+    const { gunzipSync } = await import("node:zlib");
+    const ref = await putArchiveBlobFromLines("agent-jobs/rt/native_events.ndjson.gz", lines(3));
+    const raw = gunzipSync(Buffer.from(await getArchiveBlob(ref))).toString("utf-8");
+
+    expect(raw.trim().split("\n")).toHaveLength(3);
+  });
+
+  test("uploads the compressed stream to S3 when configured", async () => {
+    configuredBucket.value = "almirant-archives";
+    const result = await putArchiveBlobFromLines(
+      "agent-jobs/s3/native_events.ndjson.gz",
+      lines(10),
+    );
+
+    expect(result.storageBucket).toBe("almirant-archives");
+    expect(s3Uploads).toHaveLength(1);
   });
 });

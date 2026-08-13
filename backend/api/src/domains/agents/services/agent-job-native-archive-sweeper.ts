@@ -42,7 +42,7 @@ export type AgentJobNativeArchiveSweeperDeps = {
   ) => Promise<AgentNativeEventDb[]>;
   uploadAgentJobNativeEventsArchive: (
     agentJobId: string,
-    events: AgentNativeEventDb[],
+    events: AsyncIterable<AgentNativeEventDb>,
   ) => Promise<UploadedAgentJobArchive>;
   upsertAgentJobEventArchive: typeof upsertAgentJobEventArchive;
   deleteAgentNativeEventsByJobId: (agentJobId: string) => Promise<number>;
@@ -66,12 +66,12 @@ const DEFAULT_EVENT_PAGE_SIZE = 1000;
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
 
-const collectNativeEvents = async (
+// Yields page by page: a job with millions of events must not be materialised.
+const streamNativeEvents = async function* (
   agentJobId: string,
   eventPageSize: number,
   deps: AgentJobNativeArchiveSweeperDeps,
-): Promise<AgentNativeEventDb[]> => {
-  const events: AgentNativeEventDb[] = [];
+): AsyncGenerator<AgentNativeEventDb> {
   let afterSequence: number | undefined;
 
   while (true) {
@@ -81,12 +81,10 @@ const collectNativeEvents = async (
     });
 
     if (batch.length === 0) break;
-    events.push(...batch);
+    yield* batch;
     afterSequence = batch[batch.length - 1]!.sequenceNum;
     if (batch.length < eventPageSize) break;
   }
-
-  return events;
 };
 
 export const runAgentJobNativeArchiveSweeperOnce = async (
@@ -133,10 +131,12 @@ export const runAgentJobNativeArchiveSweeperOnce = async (
       );
 
       if (!existing) {
-        const events = await collectNativeEvents(job.id, eventPageSize, deps);
-        if (events.length === 0) continue;
+        const uploaded = await deps.uploadAgentJobNativeEventsArchive(
+          job.id,
+          streamNativeEvents(job.id, eventPageSize, deps),
+        );
+        if (uploaded.rowCount === 0) continue;
 
-        const uploaded = await deps.uploadAgentJobNativeEventsArchive(job.id, events);
         await deps.upsertAgentJobEventArchive({
           agentJobId: job.id,
           archiveKind: AGENT_JOB_ARCHIVE_KIND.nativeEvents,
