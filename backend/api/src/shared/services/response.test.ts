@@ -1,19 +1,5 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
-import { createLoggerMock } from "../../test/mocks";
-
-// Mirrors the exact shape of the production leak (issue #237): a
-// DrizzleQueryError embeds the raw SQL, column/table names, and bound
-// params — including a credential hash — directly in `.message`.
-class FakeDrizzleQueryError extends Error {
-  constructor() {
-    super(
-      'Failed query: select "api_keys"."id", "api_keys"."key_hash" from "api_keys" ' +
-        'where ("api_keys"."key_hash" = $1 and "api_keys"."is_active" = $2) limit $3 ' +
-        "params: ab12cd34ef56a1b2c3d4e5f6,true,1",
-    );
-    this.name = "DrizzleQueryError";
-  }
-}
+import { createLoggerMock, expectSanitized, FakeDrizzleQueryError } from "../../test/mocks";
 
 const loggerErrorSpy = mock((..._args: unknown[]) => {});
 const loggerMocks = createLoggerMock();
@@ -43,12 +29,7 @@ describe("internalErrorResponse", () => {
       "Failed to get scheduled configs",
     );
 
-    expect(body.success).toBe(false);
-    expect(body.error).toBe("Failed to get scheduled configs");
-    expect(body.error).not.toContain("Failed query");
-    expect(body.error).not.toContain("select");
-    expect(body.error).not.toContain("api_keys");
-    expect(body.error).not.toContain("key_hash");
+    expectSanitized(body, "Failed to get scheduled configs", ["Failed query", "select", "api_keys", "key_hash"]);
   });
 
   it("defaults the fallback to a generic message when the caller doesn't provide one", async () => {

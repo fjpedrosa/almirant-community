@@ -4,6 +4,8 @@ import {
   createDatabaseMocks,
   createLoggerMock,
   createWsMock,
+  expectSanitized,
+  FakeDrizzleQueryError,
   restoreRealModules,
   withTestOrg,
 } from "../../../test/mocks";
@@ -14,25 +16,13 @@ import {
 // this suite deliberately exercises the REAL `internalErrorResponse`.
 const __realResponse = { ...(await import("../../../shared/services/response")) };
 
-// Mirrors the exact shape of the production leak (issue #237): a
-// DrizzleQueryError embeds the raw SQL, column/table names, and bound
-// params directly in `.message`. `getIncidentBundleForWorkspace` is the
-// route handler's own ownership-verification DB read — a transient DB
-// failure there must never surface driver detail to the caller.
-class FakeDrizzleQueryError extends Error {
-  constructor() {
-    super(
+const dbMocks = createDatabaseMocks({
+  getIncidentBundleForWorkspace: async () => {
+    throw new FakeDrizzleQueryError(
       'Failed query: select "incident_bundles"."id", "incident_bundles"."data" from "incident_bundles" ' +
         'where ("incident_bundles"."workspace_id" = $1 and "incident_bundles"."id" = $2) limit $3 ' +
         "params: org-test-1,bundle-1,1",
     );
-    this.name = "DrizzleQueryError";
-  }
-}
-
-const dbMocks = createDatabaseMocks({
-  getIncidentBundleForWorkspace: async () => {
-    throw new FakeDrizzleQueryError();
   },
 });
 
@@ -54,12 +44,7 @@ describe("debugRoutes GET /debug/incidents/:bundleId — untyped 500 sanitizatio
     const body = (await res.json()) as { success: boolean; error: string };
 
     expect(res.status).toBe(500);
-    expect(body.success).toBe(false);
-    expect(body.error).toBe("Failed to get bundle");
-    expect(body.error).not.toContain("Failed query");
-    expect(body.error).not.toContain("select");
-    expect(body.error).not.toContain("incident_bundles");
-    expect(body.error).not.toContain("workspace_id");
+    expectSanitized(body, "Failed to get bundle", ["Failed query", "select", "incident_bundles", "workspace_id"]);
   });
 });
 
