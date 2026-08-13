@@ -45,7 +45,7 @@ import { formatText, isAiConfigured } from "../../domains/ai/shared/services/ai-
 import { calculateCostUsd, type AiProvider } from "../../domains/billing/quota/services/ai-model-pricing";
 import { uploadBufferToS3, generateAttachmentKey, isS3Configured } from "../../shared/services/s3-service";
 import { writeLocalAttachment } from "../../shared/services/local-attachments";
-import { getProjectIdFromExtra, getWorkspaceIdFromExtra, getManagedByAgentFromExtra, getUserIdFromExtra, getPlanningSessionIdFromExtra, getPlanningMetadataFromExtra, getJobIdFromExtra } from "../setup";
+import { assertOrgScope, getProjectIdFromExtra, getManagedByAgentFromExtra, getUserIdFromExtra, getPlanningSessionIdFromExtra, getPlanningMetadataFromExtra, getJobIdFromExtra } from "../setup";
 import { quotaService } from "../../domains/billing/quota/services/quota-service-instance";
 import { propagateProviderToParent } from "../../domains/connections/services/propagate-provider";
 import {
@@ -385,11 +385,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       assignee: z.string().optional().describe("Filter by assignee"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const page = params.page ?? 1;
         const limit = params.limit ?? 50;
@@ -442,11 +441,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       id: z.string().uuid().describe("Work item ID to retrieve"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const workItem = await getWorkItemById(params.id, workspaceId);
         if (!workItem) {
@@ -487,11 +485,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       metadata: z.record(z.string(), z.any()).optional().describe("Arbitrary metadata (e.g. { definitionOfDone: '...' })"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const managedBy = getManagedByAgentFromExtra(extra);
         const planningSessionId = getPlanningSessionIdFromExtra(extra);
@@ -595,11 +592,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       metadata: z.record(z.string(), z.any()).optional().describe("Arbitrary metadata"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const managedBy = getManagedByAgentFromExtra(extra);
         const planningSessionId = getPlanningSessionIdFromExtra(extra);
@@ -663,11 +659,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       metadata: z.record(z.string(), z.any()).optional().describe("Arbitrary metadata"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const managedBy = getManagedByAgentFromExtra(extra);
         const planningSessionId = getPlanningSessionIdFromExtra(extra);
@@ -731,11 +726,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       metadata: z.record(z.string(), z.any()).optional().describe("Arbitrary metadata"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const managedBy = getManagedByAgentFromExtra(extra);
         const planningSessionId = getPlanningSessionIdFromExtra(extra);
@@ -798,11 +792,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       metadata: z.record(z.string(), z.any()).optional().describe("Arbitrary metadata"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const managedBy = getManagedByAgentFromExtra(extra);
         const planningSessionId = getPlanningSessionIdFromExtra(extra);
@@ -872,11 +865,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       metadata: z.record(z.string(), z.any()).optional().describe("Arbitrary metadata to merge into existing metadata (e.g. { definitionOfDone: '...' })"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const { id, metadata: newMetadata, boardColumnId, ...updateFields } = params;
         const managedBy = getManagedByAgentFromExtra(extra);
@@ -1020,11 +1012,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       id: z.string().uuid().describe("Work item ID to delete"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         // Fetch before deleting to get boardId for the broadcast
         const existing = await getWorkItemById(params.id, workspaceId);
@@ -1070,11 +1061,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       id: z.string().uuid().describe("Work item ID to generate a prompt for"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         if (!isAiConfigured()) {
           return {
@@ -1142,11 +1132,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       id: z.string().uuid().describe("Work item ID to retrieve the prompt from"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const workItem = await getWorkItemById(params.id, workspaceId);
 
@@ -1203,11 +1192,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       aiProvider: z.string().optional().describe("AI provider identifier (e.g. 'openai', 'anthropic'). When combined with setAiProcessing=true, automatically sets metadata for provider icon display (aiReserved, aiReservationProvider, aiProvider, managedBy)."),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         // Validate work item exists
         const workItem = await getWorkItemById(params.workItemId, workspaceId);
@@ -1395,11 +1383,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       reviewedFiles: z.array(z.string()).optional().describe("List of files that were reviewed"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         // Fetch the work item
         const workItem = await getWorkItemById(params.workItemId, workspaceId);
@@ -1547,11 +1534,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       definitionOfDoneCriteriaByWorkItemId: z.record(z.string(), z.array(definitionOfDoneCriterionResultSchema)).optional().describe("Optional criteria statuses keyed by work item ID for parent block reviews. Use this to update child work item DoD checkboxes while completing the parent review once."),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
@@ -1861,11 +1847,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       deleteAfterUpload: z.boolean().optional().describe("If true, delete filePath after successful upload (default: true)"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
@@ -1981,11 +1966,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       duration: z.number().optional().describe("Video duration in seconds"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
@@ -2120,11 +2104,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       limit: z.number().int().min(1).max(200).optional().describe("Max number of events to return (default: 50, max: 200)"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         // Validate work item exists
         const workItem = await getWorkItemById(params.workItemId, workspaceId);
@@ -2179,11 +2162,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       metadata: z.record(z.string(), z.any()).optional().describe("Additional metadata (e.g. { taskId: 'MC-48', skill: 'implement' })"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const provider = inferAiProvider(params.model, params.provider);
         const computedCost = calculateCostUsd({
@@ -2297,11 +2279,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       requestedByUserId: z.string().optional().describe("The user ID who requested this implementation"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const provider = inferAiProvider(params.model, params.provider);
 
@@ -2554,11 +2535,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       includeSummary: z.boolean().optional().default(true).describe("Include aggregated summary (totalTokens, totalCost, sessionCount). Default: true"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         // Validate that the work item exists
         const workItem = await getWorkItemById(params.workItemId, workspaceId);
@@ -2635,11 +2615,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       taskId: z.string().optional().describe("Human-readable task ID (e.g. 'MC-355')"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const provider = inferAiProvider(params.model, params.provider);
 
@@ -2899,11 +2878,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       taskId: z.string().optional().describe("Human-readable task ID (e.g. 'A-355')"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const provider = inferAiProvider(params.model, params.provider);
 
@@ -3149,11 +3127,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       taskId: z.string().optional().describe("Human-readable task ID (e.g. 'A-355')"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const provider = inferAiProvider(params.model, params.provider);
 
@@ -3353,14 +3330,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       workItemId: z.string().uuid().describe("The work item ID to list comments for"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
@@ -3389,14 +3362,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       content: z.string().min(1).describe("The comment content (supports Markdown)"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const userId = getUserIdFromExtra(extra);
         if (!userId) {
@@ -3457,14 +3426,10 @@ export const registerWorkItemsTools = (server: McpServer) => {
       documentationNotes: z.string().optional().describe("Markdown notes about what needs documenting after this change"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const workItem = await getWorkItemById(params.workItemId, workspaceId);
         if (!workItem) {
