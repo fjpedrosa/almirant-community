@@ -10,7 +10,7 @@ const contract = "frontend/milestone-form-dialog-retirement.contract.test.ts";
 const apiPath = "frontend/src/lib/api/client.ts";
 const forbidden = new Set(["MilestoneFormDialog"]);
 const ownedToken = "milestone-form-dialog";
-const expectedPresent = true;
+const expectedPresent = false;
 const ownedBasename = posix.basename(owned);
 const sentinels: Array<[string, string[]]> = [
   ["frontend/src/domains/goals/presentation/containers/goals-page-container.tsx", ["GoalsPageContainer", "useGoalsReadiness"]],

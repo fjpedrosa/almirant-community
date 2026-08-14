@@ -14,7 +14,6 @@ const sentinels: Array<[string, string[]]> = [
   ["frontend/src/domains/goals/presentation/containers/goals-page-container.tsx", ["GoalsPageContainer", "useGoalsReadiness"]],
   ["frontend/src/domains/goals/presentation/components/goals-page.tsx", ["GoalsPage"]],
   ["frontend/src/domains/goals/presentation/components/radial-progress.tsx", ["RadialProgress"]],
-  ["frontend/src/domains/goals/presentation/components/milestone-form-dialog.tsx", ["MilestoneFormDialog"]],
   ["frontend/src/domains/goals/domain/types.ts", ["MilestoneFormValues", "MilestoneWorkItemOption", "MilestoneFormDialogProps"]],
   ["backend/api/src/mcp/tools/milestones.tools.ts", [
     "list_milestones", "get_milestone", "get_milestone_progress", "create_milestone",
@@ -68,7 +67,7 @@ describe("useMilestoneForm retirement boundary", () => {
   });
 
   test("fails closed for relocated imports, symbols, and templates while ignoring prose", () => {
-    const importer = "frontend/src/domains/goals/presentation/components/milestone-form-dialog.tsx";
+    const importer = "frontend/src/domains/goals/presentation/components/goals-page.tsx";
     const valid = read(importer);
     const relocated = "frontend/src/domains/goals/application/archive/use-milestone-form.ts";
     const mutations = [
