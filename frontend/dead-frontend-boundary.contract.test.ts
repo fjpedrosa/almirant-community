@@ -19,6 +19,7 @@ const retiredRelativePaths = [
   "src/domains/goals/presentation/components/milestone-metrics.tsx",
   "src/domains/goals/presentation/components/milestone-progress-bar.tsx",
   "src/domains/goals/presentation/components/milestone-checklist.tsx",
+  "src/domains/goals/application/hooks/use-goals-page.ts",
   "src/domains/github/presentation/components/github-repo-link.tsx",
 ];
 const retiredFiles = retiredRelativePaths.map((path) => resolve(frontendRoot, path));

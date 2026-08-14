@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import type { UseFormReturn } from "react-hook-form";
 
 export type MilestoneStatus =
@@ -68,23 +67,6 @@ export interface GoalProjectOption {
   id: string;
   name: string;
   color: string;
-}
-
-export interface GoalsPageProps {
-  projects: GoalProjectOption[];
-  selectedProjectId: string | null;
-  selectedMilestoneId: string | null;
-  onProjectChange: (projectId: string) => void;
-  milestones: MilestoneWithProgress[];
-  selectedMilestone: MilestoneWithProgress | null;
-  isLoadingProjects: boolean;
-  isLoadingMilestones: boolean;
-  isLoadingMilestoneDetail: boolean;
-  onCreateMilestone: () => void;
-  onEditMilestone: (milestone: MilestoneWithProgress) => void;
-  onSelectMilestone: (milestoneId: string) => void;
-  onOpenWorkItem: (workItemId: string) => void;
-  formDialog: ReactNode;
 }
 
 export interface MilestoneFormValues {
