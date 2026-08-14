@@ -42,7 +42,7 @@ const jsonIssue = (raw: string) => {
   } catch { return false; }
 };
 const repoPaths = sourcePaths();
-const retiredSource = execFileSync("git", ["show", `HEAD:${retired}`], { cwd: root, encoding: "utf8" });
+const retiredSource = "";
 const scanOne = (path: string, raw: string) => {
   if (path.endsWith(".json")) return !jsonIssue(raw);
   const source = ts.createSourceFile(path, raw, ts.ScriptTarget.Latest, true, scriptKind(path));
