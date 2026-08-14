@@ -5,11 +5,11 @@ import { execFileSync } from "node:child_process";
 import { dirname, posix, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "..");
-const retired = "frontend/src/domains/github/presentation/components/github-sync-button.tsx";
+const retired = "frontend/src/domains/github/presentation/components/github-contributors-grid.tsx";
 const typePath = "frontend/src/domains/github/domain/types.ts";
-const contract = "frontend/github-sync-button-retirement.contract.test.ts";
-const forbidden = new Set(["GithubSyncButton", "GithubSyncButtonProps"]);
-const retiredToken = "github-sync-button";
+const contract = "frontend/github-contributors-grid-retirement.contract.test.ts";
+const forbidden = new Set(["GithubContributorsGrid", "GithubContributorsGridProps"]);
+const retiredToken = "github-contributors-grid";
 const retiredBasename = posix.basename(retired);
 const sentinels: Array<[string, string[]]> = [
   ["frontend/src/domains/github/application/hooks/use-github-tab.ts", ["useGithubTab"]],
@@ -46,7 +46,7 @@ const scanOne = (path: string, raw: string, allowRetiredType = false) => {
   const specs: string[] = [];
   let executableIssue = relocatedPath;
   const visit = (node: ts.Node): void => {
-    if (allowRetiredType && path === typePath && ts.isInterfaceDeclaration(node) && node.name.text === "GithubSyncButtonProps") return;
+    if (allowRetiredType && path === typePath && ts.isInterfaceDeclaration(node) && node.name.text === "GithubContributorsGridProps") return;
     if (ts.isIdentifier(node) && forbidden.has(node.text)) executableIssue = true;
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
       const value = literal(node.moduleSpecifier);
@@ -74,11 +74,11 @@ const scan = (overrides: Record<string, string | undefined> = {}) => [...new Set
 const retiredPresent = (overrides: Record<string, string | undefined> = {}) => existsSync(resolve(root, retired)) || overrides[retired] !== undefined;
 const append = (raw: string, value: string) => { const next = `${raw}\n${value}\n`; expect(next).not.toBe(raw); return next; };
 
-describe("GitHub sync button retirement boundary", () => {
-  test("retires only the orphaned sync button and preserves the residual GitHub graph", () => {
+describe("GitHub contributors grid retirement boundary", () => {
+  test("retires only the orphaned contributors grid and preserves the residual GitHub graph", () => {
     expect(retiredPresent()).toBe(false);
     expect(scan()).toBe(true);
-    expect(read(typePath).includes("GithubSyncButtonProps")).toBe(false);
+    expect(read(typePath).includes("GithubContributorsGridProps")).toBe(false);
     expect(read(typePath).includes("GithubSettingsContainerProps")).toBe(true);
     expect(read(typePath).includes("GithubTabStatus")).toBe(true);
     for (const [path, needles] of sentinels) expect(needles.every((needle) => read(path).includes(needle))).toBe(true);
@@ -87,19 +87,19 @@ describe("GitHub sync button retirement boundary", () => {
   test("fails closed for relocated imports, symbols, and templates while ignoring prose", () => {
     const importer = "frontend/src/domains/github/presentation/containers/github-settings-container.tsx";
     const valid = read(importer);
-    const relocated = "frontend/src/domains/github/presentation/archive/github-sync-button.tsx";
+    const relocated = "frontend/src/domains/github/presentation/archive/github-contributors-grid.tsx";
     const mutations = [
-      { [relocated]: "export const GithubSyncButton = () => null;" },
-      { [importer]: append(valid, 'import { GithubSyncButton } from "../components/github-sync-button";') },
-      { [importer]: append(valid, 'import type { GithubSyncButtonProps } from "../../domain/types";') },
-      { [importer]: append(valid, 'import {\n  GithubSyncButton,\n} from "../components/github-sync-button.tsx";') },
-      { [importer]: append(valid, 'export { GithubSyncButton } from "../components/github-sync-button";') },
-      { [importer]: append(valid, 'const load = () => import(`../components/github-sync-button.tsx`);') },
-      { [importer]: append(valid, 'const load = require("../components/github-sync-button");') },
-      { [importer]: append(valid, 'import Tab = require("../components/github-sync-button");') },
+      { [relocated]: "export const GithubContributorsGrid = () => null;" },
+      { [importer]: append(valid, 'import { GithubContributorsGrid } from "../components/github-contributors-grid";') },
+      { [importer]: append(valid, 'import type { GithubContributorsGridProps } from "../../domain/types";') },
+      { [importer]: append(valid, 'import {\n  GithubContributorsGrid,\n} from "../components/github-contributors-grid.tsx";') },
+      { [importer]: append(valid, 'export { GithubContributorsGrid } from "../components/github-contributors-grid";') },
+      { [importer]: append(valid, 'const load = () => import(`../components/github-contributors-grid.tsx`);') },
+      { [importer]: append(valid, 'const load = require("../components/github-contributors-grid");') },
+      { [importer]: append(valid, 'import Tab = require("../components/github-contributors-grid");') },
       { [relocated]: "export default () => null;" },
-      { [importer]: append(valid, "const prose = `GithubSyncButton is retired`; // github-sync-button") },
-      { [typePath]: append(read(typePath), "export const restoredSyncButtonProps: GithubSyncButtonProps | null = null;") },
+      { [importer]: append(valid, "const prose = `GithubContributorsGrid is retired`; // github-contributors-grid") },
+      { [typePath]: append(read(typePath), "export const restoredContributorsGridProps: GithubContributorsGridProps | null = null;") },
       { [retired]: "export default () => null;" },
     ];
     for (const mutation of mutations.slice(0, 8)) expect(scan(mutation)).toBe(false);

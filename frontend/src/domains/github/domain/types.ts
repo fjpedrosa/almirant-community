@@ -218,11 +218,6 @@ export interface GithubActionsListProps {
   isLoading: boolean;
 }
 
-export interface GithubContributorsGridProps {
-  contributors: GithubContributor[];
-  isLoading: boolean;
-}
-
 export interface GithubActivityItemProps {
   eventType: GithubEventType;
   action: string | null;
