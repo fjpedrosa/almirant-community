@@ -5,11 +5,11 @@ import { execFileSync } from "node:child_process";
 import { dirname, posix, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "..");
-const retired = "frontend/src/domains/github/presentation/containers/github-tab-container.tsx";
+const retired = "frontend/src/domains/github/presentation/components/github-empty-state.tsx";
 const typePath = "frontend/src/domains/github/domain/types.ts";
-const contract = "frontend/github-tab-container-retirement.contract.test.ts";
-const forbidden = new Set(["GithubTabContainer", "GithubTabContainerProps"]);
-const retiredToken = "github-tab-container";
+const contract = "frontend/github-empty-state-retirement.contract.test.ts";
+const forbidden = new Set(["GithubEmptyState", "GithubEmptyStateProps"]);
+const retiredToken = "github-empty-state";
 const retiredBasename = posix.basename(retired);
 const sentinels: Array<[string, string[]]> = [
   ["frontend/src/domains/github/application/hooks/use-github-tab.ts", ["useGithubTab"]],
@@ -49,7 +49,7 @@ const scanOne = (path: string, raw: string, allowRetiredType = false) => {
   const specs: string[] = [];
   let executableIssue = relocatedPath;
   const visit = (node: ts.Node): void => {
-    if (allowRetiredType && path === typePath && ts.isInterfaceDeclaration(node) && node.name.text === "GithubTabContainerProps") return;
+    if (allowRetiredType && path === typePath && ts.isInterfaceDeclaration(node) && node.name.text === "GithubEmptyStateProps") return;
     if (ts.isIdentifier(node) && forbidden.has(node.text)) executableIssue = true;
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
       const value = literal(node.moduleSpecifier);
@@ -77,11 +77,11 @@ const scan = (overrides: Record<string, string | undefined> = {}) => [...new Set
 const retiredPresent = (overrides: Record<string, string | undefined> = {}) => existsSync(resolve(root, retired)) || overrides[retired] !== undefined;
 const append = (raw: string, value: string) => { const next = `${raw}\n${value}\n`; expect(next).not.toBe(raw); return next; };
 
-describe("GitHub tab container retirement boundary", () => {
-  test("retires only the orphaned tab container and preserves the residual GitHub graph", () => {
+describe("GitHub empty state retirement boundary", () => {
+  test("retires only the orphaned empty state and preserves the residual GitHub graph", () => {
     expect(retiredPresent()).toBe(false);
     expect(scan()).toBe(true);
-    expect(read(typePath).includes("GithubTabContainerProps")).toBe(false);
+    expect(read(typePath).includes("GithubEmptyStateProps")).toBe(false);
     expect(read(typePath).includes("GithubSettingsContainerProps")).toBe(true);
     expect(read(typePath).includes("GithubTabStatus")).toBe(true);
     for (const [path, needles] of sentinels) expect(needles.every((needle) => read(path).includes(needle))).toBe(true);
@@ -90,19 +90,19 @@ describe("GitHub tab container retirement boundary", () => {
   test("fails closed for relocated imports, symbols, and templates while ignoring prose", () => {
     const importer = "frontend/src/domains/github/presentation/containers/github-settings-container.tsx";
     const valid = read(importer);
-    const relocated = "frontend/src/domains/github/presentation/archive/github-tab-container.tsx";
+    const relocated = "frontend/src/domains/github/presentation/archive/github-empty-state.tsx";
     const mutations = [
-      { [relocated]: "export const GithubTabContainer = () => null;" },
-      { [importer]: append(valid, 'import { GithubTabContainer } from "./github-tab-container";') },
-      { [importer]: append(valid, 'import type { GithubTabContainerProps } from "../../domain/types";') },
-      { [importer]: append(valid, 'import {\n  GithubTabContainer,\n} from "./github-tab-container.tsx";') },
-      { [importer]: append(valid, 'export { GithubTabContainer } from "./github-tab-container";') },
-      { [importer]: append(valid, 'const load = () => import(`./github-tab-container.tsx`);') },
-      { [importer]: append(valid, 'const load = require("./github-tab-container");') },
-      { [importer]: append(valid, 'import Tab = require("./github-tab-container");') },
+      { [relocated]: "export const GithubEmptyState = () => null;" },
+      { [importer]: append(valid, 'import { GithubEmptyState } from "../components/github-empty-state";') },
+      { [importer]: append(valid, 'import type { GithubEmptyStateProps } from "../../domain/types";') },
+      { [importer]: append(valid, 'import {\n  GithubEmptyState,\n} from "../components/github-empty-state.tsx";') },
+      { [importer]: append(valid, 'export { GithubEmptyState } from "../components/github-empty-state";') },
+      { [importer]: append(valid, 'const load = () => import(`../components/github-empty-state.tsx`);') },
+      { [importer]: append(valid, 'const load = require("../components/github-empty-state");') },
+      { [importer]: append(valid, 'import Tab = require("../components/github-empty-state");') },
       { [relocated]: "export default () => null;" },
-      { [importer]: append(valid, "const prose = `GithubTabContainer is retired`; // github-tab-container") },
-      { [typePath]: append(read(typePath), "export const restoredTabProps: GithubTabContainerProps | null = null;") },
+      { [importer]: append(valid, "const prose = `GithubEmptyState is retired`; // github-empty-state") },
+      { [typePath]: append(read(typePath), "export const restoredTabProps: GithubEmptyStateProps | null = null;") },
       { [retired]: "export default () => null;" },
     ];
     for (const mutation of mutations.slice(0, 8)) expect(scan(mutation)).toBe(false);

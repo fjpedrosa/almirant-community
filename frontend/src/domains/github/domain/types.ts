@@ -322,12 +322,6 @@ export type GithubTabStatus =
   | "not_synced"
   | "synced";
 
-export interface GithubEmptyStateProps {
-  status: Exclude<GithubTabStatus, "synced">;
-  onSync?: () => void;
-  isSyncing?: boolean;
-}
-
 // ---- Error detection utilities -----------------------------------------------
 
 /**
