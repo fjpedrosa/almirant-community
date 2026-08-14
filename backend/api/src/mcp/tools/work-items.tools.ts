@@ -39,7 +39,7 @@ import {
   planEstimationEnqueuesForCreate,
   planEstimationEnqueuesForUpdate,
   type EstimationEnqueue,
-} from "./work-item-estimation-enqueue";
+} from "../../domains/project-management/work-items/services/work-item-estimation-enqueue";
 import { gatherWorkItemContext, buildEnrichedPromptInput } from "../../domains/project-management/work-items/services/prompt-context-service";
 import { formatText, isAiConfigured } from "../../domains/ai/shared/services/ai-service";
 import { calculateCostUsd, type AiProvider } from "../../domains/billing/quota/services/ai-model-pricing";

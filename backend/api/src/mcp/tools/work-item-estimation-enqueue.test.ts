@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
   planEstimationEnqueuesForCreate,
   planEstimationEnqueuesForUpdate,
-} from "./work-item-estimation-enqueue";
+} from "../../domains/project-management/work-items/services/work-item-estimation-enqueue";
 
 const before = {
   title: "Original title",
