@@ -87,11 +87,6 @@ export interface GoalsPageProps {
   formDialog: ReactNode;
 }
 
-export interface MilestoneChecklistProps {
-  items: MilestoneWorkItem[];
-  onOpenWorkItem?: (workItemId: string) => void;
-}
-
 export interface MilestoneFormValues {
   title: string;
   description: string;
