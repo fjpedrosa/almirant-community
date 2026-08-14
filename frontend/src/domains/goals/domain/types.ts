@@ -121,13 +121,6 @@ export interface MilestoneWorkItemOption {
   priority: MilestonePriority;
 }
 
-export interface MilestoneDetailViewProps {
-  milestone: MilestoneWithProgress | null;
-  isLoading?: boolean;
-  onEditMilestone: (milestone: MilestoneWithProgress) => void;
-  onOpenWorkItem: (workItemId: string) => void;
-}
-
 export type MilestoneFormMode = "create" | "edit";
 
 export interface MilestoneFormDialogProps {
