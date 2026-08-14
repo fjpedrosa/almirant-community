@@ -16,10 +16,6 @@ const sentinels: Array<[string, string[]]> = [
   ["frontend/src/domains/goals/presentation/components/radial-progress.tsx", ["RadialProgress"]],
   ["frontend/src/domains/goals/presentation/components/milestone-form-dialog.tsx", ["MilestoneFormDialog"]],
   ["frontend/src/domains/goals/domain/types.ts", ["MilestoneFormValues", "MilestoneWorkItemOption", "MilestoneFormDialogProps"]],
-  ["frontend/src/domains/goals/application/hooks/use-milestones.ts", [
-    "useMilestones", "useMilestone", "useCreateMilestone", "useUpdateMilestone",
-    "useDeleteMilestone", "useAddWorkItemsToMilestone", "useRemoveWorkItemFromMilestone",
-  ]],
   ["backend/api/src/mcp/tools/milestones.tools.ts", [
     "list_milestones", "get_milestone", "get_milestone_progress", "create_milestone",
     "update_milestone", "delete_milestone", "add_work_items_to_milestone", "remove_work_item_from_milestone",
