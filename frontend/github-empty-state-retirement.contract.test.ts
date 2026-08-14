@@ -21,7 +21,6 @@ const sentinels: Array<[string, string[]]> = [
   ["frontend/src/domains/github/application/hooks/use-github-sync.ts", ["useGithubSync"]],
   ["frontend/src/domains/github/application/hooks/use-github-status.ts", ["useGithubStatus"]],
   ["frontend/src/domains/github/presentation/components/github-pr-list.tsx", ["GithubPrList"]],
-  ["frontend/src/domains/github/presentation/components/github-commit-timeline.tsx", ["GithubCommitTimeline"]],
   ["frontend/src/domains/github/presentation/components/github-actions-list.tsx", ["GithubActionsList"]],
   ["frontend/src/domains/github/presentation/components/github-contributors-grid.tsx", ["GithubContributorsGrid"]],
   ["frontend/src/domains/github/presentation/components/github-activity-feed.tsx", ["GithubActivityFeed"]],

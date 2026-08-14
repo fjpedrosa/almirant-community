@@ -203,11 +203,6 @@ export interface GithubCommitItemProps {
   committedAt: string;
 }
 
-export interface GithubCommitTimelineProps {
-  commits: GithubCommit[];
-  isLoading: boolean;
-}
-
 export interface GithubActionItemProps {
   name: string | null;
   status: string | null;
