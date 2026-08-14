@@ -14,6 +14,7 @@
     "db:migrate": "bun run --env-file .env.local src/scripts/migrate-with-validation.ts",
     "db:migrate:prod": "NODE_ENV=production bun run --env-file .env src/scripts/migrate-with-validation.ts",
     "db:self-hosted-maintenance": "NODE_ENV=production bun run src/scripts/self-hosted-db-maintenance.ts",
+    "db:compact": "NODE_ENV=production bun run src/scripts/compact-archived-tables-cli.ts",
     "db:push": "bun run --env-file .env.local drizzle-kit push",
     "db:push:prod": "bun run --env-file .env drizzle-kit push",
     "db:studio": "drizzle-kit studio",
