@@ -253,10 +253,6 @@ export interface GithubDeployBadgeProps {
   status: GithubCiStatus | null;
 }
 
-export interface GithubRepoLinkProps {
-  url: string;
-}
-
 export interface GithubSyncButtonProps {
   onSync: () => void;
   isSyncing: boolean;
