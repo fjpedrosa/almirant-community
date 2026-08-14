@@ -87,11 +87,6 @@ export interface GoalsPageProps {
   formDialog: ReactNode;
 }
 
-export interface MilestoneProgressProps {
-  percentage: number;
-  targetDate: string | null;
-}
-
 export interface MilestoneChecklistProps {
   items: MilestoneWorkItem[];
   onOpenWorkItem?: (workItemId: string) => void;
