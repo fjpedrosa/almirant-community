@@ -24,6 +24,7 @@ const retiredRelativePaths = [
   "src/domains/goals/application/hooks/use-milestones.ts",
   "src/domains/goals/presentation/components/milestone-form-dialog.tsx",
   "src/domains/github/presentation/components/github-repo-link.tsx",
+  "src/domains/github/presentation/containers/github-tab-container.tsx",
 ];
 const retiredFiles = retiredRelativePaths.map((path) => resolve(frontendRoot, path));
 const sentinelFiles = [

@@ -283,10 +283,6 @@ export interface GithubConnectionStatusProps {
   isLoading: boolean;
 }
 
-export interface GithubTabContainerProps {
-  projectId: string;
-}
-
 // empty for now - fetches its own data
 export interface GithubSettingsContainerProps {
   className?: string;
