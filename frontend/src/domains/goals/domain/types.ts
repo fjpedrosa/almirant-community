@@ -92,14 +92,6 @@ export interface MilestoneProgressProps {
   targetDate: string | null;
 }
 
-export interface GoalMetricsProps {
-  total: number;
-  completed: number;
-  inProgress: number;
-  pending: number;
-  daysRemaining: number | null;
-}
-
 export interface MilestoneChecklistProps {
   items: MilestoneWorkItem[];
   onOpenWorkItem?: (workItemId: string) => void;
