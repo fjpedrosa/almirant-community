@@ -121,13 +121,6 @@ export interface MilestoneWorkItemOption {
   priority: MilestonePriority;
 }
 
-export interface MilestoneCardProps {
-  milestone: MilestoneWithProgress;
-  isSelected: boolean;
-  onSelect: (milestoneId: string) => void;
-  onEdit: (milestone: MilestoneWithProgress) => void;
-}
-
 export interface MilestoneDetailViewProps {
   milestone: MilestoneWithProgress | null;
   isLoading?: boolean;

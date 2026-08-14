@@ -14,6 +14,7 @@ const retiredRelativePaths = [
   "src/domains/shared/application/hooks/index.ts",
   "src/domains/planning/index.ts",
   "src/domains/seeds/index.ts",
+  "src/domains/goals/presentation/components/milestone-card.tsx",
 ];
 const retiredFiles = retiredRelativePaths.map((path) => resolve(frontendRoot, path));
 const sentinelFiles = [
