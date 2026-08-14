@@ -248,13 +248,6 @@ export interface GithubDeployBadgeProps {
   status: GithubCiStatus | null;
 }
 
-export interface GithubSyncButtonProps {
-  onSync: () => void;
-  isSyncing: boolean;
-  linkedRepoCount: number;
-  lastSyncAt: string | null;
-}
-
 export interface GithubConnectionButtonProps {
   isConfigured: boolean;
   isConnected: boolean;

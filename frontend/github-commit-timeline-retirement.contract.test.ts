@@ -24,7 +24,6 @@ const sentinels: Array<[string, string[]]> = [
   ["frontend/src/domains/github/presentation/components/github-actions-list.tsx", ["GithubActionsList"]],
   ["frontend/src/domains/github/presentation/components/github-contributors-grid.tsx", ["GithubContributorsGrid"]],
   ["frontend/src/domains/github/presentation/components/github-activity-feed.tsx", ["GithubActivityFeed"]],
-  ["frontend/src/domains/github/presentation/components/github-sync-button.tsx", ["GithubSyncButton"]],
   ["frontend/src/domains/github/presentation/containers/github-settings-container.tsx", ["GithubSettingsContainer"]],
 ];
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
