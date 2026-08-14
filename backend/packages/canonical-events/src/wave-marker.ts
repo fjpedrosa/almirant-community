@@ -243,7 +243,7 @@ const findEnclosingEchoSpan = (
   }
 
   let echoScan = start;
-  while (echoScan > 0 && /\s/.test(command[echoScan - 1])) echoScan--;
+  while (echoScan > 0 && /\s/.test(command[echoScan - 1] ?? "")) echoScan--;
   if (echoScan >= 4 && command.slice(echoScan - 4, echoScan) === "echo") {
     start = echoScan - 4;
   }
@@ -280,8 +280,8 @@ const findEnclosingEchoSpan = (
     }
   }
 
-  while (start > 0 && /[ \t]/.test(command[start - 1])) start--;
-  while (end < command.length && /[ \t]/.test(command[end])) end++;
+  while (start > 0 && /[ \t]/.test(command[start - 1] ?? "")) start--;
+  while (end < command.length && /[ \t]/.test(command[end] ?? "")) end++;
 
   return { start, end };
 };
