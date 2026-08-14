@@ -1,106 +1,10 @@
 import { t, type Locale } from '@almirant/i18n';
-
-const escapeHtml = (value: string): string =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+import { escapeHtml, renderEmailShell } from './render-email-shell';
 
 interface EmailTemplate {
   subject: string;
   html: string;
 }
-
-// ---------------------------------------------------------------------------
-// Shared layout wrapper
-// ---------------------------------------------------------------------------
-
-const wrapInLayout = (args: {
-  preheader: string;
-  heading: string;
-  headingIcon: string;
-  body: string;
-  ctaUrl: string;
-  ctaLabel: string;
-  locale: Locale;
-}): string => {
-  const footerText = t(args.locale, 'emails.common.manageNotifications');
-
-  return `<!DOCTYPE html>
-<html lang="${args.locale}">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${escapeHtml(args.preheader)}</title>
-  <!--[if mso]>
-  <style>body{font-family:Arial,sans-serif!important;}</style>
-  <![endif]-->
-</head>
-<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-  <!-- Preheader text (hidden) -->
-  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">${escapeHtml(args.preheader)}</div>
-
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 12px;background:#f4f4f5;">
-    <tr>
-      <td align="center">
-        <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
-          <!-- Header -->
-          <tr>
-            <td style="padding:24px 32px;background:linear-gradient(135deg,#1e1b4b 0%,#312e81 100%);color:#ffffff;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="font-size:20px;font-weight:700;color:#ffffff;">
-                    ${args.headingIcon} ${escapeHtml(args.heading)}
-                  </td>
-                  <td style="vertical-align:middle;text-align:right;">
-                    <table role="presentation" cellpadding="0" cellspacing="0" style="display:inline-table;">
-                      <tr>
-                        <td style="vertical-align:middle;">
-                          <img src="https://almirant.ai/logo-white.svg" alt="Almirant" width="20" height="20" style="display:block;width:20px;height:20px;" />
-                        </td>
-                        <td style="vertical-align:middle;padding-left:8px;font-size:14px;font-weight:600;color:rgba(255,255,255,0.8);">
-                          Almirant
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <!-- Body -->
-          <tr>
-            <td style="padding:28px 32px;">
-              ${args.body}
-              <!-- CTA Button -->
-              <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0;">
-                <tr>
-                  <td style="border-radius:8px;background:#4f46e5;">
-                    <a href="${escapeHtml(args.ctaUrl)}" target="_blank" style="display:inline-block;padding:12px 24px;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;letter-spacing:0.02em;">
-                      ${escapeHtml(args.ctaLabel)}
-                    </a>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <!-- Footer -->
-          <tr>
-            <td style="padding:16px 32px;border-top:1px solid #e5e7eb;">
-              <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.5;">
-                ${escapeHtml(footerText)}
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`.trim();
-};
 
 // ---------------------------------------------------------------------------
 // Helper: metadata row
@@ -154,13 +58,14 @@ export const buildEmailWorkItemMoved = (args: {
 
   return {
     subject: t(locale, 'emails.workItem.subject.moved', { title: args.taskId ?? args.title }),
-    html: wrapInLayout({
+    html: renderEmailShell({
       preheader: t(locale, 'emails.workItem.preheader.moved', { taskId: taskIdDisplay, from: args.fromColumnName, to: args.toColumnName }),
       heading: t(locale, 'emails.workItem.heading.moved'),
       headingIcon: "&#128260;",
       body,
       ctaUrl: args.url,
       ctaLabel: t(locale, 'emails.common.viewInApp'),
+      footerText: t(locale, 'emails.common.manageNotifications'),
       locale,
     }),
   };
@@ -191,13 +96,14 @@ export const buildEmailWorkItemAssigned = (args: {
 
   return {
     subject: t(locale, 'emails.workItem.subject.assigned', { title: args.taskId ?? args.title }),
-    html: wrapInLayout({
+    html: renderEmailShell({
       preheader: t(locale, 'emails.workItem.preheader.assigned', { taskId: taskIdDisplay, title: args.title }),
       heading: t(locale, 'emails.workItem.heading.assigned'),
       headingIcon: "&#128100;",
       body,
       ctaUrl: args.url,
       ctaLabel: t(locale, 'emails.common.viewInApp'),
+      footerText: t(locale, 'emails.common.manageNotifications'),
       locale,
     }),
   };
@@ -225,13 +131,14 @@ export const buildEmailWorkItemDone = (args: {
 
   return {
     subject: t(locale, 'emails.workItem.subject.completed', { title: args.taskId ?? args.title }),
-    html: wrapInLayout({
+    html: renderEmailShell({
       preheader: t(locale, 'emails.workItem.preheader.completed', { taskId: taskIdDisplay }),
       heading: t(locale, 'emails.workItem.heading.completed'),
       headingIcon: "&#9989;",
       body,
       ctaUrl: args.url,
       ctaLabel: t(locale, 'emails.common.viewInApp'),
+      footerText: t(locale, 'emails.common.manageNotifications'),
       locale,
     }),
   };
@@ -270,13 +177,14 @@ export const buildEmailReviewCompleted = (args: {
 
   return {
     subject: t(locale, 'emails.workItem.subject.reviewed', { result: resultKey, title: args.taskId ?? args.title }),
-    html: wrapInLayout({
+    html: renderEmailShell({
       preheader: t(locale, 'emails.workItem.preheader.reviewed', { result: resultKey, title: args.taskId ?? args.title }),
       heading: t(locale, 'emails.workItem.heading.reviewed'),
       headingIcon: icon,
       body,
       ctaUrl: args.url,
       ctaLabel: t(locale, 'emails.common.viewInApp'),
+      footerText: t(locale, 'emails.common.manageNotifications'),
       locale,
     }),
   };
@@ -308,13 +216,14 @@ export const buildEmailUserActions = (args: {
 
   return {
     subject: t(locale, 'emails.workItem.subject.userActions', { title: args.taskId ?? args.title }),
-    html: wrapInLayout({
+    html: renderEmailShell({
       preheader: t(locale, 'emails.workItem.preheader.userActions', { taskId: taskIdDisplay }),
       heading: t(locale, 'emails.workItem.heading.userActions'),
       headingIcon: "&#128204;",
       body,
       ctaUrl: args.url,
       ctaLabel: t(locale, 'emails.common.viewInApp'),
+      footerText: t(locale, 'emails.common.manageNotifications'),
       locale,
     }),
   };
@@ -347,13 +256,14 @@ export const buildEmailMemberRemoved = (args: {
 
   return {
     subject: t(locale, 'emails.memberRemoval.subject', { workspace: args.workspaceName }),
-    html: wrapInLayout({
+    html: renderEmailShell({
       preheader: t(locale, 'emails.memberRemoval.preheader', { workspace: args.workspaceName }),
       heading: t(locale, 'emails.memberRemoval.heading'),
       headingIcon: "&#128075;",
       body,
       ctaUrl: "https://almirant.ai",
       ctaLabel: t(locale, 'emails.memberRemoval.cta'),
+      footerText: t(locale, 'emails.common.manageNotifications'),
       locale,
     }),
   };
