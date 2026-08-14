@@ -173,4 +173,145 @@ describe("parseWaveMarker", () => {
 
     expect([...pending]).toEqual([]);
   });
+
+  // ---- multi-marker extraction (regression: stray `}` after the payload) ----
+
+  it("parses a marker followed by an unrelated shell brace (find -exec)", () => {
+    const command = `echo 'ALMIRANT_WAVE_EVENT ${JSON.stringify({
+      type: "wave.agent_done",
+      agent: "frontend-developer",
+      taskId: "MD-1",
+      success: true,
+    })}' && find . -exec prettier -w {} \\;`;
+
+    const events = parseWaveMarker(command);
+
+    expect(events).toEqual([
+      {
+        kind: "agent.wave.agent_done",
+        agent: "frontend-developer",
+        taskId: "MD-1",
+        success: true,
+      },
+    ]);
+  });
+
+  it("parses a marker followed by a shell variable expansion brace", () => {
+    const marker = `ALMIRANT_WAVE_EVENT ${JSON.stringify({
+      type: "wave.end",
+      successCount: 1,
+      totalCount: 1,
+    })}`;
+    const command = `echo '${marker}' && echo "` + "${VAR}" + `"`;
+
+    const events = parseWaveMarker(command);
+
+    expect(events).toEqual([{ kind: "agent.wave.end", successCount: 1, totalCount: 1 }]);
+  });
+
+  it("parses both markers from two chained echo commands (CMD1)", () => {
+    const command =
+      `echo 'ALMIRANT_WAVE_EVENT {"type":"wave.agent_done","agent":"clean-architecture-expert","taskId":"MD-19","success":true}'; ` +
+      `echo 'ALMIRANT_WAVE_EVENT {"type":"wave.agent_done","agent":"frontend-developer","taskId":"MD-20","success":true}'`;
+
+    const events = parseWaveMarker(command);
+
+    expect(events).toEqual([
+      {
+        kind: "agent.wave.agent_done",
+        agent: "clean-architecture-expert",
+        taskId: "MD-19",
+        success: true,
+      },
+      {
+        kind: "agent.wave.agent_done",
+        agent: "frontend-developer",
+        taskId: "MD-20",
+        success: true,
+      },
+    ]);
+  });
+
+  it("parses both markers around real git work with a heredoc commit (CMD2)", () => {
+    const command = `echo 'ALMIRANT_WAVE_EVENT {"type":"wave.agent_done","agent":"frontend-developer","taskId":"MD-25","success":true}' && git add -A -- . ':(exclude).mcp.json' ':(exclude)opencode.json' ':(exclude)CLAUDE.md' ':(exclude)AGENTS.md' ':(exclude).claude/**' ':(exclude).agents/**'; git status --porcelain -- . ':(exclude).claude/**' ':(exclude).agents/**' && git commit -m "$(cat <<'EOF'
+feat(MD-25): Migrar Activity, Delivery y Overview al sistema declarativo y eliminar filter-bar
+EOF
+)" && git log -1 --oneline && echo 'ALMIRANT_WAVE_EVENT {"type":"wave.end","successCount":1,"totalCount":1}'`;
+
+    const events = parseWaveMarker(command);
+
+    expect(events).toEqual([
+      {
+        kind: "agent.wave.agent_done",
+        agent: "frontend-developer",
+        taskId: "MD-25",
+        success: true,
+      },
+      { kind: "agent.wave.end", successCount: 1, totalCount: 1 },
+    ]);
+  });
+
+  it("parses a marker emitted via a double-quoted echo with escaped quotes", () => {
+    const command = `echo "ALMIRANT_WAVE_EVENT {\\"type\\":\\"wave.agent_done\\",\\"agent\\":\\"x\\",\\"taskId\\":\\"MD-1\\",\\"success\\":true}"`;
+
+    const events = parseWaveMarker(command);
+
+    expect(events).toEqual([
+      { kind: "agent.wave.agent_done", agent: "x", taskId: "MD-1", success: true },
+    ]);
+  });
+
+  it("does not re-adopt a real payload when the sentinel is mentioned earlier without a brace", () => {
+    const command =
+      `git commit -m "fix: correctly parse ALMIRANT_WAVE_EVENT markers with a brace after them" && ` +
+      `echo 'ALMIRANT_WAVE_EVENT {"type":"wave.agent_done","agent":"x","taskId":"MD-1","success":true}'`;
+
+    const events = parseWaveMarker(command);
+
+    expect(events).toEqual([
+      { kind: "agent.wave.agent_done", agent: "x", taskId: "MD-1", success: true },
+    ]);
+  });
+
+  it("returns [] when the sentinel is only mentioned in a grep, even with unrelated JSON later", () => {
+    const command =
+      `grep 'ALMIRANT_WAVE_EVENT' run.log > /tmp/found.txt && ` +
+      `echo '{"unrelated":"json"}' > /tmp/other.json`;
+
+    expect(parseWaveMarker(command)).toEqual([]);
+  });
+
+  it("keeps a valid marker when a later one in the same command is malformed", () => {
+    const command =
+      `echo 'ALMIRANT_WAVE_EVENT {"type":"wave.agent_done","agent":"x","taskId":"MD-1","success":true}' && ` +
+      `echo 'ALMIRANT_WAVE_EVENT {not valid json}'`;
+
+    const events = parseWaveMarker(command);
+
+    expect(events).toEqual([
+      { kind: "agent.wave.agent_done", agent: "x", taskId: "MD-1", success: true },
+    ]);
+  });
+
+  it("round-trips an apostrophe in a reason through buildWaveMarkerCommand", () => {
+    const command = buildWaveMarkerCommand({
+      type: "wave.agent_done",
+      agent: "backend-architect",
+      taskId: "MD-30",
+      success: false,
+      reason: "it wouldn't compile",
+    });
+
+    const events = parseWaveMarker(command);
+
+    expect(events).toEqual([
+      {
+        kind: "agent.wave.agent_done",
+        agent: "backend-architect",
+        taskId: "MD-30",
+        success: false,
+        reason: "it wouldn't compile",
+      },
+    ]);
+  });
 });

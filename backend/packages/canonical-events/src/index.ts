@@ -610,6 +610,7 @@ export {
   WAVE_MARKER_SENTINEL,
   buildWaveMarkerCommand,
   parseWaveMarker,
+  stripWaveMarkers,
   type WaveMarkerPayload,
 } from "./wave-marker.js";
 
