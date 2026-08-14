@@ -817,4 +817,46 @@ describe("createSseCanonicalAdapter", () => {
       totalCount: 2,
     });
   });
+
+  it("emite wave events y agent.bash.execute para un marcador junto a un commit con heredoc (CMD2)", () => {
+    const command = `echo 'ALMIRANT_WAVE_EVENT {"type":"wave.agent_done","agent":"frontend-developer","taskId":"MD-25","success":true}' && git add -A -- . ':(exclude).mcp.json' ':(exclude)opencode.json' ':(exclude)CLAUDE.md' ':(exclude)AGENTS.md' ':(exclude).claude/**' ':(exclude).agents/**'; git status --porcelain -- . ':(exclude).claude/**' ':(exclude).agents/**' && git commit -m "$(cat <<'EOF'
+feat(MD-25): Migrar Activity, Delivery y Overview al sistema declarativo y eliminar filter-bar
+EOF
+)" && git log -1 --oneline && echo 'ALMIRANT_WAVE_EVENT {"type":"wave.end","successCount":1,"totalCount":1}'`;
+
+    const events = runBashMarker(command);
+
+    expect(events).toContainEqual({
+      kind: "agent.wave.agent_done",
+      agent: "frontend-developer",
+      taskId: "MD-25",
+      success: true,
+    });
+    expect(events).toContainEqual({ kind: "agent.wave.end", successCount: 1, totalCount: 1 });
+    expect(events).toContainEqual(
+      expect.objectContaining({ kind: "agent.bash.execute", command }),
+    );
+  });
+
+  it("no emite agent.bash.execute para dos marcadores encadenados con ; (CMD1)", () => {
+    const command =
+      `echo 'ALMIRANT_WAVE_EVENT {"type":"wave.agent_done","agent":"clean-architecture-expert","taskId":"MD-19","success":true}'; ` +
+      `echo 'ALMIRANT_WAVE_EVENT {"type":"wave.agent_done","agent":"frontend-developer","taskId":"MD-20","success":true}'`;
+
+    const events = runBashMarker(command);
+
+    expect(events).toContainEqual({
+      kind: "agent.wave.agent_done",
+      agent: "clean-architecture-expert",
+      taskId: "MD-19",
+      success: true,
+    });
+    expect(events).toContainEqual({
+      kind: "agent.wave.agent_done",
+      agent: "frontend-developer",
+      taskId: "MD-20",
+      success: true,
+    });
+    expect(events.some((e) => e.kind === "agent.bash.execute")).toBe(false);
+  });
 });

@@ -9,10 +9,11 @@
 //   echo 'ALMIRANT_WAVE_EVENT {"type":"wave.start","agents":[...]}'
 //
 // The canonical event mappers read the STRUCTURED tool input (the `command`
-// string of a Bash tool call), detect the sentinel prefix, and translate the
-// single JSON payload that follows into `agent.wave.*` canonical events. This
-// is deterministic — the payload is a strict JSON object the skill fully
-// controls — NOT fragile parsing of free-text progress prose.
+// string of a Bash tool call), detect the sentinel prefix, and translate each
+// JSON payload that follows into `agent.wave.*` canonical events. A single
+// Bash command may carry several markers (chained with `;`/`&&`) alongside
+// real shell work. This is deterministic — each payload is a strict JSON
+// object the skill fully controls — NOT fragile parsing of free-text prose.
 //
 // Living in `@almirant/canonical-events` makes it the single source of truth:
 // both the shim-server mapper (`emitToolSpecificEvents`, shared by the claude
@@ -49,35 +50,100 @@ export type WaveMarkerPayload =
       totalCount: number;
     };
 
+const escapeForPosixSingleQuotes = (value: string): string =>
+  value.replace(/'/g, `'\\''`);
+
 /**
  * Build the exact `echo` command the skill runs at a wave boundary. Kept next
  * to the parser so the producer format and the consumer format cannot drift.
  */
 export const buildWaveMarkerCommand = (payload: WaveMarkerPayload): string =>
-  `echo '${WAVE_MARKER_SENTINEL} ${JSON.stringify(payload)}'`;
+  `echo '${escapeForPosixSingleQuotes(`${WAVE_MARKER_SENTINEL} ${JSON.stringify(payload)}`)}'`;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
-/**
- * Extract the JSON object that follows the sentinel from a raw shell command.
- * Tolerant of surrounding `echo '...'` quoting: it slices from the first `{`
- * after the sentinel to the matching last `}`.
- */
-const extractPayloadJson = (command: string): unknown | null => {
-  const sentinelIndex = command.indexOf(WAVE_MARKER_SENTINEL);
-  if (sentinelIndex === -1) return null;
+type MarkerSpan = {
+  sentinelStart: number;
+  braceStart: number;
+  braceEnd: number;
+};
 
-  const afterSentinel = command.slice(sentinelIndex + WAVE_MARKER_SENTINEL.length);
-  const start = afterSentinel.indexOf("{");
-  const end = afterSentinel.lastIndexOf("}");
-  if (start === -1 || end === -1 || end < start) return null;
+const buildSentinelAnchor = (): RegExp =>
+  new RegExp(`${WAVE_MARKER_SENTINEL}[ \\t]*(?=\\{)`, "g");
 
-  try {
-    return JSON.parse(afterSentinel.slice(start, end + 1));
-  } catch {
-    return null;
+const findMatchingBraceEnd = (command: string, openIndex: number): number | null => {
+  let depth = 0;
+  let inString = false;
+
+  for (let i = openIndex; i < command.length; i++) {
+    const char = command[i];
+    if (char === "\\") {
+      // Backslash escapes the next char unconditionally, in or out of a string.
+      i++;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === "{") depth++;
+    else if (char === "}") {
+      depth--;
+      if (depth === 0) return i;
+    }
   }
+  return null;
+};
+
+const scanMarkerSpans = (command: string): MarkerSpan[] => {
+  const spans: MarkerSpan[] = [];
+  const anchor = buildSentinelAnchor();
+  let match: RegExpExecArray | null;
+
+  while ((match = anchor.exec(command)) !== null) {
+    const braceStart = match.index + match[0].length;
+    const braceEnd = findMatchingBraceEnd(command, braceStart);
+    if (braceEnd === null) continue;
+
+    spans.push({ sentinelStart: match.index, braceStart, braceEnd });
+    // Resume past the payload, not the sentinel, or an earlier sentinel mention re-adopts it.
+    anchor.lastIndex = braceEnd + 1;
+  }
+
+  return spans;
+};
+
+const parseMarkerSlice = (slice: string): unknown | null => {
+  try {
+    return JSON.parse(slice);
+  } catch {
+    const unescaped = slice.replace(/\\"/g, '"').replace(/'\\''/g, "'");
+    try {
+      return JSON.parse(unescaped);
+    } catch {
+      return null;
+    }
+  }
+};
+
+const extractPayloads = (command: string): unknown[] => {
+  const payloads: unknown[] = [];
+
+  for (const { braceStart, braceEnd } of scanMarkerSpans(command)) {
+    const slice = command.slice(braceStart, braceEnd + 1);
+    const payload = parseMarkerSlice(slice);
+    if (payload === null) {
+      console.warn(
+        `[wave-marker] failed to parse payload after ${WAVE_MARKER_SENTINEL}: ${slice.slice(0, 200)}`,
+      );
+      continue;
+    }
+    payloads.push(payload);
+  }
+
+  return payloads;
 };
 
 const toWaveStart = (payload: Record<string, unknown>): AgentWaveStartEvent | null => {
@@ -129,29 +195,111 @@ const toWaveEnd = (payload: Record<string, unknown>): AgentWaveEndEvent | null =
 };
 
 /**
- * Parse a Bash `command` string into `agent.wave.*` canonical events.
- * Returns `[]` when the command is not a wave marker or the payload is
- * malformed — callers fall back to their normal handling, keeping the change
- * fully additive.
+ * Parse a Bash `command` string into `agent.wave.*` canonical events, one per
+ * marker found. Returns `[]` when the command has no markers — callers fall
+ * back to their normal handling.
  */
 export const parseWaveMarker = (command: string): CanonicalEvent[] => {
-  const payload = extractPayloadJson(command);
-  if (!isRecord(payload)) return [];
+  const events: CanonicalEvent[] = [];
 
-  switch (payload.type) {
-    case "wave.start": {
-      const event = toWaveStart(payload);
-      return event ? [event] : [];
+  for (const payload of extractPayloads(command)) {
+    if (!isRecord(payload)) continue;
+
+    switch (payload.type) {
+      case "wave.start": {
+        const event = toWaveStart(payload);
+        if (event) events.push(event);
+        break;
+      }
+      case "wave.agent_done": {
+        const event = toWaveAgentDone(payload);
+        if (event) events.push(event);
+        break;
+      }
+      case "wave.end": {
+        const event = toWaveEnd(payload);
+        if (event) events.push(event);
+        break;
+      }
+      default:
+        break;
     }
-    case "wave.agent_done": {
-      const event = toWaveAgentDone(payload);
-      return event ? [event] : [];
-    }
-    case "wave.end": {
-      const event = toWaveEnd(payload);
-      return event ? [event] : [];
-    }
-    default:
-      return [];
   }
+
+  return events;
+};
+
+const findEnclosingEchoSpan = (
+  command: string,
+  sentinelStart: number,
+  braceEnd: number,
+): { start: number; end: number } => {
+  let start = sentinelStart;
+  let quoteChar: "'" | '"' | null = null;
+
+  if (start > 0 && (command[start - 1] === "'" || command[start - 1] === '"')) {
+    quoteChar = command[start - 1] as "'" | '"';
+    start -= 1;
+  }
+
+  let echoScan = start;
+  while (echoScan > 0 && /\s/.test(command[echoScan - 1])) echoScan--;
+  if (echoScan >= 4 && command.slice(echoScan - 4, echoScan) === "echo") {
+    start = echoScan - 4;
+  }
+
+  let end = braceEnd + 1;
+  if (quoteChar === "'") {
+    while (end < command.length) {
+      if (
+        command[end] === "'" &&
+        command[end + 1] === "\\" &&
+        command[end + 2] === "'" &&
+        command[end + 3] === "'"
+      ) {
+        end += 4;
+        continue;
+      }
+      if (command[end] === "'") {
+        end += 1;
+        break;
+      }
+      end += 1;
+    }
+  } else if (quoteChar === '"') {
+    while (end < command.length) {
+      if (command[end] === "\\") {
+        end += 2;
+        continue;
+      }
+      if (command[end] === '"') {
+        end += 1;
+        break;
+      }
+      end += 1;
+    }
+  }
+
+  while (start > 0 && /[ \t]/.test(command[start - 1])) start--;
+  while (end < command.length && /[ \t]/.test(command[end])) end++;
+
+  return { start, end };
+};
+
+/** Removes the WHOLE enclosing `echo` invocation, not just the JSON payload. */
+export const stripWaveMarkers = (command: string): string => {
+  const spans = scanMarkerSpans(command);
+  if (spans.length === 0) return command;
+
+  let result = "";
+  let cursor = 0;
+
+  for (const { sentinelStart, braceEnd } of spans) {
+    const invocation = findEnclosingEchoSpan(command, sentinelStart, braceEnd);
+    result += command.slice(cursor, invocation.start);
+    cursor = invocation.end;
+  }
+  result += command.slice(cursor);
+
+  return result;
 };

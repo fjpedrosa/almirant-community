@@ -12,8 +12,11 @@
 // ---------------------------------------------------------------------------
 
 import type { CanonicalEvent } from "@almirant/stream-consumer";
-import { parseWaveMarker } from "@almirant/canonical-events";
+import { parseWaveMarker, stripWaveMarkers } from "@almirant/canonical-events";
 import type { EventAdapter, SseEvent } from "./adapter-types";
+
+/** Shell operators and whitespace only — no real command left to surface. */
+const OPERATOR_ONLY_RESIDUE = /^[\s;&|]*$/;
 
 /** Known canonical event kind prefixes — used to detect passthrough events. */
 const CANONICAL_KIND_PREFIXES = [
@@ -310,6 +313,14 @@ export const createSseCanonicalAdapter = (): EventAdapter => {
         const waveEvents = parseWaveMarker(command);
         if (waveEvents.length > 0) {
           events.push(...waveEvents);
+          if (!OPERATOR_ONLY_RESIDUE.test(stripWaveMarkers(command))) {
+            events.push({
+              kind: "agent.bash.execute",
+              toolCallId,
+              command,
+              description: extractParamAny(parsed, raw, ["description", "title"]) ?? undefined,
+            });
+          }
         } else {
           events.push({
             kind: "agent.bash.execute",

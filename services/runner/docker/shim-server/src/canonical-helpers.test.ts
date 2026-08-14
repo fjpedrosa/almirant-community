@@ -117,4 +117,55 @@ describe("emitToolSpecificEvents — wave markers", () => {
       },
     ]);
   });
+
+  // ---- additive: markers mixed with real shell work ----
+
+  it("emits wave events AND agent.bash.execute for a marker plus a heredoc commit (CMD2)", () => {
+    const command = `echo 'ALMIRANT_WAVE_EVENT {"type":"wave.agent_done","agent":"frontend-developer","taskId":"MD-25","success":true}' && git add -A -- . ':(exclude).mcp.json' ':(exclude)opencode.json' ':(exclude)CLAUDE.md' ':(exclude)AGENTS.md' ':(exclude).claude/**' ':(exclude).agents/**'; git status --porcelain -- . ':(exclude).claude/**' ':(exclude).agents/**' && git commit -m "$(cat <<'EOF'
+feat(MD-25): Migrar Activity, Delivery y Overview al sistema declarativo y eliminar filter-bar
+EOF
+)" && git log -1 --oneline && echo 'ALMIRANT_WAVE_EVENT {"type":"wave.end","successCount":1,"totalCount":1}'`;
+
+    const events = emitToolSpecificEvents("Bash", "tc-5", bashInput(command), "");
+
+    expect(events).toEqual([
+      {
+        kind: "agent.wave.agent_done",
+        agent: "frontend-developer",
+        taskId: "MD-25",
+        success: true,
+      },
+      { kind: "agent.wave.end", successCount: 1, totalCount: 1 },
+      {
+        kind: "agent.bash.execute",
+        toolCallId: "tc-5",
+        command,
+        description: undefined,
+      },
+    ]);
+  });
+
+  it("emits 2 wave events and NO agent.bash.execute for two chained markers (CMD1)", () => {
+    const command =
+      `echo 'ALMIRANT_WAVE_EVENT {"type":"wave.agent_done","agent":"clean-architecture-expert","taskId":"MD-19","success":true}'; ` +
+      `echo 'ALMIRANT_WAVE_EVENT {"type":"wave.agent_done","agent":"frontend-developer","taskId":"MD-20","success":true}'`;
+
+    const events = emitToolSpecificEvents("Bash", "tc-6", bashInput(command), "");
+
+    expect(events).toEqual([
+      {
+        kind: "agent.wave.agent_done",
+        agent: "clean-architecture-expert",
+        taskId: "MD-19",
+        success: true,
+      },
+      {
+        kind: "agent.wave.agent_done",
+        agent: "frontend-developer",
+        taskId: "MD-20",
+        success: true,
+      },
+    ]);
+    expect(events.some((e) => e.kind === "agent.bash.execute")).toBe(false);
+  });
 });

@@ -5,9 +5,12 @@
 // ---------------------------------------------------------------------------
 
 import type { CanonicalEvent } from "@almirant/canonical-events";
-import { parseWaveMarker } from "@almirant/canonical-events";
+import { parseWaveMarker, stripWaveMarkers } from "@almirant/canonical-events";
 
 // ---- Tool name classification ----
+
+/** Shell operators and whitespace only — no real command left to surface. */
+const OPERATOR_ONLY_RESIDUE = /^[\s;&|]*$/;
 
 export const FILE_READ_TOOLS = new Set(["Read", "Glob", "Grep"]);
 export const FILE_WRITE_TOOLS = new Set(["Write"]);
@@ -202,6 +205,14 @@ export const emitToolSpecificEvents = (
       const waveEvents = parseWaveMarker(command);
       if (waveEvents.length > 0) {
         events.push(...waveEvents);
+        if (!OPERATOR_ONLY_RESIDUE.test(stripWaveMarkers(command))) {
+          events.push({
+            kind: "agent.bash.execute",
+            toolCallId,
+            command,
+            description: extractParam(parsed, raw, "description") ?? undefined,
+          });
+        }
       } else {
         events.push({
           kind: "agent.bash.execute",
