@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getMembersByWorkspaceId } from "@almirant/database";
-import { getWorkspaceIdFromExtra } from "../setup";
+import { assertOrgScope } from "../setup";
 
 export const registerMembersTools = (server: McpServer) => {
   server.tool(
@@ -8,14 +8,9 @@ export const registerMembersTools = (server: McpServer) => {
     "List all members of the current workspace. Returns userId, name, email, image, and role for each member. Use this to discover user IDs before assigning tasks or ideas to specific people.",
     {},
     async (_params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
         const members = await getMembersByWorkspaceId(workspaceId);
         return { content: [{ type: "text" as const, text: JSON.stringify(members, null, 2) }] };
       } catch (error) {

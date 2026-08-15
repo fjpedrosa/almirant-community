@@ -10,7 +10,7 @@ import {
   addWorkItemsToMilestone,
   removeWorkItemFromMilestone,
 } from "@almirant/database";
-import { getProjectIdFromExtra, getWorkspaceIdFromExtra } from "../setup";
+import { getProjectIdFromExtra, assertOrgScope } from "../setup";
 
 const MILESTONE_STATUS_SCHEMA = z.enum(["planned", "in_progress", "completed", "on_hold", "cancelled"]);
 const MILESTONE_PRIORITY_SCHEMA = z.enum(["low", "medium", "high", "urgent"]);
@@ -26,14 +26,9 @@ export const registerMilestonesTools = (server: McpServer) => {
       projectId: z.string().uuid().optional().describe("Project ID to list milestones for. Falls back to session default if omitted."),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
         if (!projectId) {
@@ -67,14 +62,9 @@ export const registerMilestonesTools = (server: McpServer) => {
       milestoneId: z.string().uuid().describe("Milestone ID (required)"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const milestone = await getMilestoneById(workspaceId, params.milestoneId);
 
@@ -107,14 +97,9 @@ export const registerMilestonesTools = (server: McpServer) => {
       milestoneId: z.string().uuid().describe("Milestone ID (required)"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         // Validate milestone exists
         const milestone = await getMilestoneById(workspaceId, params.milestoneId);
@@ -154,14 +139,9 @@ export const registerMilestonesTools = (server: McpServer) => {
       workItemIds: z.array(z.string().uuid()).optional().describe("Work item IDs to link to this milestone at creation time"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
         if (!projectId) {
@@ -225,14 +205,9 @@ export const registerMilestonesTools = (server: McpServer) => {
       targetDate: z.string().nullable().optional().describe("Updated target date (ISO 8601 format, null to clear)"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         // Validate milestone exists
         const existing = await getMilestoneById(workspaceId, params.milestoneId);
@@ -280,14 +255,9 @@ export const registerMilestonesTools = (server: McpServer) => {
       milestoneId: z.string().uuid().describe("Milestone ID to delete (required)"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         // Validate milestone exists
         const existing = await getMilestoneById(workspaceId, params.milestoneId);
@@ -330,14 +300,9 @@ export const registerMilestonesTools = (server: McpServer) => {
       workItemIds: z.array(z.string().uuid()).min(1).describe("Array of work item IDs to link (required, at least one)"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         // Validate milestone exists
         const existing = await getMilestoneById(workspaceId, params.milestoneId);
@@ -373,14 +338,9 @@ export const registerMilestonesTools = (server: McpServer) => {
       workItemId: z.string().uuid().describe("Work item ID to remove (required)"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }],
-            isError: true,
-          };
-        }
 
         // Validate milestone exists
         const existing = await getMilestoneById(workspaceId, params.milestoneId);

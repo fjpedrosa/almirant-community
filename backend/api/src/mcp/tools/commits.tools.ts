@@ -6,7 +6,7 @@ import {
   getRepoIdsForProject,
   getWorkItemById,
 } from "@almirant/database";
-import { getWorkspaceIdFromExtra, getProjectIdFromExtra } from "../setup";
+import { assertOrgScope, getProjectIdFromExtra } from "../setup";
 
 export const registerCommitTools = (server: McpServer) => {
   // -------------------------------------------------------
@@ -26,19 +26,9 @@ export const registerCommitTools = (server: McpServer) => {
       authorName: z.string().optional().describe("Commit author name"),
     },
     async (params, extra) => {
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: "Error: could not resolve workspaceId from API key",
-              },
-            ],
-            isError: true,
-          };
-        }
 
         const projectId = getProjectIdFromExtra(extra);
         if (!projectId) {

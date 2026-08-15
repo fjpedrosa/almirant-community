@@ -1,3 +1,5 @@
+import { escapeHtml, renderEmailDocument } from "../render-email-shell";
+
 interface ContactNotificationParams {
   email: string;
   reason: string;
@@ -6,14 +8,6 @@ interface ContactNotificationParams {
   ipAddress?: string | null;
   createdAt: string; // ISO 8601
 }
-
-const escapeHtml = (value: string): string =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 
 const REASON_LABELS: Record<string, string> = {
   general: "General Inquiry",
@@ -46,16 +40,10 @@ export const buildContactNotificationHtml = ({
   const formattedDate = new Date(createdAt).toUTCString();
   const messageHtml = escapeHtml(message).replace(/\n/g, "<br />");
 
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>New Contact Submission</title>
-</head>
-<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 12px;background:#f4f4f5;">
+  return renderEmailDocument({
+    locale: "en",
+    title: "New Contact Submission",
+    body: `  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 12px;background:#f4f4f5;">
     <tr>
       <td align="center">
         <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;background:#fff;border-radius:12px;overflow:hidden;">
@@ -110,7 +98,6 @@ export const buildContactNotificationHtml = ({
         </table>
       </td>
     </tr>
-  </table>
-</body>
-</html>`.trim();
+  </table>`,
+  });
 };

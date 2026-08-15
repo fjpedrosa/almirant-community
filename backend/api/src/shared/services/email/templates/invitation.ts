@@ -1,3 +1,6 @@
+import { escapeHtml } from "../render-email-shell";
+import { escapedTitle, renderEmailDocumentWithPreescapedTitle } from "../render-email-document-with-preescaped-title";
+
 interface InvitationEmailParams {
   acceptUrl: string;
   workspaceName: string;
@@ -16,16 +19,10 @@ export const buildInvitationEmailHtml = ({
   const roleBadgeColor =
     role === "owner" ? "#7c3aed" : role === "admin" ? "#2563eb" : "#059669";
 
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>You've been invited to ${escapeHtml(workspaceName)}</title>
-</head>
-<body style="margin:0;padding:0;background-color:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5;padding:40px 0;">
+  return renderEmailDocumentWithPreescapedTitle({
+    locale: "en",
+    title: escapedTitle`You've been invited to ${workspaceName}`,
+    body: `  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5;padding:40px 0;">
     <tr>
       <td align="center">
         <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
@@ -97,15 +94,7 @@ export const buildInvitationEmailHtml = ({
         </table>
       </td>
     </tr>
-  </table>
-</body>
-</html>`.trim();
+  </table>`,
+    bodyStyle: "margin:0;padding:0;background-color:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;",
+  });
 };
-
-const escapeHtml = (value: string): string =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");

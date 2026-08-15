@@ -1,5 +1,6 @@
 import { env } from "@almirant/config";
 import { t, type Locale } from "@almirant/i18n";
+import { renderEmailDocumentWithEscapedTitle } from "../../../shared/services/email/render-email-document-with-escaped-title";
 import { tiptapHtmlToEmailHtml } from "./tiptap-html-to-email";
 
 // ---------------------------------------------------------------------------
@@ -98,21 +99,6 @@ const CARD_BG = "#ffffff";
 const TEXT_COLOR = "#1e293b";
 const SECONDARY_TEXT = "#64748b";
 const LINK_COLOR = "#4f46e5";
-const FONT_STACK =
-  "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif";
-
-const htmlOpen = (title: string, locale: Locale): string => `<!DOCTYPE html>
-<html lang="${locale}">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${escapeHtml(title)}</title>
-</head>
-<body style="margin:0;padding:0;background:${BG_COLOR};font-family:${FONT_STACK};">`;
-
-const htmlClose = `</body>
-</html>`;
-
 const wrapperOpen = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 12px;background:${BG_COLOR};">
     <tr>
       <td align="center">
@@ -200,8 +186,10 @@ export const buildAssignmentEmail = (
     })
     .join("\n");
 
-  const html = `${htmlOpen(subject, locale)}
-  ${wrapperOpen}
+  const html = renderEmailDocumentWithEscapedTitle({
+    title: subject,
+    locale,
+    body: `  ${wrapperOpen}
           ${header(subject)}
           <tr>
             <td style="padding:28px 32px;">
@@ -213,8 +201,8 @@ export const buildAssignmentEmail = (
             </td>
           </tr>
           ${footer(locale)}
-  ${wrapperClose}
-${htmlClose}`;
+  ${wrapperClose}`,
+  });
 
   return { subject, html };
 };
@@ -268,8 +256,10 @@ export const buildCommentEmail = (
     })
     .join("\n");
 
-  const html = `${htmlOpen(subject, locale)}
-  ${wrapperOpen}
+  const html = renderEmailDocumentWithEscapedTitle({
+    title: subject,
+    locale,
+    body: `  ${wrapperOpen}
           ${header(subject)}
           <tr>
             <td style="padding:28px 32px;">
@@ -281,8 +271,8 @@ export const buildCommentEmail = (
             </td>
           </tr>
           ${footer(locale)}
-  ${wrapperClose}
-${htmlClose}`;
+  ${wrapperClose}`,
+  });
 
   return { subject, html };
 };
@@ -336,8 +326,10 @@ export const buildMentionEmail = (
     })
     .join("\n");
 
-  const html = `${htmlOpen(subject, locale)}
-  ${wrapperOpen}
+  const html = renderEmailDocumentWithEscapedTitle({
+    title: subject,
+    locale,
+    body: `  ${wrapperOpen}
           ${header(subject)}
           <tr>
             <td style="padding:28px 32px;">
@@ -349,8 +341,8 @@ export const buildMentionEmail = (
             </td>
           </tr>
           ${footer(locale)}
-  ${wrapperClose}
-${htmlClose}`;
+  ${wrapperClose}`,
+  });
 
   return { subject, html };
 };
@@ -396,8 +388,10 @@ export const buildStatusChangedEmail = (
     })
     .join("\n");
 
-  const html = `${htmlOpen(subject, locale)}
-  ${wrapperOpen}
+  const html = renderEmailDocumentWithEscapedTitle({
+    title: subject,
+    locale,
+    body: `  ${wrapperOpen}
           ${header(subject)}
           <tr>
             <td style="padding:28px 32px;">
@@ -409,8 +403,8 @@ export const buildStatusChangedEmail = (
             </td>
           </tr>
           ${footer(locale)}
-  ${wrapperClose}
-${htmlClose}`;
+  ${wrapperClose}`,
+  });
 
   return { subject, html };
 };
