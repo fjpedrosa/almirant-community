@@ -11,6 +11,7 @@ const typePath = "frontend/src/domains/github/domain/types.ts";
 
 type Pair = {
   name: string;
+  expectedPresent: boolean;
   wrapper: string;
   wrapperSymbol: string;
   wrapperProps: string;
@@ -22,6 +23,7 @@ type Pair = {
 const pairs: Pair[] = [
   {
     name: "pull requests",
+    expectedPresent: true,
     wrapper: "frontend/src/domains/github/presentation/components/github-pr-list.tsx",
     wrapperSymbol: "GithubPrList",
     wrapperProps: "GithubPrListProps",
@@ -31,6 +33,7 @@ const pairs: Pair[] = [
   },
   {
     name: "actions",
+    expectedPresent: true,
     wrapper: "frontend/src/domains/github/presentation/components/github-actions-list.tsx",
     wrapperSymbol: "GithubActionsList",
     wrapperProps: "GithubActionsListProps",
@@ -40,6 +43,7 @@ const pairs: Pair[] = [
   },
   {
     name: "activity",
+    expectedPresent: false,
     wrapper: "frontend/src/domains/github/presentation/components/github-activity-feed.tsx",
     wrapperSymbol: "GithubActivityFeed",
     wrapperProps: "GithubActivityFeedProps",
@@ -79,6 +83,9 @@ const retiredFiles = (retired: Pair[]): Overrides =>
   Object.fromEntries(retired.flatMap(({ wrapper, child }) => [[wrapper, null], [child, null]]));
 const retirementBoundary = (raw: string, retired: Pair[]) => registerPaths(raw,
   retired.flatMap(({ wrapper, child }) => [relativePath(wrapper), relativePath(child)]));
+const withoutProps = (raw: string, retired: Pair[]) => retired.reduce((current, pair) =>
+  current.replace(new RegExp(`export interface ${pair.wrapperProps} \\{[^}]*\\}\\n?`, "u"), "")
+    .replace(new RegExp(`export interface ${pair.childProps} \\{[^}]*\\}\\n?`, "u"), ""), raw);
 const readAt = (path: string, overrides: Overrides) => overrides[path] === undefined ? read(path) : overrides[path] ?? "";
 const existsAt = (path: string, overrides: Overrides) => overrides[path] === undefined ? existsSync(resolve(root, path)) : overrides[path] !== null;
 const parse = (path: string, raw: string) => {
@@ -126,10 +133,17 @@ const registeredPaths = (raw: string) => {
 };
 const registered = (path: string, paths: ReadonlySet<string>) => paths.has(relativePath(path));
 const relevant = (pair: Pair) => new Set([pair.wrapperSymbol, pair.wrapperProps, pair.childSymbol, pair.childProps, posix.basename(pair.wrapper).replace(/\.tsx$/u, ""), posix.basename(pair.child).replace(/\.tsx$/u, "")]);
-const scanSource = (path: string, raw: string, pair: Pair) => {
+const scanSource = (path: string, raw: string, pair: Pair, retired: boolean) => {
   const tokens = relevant(pair);
   const relocated = path !== pair.wrapper && path !== pair.child && (posix.basename(path) === posix.basename(pair.wrapper) || posix.basename(path) === posix.basename(pair.child));
   if (relocated) return false;
+  if (path === typePath) {
+    if (!raw.trim()) return false;
+    const { identifiers } = parse(path, raw);
+    return !hasIdentifier(identifiers, pair.wrapperSymbol) && !hasIdentifier(identifiers, pair.childSymbol) &&
+      (retired ? !hasIdentifier(identifiers, pair.wrapperProps) && !hasIdentifier(identifiers, pair.childProps) :
+        hasIdentifier(identifiers, pair.wrapperProps) && hasIdentifier(identifiers, pair.childProps));
+  }
   if (!raw || (![...tokens].some((token) => raw.includes(token)))) return true;
   const { identifiers, specs } = parse(path, raw);
   const owner = path === pair.wrapper || path === pair.child;
@@ -138,8 +152,6 @@ const scanSource = (path: string, raw: string, pair: Pair) => {
     const target = resolveImport(path, specifier);
     return target === normalize(pair.wrapper) || target === normalize(pair.child);
   })) return false;
-  if (path === typePath) return !hasIdentifier(identifiers, pair.wrapperSymbol) && !hasIdentifier(identifiers, pair.childSymbol) &&
-    hasIdentifier(identifiers, pair.wrapperProps) && hasIdentifier(identifiers, pair.childProps);
   if (path === pair.wrapper) {
     return identifiers.has(pair.wrapperSymbol) && identifiers.has(pair.wrapperProps) && identifiers.has(pair.childSymbol) &&
       hasImportTo(path, raw, typePath) && hasImportTo(path, raw, pair.child);
@@ -159,12 +171,12 @@ const audit = (overrides: Overrides = {}) => {
     const childRegistered = registered(pair.child, boundaryPaths);
     if (wrapperRegistered !== childRegistered) return false;
     if (wrapperExists !== !wrapperRegistered) return false;
-    if (wrapperExists && (!scanSource(pair.wrapper, readAt(pair.wrapper, overrides), pair) || !scanSource(pair.child, readAt(pair.child, overrides), pair))) return false;
+    if (wrapperExists && (!scanSource(pair.wrapper, readAt(pair.wrapper, overrides), pair, false) || !scanSource(pair.child, readAt(pair.child, overrides), pair, false))) return false;
   }
   for (const path of [...new Set([...repoPaths, ...Object.keys(overrides)])]) {
     if (path === contract || path === boundary || overrides[path] === null) continue;
     const raw = readAt(path, overrides);
-    if (pairs.some((pair) => !scanSource(path, raw, pair))) return false;
+    if (pairs.some((pair) => !scanSource(path, raw, pair, !existsAt(pair.wrapper, overrides)))) return false;
   }
   return true;
 };
@@ -172,12 +184,21 @@ const audit = (overrides: Overrides = {}) => {
 describe("GitHub presentation pair ownership", () => {
   test("keeps each wrapper and child as one complete privately-owned pair", () => {
     expect(audit()).toBe(true);
+    expect(audit({ [typePath]: "" })).toBe(false);
     const boundaryPaths = registeredPaths(read(boundary));
     for (const pair of pairs) {
-      expect(existsAt(pair.wrapper, {})).toBe(true);
-      expect(existsAt(pair.child, {})).toBe(true);
-      expect(registered(pair.wrapper, boundaryPaths)).toBe(false);
-      expect(registered(pair.child, boundaryPaths)).toBe(false);
+      const retired = !pair.expectedPresent;
+      expect(existsAt(pair.wrapper, {})).toBe(!retired);
+      expect(existsAt(pair.child, {})).toBe(!retired);
+      expect(registered(pair.wrapper, boundaryPaths)).toBe(retired);
+      expect(registered(pair.child, boundaryPaths)).toBe(retired);
+      if (retired) {
+        expect(audit({
+          [boundary]: retirementBoundary(read(boundary), [pair]),
+          [typePath]: `${read(typePath)}\nexport interface ${pair.childProps} {}\nexport interface ${pair.wrapperProps} {}`,
+        })).toBe(false);
+        continue;
+      }
       expect(audit({ [pair.wrapper]: read(pair.wrapper).replaceAll(pair.wrapperProps, `${pair.wrapperProps}Renamed`) })).toBe(false);
       expect(audit({ [pair.child]: read(pair.child).replaceAll(pair.childProps, `${pair.childProps}Renamed`) })).toBe(false);
       expect(audit({ [pair.wrapper]: read(pair.wrapper).replaceAll(pair.wrapperSymbol, `${pair.wrapperSymbol}Renamed`) })).toBe(false);
@@ -187,21 +208,30 @@ describe("GitHub presentation pair ownership", () => {
 
   test("accepts only a fully retired pair registered atomically in the dead boundary", () => {
     const pair = pairs[0]!;
+    const activity = pairs[2]!;
     const relativeWrapper = relativePath(pair.wrapper);
     const relativeChild = relativePath(pair.child);
-    expect(audit({ ...retiredFiles(pairs), [boundary]: retirementBoundary(read(boundary), pairs) })).toBe(true);
+    const retiredTypes = withoutProps(read(typePath), pairs);
+    const retiredActivityTypes = withoutProps(read(typePath), [activity]);
+    expect(audit({ ...retiredFiles(pairs), [boundary]: retirementBoundary(read(boundary), pairs), [typePath]: retiredTypes })).toBe(true);
     const retiredBoundary = retirementBoundary(read(boundary), [pair]);
-    expect(audit({ [pair.wrapper]: null, [pair.child]: null, [boundary]: retiredBoundary })).toBe(true);
+    expect(audit({ [pair.wrapper]: null, [pair.child]: null, [boundary]: retiredBoundary, [typePath]: withoutProps(read(typePath), [pair]) })).toBe(true);
+    expect(audit({ [boundary]: retirementBoundary(read(boundary), [activity]), [typePath]: retiredActivityTypes })).toBe(true);
+    expect(audit({
+      [boundary]: retirementBoundary(read(boundary), [activity]),
+      [typePath]: `${read(typePath)}\nexport interface ${activity.childProps} {}\nexport interface ${activity.wrapperProps} {}`,
+    })).toBe(false);
+    expect(audit({ [activity.wrapper]: "export const GithubActivityFeed = () => null;", [boundary]: retirementBoundary(read(boundary), [activity]), [typePath]: retiredActivityTypes })).toBe(false);
     expect(audit({ [pair.wrapper]: null })).toBe(false);
     expect(audit({ [pair.child]: null })).toBe(false);
-    expect(audit({ [pair.wrapper]: null, [pair.child]: null, [boundary]: registerPaths(read(boundary), [relativeWrapper]) })).toBe(false);
-    expect(audit({ [pair.wrapper]: null, [pair.child]: null, [boundary]: registerPaths(read(boundary), [relativeChild]) })).toBe(false);
+    expect(audit({ [pair.wrapper]: null, [pair.child]: null, [boundary]: registerPaths(read(boundary), [relativeWrapper]), [typePath]: withoutProps(read(typePath), [pair]) })).toBe(false);
+    expect(audit({ [pair.wrapper]: null, [pair.child]: null, [boundary]: registerPaths(read(boundary), [relativeChild]), [typePath]: withoutProps(read(typePath), [pair]) })).toBe(false);
     expect(audit({ [pair.wrapper]: "export const GithubPrList = () => null;", [pair.child]: null })).toBe(false);
-    expect(audit({ ...retiredFiles(pairs), [boundary]: registerPaths(read(boundary), [relativeWrapper]) })).toBe(false);
+    expect(audit({ ...retiredFiles(pairs), [boundary]: registerPaths(read(boundary), [relativeWrapper]), [typePath]: retiredTypes })).toBe(false);
     const commentOnlyBoundary = append(read(boundary), `// "${relativeWrapper}",\n// "${relativeChild}",`);
-    expect(audit({ [pair.wrapper]: null, [pair.child]: null, [boundary]: commentOnlyBoundary })).toBe(false);
+    expect(audit({ [pair.wrapper]: null, [pair.child]: null, [boundary]: commentOnlyBoundary, [typePath]: withoutProps(read(typePath), [pair]) })).toBe(false);
     const outsideArrayBoundary = append(read(boundary), `const strayWrapperPath = "${relativeWrapper}";\nconst strayChildPath = "${relativeChild}";`);
-    expect(audit({ [pair.wrapper]: null, [pair.child]: null, [boundary]: outsideArrayBoundary })).toBe(false);
+    expect(audit({ [pair.wrapper]: null, [pair.child]: null, [boundary]: outsideArrayBoundary, [typePath]: withoutProps(read(typePath), [pair]) })).toBe(false);
   });
 
   test("rejects external consumers, relocations, broken owners, and prose-only matches", () => {

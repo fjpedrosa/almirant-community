@@ -29,6 +29,8 @@ const retiredRelativePaths = [
   "src/domains/github/presentation/components/github-commit-timeline.tsx",
   "src/domains/github/presentation/components/github-sync-button.tsx",
   "src/domains/github/presentation/components/github-contributors-grid.tsx",
+  "src/domains/github/presentation/components/github-activity-feed.tsx",
+  "src/domains/github/presentation/components/github-activity-item.tsx",
 ];
 const retiredFiles = retiredRelativePaths.map((path) => resolve(frontendRoot, path));
 const sentinelFiles = [

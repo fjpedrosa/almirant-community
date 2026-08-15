@@ -218,20 +218,6 @@ export interface GithubActionsListProps {
   isLoading: boolean;
 }
 
-export interface GithubActivityItemProps {
-  eventType: GithubEventType;
-  action: string | null;
-  actorLogin: string | null;
-  actorAvatarUrl: string | null;
-  summary: string | null;
-  createdAt: string;
-}
-
-export interface GithubActivityFeedProps {
-  events: GithubEvent[];
-  isLoading: boolean;
-}
-
 export interface GithubSummaryBadgesProps {
   openPrCount: number;
   lastCommitAt: string | null;
