@@ -33,7 +33,7 @@ const pairs: Pair[] = [
   },
   {
     name: "actions",
-    expectedPresent: true,
+    expectedPresent: false,
     wrapper: "frontend/src/domains/github/presentation/components/github-actions-list.tsx",
     wrapperSymbol: "GithubActionsList",
     wrapperProps: "GithubActionsListProps",

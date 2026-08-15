@@ -203,21 +203,6 @@ export interface GithubCommitItemProps {
   committedAt: string;
 }
 
-export interface GithubActionItemProps {
-  name: string | null;
-  status: string | null;
-  conclusion: string | null;
-  branch: string | null;
-  htmlUrl: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-}
-
-export interface GithubActionsListProps {
-  workflowRuns: GithubWorkflowRun[];
-  isLoading: boolean;
-}
-
 export interface GithubSummaryBadgesProps {
   openPrCount: number;
   lastCommitAt: string | null;
