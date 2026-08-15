@@ -17,11 +17,12 @@ jobs:
       - run: bun install --frozen-lockfile
 
       # `backend`'s aggregate `test` also runs @almirant/api and
-      # @almirant/database, both of which require DATABASE_URL. The api suite
-      # has a `test:pre-push` variant that skips its real-DB files; the database
-      # suite has no such split, so it stays out of CI until a service container
-      # is wired up.
-      - run: bun run --filter @almirant/api test:pre-push
+      # @almirant/database, which need a live Postgres. `@almirant/api`'s
+      # `test:pre-push` variant skips its real-DB files only when the selector
+      # narrows the run; on a clean CI clone it selects them and they fail
+      # against no database. Both stay out until a service container is wired
+      # up — that is the gap this workflow knowingly leaves. Type checking
+      # covers them, since tsc needs no database.
       - run: bun run --filter @almirant/bridge-core test
       - run: bun run --filter @almirant/canonical-events test
       - run: bun run --filter @almirant/config test
