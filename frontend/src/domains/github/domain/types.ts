@@ -174,26 +174,6 @@ export interface CreateGithubRepoResponse {
 
 // ---- Component Props ------------------------------------------------------
 
-export interface GithubPrItemProps {
-  title: string;
-  number: number;
-  authorLogin: string | null;
-  authorAvatarUrl: string | null;
-  labels: string[];
-  reviewStatus: GithubReviewStatus;
-  ciStatus: GithubCiStatus;
-  isDraft: boolean;
-  createdAt: string;
-  htmlUrl: string | null;
-  additions: number;
-  deletions: number;
-}
-
-export interface GithubPrListProps {
-  pullRequests: GithubPullRequest[];
-  isLoading: boolean;
-}
-
 export interface GithubCommitItemProps {
   sha: string;
   message: string;

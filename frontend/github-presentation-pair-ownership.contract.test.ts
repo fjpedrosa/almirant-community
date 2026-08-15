@@ -23,7 +23,7 @@ type Pair = {
 const pairs: Pair[] = [
   {
     name: "pull requests",
-    expectedPresent: true,
+    expectedPresent: false,
     wrapper: "frontend/src/domains/github/presentation/components/github-pr-list.tsx",
     wrapperSymbol: "GithubPrList",
     wrapperProps: "GithubPrListProps",
@@ -69,6 +69,7 @@ const sourcePaths = () => execFileSync("git", ["ls-files", "-co", "--exclude-sta
   .filter((path) => path !== contract && existsSync(resolve(root, path)));
 const repoPaths = sourcePaths();
 const append = (raw: string, value: string) => `${raw}\n${value}\n`;
+const removeRegisteredPaths = (raw: string, paths: string[]) => paths.reduce((current, path) => current.replace(`  "${path}",\n`, ""), raw);
 type Overrides = Record<string, string | null>;
 const relativePath = (path: string) => path.replace(/^frontend\//u, "");
 const registerPaths = (raw: string, paths: string[]) => {
@@ -180,6 +181,24 @@ const audit = (overrides: Overrides = {}) => {
   }
   return true;
 };
+const livePair = pairs[0]!;
+const liveWrapperSource = `import type { GithubPrListProps } from "../../domain/types";\nimport { GithubPrItem } from "./github-pr-item";\nexport const GithubPrList = (props: GithubPrListProps) => <GithubPrItem {...props} />;`;
+const liveChildSource = `import type { GithubPrItemProps } from "../../domain/types";\nexport const GithubPrItem = (props: GithubPrItemProps) => <div>{props.title}</div>;`;
+const liveTypesSource = `${read(typePath)}\nexport interface GithubPrItemProps {}\nexport interface GithubPrListProps {}`;
+const liveBoundarySource = removeRegisteredPaths(read(boundary), [relativePath(livePair.wrapper), relativePath(livePair.child)]);
+const liveSynthetic: Overrides = {
+  [livePair.wrapper]: liveWrapperSource,
+  [livePair.child]: liveChildSource,
+  [typePath]: liveTypesSource,
+  [boundary]: liveBoundarySource,
+};
+const mutateLive = (path: string, transform: (source: string) => string): Overrides => {
+  const source = liveSynthetic[path];
+  if (typeof source !== "string") throw new Error(`Live synthetic source is missing for ${path}`);
+  const changed = transform(source);
+  if (changed === source) throw new Error(`Mutation did not change ${path}`);
+  return { ...liveSynthetic, [path]: changed };
+};
 
 describe("GitHub presentation pair ownership", () => {
   test("keeps each wrapper and child as one complete privately-owned pair", () => {
@@ -222,15 +241,16 @@ describe("GitHub presentation pair ownership", () => {
       [typePath]: `${read(typePath)}\nexport interface ${activity.childProps} {}\nexport interface ${activity.wrapperProps} {}`,
     })).toBe(false);
     expect(audit({ [activity.wrapper]: "export const GithubActivityFeed = () => null;", [boundary]: retirementBoundary(read(boundary), [activity]), [typePath]: retiredActivityTypes })).toBe(false);
-    expect(audit({ [pair.wrapper]: null })).toBe(false);
-    expect(audit({ [pair.child]: null })).toBe(false);
-    expect(audit({ [pair.wrapper]: null, [pair.child]: null, [boundary]: registerPaths(read(boundary), [relativeWrapper]), [typePath]: withoutProps(read(typePath), [pair]) })).toBe(false);
-    expect(audit({ [pair.wrapper]: null, [pair.child]: null, [boundary]: registerPaths(read(boundary), [relativeChild]), [typePath]: withoutProps(read(typePath), [pair]) })).toBe(false);
+    expect(audit({ [pair.wrapper]: "export const GithubPrList = () => null;" })).toBe(false);
+    expect(audit({ [pair.child]: "export const GithubPrItem = () => null;" })).toBe(false);
+    const unregisteredPairBoundary = removeRegisteredPaths(read(boundary), [relativeWrapper, relativeChild]);
+    expect(audit({ [pair.wrapper]: null, [pair.child]: null, [boundary]: registerPaths(unregisteredPairBoundary, [relativeWrapper]), [typePath]: withoutProps(read(typePath), [pair]) })).toBe(false);
+    expect(audit({ [pair.wrapper]: null, [pair.child]: null, [boundary]: registerPaths(unregisteredPairBoundary, [relativeChild]), [typePath]: withoutProps(read(typePath), [pair]) })).toBe(false);
     expect(audit({ [pair.wrapper]: "export const GithubPrList = () => null;", [pair.child]: null })).toBe(false);
-    expect(audit({ ...retiredFiles(pairs), [boundary]: registerPaths(read(boundary), [relativeWrapper]), [typePath]: retiredTypes })).toBe(false);
-    const commentOnlyBoundary = append(read(boundary), `// "${relativeWrapper}",\n// "${relativeChild}",`);
+    expect(audit({ ...retiredFiles(pairs), [boundary]: registerPaths(unregisteredPairBoundary, [relativeWrapper]), [typePath]: retiredTypes })).toBe(false);
+    const commentOnlyBoundary = append(unregisteredPairBoundary, `// "${relativeWrapper}",\n// "${relativeChild}",`);
     expect(audit({ [pair.wrapper]: null, [pair.child]: null, [boundary]: commentOnlyBoundary, [typePath]: withoutProps(read(typePath), [pair]) })).toBe(false);
-    const outsideArrayBoundary = append(read(boundary), `const strayWrapperPath = "${relativeWrapper}";\nconst strayChildPath = "${relativeChild}";`);
+    const outsideArrayBoundary = append(unregisteredPairBoundary, `const strayWrapperPath = "${relativeWrapper}";\nconst strayChildPath = "${relativeChild}";`);
     expect(audit({ [pair.wrapper]: null, [pair.child]: null, [boundary]: outsideArrayBoundary, [typePath]: withoutProps(read(typePath), [pair]) })).toBe(false);
   });
 
@@ -238,9 +258,7 @@ describe("GitHub presentation pair ownership", () => {
     const pair = pairs[0]!;
     const importer = "frontend/src/domains/github/presentation/containers/github-settings-container.tsx";
     const valid = read(importer);
-    const wrapper = read(pair.wrapper);
-    const child = read(pair.child);
-    const types = read(typePath);
+    expect(audit(liveSynthetic)).toBe(true);
     for (const current of pairs) {
       const currentWrapper = posix.basename(current.wrapper, ".tsx");
       const currentChild = posix.basename(current.child, ".tsx");
@@ -257,17 +275,19 @@ describe("GitHub presentation pair ownership", () => {
     expect(audit({ [importer]: append(valid, "const props = GithubPrItemProps;") })).toBe(false);
     expect(audit({ [importer]: append(valid, "export const GithubPrList = null;") })).toBe(false);
     expect(audit({ [importer]: append(valid, "const prose = `GithubPrList GithubPrItemProps`; // github-pr-list") })).toBe(true);
-    expect(audit({ [typePath]: types.replaceAll("GithubPrItemProps", "GithubPrItemProperties") })).toBe(false);
-    expect(audit({ [typePath]: types.replaceAll("GithubPrListProps", "GithubPrListProperties") })).toBe(false);
+    expect(audit(mutateLive(typePath, (source) => source.replaceAll("GithubPrItemProps", "GithubPrItemProperties")))).toBe(false);
+    expect(audit(mutateLive(typePath, (source) => source.replaceAll("GithubPrListProps", "GithubPrListProperties")))).toBe(false);
     expect(audit({ ["frontend/src/domains/github/presentation/archive/github-pr-list.tsx"]: "export default () => null;" })).toBe(false);
     expect(audit({ ["frontend/src/domains/github/presentation/archive/github-pr-item.tsx"]: "export default () => null;" })).toBe(false);
     expect(audit({ ["frontend/src/domains/github/presentation/archive/github-pr-item.tsx"]: "export const GithubPrItem = () => null;" })).toBe(false);
-    expect(audit({ [pair.wrapper]: wrapper.replace('import { GithubPrItem } from "./github-pr-item";\n', "") })).toBe(false);
-    expect(audit({ [pair.wrapper]: wrapper.replaceAll("GithubPrItem", "GithubPrChild") })).toBe(false);
-    expect(audit({ [pair.wrapper]: wrapper.replaceAll(pair.childSymbol, `${pair.childSymbol}Renamed`) })).toBe(false);
-    expect(audit({ [pair.wrapper]: wrapper.replaceAll("GithubPrListProps", "GithubPrListProperties") })).toBe(false);
-    expect(audit({ [pair.child]: child.replaceAll("GithubPrItemProps", "GithubPrItemProperties") })).toBe(false);
-    expect(audit({ [pair.child]: child.replace('from "../../domain/types"', 'from "../../domain/other-types"') })).toBe(false);
-    expect(audit({ [pair.wrapper]: wrapper.replace('from "../../domain/types"', 'from "../../domain/other-types"') })).toBe(false);
+    expect(audit(mutateLive(pair.wrapper, (source) => source.replaceAll("GithubPrList", "GithubPrListRenamed")))).toBe(false);
+    expect(audit(mutateLive(pair.child, (source) => source.replaceAll("GithubPrItem", "GithubPrItemRenamed")))).toBe(false);
+    expect(audit(mutateLive(pair.wrapper, (source) => source.replace('import { GithubPrItem } from "./github-pr-item";\n', "")))).toBe(false);
+    expect(audit(mutateLive(pair.wrapper, (source) => source.replaceAll("GithubPrItem", "GithubPrChild")))).toBe(false);
+    expect(audit(mutateLive(pair.wrapper, (source) => source.replaceAll(pair.childSymbol, `${pair.childSymbol}Renamed`)))).toBe(false);
+    expect(audit(mutateLive(pair.wrapper, (source) => source.replaceAll("GithubPrListProps", "GithubPrListProperties")))).toBe(false);
+    expect(audit(mutateLive(pair.child, (source) => source.replaceAll("GithubPrItemProps", "GithubPrItemProperties")))).toBe(false);
+    expect(audit(mutateLive(pair.child, (source) => source.replace('from "../../domain/types"', 'from "../../domain/other-types"')))).toBe(false);
+    expect(audit(mutateLive(pair.wrapper, (source) => source.replace('from "../../domain/types"', 'from "../../domain/other-types"')))).toBe(false);
   });
 });

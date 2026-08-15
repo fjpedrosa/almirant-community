@@ -33,6 +33,8 @@ const retiredRelativePaths = [
   "src/domains/github/presentation/components/github-activity-item.tsx",
   "src/domains/github/presentation/components/github-actions-list.tsx",
   "src/domains/github/presentation/components/github-action-item.tsx",
+  "src/domains/github/presentation/components/github-pr-list.tsx",
+  "src/domains/github/presentation/components/github-pr-item.tsx",
 ];
 const retiredFiles = retiredRelativePaths.map((path) => resolve(frontendRoot, path));
 const sentinelFiles = [
