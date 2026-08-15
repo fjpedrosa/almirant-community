@@ -8,7 +8,7 @@ import {
   searchObservations,
 } from "@almirant/database";
 import {
-  getWorkspaceIdFromExtra,
+  assertOrgScope,
   getProjectIdFromExtra,
 } from "../setup";
 import {
@@ -126,19 +126,9 @@ export const registerMemoryTools = (server: McpServer) => {
     },
     async (params, extra) => {
       const startedAt = Date.now();
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: "Error: could not resolve workspaceId from API key",
-              },
-            ],
-            isError: true,
-          };
-        }
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
         const normalizedTopicKey = validateTopicKeyForType(
@@ -273,19 +263,9 @@ export const registerMemoryTools = (server: McpServer) => {
     },
     async (params, extra) => {
       const startedAt = Date.now();
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: "Error: could not resolve workspaceId from API key",
-              },
-            ],
-            isError: true,
-          };
-        }
 
         const safeQuery = assertSafeMemoryText(params.query, "query");
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
@@ -400,19 +380,9 @@ export const registerMemoryTools = (server: McpServer) => {
     },
     async (params, extra) => {
       const startedAt = Date.now();
+      const workspaceId = assertOrgScope(extra);
+      if (typeof workspaceId !== "string") return workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: "Error: could not resolve workspaceId from API key",
-              },
-            ],
-            isError: true,
-          };
-        }
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
 

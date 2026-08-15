@@ -174,26 +174,6 @@ export interface CreateGithubRepoResponse {
 
 // ---- Component Props ------------------------------------------------------
 
-export interface GithubPrItemProps {
-  title: string;
-  number: number;
-  authorLogin: string | null;
-  authorAvatarUrl: string | null;
-  labels: string[];
-  reviewStatus: GithubReviewStatus;
-  ciStatus: GithubCiStatus;
-  isDraft: boolean;
-  createdAt: string;
-  htmlUrl: string | null;
-  additions: number;
-  deletions: number;
-}
-
-export interface GithubPrListProps {
-  pullRequests: GithubPullRequest[];
-  isLoading: boolean;
-}
-
 export interface GithubCommitItemProps {
   sha: string;
   message: string;
@@ -201,45 +181,6 @@ export interface GithubCommitItemProps {
   authorAvatarUrl: string | null;
   branch: string | null;
   committedAt: string;
-}
-
-export interface GithubCommitTimelineProps {
-  commits: GithubCommit[];
-  isLoading: boolean;
-}
-
-export interface GithubActionItemProps {
-  name: string | null;
-  status: string | null;
-  conclusion: string | null;
-  branch: string | null;
-  htmlUrl: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-}
-
-export interface GithubActionsListProps {
-  workflowRuns: GithubWorkflowRun[];
-  isLoading: boolean;
-}
-
-export interface GithubContributorsGridProps {
-  contributors: GithubContributor[];
-  isLoading: boolean;
-}
-
-export interface GithubActivityItemProps {
-  eventType: GithubEventType;
-  action: string | null;
-  actorLogin: string | null;
-  actorAvatarUrl: string | null;
-  summary: string | null;
-  createdAt: string;
-}
-
-export interface GithubActivityFeedProps {
-  events: GithubEvent[];
-  isLoading: boolean;
 }
 
 export interface GithubSummaryBadgesProps {
@@ -251,17 +192,6 @@ export interface GithubSummaryBadgesProps {
 
 export interface GithubDeployBadgeProps {
   status: GithubCiStatus | null;
-}
-
-export interface GithubRepoLinkProps {
-  url: string;
-}
-
-export interface GithubSyncButtonProps {
-  onSync: () => void;
-  isSyncing: boolean;
-  linkedRepoCount: number;
-  lastSyncAt: string | null;
 }
 
 export interface GithubConnectionButtonProps {
@@ -285,10 +215,6 @@ export interface GithubManageInstallationsLinkProps {
 export interface GithubConnectionStatusProps {
   status: GithubConnectionStatus;
   isLoading: boolean;
-}
-
-export interface GithubTabContainerProps {
-  projectId: string;
 }
 
 // empty for now - fetches its own data
@@ -329,12 +255,6 @@ export type GithubTabStatus =
   | "no_repos_linked"
   | "not_synced"
   | "synced";
-
-export interface GithubEmptyStateProps {
-  status: Exclude<GithubTabStatus, "synced">;
-  onSync?: () => void;
-  isSyncing?: boolean;
-}
 
 // ---- Error detection utilities -----------------------------------------------
 

@@ -24,7 +24,7 @@ import {
 } from "@almirant/database";
 import { dodHumanActionV2Schema } from "@almirant/shared";
 import { eq } from "drizzle-orm";
-import { getWorkspaceIdFromExtra } from "../setup";
+import { assertOrgScope, type McpToolResult } from "../setup";
 import {
   ensureReleasePullRequest,
   refreshReleasePullRequestBody,
@@ -67,7 +67,7 @@ const FAILURE_CATEGORIES = [
   "tests_failed",
 ] as const;
 
-const errorText = (msg: string) => ({
+const errorText = (msg: string): McpToolResult => ({
   content: [{ type: "text" as const, text: `Error: ${msg}` }],
   isError: true,
 });
@@ -85,10 +85,9 @@ const requireOrgScope = async (
   | { ok: true; batch: NonNullable<Awaited<ReturnType<typeof getBatchByIdWithItems>>> }
   | { ok: false; result: ReturnType<typeof errorText> }
 > => {
-  const workspaceId = getWorkspaceIdFromExtra(extra);
-  if (!workspaceId) {
-    return { ok: false, result: errorText("could not resolve workspaceId from API key") };
-  }
+  const orgResult = assertOrgScope(extra);
+  if (typeof orgResult !== "string") return { ok: false, result: orgResult };
+  const workspaceId = orgResult;
   const batch = await getBatchByIdWithItems(batchId);
   if (!batch) {
     return { ok: false, result: errorText(`Integration batch ${batchId} not found`) };
@@ -116,10 +115,9 @@ const requireOrgScopeForItem = async (
     }
   | { ok: false; result: ReturnType<typeof errorText> }
 > => {
-  const workspaceId = getWorkspaceIdFromExtra(extra);
-  if (!workspaceId) {
-    return { ok: false, result: errorText("could not resolve workspaceId from API key") };
-  }
+  const orgResult = assertOrgScope(extra);
+  if (typeof orgResult !== "string") return { ok: false, result: orgResult };
+  const workspaceId = orgResult;
   const [row] = await db
     .select({
       orgId: integrationBatches.workspaceId,

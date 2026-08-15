@@ -21,7 +21,7 @@ import {
   getChildCountsByParentIds,
 } from "@almirant/database";
 import { wsConnectionManager } from "../../shared/ws/ws-connection-manager";
-import { getManagedByAgentFromExtra, getWorkspaceIdFromExtra, getProjectIdFromExtra } from "../setup";
+import { getManagedByAgentFromExtra, assertOrgScope, getProjectIdFromExtra } from "../setup";
 import { propagateProviderToParent } from "../../domains/connections/services/propagate-provider";
 
 type ManagedByAgent = "claude-code" | "codex";
@@ -200,11 +200,10 @@ export const registerSkillContextTools = (server: McpServer) => {
       maxDepth: z.number().int().min(1).max(10).optional().describe("Max recursion depth when resolving leaf tasks (default: 3)"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const includeLeafTasks = params.includeLeafTasks ?? true;
         const maxDepth = params.maxDepth ?? 3;
@@ -307,11 +306,10 @@ export const registerSkillContextTools = (server: McpServer) => {
       projectId: z.string().uuid().optional().describe("Project ID (uses MCP default projectId when omitted)"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
         if (!projectId) {
@@ -357,11 +355,10 @@ export const registerSkillContextTools = (server: McpServer) => {
       aiProvider: z.string().optional().describe("Optional provider (e.g. openai/anthropic) to store in metadata"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const managedByFromClient = getManagedByAgentFromExtra(extra);
         const managedByFromProvider = getManagedByFromAiProvider(params.aiProvider);
@@ -453,11 +450,11 @@ export const registerSkillContextTools = (server: McpServer) => {
       workItemIds: z.array(z.string().uuid()).min(1).describe("Work item IDs to resolve dependencies for"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
+      void workspaceId;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const [dependencies, dependents] = await Promise.all([
           getDependenciesBatch(params.workItemIds),
@@ -515,11 +512,10 @@ export const registerSkillContextTools = (server: McpServer) => {
       projectId: z.string().uuid().optional().describe("Project ID (defaults to MCP session project)"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
         if (!projectId) {
@@ -664,11 +660,10 @@ export const registerSkillContextTools = (server: McpServer) => {
       limit: z.number().int().min(1).max(50).optional().describe("Result limit (default: 20)"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
         if (!projectId) {
@@ -881,11 +876,10 @@ export const registerSkillContextTools = (server: McpServer) => {
       featureReview: z.boolean().optional().describe("When true, include reviewable children for feature/epic review"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const projectId = getProjectIdFromExtra(extra);
         const isUuid = UUID_REGEX.test(params.taskId);
@@ -1003,11 +997,10 @@ export const registerSkillContextTools = (server: McpServer) => {
       includeValidating: z.boolean().optional().describe("When true, items in the Validating column are also treated as validatable (useful for retries after a runner crash)"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
         if (!projectId) {
@@ -1142,11 +1135,10 @@ export const registerSkillContextTools = (server: McpServer) => {
       workItemId: z.string().min(1).describe("Work item identifier (UUID or taskId like MC-123)"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const projectId = getProjectIdFromExtra(extra);
         const isUuid = UUID_REGEX.test(params.workItemId);
@@ -1261,11 +1253,10 @@ export const registerSkillContextTools = (server: McpServer) => {
       projectId: z.string().uuid().optional().describe("Project ID (defaults to MCP session project)"),
     },
     async (params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+      const workspaceId = orgResult;
       try {
-        const workspaceId = getWorkspaceIdFromExtra(extra);
-        if (!workspaceId) {
-          return { content: [{ type: "text" as const, text: "Error: could not resolve workspaceId from API key" }], isError: true };
-        }
 
         const projectId = params.projectId ?? getProjectIdFromExtra(extra);
         if (!projectId) {

@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import type { UseFormReturn } from "react-hook-form";
 
 export type MilestoneStatus =
@@ -70,41 +69,6 @@ export interface GoalProjectOption {
   color: string;
 }
 
-export interface GoalsPageProps {
-  projects: GoalProjectOption[];
-  selectedProjectId: string | null;
-  selectedMilestoneId: string | null;
-  onProjectChange: (projectId: string) => void;
-  milestones: MilestoneWithProgress[];
-  selectedMilestone: MilestoneWithProgress | null;
-  isLoadingProjects: boolean;
-  isLoadingMilestones: boolean;
-  isLoadingMilestoneDetail: boolean;
-  onCreateMilestone: () => void;
-  onEditMilestone: (milestone: MilestoneWithProgress) => void;
-  onSelectMilestone: (milestoneId: string) => void;
-  onOpenWorkItem: (workItemId: string) => void;
-  formDialog: ReactNode;
-}
-
-export interface MilestoneProgressProps {
-  percentage: number;
-  targetDate: string | null;
-}
-
-export interface GoalMetricsProps {
-  total: number;
-  completed: number;
-  inProgress: number;
-  pending: number;
-  daysRemaining: number | null;
-}
-
-export interface MilestoneChecklistProps {
-  items: MilestoneWorkItem[];
-  onOpenWorkItem?: (workItemId: string) => void;
-}
-
 export interface MilestoneFormValues {
   title: string;
   description: string;
@@ -119,20 +83,6 @@ export interface MilestoneWorkItemOption {
   title: string;
   type: MilestoneWorkItemType;
   priority: MilestonePriority;
-}
-
-export interface MilestoneCardProps {
-  milestone: MilestoneWithProgress;
-  isSelected: boolean;
-  onSelect: (milestoneId: string) => void;
-  onEdit: (milestone: MilestoneWithProgress) => void;
-}
-
-export interface MilestoneDetailViewProps {
-  milestone: MilestoneWithProgress | null;
-  isLoading?: boolean;
-  onEditMilestone: (milestone: MilestoneWithProgress) => void;
-  onOpenWorkItem: (workItemId: string) => void;
 }
 
 export type MilestoneFormMode = "create" | "edit";

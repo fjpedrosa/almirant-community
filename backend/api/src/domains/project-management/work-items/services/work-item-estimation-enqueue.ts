@@ -1,4 +1,4 @@
-import type { EffortEstimationReason } from "../../domains/agents/services/enqueue-effort-estimation";
+import type { EffortEstimationReason } from "../../../agents/services/enqueue-effort-estimation";
 
 /**
  * Which effort estimations a work-item write should trigger.
