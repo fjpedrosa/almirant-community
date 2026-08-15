@@ -1,0 +1,63 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend workspaces — tests and type checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+
+      # `backend`'s aggregate `test` also runs @almirant/api and
+      # @almirant/database, which need a live Postgres. `@almirant/api`'s
+      # `test:pre-push` variant skips its real-DB files only when the selector
+      # narrows the run; on a clean CI clone it selects them and they fail
+      # against no database. Both stay out until a service container is wired
+      # up — that is the gap this workflow knowingly leaves. Type checking
+      # covers them, since tsc needs no database.
+      - run: bun run --filter @almirant/bridge-core test
+      - run: bun run --filter @almirant/canonical-events test
+      - run: bun run --filter @almirant/config test
+      - run: bun run --filter @almirant/i18n test
+      - run: bun run --filter @almirant/remote-agent test
+      - run: bun run --filter @almirant/shared test
+      - run: bun run --filter @almirant/stream-consumer test
+
+      - run: cd backend && bun run type-check
+
+  agent-stack:
+    name: Agent stack — tests and type checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - run: bun run test:agent-stack
+      - run: bun run type-check:agent-stack
+
+  shim-server:
+    name: Runner shim-server — tests and type check
+    runs-on: ubuntu-latest
+    # services/runner/bunfig.toml sets pathIgnorePatterns = ["docker/**"] and
+    # shim-server is not a workspace member, so no other job reaches it.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install
+        working-directory: services/runner/docker/shim-server
+      - run: bun test
+        working-directory: services/runner/docker/shim-server
+      - run: bun run type-check
+        working-directory: services/runner/docker/shim-server
