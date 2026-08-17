@@ -163,7 +163,6 @@ const envSchema = z.object({
   THUM_IO_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-4.1-nano"),
-  OPENAI_PROMPT_MODEL: z.string().default("gpt-5-mini"),
   OPENAI_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
   // Groq (optional - only required for audio transcription)
   GROQ_API_KEY: z.string().optional(),
@@ -177,13 +176,6 @@ const envSchema = z.object({
   CONTACT_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60_000),
   CONTACT_RATE_LIMIT_MAX: z.coerce.number().default(5),
   CONTACT_RECIPIENTS: z.string().default(""),
-  WAITLIST_CONFIRM_TOKEN_TTL_MINUTES: z.coerce.number().default(1440),
-  WAITLIST_SIGNUP_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60_000),
-  WAITLIST_SIGNUP_RATE_LIMIT_MAX: z.coerce.number().default(10),
-  WAITLIST_CONFIRM_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60_000),
-  WAITLIST_CONFIRM_RATE_LIMIT_MAX: z.coerce.number().default(30),
-  WAITLIST_REF_COOKIE_NAME: z.string().default("wl_ref"),
-  WAITLIST_SESSION_COOKIE_NAME: z.string().default("wl_session"),
   // SMTP (optional - preferred provider when configured)
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().default(587),
@@ -199,7 +191,6 @@ const envSchema = z.object({
   ENCRYPTION_KEY: optional(z.string().length(64).regex(/^[0-9a-f]+$/i)),
   // Anthropic Admin API (optional - only required for usage/cost reports)
   ANTHROPIC_ADMIN_API_KEY: z.string().optional(),
-  ANTHROPIC_ORG_ID: z.string().optional(),
   // Anthropic OAuth (optional - for OAuth PKCE flow with Claude subscriptions)
   ANTHROPIC_OAUTH_CLIENT_ID: z.string().optional(),
   ANTHROPIC_OAUTH_REDIRECT_URI: z.string().optional(),
@@ -208,10 +199,6 @@ const envSchema = z.object({
   SENTRY_AUTH_TOKEN: z.string().optional(),
   SENTRY_ORG: z.string().optional(),
   SENTRY_PROJECT_FRONTEND: z.string().optional(),
-  SENTRY_PROJECT_BACKEND: z.string().optional(),
-  // Stripe (optional - only required if enabling payment features)
-  STRIPE_SECRET_KEY: z.string().optional(),
-  STRIPE_WEBHOOK_SECRET: z.string().optional(),
   // PostHog (optional - only required if enabling server-side analytics)
   POSTHOG_API_KEY: z.string().optional(),
   POSTHOG_HOST: z.string().default("https://eu.i.posthog.com"),

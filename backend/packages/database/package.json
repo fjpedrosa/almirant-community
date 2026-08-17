@@ -19,6 +19,7 @@
     "db:push:prod": "bun run --env-file .env drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "bun run src/seed.ts",
+    "db:clear": "bun run src/clear-data.ts",
     "db:seed:templates": "bun run --env-file=.env.local src/seed-board-templates.ts",
     "db:seed:skills": "bun run --env-file=.env.local src/seed-skills.ts",
     "db:seed:bug-analysis": "bun run --env-file=.env.local src/seed-bug-analysis-config.ts",
