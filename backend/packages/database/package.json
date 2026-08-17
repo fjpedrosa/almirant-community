@@ -45,12 +45,6 @@
     "db:restore": "./scripts/db-restore.sh",
     "staging:setup": "bun run src/preview/staging-setup.ts",
     "staging:reset": "bun run src/preview/staging-setup.ts --reset",
-    "preview:create": "bun run src/preview/preview-db.ts create",
-    "preview:destroy": "bun run src/preview/preview-db.ts destroy",
-    "preview:reset": "bun run src/preview/preview-db.ts reset",
-    "preview:list": "bun run src/preview/preview-db.ts list",
-    "preview:cleanup": "bun run src/preview/preview-db.ts cleanup-stale",
-    "preview:stats": "bun run src/preview/preview-db.ts stats",
     "test": "bun test --pass-with-no-tests",
     "test:watch": "bun test --watch --pass-with-no-tests"
   },
