@@ -44,7 +44,8 @@ const LOCAL_DEV_ALLOWED_ORIGINS = getDefaultLocalFrontendOrigins(process.env).ma
   (origin) => new URL(origin).host
 );
 const SENTRY_ORG = process.env.SENTRY_ORG?.trim();
-const SENTRY_PROJECT = process.env.SENTRY_PROJECT?.trim();
+const SENTRY_PROJECT =
+  process.env.SENTRY_PROJECT_FRONTEND?.trim() || process.env.SENTRY_PROJECT?.trim();
 const SENTRY_AUTH_TOKEN = process.env.SENTRY_AUTH_TOKEN?.trim();
 const SHOULD_UPLOAD_SENTRY_SOURCEMAPS = Boolean(
   SENTRY_ORG && SENTRY_PROJECT && SENTRY_AUTH_TOKEN,

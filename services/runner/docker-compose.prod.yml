@@ -84,7 +84,6 @@ services:
       AGENT_EGRESS_NETWORK: ${AGENT_EGRESS_NETWORK:-almirant-agent-egress}
       AGENT_CONTROL_NETWORK: ${AGENT_CONTROL_NETWORK:-almirant-agent-control}
       AGENT_EGRESS_PROXY_URL: http://egress-proxy:3128
-      RUNNER_RELEASE_SLICE: runner
       OPENCODE_IMAGE: ${OPENCODE_IMAGE:-almirant-opencode-shim:1.17.20}
       CLAUDE_SHIM_IMAGE: ${CLAUDE_SHIM_IMAGE:-almirant-claude-shim:2.1.209}
       CODEX_SHIM_IMAGE: ${CODEX_SHIM_IMAGE:-almirant-codex-shim:0.144.4}
@@ -123,7 +122,6 @@ services:
       - /opt/almirant/secrets/web-bridge.env
     environment:
       PORT: ${WEB_BRIDGE_PORT:-3004}
-      RELEASE_SLICE: web-bridge
     networks:
       - runner-internal
     depends_on:
@@ -144,7 +142,6 @@ services:
       - /opt/almirant/secrets/discord-bridge.env
     environment:
       PORT: ${DISCORD_BRIDGE_PORT:-3003}
-      RELEASE_SLICE: discord-bridge
     networks:
       - runner-internal
     depends_on:
@@ -165,7 +162,6 @@ services:
       - /opt/almirant/secrets/scaler.env
     environment:
       PORT: ${SCALER_PORT:-3003}
-      RELEASE_SLICE: scaler
     networks:
       - runner-internal
     depends_on:

@@ -19,8 +19,6 @@
     "dev:bridge:web:stack": "bun run dev:stack:web-bridge",
     "dev:bridge:discord": "bun run --filter @almirant/discord-bridge dev",
     "dev:bridge:discord:stack": "bun run dev:stack:discord-bridge",
-    "shim-images:check": "bun run scripts/check-shim-images.ts",
-    "skills:validate": "./scripts/validate-skills-consistency.sh",
     "build:frontend": "cd frontend && bun run build",
     "build:api": "bun run --filter @almirant/api build",
     "postinstall": "lefthook install --force || true",

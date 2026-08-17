@@ -148,7 +148,7 @@ authorities on at once, for a supervised migration window).
 
 These are only needed if you enable the corresponding feature:
 
-- `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_PROMPT_MODEL`
+- `OPENAI_API_KEY`, `OPENAI_MODEL`
 - `ANTHROPIC_API_KEY`
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
 - `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`

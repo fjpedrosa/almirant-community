@@ -87,6 +87,10 @@ describe("agent runtime version manifest", () => {
   test("keeps deprecated local and preview compose variants absent", () => {
     expect(existsSync(join(root, "docker-compose.local.yml"))).toBe(false);
     expect(existsSync(join(root, "docker-compose.preview.yml"))).toBe(false);
+    expect(existsSync(join(root, "docker-compose.validate.yml"))).toBe(false);
+    expect(
+      existsSync(join(root, "services/runner/docker/docker-compose.dev.yml")),
+    ).toBe(false);
   });
 
   test("keeps Claude Code above the minimum required by ultracode", () => {
