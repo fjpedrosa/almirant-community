@@ -52,6 +52,7 @@ const retiredImportTargets = [
   "ai-planning/presentation/components/streaming-activity-indicator",
 ];
 const retiredIdentifiers = new Set(["TouchActions", "ImageLightbox", "InfoTooltip", "LightboxImage"]);
+const retiredDependencies = ["isomorphic-dompurify", "prism-react-renderer", "uuid", "@types/dompurify", "@types/uuid"];
 const canonicalPath = (value: string) => value.replace(/\\/gu, "/").replace(/\.(?:tsx?|jsx?)$/u, "").replace(/\/index$/u, "");
 const targetPath = (target: string) => canonicalPath(resolve(frontendRoot, "src", target.startsWith("components/") ? target : `domains/${target}`));
 
@@ -77,6 +78,7 @@ function literalSpecifier(node: ts.Node): string | undefined {
 }
 
 function matchesRetiredSpecifier(specifier: string, importerPath: string): boolean {
+  if (retiredDependencies.some((dependency) => specifier === dependency || specifier.startsWith(`${dependency}/`))) return true;
   const candidate = specifier.startsWith("@/")
     ? canonicalPath(resolve(frontendRoot, "src", specifier.slice(2)))
     : /^(?:\.\/|\.\.\/)/u.test(specifier)
@@ -110,13 +112,13 @@ function hasRetiredReference(source: string, importerPath = resolve(frontendRoot
 }
 
 function trackedFrontendSources(): string[] {
-  const result = Bun.spawnSync({ cmd: ["git", "ls-files", "--", "frontend/src"], cwd: repositoryRoot });
+  const result = Bun.spawnSync({ cmd: ["git", "ls-files", "--", "frontend"], cwd: repositoryRoot });
   if (result.exitCode !== 0) throw new Error("Unable to enumerate tracked frontend sources");
   const tracked = new TextDecoder().decode(result.stdout).split("\n").filter(Boolean);
   if (tracked.length === 0) throw new Error("Tracked frontend source enumeration was empty");
   const retired = new Set(retiredRelativePaths.map((path) => `frontend/${path}`));
   const sources = tracked
-    .filter((path) => /\.(?:ts|tsx|js|jsx)$/u.test(path) && !retired.has(path) && !/generated|\.lock$/u.test(path))
+    .filter((path) => /\.(?:ts|tsx|js|jsx|mjs|cjs)$/u.test(path) && !retired.has(path) && !/generated|\.lock$/u.test(path))
     .filter((path) => !path.endsWith("dead-frontend-boundary.contract.test.ts"))
     .map((path) => resolve(repositoryRoot, path));
   if (sources.length === 0) throw new Error("Tracked frontend source set was empty after exclusions");
@@ -124,6 +126,24 @@ function trackedFrontendSources(): string[] {
 }
 
 describe("dead frontend boundary", () => {
+  it("retires unused direct dependency declarations without dropping live integrations", () => {
+    const packageJson = JSON.parse(
+      readFileSync(resolve(frontendRoot, "package.json"), "utf8"),
+    ) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const declaredDependencies = retiredDependencies.filter(
+      (dependency) =>
+        dependency in (packageJson.dependencies ?? {}) ||
+        dependency in (packageJson.devDependencies ?? {}),
+    );
+
+    expect(declaredDependencies).toEqual([]);
+    expect(packageJson.dependencies?.["@next/third-parties"]).toBeDefined();
+    expect(packageJson.dependencies?.["rehype-sanitize"]).toBeDefined();
+  });
+
   it("retires every exact orphan path", () => {
     expect(retiredFiles.filter((filePath) => existsSync(filePath))).toEqual([]);
     expect(sentinelFiles.every((filePath) => existsSync(filePath))).toBe(true);
@@ -151,6 +171,8 @@ describe("dead frontend boundary", () => {
       'await import(("./domains/ai-planning/application/hooks/" + ("use-typewriter")))',
       'await import("./domains/ai-planning/presentation/components/streaming-activity-indicator", { with: { type: "js" } })',
       'type X = import("./domains/ai-planning/application/hooks/use-typewriter").default',
+      'import "uuid"',
+      'await import("uuid/subpath")',
     ];
     const safe = [
       'import "@/domains/planning/domain/types"',
@@ -160,6 +182,8 @@ describe("dead frontend boundary", () => {
       '// import "@/domains/ai-planning/application/hooks/use-typewriter"',
       'const text = `import "@/domains/ai-planning/application/hooks/use-typewriter"`',
       'const label = "InfoTooltip"',
+      'import "uuid-extra"',
+      '// import "uuid/subpath"; const text = "uuid"',
     ];
     expect(retired.every((source) => hasRetiredReference(source))).toBe(true);
     expect(safe.every((source) => !hasRetiredReference(source))).toBe(true);
