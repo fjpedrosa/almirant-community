@@ -6,9 +6,10 @@ const root = join(import.meta.dir, "..");
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const versions = {
-  claudeCode: "2.1.209",
-  openCode: "1.17.20",
-  codex: "0.144.4",
+  claudeCode: "2.1.218",
+  legacyWorkerClaudeCode: "2.1.209",
+  openCode: "1.18.4",
+  codex: "0.145.0",
   playwrightMcp: "0.0.78",
 } as const;
 
@@ -38,15 +39,15 @@ describe("agent runtime version manifest", () => {
     }
   });
 
-  test("keeps the legacy worker on the same exact Claude Code runtime", () => {
+  test("keeps the legacy worker on its pinned Claude Code runtime", () => {
     const workerPackage = JSON.parse(read("worker/package.json")) as {
       dependencies: Record<string, string>;
     };
     expect(workerPackage.dependencies["@anthropic-ai/claude-code"]).toBe(
-      versions.claudeCode,
+      versions.legacyWorkerClaudeCode,
     );
     expect(read("worker/Dockerfile")).toContain(
-      `@anthropic-ai/claude-code@${versions.claudeCode}`,
+      `@anthropic-ai/claude-code@${versions.legacyWorkerClaudeCode}`,
     );
   });
 

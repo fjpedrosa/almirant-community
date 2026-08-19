@@ -209,9 +209,9 @@ describe("buildClaudePrintArgs", () => {
     expect(args.slice(0, optionTerminator)).toContain("--effort");
   });
 
-  test("does not create a Claude worktree for an option-shaped prompt on 2.1.209", async () => {
+  test("does not create a Claude worktree for an option-shaped prompt on 2.1.218", async () => {
     const version = spawnSync("claude", ["--version"], { encoding: "utf8" });
-    if (version.status !== 0 || !/^2\.1\.209\b/.test(version.stdout.trim())) return;
+    if (version.status !== 0 || !/^2\.1\.218\b/.test(version.stdout.trim())) return;
 
     const root = mkdtempSync(join(tmpdir(), "almirant-claude-argv-"));
     tempDirs.push(root);

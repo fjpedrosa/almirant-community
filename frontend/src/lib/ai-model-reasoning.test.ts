@@ -8,7 +8,7 @@ const valuesFor = (input: Parameters<typeof getReasoningEffortOptions>[0]) =>
   getReasoningEffortOptions(input).map((option) => option.value);
 
 describe("getReasoningEffortOptions", () => {
-  test("exposes only GPT-5.6 efforts that codex-sdk 0.144.4 can serialize", () => {
+  test("exposes only GPT-5.6 efforts that codex-sdk 0.145.0 can serialize", () => {
     expect(valuesFor({ codingAgent: "codex", aiProvider: "openai", model: "gpt-5.6-sol" })).toEqual([
       "low",
       "medium",

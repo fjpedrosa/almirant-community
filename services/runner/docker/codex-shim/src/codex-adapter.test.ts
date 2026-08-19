@@ -31,7 +31,7 @@ describe("TOOL_CANONICAL_KINDS", () => {
 });
 
 describe("normalizeCodexReasoningEffort", () => {
-  it("accepts exactly the ModelReasoningEffort values from codex-sdk 0.144.4", () => {
+  it("accepts exactly the ModelReasoningEffort values from codex-sdk 0.145.0", () => {
     for (const effort of ["minimal", "low", "medium", "high", "xhigh"] as const) {
       expect(normalizeCodexReasoningEffort(effort)).toBe(effort);
     }

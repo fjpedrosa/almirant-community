@@ -202,24 +202,24 @@ beforeEach(() => {
     JSON.stringify({
       opencode: {
         repository: "almirant-opencode-shim",
-        tag: "1.17.20",
+        tag: "1.18.4",
       },
       claude: {
         repository: "almirant-claude-shim",
-        tag: "2.1.209",
+        tag: "2.1.218",
       },
       codex: {
         repository: "almirant-codex-shim",
-        tag: "0.144.4",
+        tag: "0.145.0",
       },
     }),
   );
   writeFileSync(
     join(fakeRepoPath, ".env.production"),
     [
-      "OPENCODE_IMAGE=almirant-opencode-shim:1.17.20",
-      "CLAUDE_SHIM_IMAGE=almirant-claude-shim:2.1.209",
-      "CODEX_SHIM_IMAGE=almirant-codex-shim:0.144.4",
+      "OPENCODE_IMAGE=almirant-opencode-shim:1.18.4",
+      "CLAUDE_SHIM_IMAGE=almirant-claude-shim:2.1.218",
+      "CODEX_SHIM_IMAGE=almirant-codex-shim:0.145.0",
       "",
     ].join("\n"),
   );
@@ -419,8 +419,8 @@ describe("updater HTTP server", () => {
 
   test("builds missing shim images before recreating the runner", async () => {
     fakeMissingImages = new Set([
-      "almirant-claude-shim:2.1.209",
-      "almirant-codex-shim:0.144.4",
+      "almirant-claude-shim:2.1.218",
+      "almirant-codex-shim:0.145.0",
     ]);
 
     const { runner, app } = makeApp();
@@ -482,8 +482,8 @@ describe("updater HTTP server", () => {
     await waitForStatus(runner, jobId, (s) => s === "success");
 
     const env = readFileSync(join(fakeRepoPath, ".env.production"), "utf8");
-    expect(env).toContain("OPENCODE_IMAGE=almirant-opencode-shim:1.17.20");
-    expect(env).toContain("CLAUDE_SHIM_IMAGE=almirant-claude-shim:2.1.209");
+    expect(env).toContain("OPENCODE_IMAGE=almirant-opencode-shim:1.18.4");
+    expect(env).toContain("CLAUDE_SHIM_IMAGE=almirant-claude-shim:2.1.218");
     expect(env).toContain("CODEX_SHIM_IMAGE=ghcr.io/example/custom-codex-shim:edge");
 
     const final = runner.getJob(jobId);
