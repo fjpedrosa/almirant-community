@@ -15,11 +15,6 @@ export type {
   UpdateSeedRequest,
   PromoteSeedRequest,
   PaginatedSeedsResponse,
-  SeedDetailPanelProps,
-  SeedChipProps,
-  SeedListProps,
-  SeedQuickAddProps,
-  SeedSelectionBarProps,
 } from "@/domains/planning/domain/types";
 
 // Also re-export the Priority type used by seeds
