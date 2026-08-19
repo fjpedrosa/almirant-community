@@ -9,7 +9,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "bun test --pass-with-no-tests",
+    "test": "bun test",
     "test:watch": "bun test --watch --pass-with-no-tests",
     "type-check": "tsc --noEmit"
   },
