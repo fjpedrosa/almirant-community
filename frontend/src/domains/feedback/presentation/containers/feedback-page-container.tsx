@@ -33,10 +33,17 @@ import { FeedbackPagination } from "../components/feedback-pagination";
 import { FeedbackDetailPanel } from "../components/feedback-detail-panel";
 import { createFeedbackFiltersConfig } from "../../domain/feedback-filters.config";
 import type { FeedbackStatus } from "../../domain/types";
+import type { FeedbackMentionMemberSource } from "../../application/mention-member-source";
 
 const DEFAULT_LIMIT = 25;
 
-export const FeedbackPageContainer: React.FC = () => {
+interface FeedbackPageContainerProps {
+  mentionMemberSource?: FeedbackMentionMemberSource;
+}
+
+export const FeedbackPageContainer: React.FC<FeedbackPageContainerProps> = ({
+  mentionMemberSource,
+}) => {
   const t = useTranslations("feedback");
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -322,6 +329,7 @@ export const FeedbackPageContainer: React.FC = () => {
         currentUserId={user?.id ?? null}
         onStatusChange={handleStatusChange}
         incidentBundle={incidentBundleProp}
+        mentionMemberSource={mentionMemberSource}
       />
     </>
   );

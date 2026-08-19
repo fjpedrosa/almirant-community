@@ -3,15 +3,18 @@
 import { UnifiedCommentSection } from "@/domains/shared/presentation/components/unified-comment-section";
 import { useFeedbackComments } from "../../application/hooks/use-feedback-comments";
 import { useFeedbackMentionMembers } from "../../application/hooks/use-feedback-mention-members";
+import type { FeedbackMentionMemberSource } from "../../application/mention-member-source";
 
 interface FeedbackCommentsSectionContainerProps {
   feedbackItemId: string;
   currentUserId: string | null;
+  mentionMemberSource?: FeedbackMentionMemberSource;
 }
 
 export const FeedbackCommentsSectionContainer: React.FC<FeedbackCommentsSectionContainerProps> = ({
   feedbackItemId,
   currentUserId,
+  mentionMemberSource,
 }) => {
   const {
     comments,
@@ -29,7 +32,7 @@ export const FeedbackCommentsSectionContainer: React.FC<FeedbackCommentsSectionC
     onDeleteComment,
   } = useFeedbackComments(feedbackItemId);
 
-  const { mentionMembers } = useFeedbackMentionMembers();
+  const { mentionMembers } = useFeedbackMentionMembers(mentionMemberSource);
 
   return (
     <UnifiedCommentSection
