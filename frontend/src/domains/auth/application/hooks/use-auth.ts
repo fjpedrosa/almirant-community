@@ -40,8 +40,14 @@ const clearBetterAuthCookies = () => {
   });
 };
 
-export const useAuth = () => {
+type AuthNavigationOptions = {
+  navigate?: (path: string) => void;
+};
+
+export const useAuth = (options?: AuthNavigationOptions) => {
   const session = authClient.useSession();
+  const navigate =
+    options?.navigate ?? ((path: string) => window.location.replace(path));
 
   const signInWithGoogle = (callbackURL = "/") => {
     authClient.signIn.social({
@@ -92,7 +98,7 @@ export const useAuth = () => {
       // Ignore server-side signOut errors (e.g. expired/invalid session)
     }
     clearBetterAuthCookies();
-    window.location.replace("/sign-in");
+    navigate("/sign-in");
   };
 
   return {

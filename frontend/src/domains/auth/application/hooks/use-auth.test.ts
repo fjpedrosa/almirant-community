@@ -1,9 +1,8 @@
 /**
  * Unit tests for use-auth.ts hook logic.
  *
- * Since the hook depends on better-auth/react which requires a valid URL at
- * module initialization time, we test the hook's core logic by recreating
- * the hook implementation with mocked dependencies.
+ * The production hook is imported after the auth client is mocked so its
+ * integration behavior is exercised without a live Better Auth server.
  *
  * Tests cover:
  * - Session state derivation (user, isLoading, isAuthenticated)
@@ -12,146 +11,145 @@
  * - Demo mode detection and sign-in flow
  */
 
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// Mock authClient interface matching the real implementation
-// ---------------------------------------------------------------------------
+const originalAuthURL = process.env.NEXT_PUBLIC_AUTH_URL;
+const originalApiURL = process.env.NEXT_PUBLIC_API_URL;
+delete process.env.NEXT_PUBLIC_AUTH_URL;
+process.env.NEXT_PUBLIC_API_URL = "http://localhost:3001";
+const originalLocationOrigin = Object.getOwnPropertyDescriptor(
+  window.location,
+  "origin",
+);
+Object.defineProperty(window.location, "origin", {
+  configurable: true,
+  value: "http://localhost:3000",
+});
 
-interface MockAuthClient {
-  useSession: () => {
-    data: { user: MockUser } | null;
-    isPending: boolean;
-    error: Error | null;
-  };
-  signIn: {
-    social: (opts: { provider: string; callbackURL: string; errorCallbackURL: string }) => void;
-    email: (opts: { email: string; password: string; callbackURL: string }) => Promise<{ data: unknown; error: { message: string } | null }>;
-  };
-  signUp: {
-    email: (opts: {
-      name: string;
-      email: string;
-      password: string;
-      callbackURL: string;
-    }) => Promise<{ data: unknown; error: { message: string } | null }>;
-  };
-  signOut: () => Promise<void>;
-}
+const realAuthClientExports = { ...(await import("@/lib/auth-client")) };
 
-interface MockUser {
-  id: string;
-  name: string;
-  email: string;
-  image?: string | null;
-}
-
-// ---------------------------------------------------------------------------
-// Recreate useAuth hook with injectable dependencies for testing
-// ---------------------------------------------------------------------------
-
-const createUseAuth = (authClient: MockAuthClient) => {
-  return () => {
-    const session = authClient.useSession();
-
-    const signInWithGoogle = (callbackURL = "/") => {
-      authClient.signIn.social({
-        provider: "google",
-        callbackURL,
-        errorCallbackURL: "/sign-in?error=unauthorized",
-      });
-    };
-
-    const signInWithEmail = async (
-      email: string,
-      password: string,
-      callbackURL = "/"
-    ) => {
-      return authClient.signIn.email({
-        email,
-        password,
-        callbackURL,
-      });
-    };
-
-    const signUpWithEmail = async (
-      name: string,
-      email: string,
-      password: string,
-      callbackURL = "/"
-    ) => {
-      return authClient.signUp.email({
-        name,
-        email,
-        password,
-        callbackURL,
-      });
-    };
-
-    const signOut = async () => {
-      try {
-        await authClient.signOut();
-      } catch {
-        // Ignore server-side signOut errors (e.g. expired/invalid session)
-      }
-      // In real hook: clearBetterAuthCookies() and window.location.replace("/sign-in")
-    };
-
-    return {
-      user: session.data?.user ?? null,
-      isLoading: session.isPending,
-      isAuthenticated: !!session.data?.user,
-      signInWithGoogle,
-      signInWithEmail,
-      signUpWithEmail,
-      signOut,
-    };
-  };
-};
-
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
-
-const mockUser: MockUser = {
+const mockUser = {
   id: "user-123",
   name: "Test User",
   email: "test@example.com",
   image: "https://example.com/avatar.jpg",
 };
 
-const createMockAuthClient = (): MockAuthClient => ({
-  useSession: mock(() => ({
+type Session = {
+  data: { user: typeof mockUser } | null;
+  isPending: boolean;
+  error: Error | null;
+};
+
+type AuthResult = {
+  data: unknown;
+  error: { message: string } | null;
+};
+
+type SocialOptions = {
+  provider: string;
+  callbackURL: string;
+  errorCallbackURL: string;
+};
+
+type EmailOptions = {
+  email: string;
+  password: string;
+  callbackURL: string;
+};
+
+type SignUpOptions = EmailOptions & { name: string };
+
+const mockAuthClient = {
+  useSession: mock<() => Session>(() => ({
     data: null,
     isPending: false,
     error: null,
   })),
   signIn: {
-    social: mock(() => {}),
-    email: mock(() => Promise.resolve({ data: {}, error: null })),
+    social: mock<(options: SocialOptions) => void>(() => undefined),
+    email: mock<(options: EmailOptions) => Promise<AuthResult>>(
+      async () => ({ data: null, error: null }),
+    ),
   },
   signUp: {
-    email: mock(() => Promise.resolve({ data: {}, error: null })),
+    email: mock<(options: SignUpOptions) => Promise<AuthResult>>(
+      async () => ({ data: null, error: null }),
+    ),
   },
-  signOut: mock(() => Promise.resolve()),
+  signOut: mock<() => Promise<void>>(async () => undefined),
+};
+
+mock.module("@/lib/auth-client", () => ({ authClient: mockAuthClient }));
+const { useAuth } = await import("./use-auth");
+
+afterAll(() => {
+  mock.module("@/lib/auth-client", () => realAuthClientExports);
+  if (originalLocationOrigin) {
+    Object.defineProperty(window.location, "origin", originalLocationOrigin);
+  } else {
+    Reflect.deleteProperty(window.location, "origin");
+  }
+  if (originalAuthURL === undefined) {
+    delete process.env.NEXT_PUBLIC_AUTH_URL;
+  } else {
+    process.env.NEXT_PUBLIC_AUTH_URL = originalAuthURL;
+  }
+  if (originalApiURL === undefined) {
+    delete process.env.NEXT_PUBLIC_API_URL;
+  } else {
+    process.env.NEXT_PUBLIC_API_URL = originalApiURL;
+  }
 });
+
+const captureCookieWrites = (events: string[] = []) => {
+  const original = Object.getOwnPropertyDescriptor(document, "cookie");
+  const writes: string[] = [];
+  Object.defineProperty(document, "cookie", {
+    configurable: true,
+    get: () => "better-auth.session_token=abc; other_cookie=keep",
+    set: (value: string) => {
+      writes.push(value);
+      events.push("cookie");
+    },
+  });
+  return {
+    writes,
+    restore: () =>
+      original
+        ? Object.defineProperty(document, "cookie", original)
+        : Reflect.deleteProperty(document, "cookie"),
+  };
+};
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("useAuth hook logic", () => {
-  let mockAuthClient: MockAuthClient;
-  let useAuth: ReturnType<typeof createUseAuth>;
-
   beforeEach(() => {
-    mockAuthClient = createMockAuthClient();
-    useAuth = createUseAuth(mockAuthClient);
+    mockAuthClient.useSession.mockClear().mockImplementation(() => ({
+      data: null,
+      isPending: false,
+      error: null,
+    }));
+    mockAuthClient.signIn.social
+      .mockClear()
+      .mockImplementation(() => undefined);
+    mockAuthClient.signIn.email
+      .mockClear()
+      .mockImplementation(async () => ({ data: null, error: null }));
+    mockAuthClient.signUp.email
+      .mockClear()
+      .mockImplementation(async () => ({ data: null, error: null }));
+    mockAuthClient.signOut
+      .mockClear()
+      .mockImplementation(async () => undefined);
   });
 
   describe("session state", () => {
     it("should return null user when no session exists", () => {
-      (mockAuthClient.useSession as ReturnType<typeof mock>).mockReturnValue({
+      mockAuthClient.useSession.mockReturnValue({
         data: null,
         isPending: false,
         error: null,
@@ -164,7 +162,7 @@ describe("useAuth hook logic", () => {
     });
 
     it("should return user when session exists", () => {
-      (mockAuthClient.useSession as ReturnType<typeof mock>).mockReturnValue({
+      mockAuthClient.useSession.mockReturnValue({
         data: { user: mockUser },
         isPending: false,
         error: null,
@@ -172,12 +170,12 @@ describe("useAuth hook logic", () => {
 
       const result = useAuth();
 
-      expect(result.user).toEqual(mockUser);
+      expect(result.user as unknown).toEqual(mockUser);
       expect(result.isAuthenticated).toBe(true);
     });
 
     it("should indicate loading state when session is pending", () => {
-      (mockAuthClient.useSession as ReturnType<typeof mock>).mockReturnValue({
+      mockAuthClient.useSession.mockReturnValue({
         data: null,
         isPending: true,
         error: null,
@@ -189,7 +187,7 @@ describe("useAuth hook logic", () => {
     });
 
     it("should not be loading when session is resolved", () => {
-      (mockAuthClient.useSession as ReturnType<typeof mock>).mockReturnValue({
+      mockAuthClient.useSession.mockReturnValue({
         data: { user: mockUser },
         isPending: false,
         error: null,
@@ -201,7 +199,7 @@ describe("useAuth hook logic", () => {
     });
 
     it("should handle session with no user (empty data)", () => {
-      (mockAuthClient.useSession as ReturnType<typeof mock>).mockReturnValue({
+      mockAuthClient.useSession.mockReturnValue({
         data: null,
         isPending: false,
         error: null,
@@ -223,8 +221,11 @@ describe("useAuth hook logic", () => {
 
       expect(mockAuthClient.signIn.social).toHaveBeenCalledWith({
         provider: "google",
-        callbackURL: "/",
-        errorCallbackURL: "/sign-in?error=unauthorized",
+        callbackURL: new URL("/", window.location.origin).toString(),
+        errorCallbackURL: new URL(
+          "/sign-in?error=unauthorized",
+          window.location.origin,
+        ).toString(),
       });
     });
 
@@ -235,8 +236,11 @@ describe("useAuth hook logic", () => {
 
       expect(mockAuthClient.signIn.social).toHaveBeenCalledWith({
         provider: "google",
-        callbackURL: "/dashboard",
-        errorCallbackURL: "/sign-in?error=unauthorized",
+        callbackURL: new URL("/dashboard", window.location.origin).toString(),
+        errorCallbackURL: new URL(
+          "/sign-in?error=unauthorized",
+          window.location.origin,
+        ).toString(),
       });
     });
 
@@ -245,8 +249,28 @@ describe("useAuth hook logic", () => {
 
       result.signInWithGoogle("/custom-path");
 
-      const call = (mockAuthClient.signIn.social as ReturnType<typeof mock>).mock.calls[0];
-      expect(call[0].errorCallbackURL).toBe("/sign-in?error=unauthorized");
+      const call = mockAuthClient.signIn.social.mock.calls[0]!;
+      expect(call[0].errorCallbackURL).toBe(
+        new URL(
+          "/sign-in?error=unauthorized",
+          window.location.origin,
+        ).toString(),
+      );
+    });
+  });
+
+  describe("signInWithGithub", () => {
+    it("uses an absolute frontend-origin callback", () => {
+      useAuth().signInWithGithub("/projects");
+
+      expect(mockAuthClient.signIn.social).toHaveBeenCalledWith({
+        provider: "github",
+        callbackURL: new URL("/projects", window.location.origin).toString(),
+        errorCallbackURL: new URL(
+          "/sign-in?error=unauthorized",
+          window.location.origin,
+        ).toString(),
+      });
     });
   });
 
@@ -281,17 +305,17 @@ describe("useAuth hook logic", () => {
 
     it("should return the result from authClient", async () => {
       const expectedResult = { data: { user: mockUser }, error: null };
-      (mockAuthClient.signIn.email as ReturnType<typeof mock>).mockResolvedValue(expectedResult);
+      mockAuthClient.signIn.email.mockResolvedValue(expectedResult);
 
       const result = useAuth();
       const signInResult = await result.signInWithEmail("test@test.com", "password");
 
-      expect(signInResult).toEqual(expectedResult);
+      expect(signInResult as unknown).toEqual(expectedResult);
     });
 
     it("should propagate error responses from authClient", async () => {
       const errorResult = { data: null, error: { message: "Invalid credentials" } };
-      (mockAuthClient.signIn.email as ReturnType<typeof mock>).mockResolvedValue(errorResult);
+      mockAuthClient.signIn.email.mockResolvedValue(errorResult);
 
       const result = useAuth();
       const signInResult = await result.signInWithEmail("wrong@email.com", "wrongpassword");
@@ -303,31 +327,74 @@ describe("useAuth hook logic", () => {
 
   describe("signOut", () => {
     it("should call authClient.signOut", async () => {
-      const result = useAuth();
+      const events: string[] = [];
+      const cookieCapture = captureCookieWrites(events);
+      const navigate = mock<(path: string) => void>(() => {
+        events.push("navigate");
+      });
+      const result = useAuth({ navigate });
 
-      await result.signOut();
-
-      expect(mockAuthClient.signOut).toHaveBeenCalled();
+      try {
+        await result.signOut();
+        expect(mockAuthClient.signOut).toHaveBeenCalled();
+        expect(navigate).toHaveBeenCalledWith("/sign-in");
+        expect(events).toEqual(["cookie", "cookie", "navigate"]);
+      } finally {
+        cookieCapture.restore();
+      }
     });
 
     it("should not throw even if signOut rejects", async () => {
-      (mockAuthClient.signOut as ReturnType<typeof mock>).mockRejectedValue(
+      mockAuthClient.signOut.mockRejectedValue(
         new Error("Session expired")
       );
 
-      const result = useAuth();
+      const events: string[] = [];
+      const cookieCapture = captureCookieWrites(events);
+      const navigate = mock<(path: string) => void>(() => {
+        events.push("navigate");
+      });
+      const result = useAuth({ navigate });
 
-      // Should not throw
-      await expect(result.signOut()).resolves.toBeUndefined();
+      try {
+        await expect(result.signOut()).resolves.toBeUndefined();
+        expect(navigate).toHaveBeenCalledWith("/sign-in");
+        expect(events).toEqual(["cookie", "cookie", "navigate"]);
+      } finally {
+        cookieCapture.restore();
+      }
     });
 
     it("should complete successfully when signOut succeeds", async () => {
-      (mockAuthClient.signOut as ReturnType<typeof mock>).mockResolvedValue(undefined);
+      mockAuthClient.signOut.mockResolvedValue(undefined);
 
-      const result = useAuth();
+      const navigate = mock<(path: string) => void>(() => undefined);
+      const result = useAuth({ navigate });
 
       await expect(result.signOut()).resolves.toBeUndefined();
       expect(mockAuthClient.signOut).toHaveBeenCalledTimes(1);
+      expect(navigate).toHaveBeenCalledWith("/sign-in");
+    });
+
+    it("clears Better Auth cookies before navigating", async () => {
+      const cookieCapture = captureCookieWrites();
+      const navigate = mock<(path: string) => void>(() => undefined);
+
+      try {
+        await useAuth({ navigate }).signOut();
+        expect(cookieCapture.writes.length).toBeGreaterThan(0);
+        expect(
+          cookieCapture.writes.every((value) =>
+            value.startsWith("better-auth.session_token="),
+          ),
+        ).toBe(true);
+        expect(
+          cookieCapture.writes.every((value) => value.includes("Max-Age=0")),
+        ).toBe(true);
+        expect(navigate).toHaveBeenCalledWith("/sign-in");
+      } finally {
+        cookieCapture.restore();
+      }
     });
   });
 
@@ -352,7 +419,7 @@ describe("useAuth hook logic", () => {
 
     it("should return the sign-up result from authClient", async () => {
       const expectedResult = { data: { user: mockUser }, error: null };
-      (mockAuthClient.signUp.email as ReturnType<typeof mock>).mockResolvedValue(
+      mockAuthClient.signUp.email.mockResolvedValue(
         expectedResult
       );
 
@@ -363,22 +430,27 @@ describe("useAuth hook logic", () => {
         "password123"
       );
 
-      expect(signUpResult).toEqual(expectedResult);
+      expect(signUpResult as unknown).toEqual(expectedResult);
+    });
+
+    it("should propagate sign-up errors", async () => {
+      const errorResult = { data: null, error: { message: "Email exists" } };
+      mockAuthClient.signUp.email.mockResolvedValue(errorResult);
+
+      const signUpResult = await useAuth().signUpWithEmail(
+        "Test User",
+        "test@example.com",
+        "password123",
+      );
+
+      expect(signUpResult as unknown).toEqual(errorResult);
     });
   });
 });
 
 describe("hook return value structure", () => {
-  let mockAuthClient: MockAuthClient;
-  let useAuth: ReturnType<typeof createUseAuth>;
-
-  beforeEach(() => {
-    mockAuthClient = createMockAuthClient();
-    useAuth = createUseAuth(mockAuthClient);
-  });
-
   it("should return all expected properties", () => {
-    (mockAuthClient.useSession as ReturnType<typeof mock>).mockReturnValue({
+    mockAuthClient.useSession.mockReturnValue({
       data: { user: mockUser },
       isPending: false,
       error: null,
@@ -391,12 +463,14 @@ describe("hook return value structure", () => {
     expect(result).toHaveProperty("isLoading");
     expect(result).toHaveProperty("isAuthenticated");
     expect(result).toHaveProperty("signInWithGoogle");
+    expect(result).toHaveProperty("signInWithGithub");
     expect(result).toHaveProperty("signInWithEmail");
     expect(result).toHaveProperty("signUpWithEmail");
     expect(result).toHaveProperty("signOut");
 
     // Verify function types
     expect(typeof result.signInWithGoogle).toBe("function");
+    expect(typeof result.signInWithGithub).toBe("function");
     expect(typeof result.signInWithEmail).toBe("function");
     expect(typeof result.signUpWithEmail).toBe("function");
     expect(typeof result.signOut).toBe("function");
@@ -404,7 +478,7 @@ describe("hook return value structure", () => {
 
   it("should derive isAuthenticated from user presence", () => {
     // No user
-    (mockAuthClient.useSession as ReturnType<typeof mock>).mockReturnValue({
+    mockAuthClient.useSession.mockReturnValue({
       data: null,
       isPending: false,
       error: null,
@@ -414,7 +488,7 @@ describe("hook return value structure", () => {
     expect(result1.isAuthenticated).toBe(false);
 
     // With user
-    (mockAuthClient.useSession as ReturnType<typeof mock>).mockReturnValue({
+    mockAuthClient.useSession.mockReturnValue({
       data: { user: mockUser },
       isPending: false,
       error: null,
@@ -425,7 +499,7 @@ describe("hook return value structure", () => {
   });
 
   it("should return correct types for user properties", () => {
-    (mockAuthClient.useSession as ReturnType<typeof mock>).mockReturnValue({
+    mockAuthClient.useSession.mockReturnValue({
       data: { user: mockUser },
       isPending: false,
       error: null,
