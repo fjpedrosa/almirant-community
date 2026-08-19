@@ -31,6 +31,7 @@ import type {
   BugFixAttemptPrCiStatus,
   BugFixAttemptPrReviewStatus,
 } from "../../domain/types";
+import type { FeedbackMentionMemberSource } from "../../application/mention-member-source";
 
 interface FeedbackDetailPanelProps {
   item: FeedbackItem | null;
@@ -39,6 +40,7 @@ interface FeedbackDetailPanelProps {
   currentUserId?: string | null;
   onStatusChange?: (id: string, status: FeedbackStatus) => void;
   incidentBundle?: IncidentBundleInspectorProps | null;
+  mentionMemberSource?: FeedbackMentionMemberSource;
 }
 
 const STATUS_VARIANT_MAP: Record<
@@ -240,6 +242,7 @@ export const FeedbackDetailPanel: React.FC<FeedbackDetailPanelProps> = ({
   currentUserId = null,
   onStatusChange,
   incidentBundle = null,
+  mentionMemberSource,
 }) => {
   const t = useTranslations("feedback");
   const locale = useLocale();
@@ -385,6 +388,7 @@ export const FeedbackDetailPanel: React.FC<FeedbackDetailPanelProps> = ({
             <FeedbackCommentsSectionContainer
               feedbackItemId={item.id}
               currentUserId={currentUserId}
+              mentionMemberSource={mentionMemberSource}
             />
           </TabsContent>
         </Tabs>
