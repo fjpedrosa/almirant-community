@@ -133,36 +133,6 @@ export interface ClaudeCodeSetupProps {
   onCopySnippet: () => void;
 }
 
-export type Tier = "free" | "pro" | "business" | "enterprise";
-
-export interface TierConfig {
-  name: string;
-  minuteLimit: number;
-}
-
-export const TIER_CONFIGS: Record<Tier, TierConfig> = {
-  free: { name: "Free", minuteLimit: 500 },
-  pro: { name: "Pro", minuteLimit: 5_000 },
-  business: { name: "Business", minuteLimit: 25_000 },
-  enterprise: { name: "Enterprise", minuteLimit: 0 },
-};
-
-export interface UsageTierInfo {
-  tier: Tier;
-  tierName: string;
-  tierMinuteLimit: number;
-  isUnlimited: boolean;
-}
-
-export interface UsageTierCtaProps {
-  totalMinutesUsed: number;
-  tierMinuteLimit: number;
-  tierName: string;
-  daysRemaining: number;
-  isLoading: boolean;
-  upgradeHref?: string;
-}
-
 export type UsageTimeRange = "7d" | "30d" | "90d" | "12m";
 
 export interface DailyUsageEntry {
