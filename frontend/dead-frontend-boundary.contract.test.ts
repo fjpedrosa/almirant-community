@@ -38,6 +38,8 @@ const retiredRelativePaths = [
   "src/domains/github/presentation/components/github-pr-item.tsx",
   "src/domains/ai-planning/application/hooks/use-typewriter.ts",
   "src/domains/ai-planning/presentation/components/streaming-activity-indicator.tsx",
+  "src/domains/settings/application/hooks/use-usage-tier.ts",
+  "src/domains/settings/presentation/components/usage-tier-cta.tsx",
 ];
 const retiredFiles = retiredRelativePaths.map((path) => resolve(frontendRoot, path));
 const sentinelFiles = [
@@ -50,15 +52,22 @@ const retiredImportTargets = [
   "components/ui/image-lightbox", "components/ui/info-tooltip",
   "ai-planning/application/hooks/use-typewriter",
   "ai-planning/presentation/components/streaming-activity-indicator",
+  "settings/application/hooks/use-usage-tier",
+  "settings/presentation/components/usage-tier-cta",
 ];
 const retiredIdentifiers = new Set(["TouchActions", "ImageLightbox", "InfoTooltip", "LightboxImage"]);
+const retiredTypeIdentifiers = new Set(["Tier", "TierConfig", "TIER_CONFIGS", "UsageTierInfo", "UsageTierCtaProps"]);
 const retiredDependencies = ["isomorphic-dompurify", "prism-react-renderer", "uuid", "@types/dompurify", "@types/uuid"];
-const canonicalPath = (value: string) => value.replace(/\\/gu, "/").replace(/\.(?:tsx?|jsx?)$/u, "").replace(/\/index$/u, "");
+const ownerPath = resolve(frontendRoot, "src/domains/settings/domain/types.ts");
+const usagePagePath = resolve(frontendRoot, "src/app/(app-shell)/(dashboard)/settings/usage/page.tsx");
+const usageContainerPath = resolve(frontendRoot, "src/domains/settings/presentation/containers/usage-dashboard-container.tsx");
+const canonicalUsagePage = `import { UsageDashboardContainer } from "@/domains/settings/presentation/containers/usage-dashboard-container";\n\nexport default function UsagePage() {\n  return <UsageDashboardContainer />;\n}`;
+const canonicalPath = (value: string) => value.replace(/\\/gu, "/").replace(/[?#].*$/u, "").replace(/\.(?:tsx?|jsx?)$/u, "").replace(/\/index$/u, "");
 const targetPath = (target: string) => canonicalPath(resolve(frontendRoot, "src", target.startsWith("components/") ? target : `domains/${target}`));
 
 function literalSpecifier(node: ts.Node): string | undefined {
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
-  if (ts.isParenthesizedExpression(node)) return literalSpecifier(node.expression);
+  if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isTypeAssertionExpression(node) || ts.isSatisfiesExpression(node) || ts.isNonNullExpression(node)) return literalSpecifier(node.expression);
   if (ts.isLiteralTypeNode(node)) return literalSpecifier(node.literal);
   if (ts.isTemplateExpression(node)) {
     let value = node.head.text;
@@ -78,6 +87,8 @@ function literalSpecifier(node: ts.Node): string | undefined {
 }
 
 function matchesRetiredSpecifier(specifier: string, importerPath: string): boolean {
+  const clean = specifier.replace(/[?#].*$/u, "");
+  if (clean !== specifier) return matchesRetiredSpecifier(clean, importerPath);
   if (retiredDependencies.some((dependency) => specifier === dependency || specifier.startsWith(`${dependency}/`))) return true;
   const candidate = specifier.startsWith("@/")
     ? canonicalPath(resolve(frontendRoot, "src", specifier.slice(2)))
@@ -91,11 +102,27 @@ function matchesRetiredSpecifier(specifier: string, importerPath: string): boole
   return retiredImportTargets.some((target) => normalized === target || (target.startsWith("components/ui/") && normalized === target.slice(target.lastIndexOf("/") + 1)));
 }
 
+function safeDynamicImport(node: ts.Expression): boolean {
+  if (!ts.isTemplateExpression(node) || node.templateSpans.length !== 1) return false;
+  const prefix = node.head.text; const suffix = node.templateSpans[0].literal.text;
+  return ((prefix === "../../messages/" && suffix === ".json") || (prefix === "./auth-client.ts?cb=" && suffix === "") || (prefix === "./server-session.ts?cb=" && suffix === "")) && !retiredImportTargets.some((target) => prefix.includes(target));
+}
+
+const textOf = (node: ts.Node | undefined) => node && (ts.isIdentifier(node) || ts.isStringLiteral(node) ? node.text : undefined); const bindingNames = (name: ts.BindingName): string[] => ts.isIdentifier(name) ? [name.text] : name.elements.flatMap((element) => "name" in element && element.name ? bindingNames(element.name) : []);
+function ownerHasRetiredBoundary(file: ts.SourceFile): boolean {
+  return file.statements.some((statement) => {
+    if (ts.isExportDeclaration(statement)) { const clause = statement.exportClause; if (!clause || ts.isNamespaceExport(clause)) return true; if (ts.isNamedExports(clause) && clause.elements.some((element) => retiredTypeIdentifiers.has(element.name.text) || retiredTypeIdentifiers.has(textOf(element.propertyName) ?? ""))) return true; }
+    const names = ts.isVariableStatement(statement) ? statement.declarationList.declarations.flatMap((declaration) => bindingNames(declaration.name)) : ts.isImportDeclaration(statement) ? [statement.importClause?.name?.text, ...(statement.importClause?.namedBindings ? ts.isNamedImports(statement.importClause.namedBindings) ? statement.importClause.namedBindings.elements.flatMap((element) => [element.name.text, textOf(element.propertyName)]) : [statement.importClause.namedBindings.name.text] : [])].filter((name): name is string => Boolean(name)) : (() => { const name = (statement as unknown as ts.Declaration & { name?: ts.DeclarationName }).name; return name && ts.isIdentifier(name) ? [name.text] : []; })();
+    return names.some((name) => retiredTypeIdentifiers.has(name));
+  });
+}
+
 function hasRetiredReference(source: string, importerPath = resolve(frontendRoot, "src/fixture.ts")): boolean {
   const kind = importerPath.endsWith(".tsx") ? ts.ScriptKind.TSX : importerPath.endsWith(".jsx") ? ts.ScriptKind.JSX : importerPath.endsWith(".js") ? ts.ScriptKind.JS : ts.ScriptKind.TS;
   const file = ts.createSourceFile(importerPath, source, ts.ScriptTarget.Latest, true, kind);
   const diagnostics = (file as ts.SourceFile & { parseDiagnostics: ts.Diagnostic[] }).parseDiagnostics;
   if (diagnostics.length) throw new Error(`${importerPath}: ${ts.flattenDiagnosticMessageText(diagnostics[0].messageText, "\n")}`);
+  if (canonicalPath(importerPath) === canonicalPath(ownerPath) && ownerHasRetiredBoundary(file)) return true;
   let found = false;
   const visit = (node: ts.Node): void => {
     let specifier: string | undefined;
@@ -104,6 +131,7 @@ function hasRetiredReference(source: string, importerPath = resolve(frontendRoot
     else if (ts.isImportTypeNode(node)) specifier = literalSpecifier(node.argument);
     else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) specifier = literalSpecifier(node.moduleReference.expression);
     else if (ts.isCallExpression(node) && node.arguments.length && (node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(node.expression) && node.expression.text === "require"))) specifier = literalSpecifier(node.arguments[0]);
+    if (ts.isCallExpression(node) && node.arguments.length && node.expression.kind === ts.SyntaxKind.ImportKeyword && literalSpecifier(node.arguments[0]) === undefined && !safeDynamicImport(node.arguments[0])) found = true;
     if (specifier && matchesRetiredSpecifier(specifier, importerPath)) found = true;
     if (!found) ts.forEachChild(node, visit);
   };
@@ -147,6 +175,8 @@ describe("dead frontend boundary", () => {
   it("retires every exact orphan path", () => {
     expect(retiredFiles.filter((filePath) => existsSync(filePath))).toEqual([]);
     expect(sentinelFiles.every((filePath) => existsSync(filePath))).toBe(true);
+    expect(existsSync(usageContainerPath)).toBe(true);
+    expect(readFileSync(usagePagePath, "utf8").replace(/\r\n/gu, "\n").trim()).toBe(canonicalUsagePage);
   });
 
   it("has no tracked imports or symbols referencing retired slices", () => {
@@ -173,6 +203,8 @@ describe("dead frontend boundary", () => {
       'type X = import("./domains/ai-planning/application/hooks/use-typewriter").default',
       'import "uuid"',
       'await import("uuid/subpath")',
+      'await import("./domains/ai-planning/application/hooks/use-typewriter" as const); await import(<const>"./domains/ai-planning/application/hooks/use-typewriter"); await import("./domains/ai-planning/application/hooks/use-typewriter" satisfies string); await import("./domains/ai-planning/application/hooks/use-typewriter"!); require("./domains/ai-planning/application/hooks/use-typewriter" as const)',
+      'await import(`@/domains/settings/${name}`)',
     ];
     const safe = [
       'import "@/domains/planning/domain/types"',
@@ -184,9 +216,17 @@ describe("dead frontend boundary", () => {
       'const label = "InfoTooltip"',
       'import "uuid-extra"',
       '// import "uuid/subpath"; const text = "uuid"',
+      'await import(`../../messages/${locale}.json`)',
+      'await import(`./auth-client.ts?cb=${seq}`)',
+      'await import(`./server-session.ts?cb=${seq}`); import { UsageTierCta as SafeCta } from "./safe"; function UsageTierCta() {}',
     ];
     expect(retired.every((source) => hasRetiredReference(source))).toBe(true);
     expect(safe.every((source) => !hasRetiredReference(source))).toBe(true);
+    expect(["interface Tier {}", "import Tier from './safe'", "import type Tier from './safe'", "import type { Tier as Safe } from './safe'"].every((source) => hasRetiredReference(source, ownerPath))).toBe(true);
+    expect(hasRetiredReference("export { Safe as Tier }", ownerPath)).toBe(true);
+    expect(hasRetiredReference("export { Tier as Safe }", ownerPath)).toBe(true);
+    expect(hasRetiredReference("export * from './safe'", ownerPath)).toBe(true);
+    expect(["interface Tier {}", "import Tier from './safe'", "import type Tier from './safe'", "import type { Tier as Safe } from './safe'"].every((source) => !hasRetiredReference(source, resolve(frontendRoot, "src/other.ts")))).toBe(true);
     expect(() => hasRetiredReference('import x from "./domains/ai-planning/application/hooks/use-typewriter"; !!!')).toThrow(/fixture\.ts:/u);
   });
 });
