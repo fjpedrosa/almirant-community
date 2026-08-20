@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ideasApi } from "@/lib/api/client";
+import { tagKeys } from "@/domains/tags/application/hooks/use-tags";
 import { ideaMutationKeys } from "../../domain/query-keys";
 
 export const useAddIdeaTag = () => {
@@ -17,6 +18,9 @@ export const useAddIdeaTag = () => {
     onSuccess: (_result, variables) => {
       for (const queryKey of ideaMutationKeys(variables.id)) {
         queryClient.invalidateQueries({ queryKey });
+      }
+      if ((variables.data.name?.trim().length ?? 0) > 0) {
+        queryClient.invalidateQueries({ queryKey: tagKeys.lists() });
       }
     },
   });
