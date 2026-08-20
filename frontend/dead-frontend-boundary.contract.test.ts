@@ -40,6 +40,10 @@ const retiredRelativePaths = [
   "src/domains/ai-planning/presentation/components/streaming-activity-indicator.tsx",
   "src/domains/settings/application/hooks/use-usage-tier.ts",
   "src/domains/settings/presentation/components/usage-tier-cta.tsx",
+  "src/domains/settings/application/hooks/use-user-usage-data.ts",
+  "src/domains/settings/presentation/components/usage-breakdown.tsx",
+  "src/domains/settings/presentation/components/user-usage-breakdown.tsx",
+  "src/domains/settings/presentation/components/user-usage-kpi-cards.tsx",
 ];
 const retiredFiles = retiredRelativePaths.map((path) => resolve(frontendRoot, path));
 const sentinelFiles = [
@@ -54,6 +58,10 @@ const retiredImportTargets = [
   "ai-planning/presentation/components/streaming-activity-indicator",
   "settings/application/hooks/use-usage-tier",
   "settings/presentation/components/usage-tier-cta",
+  "settings/application/hooks/use-user-usage-data",
+  "settings/presentation/components/usage-breakdown",
+  "settings/presentation/components/user-usage-breakdown",
+  "settings/presentation/components/user-usage-kpi-cards",
 ];
 const retiredIdentifiers = new Set(["TouchActions", "ImageLightbox", "InfoTooltip", "LightboxImage"]);
 const retiredTypeIdentifiers = new Set(["Tier", "TierConfig", "TIER_CONFIGS", "UsageTierInfo", "UsageTierCtaProps"]);
@@ -205,6 +213,13 @@ describe("dead frontend boundary", () => {
       'await import("uuid/subpath")',
       'await import("./domains/ai-planning/application/hooks/use-typewriter" as const); await import(<const>"./domains/ai-planning/application/hooks/use-typewriter"); await import("./domains/ai-planning/application/hooks/use-typewriter" satisfies string); await import("./domains/ai-planning/application/hooks/use-typewriter"!); require("./domains/ai-planning/application/hooks/use-typewriter" as const)',
       'await import(`@/domains/settings/${name}`)',
+      'import "@/domains/settings/application/hooks/use-user-usage-data"',
+      'import x from "./domains/settings/presentation/components/usage-breakdown"',
+      'export { default } from "@/domains/settings/presentation/components/user-usage-breakdown.tsx"',
+      'type X = import("@/domains/settings/presentation/components/user-usage-kpi-cards").default',
+      'require("@/domains/settings/application/hooks/use-user-usage-data?raw#hash")',
+      'await import(`@/domains/settings/presentation/components/usage-breakdown${"?raw#hash"}`)',
+      'await import("@/domains/settings/presentation/components/user-usage-breakdown/index")',
     ];
     const safe = [
       'import "@/domains/planning/domain/types"',
@@ -219,6 +234,10 @@ describe("dead frontend boundary", () => {
       'await import(`../../messages/${locale}.json`)',
       'await import(`./auth-client.ts?cb=${seq}`)',
       'await import(`./server-session.ts?cb=${seq}`); import { UsageTierCta as SafeCta } from "./safe"; function UsageTierCta() {}',
+      'import "@/domains/settings/application/hooks/use-user-usage-data-extra"',
+      'import "@/domains/settings/presentation/components/usage-breakdown/child"',
+      'import "@/domains/other/presentation/components/user-usage-breakdown"',
+      'import "@/domains/settings/presentation/components/user-usage-kpi-cards-extra"',
     ];
     expect(retired.every((source) => hasRetiredReference(source))).toBe(true);
     expect(safe.every((source) => !hasRetiredReference(source))).toBe(true);
