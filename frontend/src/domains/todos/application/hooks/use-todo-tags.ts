@@ -19,7 +19,9 @@ export const useAddTodoTag = () => {
       for (const queryKey of todoMutationKeys(variables.id)) {
         queryClient.invalidateQueries({ queryKey });
       }
-      queryClient.invalidateQueries({ queryKey: tagKeys.lists() });
+      if ((variables.data.name?.trim().length ?? 0) > 0) {
+        queryClient.invalidateQueries({ queryKey: tagKeys.lists() });
+      }
     },
   });
 };
