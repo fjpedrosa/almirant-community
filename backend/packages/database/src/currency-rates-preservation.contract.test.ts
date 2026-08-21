@@ -1,5 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { lstatSync, readFileSync } from "node:fs";
+import { posix, resolve } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import * as publicBarrel from "./index";
@@ -8,9 +10,13 @@ import { currencyCodeEnum } from "./schema/enums";
 import { currencyRates } from "./schema/currency-rates";
 import { expenses } from "./schema/expenses";
 import { recurringExpenses } from "./schema/recurring-expenses";
+import { scanCurrencyRetirementOwnership, type TrackedSource } from "./currency-retirement-ownership.contract-support";
 import { scanCurrencyRateMigrationSafety, type SqlSource } from "./currency-rates-preservation.contract-support";
 
 const root = resolve(import.meta.dir, "../migrations");
+const repositoryRoot = resolve(import.meta.dir, "../../../..");
+const supportedSource = /(?:\.d\.(?:ts|mts|cts)|\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs|json|jsonc))$/iu;
+const retirementNeedles = ["currency-rate-repository", "getLatestExchangeRate", "upsertExchangeRates", "getExchangeRatesForDate"];
 const digest = (source: string) => new Bun.CryptoHasher("sha256").update(source).digest("hex");
 const read = (path: string) => Bun.file(resolve(root, path)).text();
 const file = (source: string, path = "fixture.sql"): SqlSource => ({ path, source });
@@ -20,9 +26,38 @@ const describeSql = async (statement: string) => {
   try { await pg.describeQuery(statement); }
   catch (error) { if ((error as { code?: string }).code !== "42P01") throw error; }
 };
+const loadTrackedSources = (inventory: string, readSource: (path: string) => string): readonly TrackedSource[] => {
+  if (!inventory) return [];
+  if (!inventory.endsWith("\0")) throw new Error("invalid tracked inventory framing");
+  const paths = inventory.slice(0, -1).split("\0");
+  if (paths.some((path) => !path || path.includes("\\") || path === ".." || path.startsWith("../") || posix.isAbsolute(path) || /^[A-Z]:\//iu.test(path) || posix.normalize(path) !== path) || new Set(paths).size !== paths.length) throw new Error("invalid tracked inventory path");
+  return paths.filter((path) => supportedSource.test(path)).sort().map((path) => ({ path, source: readSource(path) }));
+};
+const retirementCandidates = (sources: readonly TrackedSource[]) => sources.filter(({ path, source }) => retirementNeedles.some((needle) => path.includes(needle) || source.includes(needle)));
+const trackedSources = loadTrackedSources(execFileSync("git", ["ls-files", "-z", "--cached"], { cwd: repositoryRoot, encoding: "utf8" }), (path) => {
+  const absolute = resolve(repositoryRoot, path);
+  if (!lstatSync(absolute).isFile()) throw new Error(`tracked source is not a regular file: ${path}`);
+  return readFileSync(absolute, "utf8");
+});
 afterAll(() => pg.close());
 
 describe("currency rates preservation foundation", () => {
+  test("activates retirement enforcement across cached tracked inventory", () => {
+    expect(scanCurrencyRetirementOwnership(retirementCandidates(trackedSources))).toEqual([]);
+  });
+
+  test("loads only canonical supported cached paths and fails closed", () => {
+    const fixtures = ["backend/packages/database/src/currency-retirement-ownership.contract-support.ts", "backend/packages/database/src/currency-retirement-ownership.contract.test.ts"];
+    expect(loadTrackedSources("", () => "unused")).toEqual([]);
+    expect(loadTrackedSources(`b.jsonc\0a\nb.d.mts\0skip.md\0${fixtures[0]}\0${fixtures[1]}\0`, (path) => path)).toEqual([
+      { path: "a\nb.d.mts", source: "a\nb.d.mts" }, { path: "b.jsonc", source: "b.jsonc" }, ...fixtures.map((path) => ({ path, source: path })),
+    ]);
+    const fixtureSources = loadTrackedSources(`${fixtures.join("\0")}\0`, () => 'export const note = "getLatestExchangeRate";');
+    expect(scanCurrencyRetirementOwnership(retirementCandidates(fixtureSources))).toEqual([]);
+    for (const inventory of ["a.ts", "\0", "a.ts\0\0", "a.ts\0a.ts\0", "../a.ts\0", "a/../b.ts\0", "/a.ts\0", "C:/a.ts\0", "a\\b.ts\0"]) expect(() => loadTrackedSources(inventory, () => "safe")).toThrow();
+    expect(() => loadTrackedSources("a.ts\0", () => { throw new Error("unreadable"); })).toThrow("unreadable");
+  });
+
   test("preserves the live table, enum, public barrels, defaults, and workspace lineage", () => {
     const table = getTableConfig(currencyRates);
     expect(table.columns.map((column) => [column.name, column.columnType, column.notNull, column.primary])).toEqual([
