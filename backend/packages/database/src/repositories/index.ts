@@ -100,7 +100,6 @@ export * from "./feedback/feedback-topic-proposal-repository";
 // ── billing ──
 export * from "./billing/expense-repository";
 export * from "./billing/expense-category-repository";
-export * from "./billing/currency-rate-repository";
 export * from "./billing/recurring-expense-repository";
 export * from "./billing/quota-repository";
 export * from "./billing/usage-repository";

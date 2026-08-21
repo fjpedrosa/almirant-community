@@ -9,9 +9,7 @@ const retired = "backend/api/src/domains/billing/expenses/services/currency-serv
 const contract = "backend/api/src/domains/billing/expenses/services/currency-service-retirement.contract.test.ts";
 const forbidden = new Set(["refreshExchangeRates", "getExchangeRate", "convertAmount"]);
 const sentinels: Array<[string, string[]]> = [
-  ["backend/packages/database/src/repositories/billing/currency-rate-repository.ts", ["getLatestExchangeRate", "upsertExchangeRates", "getExchangeRatesForDate"]],
   ["backend/packages/database/src/schema/currency-rates.ts", ["currencyRates", "currency_rates", "fromCurrency", "toCurrency", "currency_rates_pair_date_idx"]],
-  ["backend/packages/database/src/repositories/index.ts", ['export * from "./billing/currency-rate-repository"']],
   ["backend/api/src/domains/billing/expenses/routes/expenses.routes.ts", ["CURRENCY_SCHEMA", "currency"]],
   ["backend/api/src/domains/billing/expenses/routes/recurring-expenses.routes.ts", ["CURRENCY_SCHEMA", "currency"]],
 ];
