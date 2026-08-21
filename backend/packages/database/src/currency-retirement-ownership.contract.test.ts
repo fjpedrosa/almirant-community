@@ -18,7 +18,7 @@ const allow = (fixtures: readonly Fixture[]) => {
   for (const fixture of fixtures) expect(result(fixture), JSON.stringify(fixture)).toEqual([]);
 };
 
-describe("currency retirement ownership Slice 1B core static provenance", () => {
+describe("currency retirement ownership Slice 1B static completion", () => {
   test("rejects exact owner modules, terminal paths, loaders, imports, and reexports", () => {
     reject([
       `import { ${latest} } from ${database}`,
@@ -126,8 +126,6 @@ describe("currency retirement ownership Slice 1B core static provenance", () => 
       `const holder = { database: require(${database}) }; holder.database.${forDate}`,
       `module.exports = { ${upsert}: require(${database}).safe }`,
       `Object.assign(exports, require(${database}))`,
-      `(await import(${database})).${latest}`,
-      `require(${database})?.${upsert}`,
       [`{"exports":{"./rates":"./currency-rate-repository.ts"}`, "broken.json"],
       [`{"scripts":{"check":"currency-rate-repository"}}`, "package.jsonc"],
     ]);
@@ -194,6 +192,127 @@ describe("currency retirement ownership Slice 1B core static provenance", () => 
       `import * as DB from ${database}; type K = keyof typeof DB.${latest}; export { type K as ${latest} }`,
       [`export type ${latest} = {}; export enum ${upsert} { value }`, "other/index.ts"],
       [`type ${latest} = {}; enum ${upsert} { value }; function ${forDate}() {}; class local {}`, ownerCopy],
+    ]);
+  });
+
+  test("completes recursive type provenance, heritage, and public declaration sinks", () => {
+    reject([
+      `import type * as DB from ${database}; export type Deep<T> = Promise<readonly (DB.${latest} | T)[]>`,
+      `export type Deep<T> = T extends import(${database}).default.safe ? { readonly [K in keyof T]: (value: import(${database}).default.${upsert}) => [T[K], string] } : never`,
+      `export type Deep<T extends import(${database}).default.${latest} = import(${database}).default.${upsert}> = T & { value: typeof import(${database}).default.${forDate} }`,
+      `import * as DB from ${database}; export interface Read { (value: Readonly<[typeof DB.${forDate}]>): void }`,
+      `import type * as DB from ${database}; export interface Rates extends DB.${latest} {}`,
+      `import * as DB from ${database}; export class Rates extends DB.${upsert} implements DB.${forDate} {}`,
+      `import type * as DB from ${database}; const DB = {}; export class Rates implements DB.${latest} {}`,
+      `import * as DB from ${database}; namespace local { type DB = {}; class Rates extends DB.${upsert} {} }`,
+      [`export interface ${latest} {}; export namespace ${upsert} {}; export module ${forDate} {}`, ownerCopy],
+      [`export as namespace ${latest}`, ownerCopy],
+      [`import * as DB from ${database}; export as namespace DB`, "consumer.d.ts"],
+    ]);
+    allow([
+      `import * as DB from ${database}; type Safe = Readonly<[keyof typeof DB.${latest}]>`,
+      `import type * as DB from "@other/database"; interface Safe extends DB.${upsert} {}`,
+      `import type * as DB from ${database}; const DB = {}; class Safe extends DB.${latest} {}`,
+      `import * as DB from ${database}; namespace local { type DB = {}; interface Safe extends DB.${forDate} {} }`,
+      [`interface ${latest} {}; namespace ${upsert} {}; module ${forDate} {}`, ownerCopy],
+      [`export interface ${latest} {}; export namespace ${upsert} {}`, "other/index.ts"],
+    ]);
+  });
+
+  test("contains mapped and infer type scopes without crossing value and type spaces", () => {
+    reject([
+      `import type * as DB from ${database}; type M = { [DB in keyof object]: DB.${latest} }; type Outside = DB.${upsert}`,
+      `import type * as DB from ${database}; type M = { [DB in DB.${latest}]: DB.${upsert} }`,
+      `import type * as DB from ${database}; type Pick<X> = X extends infer DB ? DB.${latest} : never; type Outside = DB.${forDate}`,
+      `import type * as DB from ${database}; type Pick<X> = X extends infer DB ? DB.${latest} : DB.${upsert}`,
+      `import type * as DB from ${database}; type Pick<X, Y> = X extends (Y extends infer DB ? DB.${latest} : never) ? DB.${forDate} : never`,
+      `import * as DB from ${database}; type DB = {}; type T = typeof DB.${latest}`,
+    ]);
+    allow([
+      `import type * as DB from ${database}; type M = { [DB in keyof object]: DB.${latest} }`,
+      `import type * as DB from ${database}; type Pick<X> = X extends infer DB ? DB.${upsert} : never`,
+      `import type * as DB from ${database}; const DB = {}; type T = typeof DB.${forDate}`,
+    ]);
+  });
+
+  test("recognizes only direct literal awaited and optional owner member access", () => {
+    reject([
+      `(await import(${database})).${latest}`,
+      `(await import(${database}))?.${upsert}`,
+      `(await import(${database})).default?.["${forDate}"]`,
+      `const key = "${latest}"; require(${database})?.[key]`,
+      `import * as DB from ${database}; DB?.${upsert}`,
+    ]);
+    allow([
+      `const source = ${database}; (await import(source)).${latest}`,
+      `const pending = import(${database}); (await pending).${latest}`,
+      `(await loader(${database})).${upsert}`,
+      `const holder = { database: require(${database}) }; holder.database?.${forDate}`,
+      `require("@other/database")?.${latest}`,
+    ]);
+  });
+
+  test("covers exported owner binding patterns and nested cross-seam combinations", () => {
+    reject([
+      [`const local = {}; export const { ${latest} } = local`, ownerCopy],
+      [`export const { safe: ${upsert} } = { safe: 1 }`, ownerCopy],
+      [`export let [${forDate}] = []`, ownerCopy],
+      [`export const { ${latest}: read } = require(${database})`, ownerCopy],
+      [`const source = require(${database}); export const { ${upsert}: write } = source`, ownerCopy],
+      `export interface Combined extends Readonly<import(${database}).default.${forDate}> {}`,
+    ]);
+    allow([
+      [`const local = {}; export const { ${latest} } = local`, "other/index.ts"],
+      [`export const { safe: read } = require(${database})`, ownerCopy],
+      [`export let [${forDate}] = []`, "other/index.ts"],
+      `const holder = { database: require(${database}) }; export interface Safe extends holder.database.${latest} {}`,
+    ]);
+  });
+
+  test("propagates interface heritage provenance into later public type exports", () => {
+    reject([
+      `import type * as DB from ${database}; interface Surface extends DB.safe {}; export { Surface as ${latest} }`,
+      `import type * as DB from ${database}; interface Surface extends Local<DB.safe> {}; export type { Surface as ${upsert} }`,
+      `import type * as DB from ${database}; interface Surface extends DB {}; export type { Surface }`,
+    ]);
+    allow([
+      `import type * as DB from "@other/database"; interface Surface extends DB.safe {}; export { Surface as ${latest} }`,
+      `interface Surface extends Local<Safe> {}; export type { Surface as ${upsert} }`,
+      `import type * as DB from ${database}; interface Surface extends DB.safe {}; export type { Surface }`,
+    ]);
+  });
+
+  test("merges recursive interface member and type-parameter provenance", () => {
+    reject([
+      `import type * as DB from ${database}; interface Surface { value: Readonly<DB.safe>; map(input: DB.other): Promise<DB.safe> }; export type { Surface as ${latest} }`,
+      `import type * as DB from ${database}; interface Surface<T extends Box<DB.safe> = import(${database}).default.safe> { [key: string]: T; (input: DB.other): T; new (input: T): DB.safe }; export { Surface as ${upsert} }`,
+      `import type * as DB from ${database}; interface Surface { value: DB }; export type { Surface }`,
+    ]);
+    allow([
+      `import * as DB from ${database}; interface Surface { value: keyof typeof DB.${latest} }; export type { Surface as ${latest} }`,
+      `import type * as DB from "@other/database"; interface Surface { value: DB.safe }; export type { Surface as ${upsert} }`,
+      `interface Surface<T extends Local<Safe>> { value: T }; export type { Surface as ${forDate} }`,
+      `import type * as DB from ${database}; interface Surface<T extends DB.safe> { value: T }`,
+      `import type * as DB from ${database}; interface Surface { value: DB.safe }; export type { Surface }`,
+    ]);
+  });
+
+  test("recognizes only direct dotted export ancestry as implicit public modules", () => {
+    reject([
+      [`export namespace Api.${latest} {}`, ownerCopy],
+      [`export namespace Api.Rates.${upsert} {}`, ownerCopy],
+      [`export module Api.${forDate} {}`, ownerCopy],
+      [`export namespace Api.${latest}.Internal {}`, ownerCopy],
+      [`export module Api.${upsert}.Internal.${forDate}.Leaf {}`, ownerCopy],
+      [`export namespace Api { export namespace ${latest} {} }`, ownerCopy],
+    ]);
+    allow([
+      [`export namespace Api.${latest} {}`, "other/index.ts"],
+      [`namespace Api.${upsert} {}`, ownerCopy],
+      [`export namespace Api { namespace ${forDate} {} }`, ownerCopy],
+      [`namespace Private { export namespace ${latest} {} }`, ownerCopy],
+      [`export namespace Api { namespace Hidden { export namespace ${upsert} {} } }`, ownerCopy],
+      [`declare module "${forDate}" {}`, ownerCopy],
     ]);
   });
 
