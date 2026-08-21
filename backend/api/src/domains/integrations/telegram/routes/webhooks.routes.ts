@@ -11,6 +11,7 @@ import {
   getTelegramSecretHeader,
   normalizeTelegramChatId,
 } from "../services/telegram-utils";
+import { extractStartPayload, parseTelegramCommand } from "../services/telegram/command-parser";
 import {
   applyCallbackResult,
   routeTelegramCallback,
@@ -77,10 +78,6 @@ function extractCallback(update: TelegramUpdate): { chatId: string; callbackQuer
   return { chatId, callbackQueryId, messageId, data };
 }
 
-function isStartCommand(text: string): boolean {
-  return text === "/start" || text.startsWith("/start ");
-}
-
 function looksLikeLinkCode(text: string): boolean {
   const normalized = text.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
   return normalized.length >= 8 && normalized.length <= 32;
@@ -100,7 +97,8 @@ async function handleTelegramText(update: TelegramUpdate): Promise<void> {
     return;
   }
 
-  if (isStartCommand(text)) {
+  const startPayload = extractStartPayload(text);
+  if (startPayload === null && parseTelegramCommand(text)?.command === "start") {
     const baseUrl = getFrontendBaseUrl();
     await telegramBot.sendMessage({
       chatId,
@@ -115,7 +113,7 @@ async function handleTelegramText(update: TelegramUpdate): Promise<void> {
   }
 
   // For any other commands, require that the chat is linked.
-  if (text.startsWith("/")) {
+  if (startPayload === null && text.startsWith("/")) {
     const linked = await getTelegramAccountByChatId(chatId);
     if (!linked) {
       await telegramBot.sendMessage({
@@ -147,8 +145,8 @@ async function handleTelegramText(update: TelegramUpdate): Promise<void> {
     return;
   }
 
-  // Try to consume as a link code.
-  if (!looksLikeLinkCode(text)) {
+  const linkCode = startPayload ?? (looksLikeLinkCode(text) ? text : null);
+  if (linkCode === null) {
     const linked = await getTelegramAccountByChatId(chatId);
     if (!linked) {
       await telegramBot.sendMessage({
@@ -162,7 +160,7 @@ async function handleTelegramText(update: TelegramUpdate): Promise<void> {
   }
 
   const result = await consumeTelegramLinkCode({
-    code: text,
+    code: linkCode,
     chatId,
     telegramUserId: normalizeTelegramChatId(from?.id) ?? null,
     username: from?.username ?? null,
