@@ -22,3 +22,8 @@ export function parseTelegramCommand(text: string): ParsedCommand | null {
   };
 }
 
+export function extractStartPayload(text: string): string | null {
+  const parsed = parseTelegramCommand(text);
+  if (!parsed || parsed.command !== "start") return null;
+  return parsed.args.trim() || null;
+}
