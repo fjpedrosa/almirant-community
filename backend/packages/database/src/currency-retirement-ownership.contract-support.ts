@@ -10,6 +10,7 @@ const safe: Binding = { kind: "safe" };
 const ownerNamespace: Binding = { kind: "owner-namespace" };
 const ownerValue = (member?: string): Binding => ({ kind: "owner-value", members: member ? [member] : [] });
 const codeExtension = /(?:\.d\.(?:ts|mts|cts)|\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs))$/i;
+const manifestExtension = /\.jsonc?$/i;
 const normalize = (value: string) => posix.normalize(value.replaceAll("\\", "/").split(/[?#]/, 1)[0]!).replace(/^\.\//, "");
 const withoutExtension = (value: string) => normalize(value).replace(codeExtension, "");
 const isOwnerPath = (path: string) => /^backend\/packages\/database\/src(?:\/|$)/.test(withoutExtension(path));
@@ -510,5 +511,297 @@ const scanModule = (input: TrackedSource) => {
   return [...violations];
 };
 
+const deferredEnd = (source: string, start: number): number | undefined => {
+  const opener = source[start] === "`" ? "`" : source[start + 1], arithmetic = opener === "(" && source[start + 2] === "(";
+  const stack: Array<readonly [close: string, comments: boolean, joinsWord: boolean]> = opener === "`" ? [["`", false, true]] : arithmetic ? [[")", false, true], [")", false, false]] : [[opener === "(" ? ")" : "}", opener === "(", true]];
+  let quote: "'" | '"' | undefined, word = false;
+  for (let index = start + (opener === "`" ? 1 : arithmetic ? 3 : 2); index < source.length; index++) {
+    const character = source[index]!;
+    const [close, comments] = stack.at(-1)!;
+    if (close === "`") {
+      if (character === "\\") index++;
+      else if (character === "`") word = stack.pop()![2];
+    } else if (quote) {
+      if (character === "\\" && quote === '"') index++;
+      else if (character === quote) quote = undefined;
+    } else if (character === "'" || character === '"') { quote = character; word = true; }
+    else if (character === "\\") { index++; word = true; }
+    else if (comments && character === "#" && !word) while (index + 1 < source.length && source[index + 1] !== "\n" && source[index + 1] !== "\r") index++;
+    else if (character === "`") { stack.push(["`", false, true]); word = false; }
+    else if (character === "$" && (source[index + 1] === "(" || source[index + 1] === "{")) {
+      const parameter = source[index + 1] === "{", nestedArithmetic = !parameter && source[index + 2] === "(";
+      stack.push([parameter ? "}" : ")", !parameter && !nestedArithmetic, true]);
+      if (nestedArithmetic) stack.push([")", false, false]);
+      index += nestedArithmetic ? 2 : 1;
+      word = false;
+    } else if ((character === "(" && close === ")") || (character === "{" && close === "}")) { stack.push([close, comments, false]); word = false; }
+    else if (character === close) word = stack.pop()![2];
+    else word = !/\s|[;|&]/.test(character);
+    if (!stack.length) return index;
+  }
+};
+
+const stripHeredocs = (input: string): string | undefined => {
+  const source = input.replaceAll("\r\n", "\n");
+  const kept: string[] = [];
+  const delimiters: Array<readonly [name: string, tabs: boolean]> = [];
+  const delimiterPattern = /(?:\\.|'[^']*'|"(?:\\.|[^"\\])*"|[^\s\\'";|&()<>$`])+/y;
+  let delimiterHead = 0, offset = 0;
+  let body = false, word = false, deferred = -1;
+  let quote: "'" | '"' | undefined;
+  for (const line of source.split(/\r?\n/)) {
+    const active = delimiters[delimiterHead];
+    if (body && active) {
+      if ((active[1] ? line.replace(/^\t+/, "") : line) === active[0]) delimiterHead++;
+      kept.push("");
+      body = delimiterHead < delimiters.length;
+      offset += line.length + 1;
+      continue;
+    }
+    kept.push(line);
+    let continued = false;
+    for (let index = 0; index < line.length; index++) {
+      if (offset + index <= deferred) {
+        index = Math.min(line.length - 1, deferred - offset);
+        continue;
+      }
+      const character = line[index]!;
+      if (quote) {
+        if (character === "\\" && quote === '"') {
+          continued = index + 1 === line.length;
+          index++;
+        }
+        else if (character === quote) quote = undefined;
+      } else if (character === "\\") {
+        word = true;
+        continued = index + 1 === line.length;
+        index++;
+      } else if (character === "'" || character === '"') {
+        quote = character;
+        word = true;
+      } else if ((character === "$" && (line[index + 1] === "(" || line[index + 1] === "{")) || character === "`") {
+        const end = deferredEnd(source, offset + index);
+        if (end === undefined) return;
+        word = true;
+        deferred = end;
+        index = Math.min(line.length - 1, end - offset);
+      } else if (character === "#" && !word) break;
+      else if (/\s|[;|&()]/.test(character)) word = false;
+      else if (character === "<" && line[index + 1] === "<" && line[index + 2] !== "<") {
+        let cursor = index + 2;
+        const tabs = line[cursor] === "-";
+        if (tabs) cursor++;
+        while (/\s/.test(line[cursor] ?? "")) cursor++;
+        delimiterPattern.lastIndex = cursor;
+        const raw = delimiterPattern.exec(line)?.[0], boundary = line[delimiterPattern.lastIndex];
+        if (raw === undefined || raw[0] === "#" || (boundary !== undefined && !/\s|[;|&()<>]/.test(boundary))) return;
+        delimiters.push([raw.replace(/\\(.)|'([^']*)'|"((?:\\.|[^"\\])*)"/g, (_, escaped, single, double) => escaped ?? single ?? double?.replace(/\\([$"`\\])/g, "$1") ?? ""), tabs]);
+        index = delimiterPattern.lastIndex - 1;
+      } else word = true;
+    }
+    if (!quote && !continued && deferred <= offset + line.length) {
+      body = delimiterHead < delimiters.length;
+      word = false;
+    }
+    offset += line.length + 1;
+  }
+  return delimiterHead < delimiters.length ? undefined : kept.join("\n");
+};
+
+const shellWords = (input: string): readonly string[] | undefined => {
+  const source = stripHeredocs(input);
+  if (source === undefined) return;
+  const words: string[] = [];
+  let word = "", rawWord = "";
+  let quote: "'" | '"' | undefined;
+  let query: false | "query" | "fragment" | "blocked" = false;
+  const flush = () => {
+    if (word) words.push(word);
+    if (rawWord && rawWord !== word) words.push(rawWord);
+    word = rawWord = "";
+    query = false;
+  };
+  const uri = /^(?:(?:[A-Za-z_]\w*|--?[\w-]+)=)?[a-z][a-z\d+.-]*:\/\//i;
+  const queryPair = (start: number) => {
+    let cursor = start + 1;
+    while (/[A-Za-z0-9_.~%-]/.test(source[cursor] ?? "")) cursor++;
+    return cursor > start + 1 && source[cursor] === "=";
+  };
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index]!;
+    const dynamic = quote !== "'" && (character === "`" || (character === "$" && (source[index + 1] === "(" || source[index + 1] === "{")));
+    if (dynamic) {
+      const end = deferredEnd(source, index);
+      if (end === undefined) return;
+      word += character;
+      rawWord += character;
+      query = "blocked";
+      index = end;
+    } else if (quote) {
+      if (character === quote) {
+        quote = undefined;
+        query = "blocked";
+      }
+      else if (character === "\\" && quote === '"') {
+        const next = source[++index];
+        if (next === undefined) return;
+        if (next !== "\n") rawWord += `\\${next}`;
+        if (next !== "\n" && /[$"\\]/.test(next)) word += next;
+        else if (next !== "\n") word += `\\${next}`;
+      } else {
+        word += character;
+        rawWord += character;
+      }
+    } else if (character === "'" || character === '"') {
+      quote = character;
+      query = "blocked";
+    }
+    else if (character === "\\") {
+      const next = source[++index];
+      if (next === undefined) return;
+      if (next !== "\n") {
+        word += next;
+        rawWord += `\\${next}`;
+        query = "blocked";
+      }
+    } else if (character === "&" && query === "query" && queryPair(index)) {
+      word += character;
+      rawWord += character;
+    } else if (/\s|[;|&()]/.test(character)) flush();
+    else if (character === "#" && !word) {
+      while (index + 1 < source.length && source[index + 1] !== "\n" && source[index + 1] !== "\r") index++;
+    } else {
+      if (character === "#") query = "fragment";
+      else if (character === "?" && query === false && uri.test(word)) query = "query";
+      word += character;
+      rawWord += character;
+    }
+  }
+  if (quote) return;
+  flush();
+  return words;
+};
+
+const jsoncTriviaOnly = (source: string) => {
+  let invalid = false;
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.Standard, source, () => { invalid = true; });
+  for (let token = scanner.scan(); !invalid; token = scanner.scan()) {
+    if (token === ts.SyntaxKind.EndOfFileToken) return true;
+    if (token !== ts.SyntaxKind.WhitespaceTrivia && token !== ts.SyntaxKind.NewLineTrivia && token !== ts.SyntaxKind.SingleLineCommentTrivia && token !== ts.SyntaxKind.MultiLineCommentTrivia) return false;
+  }
+  return false;
+};
+
+const scanManifest = (input: TrackedSource) => {
+  const violations = new Set<string>();
+  const report = (reason: string) => violations.add(`${input.path}: ${reason}`);
+  const source = input.source.replace(/^\uFEFF/, "");
+  const jsonc = normalize(input.path).toLowerCase().endsWith(".jsonc");
+  let file: ts.JsonSourceFile;
+  let diagnostics: readonly ts.Diagnostic[];
+  try {
+    if (!jsonc) JSON.parse(source);
+    file = ts.parseJsonText(input.path, source);
+    diagnostics = (file as unknown as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }).parseDiagnostics;
+    if (jsonc && !diagnostics.length && !file.statements.length && jsoncTriviaOnly(source)) return [];
+    if (jsonc && ts.parseConfigFileTextToJson(input.path, `{"__manifest":\n${source}\n}`).error) throw new Error();
+  } catch {
+    return [`${input.path}: invalid manifest`];
+  }
+  const statement = file.statements[0];
+  if (diagnostics.length || file.statements.length !== 1 || !statement || !ts.isExpressionStatement(statement)) return [`${input.path}: invalid manifest`];
+  const root = statement.expression;
+  if (!ts.isObjectLiteralExpression(root)) return [];
+  const ownerPackage = (value: string) => /(?:^|\/)backend\/packages\/database(?:\/|$)/.test(normalize(value));
+  const manifestPath = normalize(input.path);
+  const ownerContext = ownerPackage(manifestPath) || !manifestPath.includes("/");
+  const reference = (value: string, semantics: "module" | "local" = "module") => {
+    const raw = value.trim();
+    if (!raw || /\s|\\(?:[;|&()#=$]|\s)/.test(raw) || /^[a-z][a-z\d+.-]*:\/\//i.test(raw)) return;
+    const slashed = raw.replaceAll("\\", "/");
+    const withoutSuffix = (slashed.startsWith("#") ? slashed.slice(1) : slashed).split(/[?#]/, 1)[0]!;
+    const retired = withoutSuffix.split("/").some((segment) => {
+      const name = segment.replace(codeExtension, "");
+      return name === "currency-rate-repository" || retiredNames.has(name);
+    });
+    let target = withoutSuffix;
+    const local = /^(?:\.{1,2}\/|\/|[A-Za-z]:\/|backend\/|src\/|repositories\/)/.test(target);
+    const bareModule = semantics === "module" && target.includes("/") && !local && !target.startsWith("@");
+    if (/^\.{1,2}\//.test(target)) target = posix.join(posix.dirname(normalize(input.path)), target);
+    else if (local && !/^(?:[A-Za-z]:\/|\/|backend\/)/.test(target) && target.includes("/")) target = posix.join(posix.dirname(normalize(input.path)), target);
+    const canonical = target === "@almirant/database" || target.startsWith("@almirant/database/");
+    const otherPackage = /(?:^|\/)backend\/packages\/(?!database(?:\/|$))[^/]+(?:\/|$)/.test(normalize(target));
+    const explicitExit = /^\.{1,2}\//.test(withoutSuffix) && ownerPackage(manifestPath) && !ownerPackage(target);
+    const ambiguous = !target.startsWith("@") && !bareModule && !otherPackage && !explicitExit;
+    const owner = canonical || ownerPackage(target) || (ambiguous && ownerContext);
+    if (owner && retired) report("retired manifest reference");
+  };
+  const property = (node: ts.ObjectLiteralElementLike) => {
+    if (!ts.isPropertyAssignment(node)) return;
+    const name = ts.isStringLiteralLike(node.name) || ts.isIdentifier(node.name) ? node.name.text : undefined;
+    return name === undefined ? undefined : { name, value: node.initializer };
+  };
+  type Mode = "root" | "discover" | "tree" | "selected" | "commands" | "scalar" | "array" | "mapping" | "pathmap" | "command" | "scripts" | "compiler";
+  const pending: Array<readonly [ts.Expression, Mode]> = [];
+  const visited = new WeakMap<ts.Node, Set<Mode>>();
+  const push = (node: ts.Expression, mode: Mode) => {
+    const modes = visited.get(node) ?? new Set<Mode>();
+    if (modes.has(mode)) return;
+    modes.add(mode);
+    visited.set(node, modes);
+    pending.push([node, mode]);
+  };
+  const scalars = new Set(["main", "module", "types", "typings"]);
+  const trees = new Set(["exports", "imports"]);
+  push(root, "root");
+  while (pending.length) {
+    const [current, mode] = pending.pop()!;
+    if (["tree", "selected", "scalar", "mapping"].includes(mode) && ts.isStringLiteralLike(current)) reference(current.text, mode === "tree" || mode === "selected" ? "module" : "local");
+    else if (mode === "command" && ts.isStringLiteralLike(current)) {
+      const words = shellWords(current.text);
+      if (!words) report("invalid manifest command");
+      else
+        for (const word of words) {
+          const assignment = word.match(/^(?:[A-Za-z_]\w*|--?[\w-]+)=(.*)$/s);
+          reference(assignment?.[1] ?? word);
+        }
+    } else if (ts.isArrayLiteralExpression(current)) {
+      if (mode === "tree") for (const child of current.elements) push(child, "tree");
+      else if (mode === "array") for (const child of current.elements) push(child, "scalar");
+      else if (mode === "selected") for (const child of current.elements) push(child, "selected");
+      else if (mode === "command") for (const child of current.elements) push(child, "command");
+      else if (mode === "commands") for (const child of current.elements) push(child, "commands");
+    } else if (ts.isObjectLiteralExpression(current) && !["scalar", "array", "command"].includes(mode))
+      for (const element of current.properties) {
+        const entry = property(element);
+        if (!entry) continue;
+        if (mode === "tree" || mode === "mapping" || mode === "pathmap") {
+          reference(entry.name, mode === "tree" ? "module" : "local");
+          push(entry.value, mode === "tree" && entry.name === "command" ? "command" : mode === "tree" ? "tree" : mode === "mapping" ? "scalar" : "array");
+        } else if (mode === "selected" || mode === "commands") push(entry.value, entry.name === "command" ? "command" : "commands");
+        else if (mode === "scripts") {
+          reference(entry.name);
+          push(entry.value, "command");
+        } else if (mode === "compiler" && entry.name === "paths") push(entry.value, "pathmap");
+        else if (mode === "root" && scalars.has(entry.name)) push(entry.value, "scalar");
+        else if (mode === "root" && ["browser", "bin"].includes(entry.name)) push(entry.value, "mapping");
+        else if (mode === "root" && entry.name === "files") push(entry.value, "array");
+        else if (mode === "root" && trees.has(entry.name)) push(entry.value, "tree");
+        else if (mode === "root" && entry.name === "scripts") push(entry.value, "scripts");
+        else if (mode === "root" && entry.name === "compilerOptions") push(entry.value, "compiler");
+        else if (["path", "entry"].includes(entry.name)) push(entry.value, "selected");
+        else if (["paths", "entries"].includes(entry.name)) push(entry.value, "array");
+        else if (entry.name === "command") push(entry.value, "command");
+        else push(entry.value, "discover");
+      }
+  }
+  return [...violations];
+};
+
 export const scanCurrencyRetirementOwnership = (files: readonly TrackedSource[]) =>
-  [...new Set(files.flatMap((file) => (codeExtension.test(normalize(file.path)) ? scanModule(file) : [])))].sort();
+  [...new Set(files.flatMap((file) => {
+    const path = normalize(file.path);
+    if (codeExtension.test(path)) return scanModule(file);
+    if (manifestExtension.test(path) && posix.basename(path).toLowerCase() !== "package-lock.json") return scanManifest(file);
+    return [];
+  }))].sort();

@@ -8,9 +8,12 @@ const [latest, upsert, forDate] = retired;
 const ownerIndex = "backend/packages/database/src/index.ts";
 const ownerCopy = "backend/packages/database/src/repositories/billing/renamed-rates.ts";
 const repositoryIndex = "backend/packages/database/src/repositories/billing/index.ts";
+const ownerManifest = "backend/packages/database/package.json";
+const retiredManifestPath = "./src/repositories/billing/currency-rate-repository.ts?raw#v1";
 type Fixture = string | readonly [source: string, path: string];
 const scan = (source: string, path = "fixture.ts") => scanCurrencyRetirementOwnership([{ path, source }]);
 const result = (fixture: Fixture) => (typeof fixture === "string" ? scan(fixture) : scan(...fixture));
+const manifest = (value: unknown, path = ownerManifest): Fixture => [typeof value === "string" ? value : JSON.stringify(value), path];
 const reject = (fixtures: readonly Fixture[]) => {
   for (const fixture of fixtures) expect(result(fixture), JSON.stringify(fixture)).not.toEqual([]);
 };
@@ -126,8 +129,8 @@ describe("currency retirement ownership Slice 1B static completion", () => {
       `const holder = { database: require(${database}) }; holder.database.${forDate}`,
       `module.exports = { ${upsert}: require(${database}).safe }`,
       `Object.assign(exports, require(${database}))`,
-      [`{"exports":{"./rates":"./currency-rate-repository.ts"}`, "broken.json"],
-      [`{"scripts":{"check":"currency-rate-repository"}}`, "package.jsonc"],
+      [`{"exports":{"./rates":"./currency-rate-repository.ts"}`, "broken.yaml"],
+      [`{"scripts":{"check":"currency-rate-repository"}}`, "package.yaml"],
     ]);
   });
 
@@ -326,5 +329,101 @@ describe("currency retirement ownership Slice 1B static completion", () => {
     expect(first).toEqual([...new Set(first)].sort());
     expect(scanCurrencyRetirementOwnership(files)).toEqual(first);
     expect(files[0]?.source).toBe("export {}");
+  });
+
+  test("parses strict JSON and JSONC fail-closed while preserving duplicate active fields", () => {
+    const deepJson = `${'{"data":'.repeat(20_000)}0${"}".repeat(20_000)}`;
+    reject([manifest(`{// comment\n"main":"safe"}`), manifest(`{"main":"safe",}`), manifest(`{'main':'safe'}`), manifest(`{main:"safe"}`), manifest(`{"main":"unterminated}`), manifest(`{} {}`), manifest(`{"main":"\\x"}`), manifest(`{'main':'safe'}`, "fixture.jsonc"), manifest(`{main:"safe"}`, "fixture.jsonc"), manifest(`{"main":"unterminated}`, "fixture.jsonc"), manifest(`{} {}`, "fixture.jsonc"), manifest(`#!/usr/bin/env node`, "fixture.jsonc"), manifest(`\uFEFF{// lead\n"main":"${retiredManifestPath}",}`, "fixture.jsonc"), manifest(`{"main":"${retiredManifestPath}","main":"safe"}`), manifest(`{"main":"safe","main":"${retiredManifestPath}"}`), [deepJson, "deep.json"]]);
+    allow([manifest(`{"description":"safe"}`), manifest(`\uFEFF{// lead\n"description":"safe",}`, "fixture.jsonc"), manifest(`// inert\n/* still inert */`, "fixture.jsonc"), manifest(``, "fixture.jsonc"), manifest(`[{"path":"${retiredManifestPath}"},]`, "fixture.jsonc"), manifest(`"scalar"`, "fixture.jsonc"), manifest(`{"main":"safe","main":"also-safe"}`)]);
+  });
+
+  test("scans only the finite manifest selector trees and exact nested fields", () => {
+    let deepReject: unknown = { path: retiredManifestPath };
+    let deepAllow: unknown = { text: retiredManifestPath };
+    for (let depth = 0; depth < 260; depth++) {
+      deepReject = { data: deepReject };
+      deepAllow = { data: deepAllow };
+    }
+    reject([
+      ...["main", "module", "types", "typings"].map((key) => manifest({ [key]: retiredManifestPath })),
+      manifest({ browser: { "./safe": retiredManifestPath } }),
+      manifest({ bin: { safe: retiredManifestPath } }),
+      manifest({ files: [retiredManifestPath] }),
+      manifest({ exports: { "./currency-rate-repository": { import: [retiredManifestPath] } } }),
+      manifest({ imports: { "#getLatestExchangeRate?condition": { default: "@almirant/database/repositories/billing/currency-rate-repository.js" } } }),
+      manifest({ main: "@almirant/database/currency-rate-repository/index.js" }),
+      manifest({ compilerOptions: { paths: { "@almirant/database/currency-rate-repository": ["safe"], safe: [retiredManifestPath] } } }),
+      manifest({ scripts: { [latest]: "echo safe" } }),
+      ...["path", "entry"].map((key) => manifest({ data: { [key]: retiredManifestPath } })),
+      ...["paths", "entries"].map((key) => manifest({ data: { [key]: [retiredManifestPath] } })),
+      manifest({ data: { command: `node ${retiredManifestPath}` } }),
+      ...["path", "entry"].map((key) => manifest({ tool: { [key]: ["./safe.ts", retiredManifestPath] } })),
+      manifest({ tool: { command: ["echo safe", `node ${retiredManifestPath}`] } }),
+      manifest({ exports: { ".": { command: `node ${retiredManifestPath}` } } }),
+      manifest({ tool: { path: { command: `node ${retiredManifestPath}` } } }),
+      manifest({ main: "..\\database\\src\\repositories\\billing\\currency-rate-repository.d.cts#types" }, "backend/packages/api/package.json"),
+      manifest({ main: "C:\\repo\\backend\\packages\\database\\src\\getLatestExchangeRate.mts" }, "C:\\repo\\package.json"),
+      manifest({ main: "currency-rate-repository" }, "package.json"),
+      manifest({ main: "dist/currency-rate-repository.js", files: ["dist/currency-rate-repository.js"], bin: { safe: "dist/currency-rate-repository.js" }, browser: { "currency-rate-repository/*": "safe" } }),
+      manifest({ compilerOptions: { paths: { "currency-rate-repository/*": ["dist/currency-rate-repository.js"] } } }),
+      manifest(deepReject),
+    ]);
+    allow([
+      manifest({ description: retiredManifestPath, data: { exports: retiredManifestPath, main: retiredManifestPath, scripts: retiredManifestPath, commands: retiredManifestPath } }),
+      manifest({ main: { path: retiredManifestPath }, files: retiredManifestPath, browser: [retiredManifestPath], compilerOptions: { paths: retiredManifestPath }, scripts: [retiredManifestPath] }),
+      manifest({ data: { compilerOptions: { paths: { retired: [retiredManifestPath] } } } }),
+      manifest({ tool: { paths: { retired: retiredManifestPath }, entries: { retired: retiredManifestPath } } }),
+      manifest({ exports: { ".": "another-package/currency-rate-repository.ts" } }),
+      manifest({ tool: { path: "another-package/currency-rate-repository.ts", entry: "another-package/currency-rate-repository.ts" } }),
+      manifest({ Main: retiredManifestPath, script: retiredManifestPath, commands: retiredManifestPath }),
+      manifest({ dependencies: { "@almirant/database": retiredManifestPath } }),
+      manifest({ main: "@almirant/database-tools/currency-rate-repository" }),
+      manifest({ main: "./src/currency-rate-repository-copy.ts" }),
+      manifest({ main: "https://example.test/@almirant/database/currency-rate-repository.ts" }),
+      manifest({ main: "./currency-rate-repository.ts" }, "other/package.json"),
+      manifest({ main: "../api/currency-rate-repository.ts" }),
+      manifest({ typesVersions: { "*": { getLatestExchangeRate: [retiredManifestPath] } } }),
+      manifest(deepAllow),
+      manifest({ path: retiredManifestPath }, "package-lock.json"),
+      manifest({ main: retiredManifestPath }, "fixture.js.map"),
+      manifest({ main: retiredManifestPath }, "fixture.yaml"),
+      manifest({ main: retiredManifestPath }, "fixture.json.bak"),
+    ]);
+  });
+
+  test("tokenizes bounded shell commands without interpreting substitutions or prose", () => {
+    const commands = [`node '${retiredManifestPath}'`, `node "./src/"repositories/billing/currency-rate-repository.ts`, `node --entry=${retiredManifestPath}`, `node --entry = ${retiredManifestPath}`, `ENTRY=${retiredManifestPath} node`, `echo safe; ${latest}`, `echo safe && ${upsert}`, `echo safe || ${forDate}`, `echo safe | currency-rate-repository`, `echo safe\n\t${latest}`, `node C:\\repo\\backend\\packages\\database\\src\\repositories\\billing\\currency-rate-repository.ts`, `node ./src/repositories/billing/currency-rate-\\\nrepository.ts`, `https://safe/;currency-rate-repository`, `echo https://safe.test/?x=y&currency-rate-repository`, `echo https://safe.test/?x=y&repo=safe&currency-rate-repository`, `echo https://safe.test/?x=y#fragment&repo=currency-rate-repository`, `echo https://safe.test/?x=y#frag?again=yes&repo=currency-rate-repository`, `echo "https://safe.test/?x=y"&repo=currency-rate-repository`, `echo "https://safe.test/"?x=y&repo=currency-rate-repository`, `echo https://safe.test/?x=$(echo y)&repo=currency-rate-repository`, `echo https://safe.test/?x=y\\ &repo=currency-rate-repository`, `echo "safe\n<<EOF"\n${latest}\nEOF`, `echo $((1\n<< EOF))\n${latest}\nEOF`, `echo $(printf\n<<EOF)\n${latest}\nEOF`, `${"echo safe ".repeat(500)}${retiredManifestPath}`];
+    const delimiters = Array.from({ length: 512 }, (_, index) => `D${index}`);
+    const manyHeredocs = `cat ${delimiters.map((name) => `<<'${name}'`).join(" ")}\n${delimiters.map((name) => `${retiredManifestPath}\n${name}`).join("\n")}`;
+    const originalShift = Array.prototype.shift, originalIncludes = String.prototype.includes;
+    let shiftCalls = 0, queryIncludes = 0;
+    let manyResult: readonly string[] | undefined;
+    Array.prototype.shift = function <T>(this: T[]) { shiftCalls++; return originalShift.call(this) as T | undefined; };
+    String.prototype.includes = function (search, position) { if (search === "?" && String(this).startsWith("https://safe.test/?")) queryIncludes++; return originalIncludes.call(this, search, position); };
+    try {
+      manyResult = result(manifest({ scripts: { check: manyHeredocs } }));
+      result(manifest({ scripts: { check: `echo https://safe.test/?x=y${"&safe=value".repeat(512)}` } }));
+    } finally {
+      Array.prototype.shift = originalShift;
+      String.prototype.includes = originalIncludes;
+    }
+    expect(manyResult).toEqual([]);
+    expect(shiftCalls).toBe(0);
+    expect(queryIncludes).toBe(0); expect([`cat <<$(printf EOF)\n${retiredManifestPath}\n$\necho safe`, `cat <<\${TAG}\n${retiredManifestPath}\n\${TAG}\necho safe`, `cat <<\`printf EOF\`\n${retiredManifestPath}\n\`printf\necho safe`, `cat <<EOF\${TAG}\n${retiredManifestPath}\nEOF\${TAG}`, `cat <<#EOF\n${retiredManifestPath}\n#EOF`].map((check) => result(manifest({ scripts: { check } })))).toEqual(Array.from({ length: 5 }, () => [`${ownerManifest}: invalid manifest command`]));
+    reject([...commands.map((command) => manifest({ scripts: { check: command } })), ...[`echo 'unterminated`, `echo "unterminated`, `echo dangling\\`].map((command) => manifest({ scripts: { check: command } }))]);
+    allow([
+      manifest({ scripts: { check: `echo safe # ${retiredManifestPath}` } }),
+      manifest({ scripts: { check: `echo $${latest} $(printf '${retiredManifestPath}') \`${retiredManifestPath}\`` } }),
+      manifest({ scripts: { check: `echo ${latest}\\ safe ${upsert}\\;safe` } }),
+      manifest({ scripts: { check: `echo "prose ${retiredManifestPath} suffix"` } }),
+      manifest({ scripts: { check: `cat <<'EOF'\n${retiredManifestPath}\nEOF\necho safe` } }),
+      manifest({ scripts: { check: `echo https://example.test/docs?symbol=${latest}&repo=currency-rate-repository` } }),
+      manifest({ scripts: { check: `runner --url=https://example.test/?symbol=${latest}` } }),
+      manifest({ scripts: { check: `run --url=https://example.test/?symbol=${latest}&repo=currency-rate-repository` } }),
+      manifest({ scripts: { check: `echo "<<EOF"\necho safe` } }),
+      manifest({ scripts: { check: `echo safe\\\n# <<EOF\n${retiredManifestPath}\nEOF` } }), manifest({ scripts: { check: `cat <<\\EOF\r\n${retiredManifestPath}\r\nEOF\r\necho safe` } }), manifest({ scripts: { check: `cat <<E\\OF\n${retiredManifestPath}\nEOF\necho safe` } }), manifest({ scripts: { check: `cat <<123\n${retiredManifestPath}\n123\necho safe` } }), manifest({ scripts: { check: `cat <<E"OF"\n${retiredManifestPath}\nEOF\necho safe` } }), manifest({ scripts: { check: `cat <<'E'\\OF\n${retiredManifestPath}\nEOF\necho safe` } }), manifest({ scripts: { check: `cat <<EOF.txt\n${retiredManifestPath}\nEOF.txt\necho safe` } }), manifest({ scripts: { check: `cat <<END+MARK\n${retiredManifestPath}\nEND+MARK\necho safe` } }), manifest({ scripts: { check: `cat <<''\n${retiredManifestPath}\n\necho safe` } }), manifest({ scripts: { check: `cat <<""\n${retiredManifestPath}\n\necho safe` } }), manifest({ scripts: { check: `cat <<\\#EOF\n${retiredManifestPath}\n#EOF\necho safe` } }), manifest({ scripts: { check: `cat <<''#EOF\n${retiredManifestPath}\n#EOF\necho safe` } }), manifest({ scripts: { check: `cat <<EOF#\n${retiredManifestPath}\nEOF#\necho safe` } }), manifest({ scripts: { check: `echo $(printf safe # ) "\n)` } }), manifest({ scripts: { check: `echo ${"${#value}"}` } }), manifest({ scripts: { check: `echo $( (echo)# ignored )\n)` } }), manifest({ scripts: { check: `echo $( (echo)# ) "\n)` } }), manifest({ scripts: { check: `echo https://safe.test/?x=y\\&repo=currency-rate-repository` } }),
+      manifest({ scripts: { check: `cat <<'ONE' <<"TWO"\n${retiredManifestPath}\nONE\n${latest}\nTWO` } }),
+      manifest({ command: `currency-rate-repository` }, "other/package.json"),
+    ]);
   });
 });
