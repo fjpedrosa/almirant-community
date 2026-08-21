@@ -18,7 +18,7 @@ const allow = (fixtures: readonly Fixture[]) => {
   for (const fixture of fixtures) expect(result(fixture), JSON.stringify(fixture)).toEqual([]);
 };
 
-describe("currency retirement ownership Slice 1A foundation", () => {
+describe("currency retirement ownership Slice 1B core static provenance", () => {
   test("rejects exact owner modules, terminal paths, loaders, imports, and reexports", () => {
     reject([
       `import { ${latest} } from ${database}`,
@@ -114,7 +114,7 @@ describe("currency retirement ownership Slice 1A foundation", () => {
     ]);
   });
 
-  test("fails closed for code parse errors while explicitly deferring Slice 1B forms", () => {
+  test("fails closed for code parse errors while explicitly deferring later forms", () => {
     reject([
       ["export {", "broken.ts"],
       ["const =", "broken.js"],
@@ -123,17 +123,77 @@ describe("currency retirement ownership Slice 1A foundation", () => {
       ["enum X {}", "invalid.cjs"],
     ]);
     allow([
-      `const database = require(${database}); const alias = database; alias.${latest}`,
-      `let database; database = require(${database}); database.${upsert}`,
       `const holder = { database: require(${database}) }; holder.database.${forDate}`,
-      `const { ${latest} } = require(${database}); ${latest}()`,
       `module.exports = { ${upsert}: require(${database}).safe }`,
       `Object.assign(exports, require(${database}))`,
-      `(require(${database})).${forDate}`,
       `(await import(${database})).${latest}`,
       `require(${database})?.${upsert}`,
       [`{"exports":{"./rates":"./currency-rate-repository.ts"}`, "broken.json"],
       [`{"scripts":{"check":"currency-rate-repository"}}`, "package.jsonc"],
+    ]);
+  });
+
+  test("follows bounded value provenance and owner-file function fingerprints", () => {
+    reject([
+      `import * as database from ${database}; const first = database, second = first; second.${latest}`,
+      `import * as database from ${database}; const { ${upsert}: write } = database; export { write }`,
+      `let database; database = require(${database}); const alias = database; alias.${forDate}`,
+      `import * as database from ${database}; let write; ({ ${latest}: write } = database); export { write }`,
+      `(require(${database})).${forDate}`,
+      `import * as database from ${database}; const alias = database; export const outward = alias`,
+      [`const ${latest} = () => 1; export { ${latest} as read }`, ownerCopy],
+      [`let ${upsert}; ${upsert} = function () {}; export { ${upsert} as write }`, ownerCopy],
+      [`let ${forDate}, inner, outer; outer = inner = ${forDate} = class {}; export { inner, outer }`, ownerCopy],
+      [`let ${upsert}, inner; const outer = inner = ${upsert} = () => 1; export { outer }`, ownerCopy],
+      [`let inner; const ${upsert} = inner = () => 1; export { inner as write }`, ownerCopy],
+      [`const ${latest} = exports.read = () => 1`, ownerCopy],
+      [`let ${forDate}; ${forDate} = module.exports.write = () => 1`, ownerCopy],
+      [`let ${latest}, outer; { let inner; outer = inner = ${latest} = () => 1; } export { outer }`, ownerCopy],
+      [`function ${upsert}() {}; export { ${upsert} as write }`, ownerCopy],
+      [`class ${latest} {}; export { ${latest} as read }`, ownerCopy],
+      [`(exports).${latest} = () => 1; (module.exports)["${upsert}"] = () => 1`, ownerIndex],
+      ...["(() => 1)", "(() => 1) as unknown", "<unknown>(() => 1)", "(() => 1)!", "(() => 1) satisfies unknown"].map(
+        (rhs): Fixture => [`let ${latest}, alias; alias = ${latest} = ${rhs}; export { alias }`, ownerCopy],
+      ),
+    ]);
+    allow([
+      `const holder = { database: require(${database}) }; holder.database.${latest}`,
+      `let first, second; second = first = () => 1; export { second as ${latest} }`,
+      [`let ${latest}, alias; alias = ${latest} = () => 1; export { alias }`, "other/index.ts"],
+      [`exports = require(${database})`, ownerIndex],
+      [`const exports = {}; (exports).${latest} = 1`, ownerIndex],
+      [`function ${upsert}() {}; class ${latest} {}; export { ${upsert} as write, ${latest} as read }`, "other/index.ts"],
+    ]);
+  });
+
+  test("keeps value and type provenance separate and converges static type aliases", () => {
+    reject([
+      `import type * as DB from ${database}; const DB = {}; type Rate = DB.${latest}; export type { Rate }`,
+      `import * as DB from ${database}; type DB = {}; type Snapshot = typeof DB; export type { Snapshot }`,
+      `type A = B; type B = C; type C = D; type D = E; type E = F; type F = DB.${upsert}; import type * as DB from ${database}; export { A as Rate }`,
+      `import { safe as read } from ${database}; type T = typeof read; export { type T as ${latest} }`,
+      `import database from ${database}; type T = typeof database; export type { T }`,
+      `import * as database from ${database}; type T = typeof database; export { T }`,
+      `import database = require(${database}); type T = typeof database; export type { T }`,
+      `import type database = require(${database}); import type Alias = database; type T = Alias.${forDate}; export { type T }`,
+      `import type A = B; import type B = C; import type C = D; import type D = E; import type E = F; import type F = require(${database}); type T = A.${latest}; export type { T }`,
+      `import type { safe as require } from ${database}; require(${database}).${latest}`,
+      `export { T as ${latest} }; type T = DB.safe; import type * as DB from ${database}`,
+      `export type { T as ${upsert} }; type T = DB.safe; import type * as DB from ${database}`,
+      `export { type T as ${forDate} }; type T = DB.safe; import type * as DB from ${database}`,
+      `type T = import(${database}).default.${latest}; export type { T }`,
+      [`export type ${latest} = {}; export enum ${upsert} { value }`, ownerCopy],
+      `import type * as DB from ${database}; type T = readonly DB.${forDate}[]; export type { T }`,
+    ]);
+    allow([
+      `import type * as DB from ${database}; namespace local { enum DB { x }; type T = DB.${latest} }`,
+      `import type * as DB from ${database}; namespace local { namespace DB {}; type T = DB.${upsert} }`,
+      `import type * as DB from ${database}; namespace local { class DB {}; type T = DB.${forDate} }`,
+      `import type * as DB from ${database}; type Box<DB> = DB.${latest}`,
+      `import type * as DB from ${database}; interface Box<DB> { value: DB.${upsert} }`,
+      `import * as DB from ${database}; type K = keyof typeof DB.${latest}; export { type K as ${latest} }`,
+      [`export type ${latest} = {}; export enum ${upsert} { value }`, "other/index.ts"],
+      [`type ${latest} = {}; enum ${upsert} { value }; function ${forDate}() {}; class local {}`, ownerCopy],
     ]);
   });
 
