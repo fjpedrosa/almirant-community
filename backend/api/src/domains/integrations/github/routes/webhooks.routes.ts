@@ -11,7 +11,7 @@ import {
 } from "../services/github-webhook-handlers";
 
 export const githubWebhooksRoutes = new Elysia()
-  .onParse(({ request }) => request.text())
+  .onParse(({ request }) => request.clone().text())
   .post("/webhooks/github", async ({ body, request, set }) => {
     try {
       const signature = request.headers.get("x-hub-signature-256") || "";
