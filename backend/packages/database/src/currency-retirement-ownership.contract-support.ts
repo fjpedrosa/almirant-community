@@ -50,6 +50,11 @@ const buildScopes = (file: ts.SourceFile) => {
     while (target.kind === "block" && target.parent) target = target.parent;
     return target;
   };
+  const eachInferName = (node: ts.Node, visit: (name: ts.Identifier) => void): void => {
+    if (ts.isInferTypeNode(node)) visit(node.typeParameter.name);
+    else if (ts.isConditionalTypeNode(node)) return;
+    else ts.forEachChild(node, (child) => eachInferName(child, visit));
+  };
   const walk = (node: ts.Node, parentScope: Scope): void => {
     if (ts.isFunctionDeclaration(node) && node.name) add(parentScope, node.name, "value");
     else if (ts.isClassDeclaration(node) && node.name) add(parentScope, node.name, "both");
@@ -94,6 +99,23 @@ const buildScopes = (file: ts.SourceFile) => {
       else if (bindings)
         for (const element of bindings.elements) add(scope, element.name, clause.isTypeOnly || element.isTypeOnly ? "type" : "both");
     } else if (ts.isImportEqualsDeclaration(node)) add(scope, node.name, node.isTypeOnly ? "type" : "both");
+    if (ts.isMappedTypeNode(node)) {
+      walk(node.typeParameter, scope);
+      const mapped: Scope = { parent: scope, kind: "block", values: new Map(), types: new Map() };
+      add(mapped, node.typeParameter.name, "type");
+      if (node.nameType) walk(node.nameType, mapped);
+      if (node.type) walk(node.type, mapped);
+      return;
+    }
+    if (ts.isConditionalTypeNode(node)) {
+      walk(node.checkType, scope);
+      walk(node.extendsType, scope);
+      const inferred: Scope = { parent: scope, kind: "block", values: new Map(), types: new Map() };
+      eachInferName(node.extendsType, (name) => add(inferred, name, "type"));
+      walk(node.trueType, inferred);
+      walk(node.falseType, scope);
+      return;
+    }
     ts.forEachChild(node, (child) => walk(child, scope));
   };
   walk(file, { kind: "module", values: new Map(), types: new Map() });
@@ -180,8 +202,12 @@ const scanModule = (input: TrackedSource) => {
     if (ts.isStringLiteralLike(node)) return { kind: "literal", text: node.text };
     if (ts.isIdentifier(node)) return allowBindings ? lookup(node, node.text) : safe;
     if (ts.isCallExpression(node)) return load(node);
+    if (ts.isAwaitExpression(node)) {
+      const expression = unwrap(node.expression);
+      return ts.isCallExpression(expression) && expression.expression.kind === ts.SyntaxKind.ImportKeyword ? load(expression) : safe;
+    }
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) return assignmentValue(node);
-    if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && !node.questionDotToken) {
+    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
       const base = valueOf(node.expression, allowBindings);
       const name = ts.isPropertyAccessExpression(node) ? node.name.text : constantName(node.argumentExpression);
       return member(base, name);
@@ -190,19 +216,33 @@ const scanModule = (input: TrackedSource) => {
   };
   const entity = (node: ts.EntityName, space: "value" | "type"): Binding =>
     ts.isIdentifier(node) ? lookup(node, node.text, space) : member(entity(node.left, space), node.right.text);
-  const typeOf = (node: ts.TypeNode): Binding => {
+  const entityExpression = (node: ts.Expression, space: "value" | "type"): Binding => {
     node = unwrap(node);
-    if (ts.isTypeOperatorNode(node)) return node.operator === ts.SyntaxKind.KeyOfKeyword ? safe : typeOf(node.type);
-    if (ts.isArrayTypeNode(node)) return typeOf(node.elementType);
-    if (ts.isTypeReferenceNode(node)) return entity(node.typeName, "type");
-    if (ts.isTypeQueryNode(node)) return entity(node.exprName, "value");
-    if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
-      const identity = moduleSource(node.argument.literal as ts.Expression);
-      if (!identity.owner || !node.qualifier) return identity.owner ? ownerNamespace : safe;
-      return entityFrom(node.qualifier, ownerNamespace);
-    }
+    if (ts.isIdentifier(node)) return lookup(node, node.text, space);
+    if (ts.isPropertyAccessExpression(node)) return member(entityExpression(node.expression, space), node.name.text);
+    if (ts.isElementAccessExpression(node)) return member(entityExpression(node.expression, space), constantName(node.argumentExpression));
     return safe;
   };
+  const nestedTypes = (node: ts.Node): Binding => {
+    let value = safe;
+    ts.forEachChild(node, (child) => {
+      value = merge(value, ts.isTypeNode(child) ? typeOf(child) : nestedTypes(child));
+    });
+    return value;
+  };
+  function typeOf(node: ts.TypeNode): Binding {
+    node = unwrap(node);
+    if (ts.isTypeOperatorNode(node)) return node.operator === ts.SyntaxKind.KeyOfKeyword ? safe : typeOf(node.type);
+    if (ts.isTypeReferenceNode(node)) return merge(entity(node.typeName, "type"), nestedTypes(node));
+    if (ts.isTypeQueryNode(node))
+      return merge(ts.isImportTypeNode(node.exprName) ? typeOf(node.exprName) : entity(node.exprName, "value"), nestedTypes(node));
+    if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+      const identity = moduleSource(node.argument.literal as ts.Expression);
+      const direct = !identity.owner || !node.qualifier ? (identity.owner ? ownerNamespace : safe) : entityFrom(node.qualifier, ownerNamespace);
+      return merge(direct, nestedTypes(node));
+    }
+    return nestedTypes(node);
+  }
   const entityFrom = (node: ts.EntityName, base: Binding): Binding => {
     const names: string[] = [];
     let current = node;
@@ -212,6 +252,14 @@ const scanModule = (input: TrackedSource) => {
     }
     names.unshift(current.text);
     return names.reduce(member, base);
+  };
+  const heritageOf = (node: ts.HeritageClause, space: "value" | "type"): Binding => {
+    let value = safe;
+    for (const heritage of node.types) {
+      value = merge(value, space === "value" ? valueOf(heritage.expression) : entityExpression(heritage.expression, "type"));
+      for (const argument of heritage.typeArguments ?? []) value = merge(value, typeOf(argument));
+    }
+    return value;
   };
   const bindName = (name: ts.BindingName, value: Binding, node: ts.Node): void => {
     if (ts.isIdentifier(name)) set(node, name.text, value);
@@ -316,6 +364,13 @@ const scanModule = (input: TrackedSource) => {
       set(node.name, node.name.text, value, "type");
       if (!node.isTypeOnly) set(node.name, node.name.text, value);
     } else if (ts.isTypeAliasDeclaration(node)) set(node.name, node.name.text, typeOf(node.type), "type");
+    else if (ts.isInterfaceDeclaration(node)) {
+      let value = safe;
+      for (const heritage of node.heritageClauses ?? []) value = merge(value, heritageOf(heritage, "type"));
+      for (const parameter of node.typeParameters ?? []) value = merge(value, nestedTypes(parameter));
+      for (const member of node.members) value = merge(value, nestedTypes(member));
+      set(node.name, node.name.text, value, "type");
+    }
     else if (ts.isVariableDeclaration(node)) {
       let value = valueOf(node.initializer);
       const initializer = node.initializer ? unwrap(node.initializer) : undefined;
@@ -360,6 +415,14 @@ const scanModule = (input: TrackedSource) => {
     propagate(file);
     if (mutations === before) break;
   }
+  const publicModuleDeclaration = (node: ts.ModuleDeclaration): boolean => {
+    const exported = Boolean(node.modifiers?.some(({ kind }) => kind === ts.SyntaxKind.ExportKeyword));
+    if (ts.isSourceFile(node.parent)) return exported;
+    if (ts.isModuleDeclaration(node.parent) && node.parent.body === node) return publicModuleDeclaration(node.parent);
+    if (ts.isModuleBlock(node.parent) && ts.isModuleDeclaration(node.parent.parent))
+      return exported && publicModuleDeclaration(node.parent.parent);
+    return false;
+  };
   const visit = (node: ts.Node): void => {
     if (ts.isTypeOperatorNode(node) && node.operator === ts.SyntaxKind.KeyOfKeyword) return;
     if (ts.isImportDeclaration(node)) {
@@ -378,11 +441,20 @@ const scanModule = (input: TrackedSource) => {
       typeOf(node);
       return;
     } else if (ts.isTypeReferenceNode(node)) {
-      entity(node.typeName, "type");
+      typeOf(node);
       return;
     } else if (ts.isTypeQueryNode(node)) {
-      entity(node.exprName, "value");
+      typeOf(node);
       return;
+    } else if (ts.isHeritageClause(node)) {
+      const valueSpace =
+        node.token === ts.SyntaxKind.ExtendsKeyword &&
+        (ts.isClassDeclaration(node.parent) || ts.isClassExpression(node.parent));
+      heritageOf(node, valueSpace ? "value" : "type");
+      return;
+    } else if (ts.isNamespaceExportDeclaration(node)) {
+      const binding = find(node, node.name.text)?.value ?? find(node, node.name.text, "type")?.value ?? safe;
+      publicExport(node.name.text, binding);
     } else if (ts.isExportDeclaration(node)) {
       const identity = moduleSource(node.moduleSpecifier);
       if (!node.exportClause && identity.owner) report("owner star export");
@@ -402,15 +474,27 @@ const scanModule = (input: TrackedSource) => {
     } else if (ts.isExportAssignment(node)) {
       publicExport("default", valueOf(node.expression));
     } else if (
-      (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isEnumDeclaration(node)) &&
+      (ts.isFunctionDeclaration(node) ||
+        ts.isClassDeclaration(node) ||
+        ts.isTypeAliasDeclaration(node) ||
+        ts.isInterfaceDeclaration(node) ||
+        ts.isEnumDeclaration(node) ||
+        ts.isModuleDeclaration(node)) &&
       node.name &&
-      node.modifiers?.some(({ kind }) => kind === ts.SyntaxKind.ExportKeyword)
+      ts.isIdentifier(node.name) &&
+      (ts.isModuleDeclaration(node)
+        ? publicModuleDeclaration(node)
+        : node.modifiers?.some(({ kind }) => kind === ts.SyntaxKind.ExportKeyword))
     ) {
-      const isDefault = node.modifiers.some(({ kind }) => kind === ts.SyntaxKind.DefaultKeyword);
-      publicExport(isDefault ? "default" : node.name.text, lookup(node, node.name.text, ts.isTypeAliasDeclaration(node) ? "type" : "value"));
+      const isDefault = Boolean(node.modifiers?.some(({ kind }) => kind === ts.SyntaxKind.DefaultKeyword));
+      const typeSpace = ts.isTypeAliasDeclaration(node) || ts.isInterfaceDeclaration(node);
+      const binding = typeSpace
+        ? lookup(node, node.name.text, "type")
+        : find(node, node.name.text)?.value ?? find(node, node.name.text, "type")?.value ?? safe;
+      publicExport(isDefault ? "default" : node.name.text, binding);
     } else if (ts.isVariableStatement(node) && node.modifiers?.some(({ kind }) => kind === ts.SyntaxKind.ExportKeyword)) {
       for (const declaration of node.declarationList.declarations)
-        if (ts.isIdentifier(declaration.name)) publicExport(declaration.name.text, valueOf(declaration.initializer));
+        eachBindingName(declaration.name, (name) => publicExport(name.text, lookup(name, name.text)));
     } else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
       const name = cjsName(node.left);
       if (name === "*") publicExport("default", valueOf(node.right));
