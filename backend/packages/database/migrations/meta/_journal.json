@@ -1576,6 +1576,13 @@
       "when": 1786567151469,
       "tag": "0230_glamorous_king_cobra",
       "breakpoints": true
+    },
+    {
+      "idx": 231,
+      "version": "7",
+      "when": 1787399705332,
+      "tag": "0231_sturdy_kang",
+      "breakpoints": true
     }
   ]
 }

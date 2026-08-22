@@ -157,7 +157,8 @@ export const usePlanningSessionLifecycle = (
     loadingFromUrlRef.current = true;
     setIsLoadingFromUrl(true);
     void loadPlanningSessionFromState(urlSessionId)
-      .then(() => {
+      .then((loaded) => {
+        if (!loaded) return;
         setShowChatPanel(true);
         notifySidebarSessionClick(urlSessionId);
       })
@@ -221,6 +222,7 @@ export const usePlanningSessionLifecycle = (
         await queryClient.invalidateQueries({
           queryKey: planningSessionKeys.seeds(currentSessionId),
         });
+        if (sessionIdRef.current !== currentSessionId) return;
         const remaining = attachedSeeds.filter((s) => s.id !== seedId);
         if (remaining.length > 0) {
           setSeedContextPrefix(buildSeedContextPrefix(remaining));
@@ -257,6 +259,7 @@ export const usePlanningSessionLifecycle = (
 
       if (currentSessionId) {
         void persistSeedsToSession(currentSessionId, seedIds).then(() => {
+          if (sessionIdRef.current !== currentSessionId) return;
           void queryClient.invalidateQueries({
             queryKey: planningSessionKeys.seeds(currentSessionId),
           });
@@ -279,15 +282,17 @@ export const usePlanningSessionLifecycle = (
   // ----- Session click (load for read-only replay) -----
   const handleSidebarSessionClick = useCallback(
     async (id: string) => {
-      sidebar.onSessionClick(id);
       try {
-        await planningSession.loadSession(id);
+        const loaded = await planningSession.loadSession(id);
+        if (!loaded) return;
+        sidebar.onSessionClick(id);
         sessionIdRef.current = id;
 
         // Hydrate seeds from the junction table
         try {
           const seeds: SeedWithRelations[] =
             await planningSessionsApi.getSeeds(id);
+          if (sessionIdRef.current !== id) return;
           if (seeds.length > 0) {
             setSeedContextPrefix(buildSeedContextPrefix(seeds));
             setHasInjectedSeeds(false);
@@ -307,12 +312,14 @@ export const usePlanningSessionLifecycle = (
     async (id: string) => {
       try {
         const resumed = await planningSession.resumeSession(id);
+        if (!resumed) return;
         sidebar.onSessionClick(id);
         sessionIdRef.current = resumed.id;
 
         try {
           const seeds: SeedWithRelations[] =
             await planningSessionsApi.getSeeds(id);
+          if (sessionIdRef.current !== id) return;
           if (seeds.length > 0) {
             setSeedContextPrefix(buildSeedContextPrefix(seeds));
             setHasInjectedSeeds(false);
@@ -342,12 +349,14 @@ export const usePlanningSessionLifecycle = (
     if (!id) return;
     try {
       const resumed = await planningSession.resumeSession(id, true);
+      if (!resumed) return;
       sidebar.onSessionClick(id);
       sessionIdRef.current = resumed.id;
 
       try {
         const seeds: SeedWithRelations[] =
           await planningSessionsApi.getSeeds(id);
+        if (sessionIdRef.current !== id) return;
         if (seeds.length > 0) {
           setSeedContextPrefix(buildSeedContextPrefix(seeds));
           setHasInjectedSeeds(false);
@@ -573,7 +582,9 @@ export const usePlanningSessionLifecycle = (
       planningSessionsApi.completeSeedsForSession(sessionId).catch((err) => {
         console.error('Failed to mark seeds as to_review:', err);
         // Reset ref so it can be retried if needed
-        seedsMarkedAsToReviewRef.current = null;
+        if (sessionIdRef.current === sessionId) {
+          seedsMarkedAsToReviewRef.current = null;
+        }
       });
     }
   }, [planningSession.session?.status, attachedSeeds.length]);

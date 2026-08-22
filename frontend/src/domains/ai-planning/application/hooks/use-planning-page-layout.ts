@@ -15,6 +15,7 @@ import { useSeedsPanelState } from "./use-seeds-panel-state";
 import { useModelSelector } from "./use-model-selector";
 import { usePlanningSession } from "@/domains/planning/application/hooks/use-planning-session";
 import { useWorkItemGeneration } from "./use-work-item-generation";
+import { buildPlanningPageGenerationOptions } from "./planning-page-generation-options";
 import { buildSeedContextPrefix } from "../utils/build-seed-context";
 
 // ---------------------------------------------------------------------------
@@ -50,6 +51,7 @@ export const usePlanningPageLayout = () => {
     session.generatedItems,
     projectBoard.selectedProjectId,
     projectBoard.selectedBoardId,
+    buildPlanningPageGenerationOptions(session),
   );
 
   // ----- Board columns (for generation column selector) -----
@@ -201,9 +203,9 @@ export const usePlanningPageLayout = () => {
   }
 
   // ----- Confirm generation -----
-  const handleConfirmGeneration = useCallback(() => {
+  const handleConfirmGeneration = useCallback((planReview?: { enabled: true; requestedCriticCount: 2 | 3 | 4 }) => {
     if (!activeColumnId) return;
-    generation.confirmGeneration(activeColumnId);
+    generation.confirmGeneration(activeColumnId, planReview);
   }, [activeColumnId, generation]);
 
   // ----- Cancel generation -----
@@ -282,6 +284,9 @@ export const usePlanningPageLayout = () => {
     removeItem: generation.removeItem,
     isConfirming: generation.isConfirming,
     createdItemIds: generation.createdItemIds,
+    isAlreadyCreated: generation.isAlreadyCreated,
+    isPendingReview: generation.isPendingReview,
+    planReviewError: generation.planReviewError,
 
     // Column selection
     columns,

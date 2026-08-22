@@ -11,9 +11,11 @@ import {
   getRepositories,
   getInstallationByRepoId,
   extractGithubRepoFullName,
+  getPlanReviewAdmissionByJobId,
+  PLAN_REVIEW_SESSION_NOT_ACTIVE_ERROR,
 } from "@almirant/database";
 import { logger } from "@almirant/config";
-import { successResponse, errorResponse } from "../../../../shared/services/response";
+import { successResponse, errorResponse, internalErrorResponse } from "../../../../shared/services/response";
 import { isAiConfigured } from "../../shared/services/ai-service";
 import {
   resolveModelFromProviderKey,
@@ -30,8 +32,23 @@ import {
   generateWorkItems,
   aiWorkItemsArraySchema,
 } from "../../shared/services/work-item-generator";
+import { admitPlanReviewJob } from "../services/plan-review-admission";
+import { applyPlanReviewTerminalJob } from "../services/plan-review-completion";
 
 const WORK_ITEMS_BLOCK_REGEX = /```work-items\s*([\s\S]*?)```/;
+
+const planReviewStatusResponse = (admission: Awaited<ReturnType<typeof getPlanReviewAdmissionByJobId>>) => {
+  if (!admission) return null;
+  const result = admission.result as Record<string, unknown> | null;
+  const generated = result?.generated;
+  return {
+    status: admission.status,
+    reviewJobId: admission.reviewJobId,
+    reviewResolution: (admission.snapshot as { resolution?: unknown }).resolution ?? null,
+    ...(generated && typeof generated === "object" ? generated : {}),
+    result,
+  };
+};
 
 /** Priority sort order: higher priority items first. */
 const PRIORITY_ORDER: Record<string, number> = {
@@ -324,8 +341,20 @@ export const aiChatRoutes = new Elysia({ prefix: "/ai/chat" })
     }),
   })
 
+  // GET /ai/chat/generate/review/:jobId — Read the durable review admission.
+  .get("/generate/review/:jobId", async ({ params, set, activeWorkspace }) => {
+    const admission = await getPlanReviewAdmissionByJobId(params.jobId, activeWorkspace!.id);
+    if (!admission) {
+      set.status = 404;
+      return errorResponse("Plan review admission not found", 404);
+    }
+    return successResponse(planReviewStatusResponse(admission));
+  }, {
+    params: t.Object({ jobId: t.String() }),
+  })
+
   // POST /ai/chat/generate — Generate work items from AI output
-  .post("/generate", async ({ body, set, activeWorkspace }) => {
+  .post("/generate", async ({ body, set, activeWorkspace, user }) => {
     try {
       // Ensure priority defaults to "medium" for items without it
       const itemsWithDefaults = body.items.map((item) => ({
@@ -333,9 +362,67 @@ export const aiChatRoutes = new Elysia({ prefix: "/ai/chat" })
         priority: item.priority ?? ("medium" as const),
       }));
 
+      if (body.planReview?.enabled === true) {
+        if (body.planReview.requestedCriticCount === undefined) {
+          set.status = 400;
+          return errorResponse("requestedCriticCount is required when plan review is enabled", 400);
+        }
+        const admission = await admitPlanReviewJob({
+          workspaceId: activeWorkspace!.id,
+          userId: user!.id,
+          planningSessionId: body.planningSessionId,
+          plan: {
+            items: itemsWithDefaults,
+            dependencies: body.dependencies ?? [],
+            projectId: body.projectId,
+            boardId: body.boardId,
+            boardColumnId: body.boardColumnId,
+          },
+          policy: body.planReview,
+        });
+        if (!admission) {
+          set.status = 500;
+          return errorResponse("Plan review admission did not produce a job", 500);
+        }
+
+        if (admission.resolution.status === "skipped" && (admission.status === "queued" || admission.status === "applying")) {
+          await applyPlanReviewTerminalJob({
+            id: admission.jobId,
+            status: "completed",
+            config: { planReview: admission.snapshot },
+            result: admission.result,
+          });
+          const terminal = planReviewStatusResponse(await getPlanReviewAdmissionByJobId(admission.jobId, activeWorkspace!.id));
+          if (terminal?.status === "completed") {
+            set.status = 201;
+            return successResponse(terminal);
+          }
+        }
+
+        if (admission.resolution.status === "skipped" && admission.status === "completed") {
+          const terminal = planReviewStatusResponse(await getPlanReviewAdmissionByJobId(admission.jobId, activeWorkspace!.id));
+          if (terminal) {
+            set.status = 201;
+            return successResponse(terminal);
+          }
+        }
+
+        if (!admission.created && admission.status !== "queued") {
+          const replay = planReviewStatusResponse(await getPlanReviewAdmissionByJobId(admission.jobId, activeWorkspace!.id));
+          if (replay) {
+            set.status = replay.status === "completed" ? 201 : 200;
+            return successResponse(replay);
+          }
+        }
+
+        set.status = 202;
+        return successResponse({ status: "pending_review", reviewJobId: admission.jobId, reviewResolution: admission.resolution });
+      }
+
       const result = await generateWorkItems({
         workspaceId: activeWorkspace!.id,
         items: itemsWithDefaults,
+        dependencies: body.dependencies ?? [],
         projectId: body.projectId,
         boardId: body.boardId,
         boardColumnId: body.boardColumnId,
@@ -352,9 +439,13 @@ export const aiChatRoutes = new Elysia({ prefix: "/ai/chat" })
       return successResponse(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
+      if (message === PLAN_REVIEW_SESSION_NOT_ACTIVE_ERROR) {
+        set.status = 409;
+        return errorResponse("Planning session is no longer active or does not match this request", 409);
+      }
       logger.error({ error: err }, "Work item generation error");
-      set.status = 400;
-      return errorResponse(message);
+      set.status = 500;
+      return internalErrorResponse(err, { route: "/ai/chat/generate" }, "Failed to generate work items");
     }
   }, {
     body: t.Object({
@@ -380,8 +471,16 @@ export const aiChatRoutes = new Elysia({ prefix: "/ai/chat" })
           parentTempId: t.Optional(t.String()),
         })
       ),
+      dependencies: t.Optional(
+        t.Array(t.Object({ blockedTempId: t.String(), blockedByTempId: t.String() }))
+      ),
       projectId: t.String(),
       boardId: t.String(),
       boardColumnId: t.String(),
+      planningSessionId: t.String(),
+      planReview: t.Optional(t.Object({
+        enabled: t.Boolean(),
+        requestedCriticCount: t.Optional(t.Union([t.Literal(2), t.Literal(3), t.Literal(4)])),
+      })),
     }),
   });

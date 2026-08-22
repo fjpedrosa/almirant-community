@@ -1,4 +1,4 @@
-import { db } from "../../client";
+import { db, type Database } from "../../client";
 import { workItemDependencies, workItems } from "../../schema";
 import { eq, and, inArray } from "drizzle-orm";
 
@@ -139,9 +139,10 @@ export const getDependentsBatch = async (
 // Add a dependency (workItemId is blocked by blockedByWorkItemId)
 export const addDependency = async (
   workItemId: string,
-  blockedByWorkItemId: string
+  blockedByWorkItemId: string,
+  executor: Pick<Database, "insert"> = db,
 ) => {
-  const results = await db
+  const results = await executor
     .insert(workItemDependencies)
     .values({ workItemId, blockedByWorkItemId })
     .returning();

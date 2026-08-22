@@ -171,6 +171,8 @@ export const ChatFullPanel: React.FC<ChatFullPanelProps> = ({
   onConfirmGeneration,
   onCancelGeneration,
   isAlreadyCreated,
+  isPendingReview,
+  planReviewError,
   toolbar,
   emptyState,
   pendingQuestion,
@@ -303,6 +305,8 @@ export const ChatFullPanel: React.FC<ChatFullPanelProps> = ({
               isConfirming={isConfirming}
               itemCount={activeItemCount}
               isAlreadyCreated={isAlreadyCreated}
+              isPendingReview={isPendingReview}
+              planReviewError={planReviewError}
             />
           </div>
         </div>

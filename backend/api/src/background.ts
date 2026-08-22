@@ -21,6 +21,7 @@ import { startCloudBackgroundJobs } from "./cloud/background-jobs";
 import { startScheduledAgentDispatcher } from "./domains/agents/services/scheduled-agent-dispatcher";
 import { startQueuedReceiptResidueReconciler } from "./domains/agents/services/queued-receipt-residue-reconciler";
 import { startDoneRetentionSweeper } from "./domains/project-management/work-items/services/done-retention-sweeper";
+import { startPlanReviewAdmissionRecovery } from "./domains/agents/services/plan-review-admission-recovery";
 
 interface BackgroundJobHandles {
   stop: () => Promise<void>;
@@ -50,6 +51,7 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
     intervalMs: 120_000,
     offlineThresholdMs: 90_000,
   });
+  const stopPlanReviewAdmissionRecovery = startPlanReviewAdmissionRecovery();
   const stopPlanningSessionArchiveSweeper = startPlanningSessionArchiveSweeper();
   const stopAgentJobNativeArchiveSweeper = startAgentJobNativeArchiveSweeper();
   const stopInteractionTimeoutSweeper = startInteractionTimeoutSweeper({
@@ -135,6 +137,7 @@ export const startBackgroundJobs = (): BackgroundJobHandles => {
     stop: async () => {
       stopDoneRetentionSweeper();
       stopStaleJobRecovery();
+      stopPlanReviewAdmissionRecovery();
       stopInteractionTimeoutSweeper();
       stopPlanningSessionIdleSweeper();
       stopPlanningSessionArchiveSweeper();

@@ -149,6 +149,75 @@ describe("graduateBlocksToMessages", () => {
   });
 });
 
+describe("plan-review lifecycle state", () => {
+  it("keeps the active review identity and durable applied IDs in the parent reducer", () => {
+    const queued = planningReducer(INITIAL_STATE, {
+      type: "SET_PLAN_REVIEW_STATE",
+      planReview: {
+        activeReviewJobId: "review-queued",
+        status: "queued",
+        error: null,
+        createdItemIds: [],
+      },
+    });
+    expect(queued.planReview.activeReviewJobId).toBe("review-queued");
+    expect(queued.planReview.status).toBe("queued");
+
+    const applied = planningReducer(queued, {
+      type: "SET_PLAN_REVIEW_STATE",
+      planReview: {
+        activeReviewJobId: null,
+        status: "applied",
+        error: null,
+        createdItemIds: ["work-item-1"],
+      },
+    });
+    expect(applied.planReview.activeReviewJobId).toBeNull();
+    expect(applied.planReview.createdItemIds).toEqual(["work-item-1"]);
+  });
+
+  it("hydrates the server state on load and clears it when switching sessions", () => {
+    const current = buildStreamingDoneState({
+      planReview: {
+        activeReviewJobId: "review-old",
+        status: "queued",
+        error: null,
+        createdItemIds: [],
+      },
+    });
+
+    const hydrated = planningReducer(current, {
+      type: "LOAD_SESSION",
+      session: current.session!,
+      messages: [],
+      planReviewState: {
+        activeReviewJobId: null,
+        status: "completed",
+        error: null,
+        createdItemIds: ["work-item-1"],
+      },
+    });
+    expect(hydrated.planReview).toEqual({
+      activeReviewJobId: null,
+      status: "completed",
+      error: null,
+      createdItemIds: ["work-item-1"],
+    });
+
+    const switched = planningReducer(hydrated, {
+      type: "LOAD_SESSION",
+      session: { ...current.session!, id: "session-2" },
+      messages: [],
+    });
+    expect(switched.planReview).toEqual({
+      activeReviewJobId: null,
+      status: "idle",
+      error: null,
+      createdItemIds: [],
+    });
+  });
+});
+
 describe("stripRetransmittedStreamingChunk", () => {
   it("drops a fully retransmitted structured chunk", () => {
     const existing = "## Alternatives\n- Keep the current flow\n- Split the reducer\n";

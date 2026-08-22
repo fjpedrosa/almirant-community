@@ -35,6 +35,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   onConfirmGeneration,
   onCancelGeneration,
   isAlreadyCreated,
+  isPendingReview,
+  planReviewError,
 }) => {
   const t = useTranslations("aiPlanning");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -89,6 +91,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               isConfirming={isConfirming}
               itemCount={activeItemCount}
               isAlreadyCreated={isAlreadyCreated}
+              isPendingReview={isPendingReview}
+              planReviewError={planReviewError}
             />
           </div>
         </div>

@@ -53,6 +53,12 @@ export const usePlanChatPage = () => {
     planningSession.generatedItems,
     projectBoard.selectedProjectId,
     projectBoard.selectedBoardId,
+    {
+      createdItemIds: planningSession.planReview.createdItemIds,
+      planReviewState: planningSession.planReview,
+      planningSessionId: planningSession.sessionId,
+      onPlanReviewStateChange: planningSession.setPlanReviewState,
+    },
   );
 
   const lifecycle = usePlanningSessionLifecycle(
@@ -111,9 +117,9 @@ export const usePlanChatPage = () => {
   const showGeneration = generation.activeItemCount > 0;
 
   // ----- Confirm generation -----
-  const handleConfirmGeneration = useCallback(() => {
+  const handleConfirmGeneration = useCallback((planReview?: { enabled: true; requestedCriticCount: 2 | 3 | 4 }) => {
     if (!boardColumns.activeColumnId) return;
-    generation.confirmGeneration(boardColumns.activeColumnId);
+    generation.confirmGeneration(boardColumns.activeColumnId, planReview);
   }, [boardColumns.activeColumnId, generation]);
 
   // ----- Resume interrupted session -----
@@ -254,6 +260,9 @@ export const usePlanChatPage = () => {
       activeItemCount: generation.activeItemCount,
       isConfirming: generation.isConfirming,
       isAlreadyCreated: generation.isAlreadyCreated,
+      isPendingReview: generation.isPendingReview,
+      planReviewError: generation.planReviewError,
+      planReviewStatus: generation.planReviewStatus,
       updateItem: generation.updateItem,
       removeItem: generation.removeItem,
       onColumnChange: boardColumns.onColumnChange,
