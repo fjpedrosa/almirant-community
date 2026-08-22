@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
-import { render, act } from "@testing-library/react";
+import { render, act, waitFor } from "@testing-library/react";
 
 /**
  * Test state that controls the mocked mermaid module behavior.
@@ -215,7 +215,9 @@ describe("MermaidRenderer", () => {
       rerender = result.rerender;
     });
 
-    await waitForMermaid();
+    await waitFor(() => {
+      expect(document.querySelector("svg.original-svg")).not.toBeNull();
+    });
 
     // Verify original SVG was inserted
     let svgs = document.getElementsByTagName("svg");
@@ -235,7 +237,10 @@ describe("MermaidRenderer", () => {
       rerender(<MermaidRenderer chart="graph TD; C-->D;" />);
     });
 
-    await waitForMermaid();
+    await waitFor(() => {
+      expect(document.querySelector("svg.updated-svg")).not.toBeNull();
+      expect(document.querySelector("svg.original-svg")).toBeNull();
+    });
 
     // The original SVG should be cleared and replaced
     svgs = document.getElementsByTagName("svg");
