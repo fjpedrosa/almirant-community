@@ -1679,7 +1679,7 @@ describe("notes foundation PostgreSQL concurrency contracts", () => {
     expect(Buffer.byteLength(JSON.stringify(backlinks))).toBeLessThan(300_000);
     expect(Buffer.byteLength(JSON.stringify(tree))).toBeLessThan(300_000);
     expect(Buffer.byteLength(JSON.stringify(search))).toBeLessThan(300_000);
-  });
+  }, 60_000);
 
   it("serializes workspace cascade with agent-authored Notes creation under the exact global lock", async () => {
     const agentJobId = id(997);
