@@ -72,14 +72,11 @@ describe("captureContainerExitLogs", () => {
   });
 
   it("gives up on a stream that never ends", async () => {
-    const readLogs = mock(
-      async () =>
-        new Readable({
-          read() {
-            this.push("still going\n");
-          },
-        }) as unknown as NodeJS.ReadableStream,
-    );
+    const readLogs = mock(async () => {
+      const stream = new Readable({ read: () => undefined });
+      stream.push("still going\n");
+      return stream as unknown as NodeJS.ReadableStream;
+    });
 
     const result = await captureContainerExitLogs(readLogs, "container-1", {
       timeoutMs: 50,
