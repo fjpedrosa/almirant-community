@@ -16,6 +16,7 @@ import type {
   SeedFeedbackLink,
   SeedWorkItemLink,
 } from "../../domain/types";
+import type { PlanReviewHydrationResponse } from "@/domains/ai-planning/domain/types";
 import type { SessionEventRecord } from "@/domains/sessions/domain/types";
 import type { AgentLogChunk } from "@/domains/shared/domain/types";
 
@@ -51,6 +52,9 @@ export const planningSessionsApi = {
 
   get: (id: string) =>
     request<PlanningSessionWithPendingInteraction>(`/planning-sessions/${id}`),
+
+  getPlanReviewState: (sessionId: string) =>
+    request<PlanReviewHydrationResponse>(`/planning-sessions/${sessionId}/plan-review`),
 
   create: (data: CreatePlanningSessionRequest) =>
     request<PlanningSession>("/planning-sessions", {

@@ -29,6 +29,11 @@ import type {
   GeneratedWorkItem,
   CreatePlanningSessionRequest,
 } from "../../domain/types";
+import {
+  INITIAL_PLAN_REVIEW_LIFECYCLE_STATE,
+  toPlanReviewLifecycleState,
+  type PlanReviewLifecycleState,
+} from "@/domains/ai-planning/domain/types";
 import type { AgentLogChunk } from "@/domains/shared/domain/types";
 import type { SessionEventRecord } from "@/domains/sessions/domain/types";
 import type {
@@ -385,6 +390,7 @@ export interface PlanningSessionState {
   /** ISO timestamp when the current interaction expires (for countdown timer). */
   expiresAt: string | null;
   generatedItems: GeneratedWorkItem[];
+  planReview: PlanReviewLifecycleState;
   waveInfo: WaveInfo | null;
   error: string | null;
   tokenUsage: { input: number; output: number; model?: string };
@@ -499,6 +505,7 @@ type PlanningAction =
   | { type: "RECEIVE_SUBAGENT_COMPLETE"; subagentId: string; success: boolean; sequenceNum?: number; jobId?: string }
   | { type: "RECEIVE_TOKEN_USAGE"; inputTokens: number; outputTokens: number; totalInput?: number; totalOutput?: number; model?: string }
   | { type: "RECEIVE_DONE"; generatedItems: GeneratedWorkItem[]; summary?: string }
+  | { type: "SET_PLAN_REVIEW_STATE"; planReview: PlanReviewLifecycleState }
   | { type: "RECEIVE_RESPONSE_COMPLETE"; summary?: string; requiresFollowUp?: boolean; followUpPrompt?: string; expiresAt?: string | null }
   | { type: "RECEIVE_ERROR"; error: string }
   | { type: "COMPLETE"; result?: PlanningSession["result"] | null }
@@ -522,6 +529,7 @@ type PlanningAction =
       activeJobStartedAt?: string | null;
       answeredQuestionIds?: string[];
       answeredQuestionSignatures?: string[];
+      planReviewState?: PlanReviewLifecycleState;
     }
   | {
       type: "RESUME_SESSION";
@@ -538,12 +546,14 @@ type PlanningAction =
       pendingInteraction?: PlanningPendingInteraction | null;
       answeredQuestionIds?: string[];
       answeredQuestionSignatures?: string[];
+      planReviewState?: PlanReviewLifecycleState;
     }
   | {
       type: "RECOVER_SESSION";
       session: PlanningSession;
       messages: PlanningMessage[];
       generatedItems?: GeneratedWorkItem[];
+      planReviewState?: PlanReviewLifecycleState;
     }
   | { type: "INTERRUPT_SESSION"; latestActivity?: string }
   | { type: "RECEIVE_PAUSED"; latestActivity?: string }
@@ -569,6 +579,7 @@ export const INITIAL_STATE: PlanningSessionState = {
   deferredQuestion: null,
   expiresAt: null,
   generatedItems: [],
+  planReview: { ...INITIAL_PLAN_REVIEW_LIFECYCLE_STATE },
   waveInfo: null,
   error: null,
   tokenUsage: { input: 0, output: 0 },
@@ -1141,6 +1152,10 @@ export const planningReducer = (
         sessionId: action.session.id,
         session: action.session,
         error: null,
+        planReview:
+          state.sessionId === action.session.id
+            ? state.planReview
+            : { ...INITIAL_PLAN_REVIEW_LIFECYCLE_STATE },
       };
 
     case "START_STREAMING": {
@@ -1175,6 +1190,7 @@ export const planningReducer = (
         pendingQuestion: null,
         deferredQuestion: null,
         generatedItems: [],
+        planReview: { ...INITIAL_PLAN_REVIEW_LIFECYCLE_STATE },
         waveInfo: null,
         error: null,
         tokenUsage: { input: 0, output: 0 },
@@ -2078,6 +2094,15 @@ export const planningReducer = (
     case "RESET":
       return { ...INITIAL_STATE };
 
+    case "SET_PLAN_REVIEW_STATE":
+      return {
+        ...state,
+        planReview: {
+          ...action.planReview,
+          createdItemIds: [...action.planReview.createdItemIds],
+        },
+      };
+
     case "FLUSH_STREAM": {
       // Clear text buffers — the backend already persists this content.
       // Keep streamingBlocks so tool/subagent/thinking blocks remain visible
@@ -2252,6 +2277,11 @@ export const planningReducer = (
         session: action.session,
         messages: hydratedMessages,
         generatedItems: action.generatedItems ?? [],
+        planReview:
+          action.planReviewState ??
+          (action.session.id === state.sessionId
+            ? state.planReview
+            : { ...INITIAL_PLAN_REVIEW_LIFECYCLE_STATE }),
         pendingQuestion: restoredQuestion,
         completedTurnBlocks: action.turnBlocks ?? [],
         streamingContent: "",
@@ -2320,6 +2350,11 @@ export const planningReducer = (
         streamingBlocks: [],
         completedTurnBlocks: [],
         generatedItems: action.generatedItems ?? state.generatedItems,
+        planReview:
+          action.planReviewState ??
+          (action.session.id === state.sessionId
+            ? state.planReview
+            : { ...INITIAL_PLAN_REVIEW_LIFECYCLE_STATE }),
         error: null,
         pendingUserMessage: recoveredPendingUserMessage,
         processingStartedAt: isCompleted || isArchived ? null : state.processingStartedAt,
@@ -2440,6 +2475,11 @@ export const planningReducer = (
         currentStep: null,
         pendingQuestion: resumedQuestion,
         generatedItems: action.generatedItems ?? [],
+        planReview:
+          action.planReviewState ??
+          (action.session.id === state.sessionId
+            ? state.planReview
+            : { ...INITIAL_PLAN_REVIEW_LIFECYCLE_STATE }),
         waveInfo: null,
         error: null,
         expiresAt: resumedExpiresAt,
@@ -2533,6 +2573,7 @@ export interface UsePlanningSessionReturn {
   /** ISO timestamp when the current interaction expires (for countdown timer). */
   expiresAt: string | null;
   generatedItems: GeneratedWorkItem[];
+  planReview: PlanReviewLifecycleState;
   waveInfo: WaveInfo | null;
   error: string | null;
   isStreaming: boolean;
@@ -2569,10 +2610,11 @@ export interface UsePlanningSessionReturn {
   cancelSession: () => void;
   killSession: () => void;
   interruptSession: () => void;
-  loadSession: (sessionId: string) => Promise<void>;
-  resumeSession: (sessionId: string, forceClose?: boolean) => Promise<PlanningSession>;
+  loadSession: (sessionId: string) => Promise<boolean>;
+  resumeSession: (sessionId: string, forceClose?: boolean) => Promise<PlanningSession | null>;
   completeSession: () => void;
   reset: () => void;
+  setPlanReviewState: (planReview: PlanReviewLifecycleState) => void;
 }
 
 const DEFAULT_PERSISTED_PRIORITY: GeneratedWorkItem["priority"] = "medium";
@@ -3009,6 +3051,7 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
     createStreamingReplayDedupeState(),
   );
   const idleTimeoutToastSessionIdRef = useRef<string | null>(null);
+  const sessionHydrationGenerationRef = useRef(0);
 
   const primeReplayDedupWindow = useCallback((messages: PlanningMessage[]) => {
     messagesRef.current = messages;
@@ -3489,19 +3532,32 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         // `fresh: true` bypasses the navigation cache so a real reconnection always
         // re-syncs against the authoritative backend (no stale snapshot).
         const sessionId = sessionIdRef.current;
+        const hydrationGeneration = ++sessionHydrationGenerationRef.current;
         void (async () => {
           try {
-            const [session, { messages: apiMessages }, generatedItems] = await Promise.all([
+            const [session, { messages: apiMessages }, generatedItems, planReviewState] = await Promise.all([
               planningSessionsApi.get(sessionId),
               loadMessagesCached(sessionId, { fresh: true }),
               loadGeneratedItemsCached(sessionId, { fresh: true }).catch(() => []),
+              planningSessionsApi.getPlanReviewState(sessionId).catch(() => null),
             ]);
+            if (
+              hydrationGeneration !== sessionHydrationGenerationRef.current ||
+              sessionIdRef.current !== sessionId
+            ) {
+              return;
+            }
             primeReplayDedupWindow(apiMessages);
+            const restoredPlanReviewState =
+              planReviewState?.planningSessionId === sessionId
+                ? toPlanReviewLifecycleState(planReviewState)
+                : undefined;
             dispatch({
               type: "RECOVER_SESSION",
               session,
               messages: apiMessages,
               generatedItems,
+              planReviewState: restoredPlanReviewState,
             });
           } catch {
             // If recovery fails, leave current state intact
@@ -3521,6 +3577,8 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
   const createSession = useCallback(
     async (data: CreatePlanningSessionRequest): Promise<PlanningSession> => {
       const session = await planningSessionsApi.create(data);
+      sessionHydrationGenerationRef.current += 1;
+      sessionIdRef.current = session.id;
       dispatch({ type: "SET_SESSION", session });
       return session;
     },
@@ -3693,12 +3751,15 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
   }, [wsContext, state.sessionId, t]);
 
   const loadSession = useCallback(
-    async (sessionId: string): Promise<void> => {
-      const [sessionResponse, logResult, generatedItems] = await Promise.all([
+    async (sessionId: string): Promise<boolean> => {
+      const hydrationGeneration = ++sessionHydrationGenerationRef.current;
+      const [sessionResponse, logResult, generatedItems, planReviewState] = await Promise.all([
         planningSessionsApi.get(sessionId),
         loadMessagesCached(sessionId),
         loadGeneratedItemsCached(sessionId).catch(() => []),
+        planningSessionsApi.getPlanReviewState(sessionId).catch(() => null),
       ]);
+      if (hydrationGeneration !== sessionHydrationGenerationRef.current) return false;
       const isLiveSession =
         sessionResponse.status === "active" &&
         (logResult.activeJobStatus === "queued" ||
@@ -3710,6 +3771,12 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
       // Extract pendingInteraction from the API response (may not exist on older backends)
       const { pendingInteraction, ...session } =
         sessionResponse as PlanningSessionWithPendingInteraction;
+      const restoredPlanReviewState =
+        planReviewState?.planningSessionId === sessionId
+          ? toPlanReviewLifecycleState(planReviewState)
+          : undefined;
+      if (hydrationGeneration !== sessionHydrationGenerationRef.current) return false;
+      sessionIdRef.current = sessionId;
       dispatch({
         type: "LOAD_SESSION",
         session,
@@ -3723,21 +3790,32 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         answeredQuestionIds: readPersistedAnsweredQuestionIds(sessionId),
         answeredQuestionSignatures:
           readPersistedAnsweredQuestionSignatures(sessionId),
+        planReviewState: restoredPlanReviewState,
       });
+      return true;
     },
     [primeReplayDedupWindow, loadMessagesCached, loadGeneratedItemsCached]
   );
 
   const resumeSession = useCallback(
-    async (sessionId: string, forceClose?: boolean): Promise<PlanningSession> => {
-      const [resumedRaw, logResult, generatedItems] = await Promise.all([
+    async (sessionId: string, forceClose?: boolean): Promise<PlanningSession | null> => {
+      const hydrationGeneration = ++sessionHydrationGenerationRef.current;
+      const [resumedRaw, logResult, generatedItems, planReviewState] = await Promise.all([
         planningSessionsApi.resume(sessionId, forceClose),
         loadMessagesCached(sessionId, { fresh: true }),
         loadGeneratedItemsCached(sessionId, { fresh: true }).catch(() => []),
+        planningSessionsApi.getPlanReviewState(sessionId).catch(() => null),
       ]);
+      if (hydrationGeneration !== sessionHydrationGenerationRef.current) return null;
       primeReplayDedupWindow(logResult.messages);
       // Extract pendingInteraction from the enriched resume response
       const { pendingInteraction, ...resumed } = resumedRaw;
+      const restoredPlanReviewState =
+        planReviewState?.planningSessionId === sessionId
+          ? toPlanReviewLifecycleState(planReviewState)
+          : undefined;
+      if (hydrationGeneration !== sessionHydrationGenerationRef.current) return null;
+      sessionIdRef.current = sessionId;
       dispatch({
         type: "RESUME_SESSION",
         session: resumed,
@@ -3749,6 +3827,7 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
         answeredQuestionIds: readPersistedAnsweredQuestionIds(sessionId),
         answeredQuestionSignatures:
           readPersistedAnsweredQuestionSignatures(sessionId),
+        planReviewState: restoredPlanReviewState,
       });
       return resumed;
     },
@@ -3764,7 +3843,12 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
   }, []);
 
   const reset = useCallback(() => {
+    sessionHydrationGenerationRef.current += 1;
     dispatch({ type: "RESET" });
+  }, []);
+
+  const setPlanReviewState = useCallback((planReview: PlanReviewLifecycleState) => {
+    dispatch({ type: "SET_PLAN_REVIEW_STATE", planReview });
   }, []);
 
   return {
@@ -3781,6 +3865,7 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
     pendingQuestion: state.pendingQuestion,
     expiresAt: state.expiresAt,
     generatedItems: state.generatedItems,
+    planReview: state.planReview,
     waveInfo: state.waveInfo,
     error: state.error,
     isStreaming,
@@ -3807,5 +3892,6 @@ export const usePlanningSession = (): UsePlanningSessionReturn => {
     resumeSession,
     completeSession,
     reset,
+    setPlanReviewState,
   };
 };

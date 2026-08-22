@@ -143,6 +143,8 @@ import { resolveExpectedWorkItemIdsForCompletion } from "../services/completion-
 import { assertValidScheduledAgentRuntime } from "../services/scheduled-agent-runtime-validation";
 import { getScheduledAgentDemand } from "../services/scheduled-agent-demand";
 import { resolveScheduledAgentEffectiveRuntimes } from "../services/scheduled-agent-effective-model-resolver";
+import { applyPlanReviewTerminalJob } from "../../ai/chat/services/plan-review-completion";
+import { sanitizePlanReviewTerminalResult } from "../services/plan-review-worker-result";
 
 type RevalidatedScheduledWorkItemJob = {
   provider: "claude-code" | "codex" | "zipu" | "grok";
@@ -1700,7 +1702,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         // Resolve primary repository when projectId is provided
         let repoUrl: string | undefined;
         let repositoryId: string | undefined;
-        let standaloneProjectId = body.config?.projectId ?? undefined;
+        const standaloneProjectId = body.config?.projectId ?? undefined;
 
         if (standaloneProjectId) {
           try {
@@ -2333,15 +2335,23 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
                 ? { sequenceHighWater: monotonicSequenceHighWater }
                 : {}),
             } satisfies AgentJobConfig
-          : undefined;
+           : undefined;
+
+      const planReviewStoredResult = sanitizePlanReviewTerminalResult({
+        config: existing.job.config,
+        result: body.result === undefined ? existing.job.result : body.result,
+        resultProvided: body.result !== undefined,
+        status,
+      });
 
       const updateData = {
         workerId:
           releasesWorkerResources
             ? null
             : body.workerId ?? existing.job.workerId ?? null,
-        result:
-          body.result === undefined
+        result: planReviewStoredResult !== null
+          ? planReviewStoredResult
+          : body.result === undefined
             ? normalizeJobResultPayload(existing.job.result)
             : normalizeJobResultPayload(body.result),
         errorMessage: body.errorMessage ?? null,
@@ -2456,6 +2466,19 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         workItemId: updated.workItemId ?? null,
         planningSessionId: updated.planningSessionId ?? null,
       });
+
+      if (isTerminalAgentJobStatus(status) && existing.job.config?.planReview !== undefined) {
+        try {
+          await applyPlanReviewTerminalJob({
+            id: updated.id,
+            status: updated.status,
+            config: existing.job.config,
+            result: updated.result,
+          });
+        } catch (error) {
+          logger.error({ error, jobId: updated.id }, "Failed to apply terminal plan review");
+        }
+      }
 
       // Planning jobs do not have associated work items -- skip work item side-effects
       const isWorkItemJob = existing.job.jobType !== "planning";

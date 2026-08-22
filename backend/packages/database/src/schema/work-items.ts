@@ -9,7 +9,6 @@ import {
   integer,
   index,
   uniqueIndex,
-  check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { workItemTypeEnum, priorityEnum, assigneeRoleEnum, codingAgentEnum } from "./enums";
@@ -30,6 +29,7 @@ export const workItems = pgTable(
       .notNull()
       .references(() => boards.id, { onDelete: "cascade" }),
     boardColumnId: uuid("board_column_id")
+      .notNull()
       .references(() => boardColumns.id, { onDelete: "restrict" }),
     parentId: uuid("parent_id"),
     type: workItemTypeEnum("type").notNull().default("task"),
@@ -76,14 +76,6 @@ export const workItems = pgTable(
     index("work_items_task_id_idx").on(table.taskId),
     index("work_items_created_by_user_idx").on(table.createdByUserId),
     index("work_items_scheduled_agent_config_id_idx").on(table.scheduledAgentConfigId),
-    check(
-      "work_items_type_board_column_check",
-      sql`(
-        (${table.type} IN ('task', 'idea') AND ${table.boardColumnId} IS NOT NULL)
-        OR
-        (${table.type} IN ('epic', 'feature', 'story') AND ${table.boardColumnId} IS NULL)
-      )`
-    ),
   ]
 );
 

@@ -1,4 +1,4 @@
-import { db } from "../../client";
+import { db, type Database } from "../../client";
 import {
   workItems,
   workItemTags,
@@ -32,6 +32,15 @@ import type { PaginationParams, ChildrenSummary } from "../../domain/types";
 import type { TriggeredByContext } from "./work-item-event-repository";
 import { defaultTriggeredByContext } from "./work-item-event-repository";
 import type { NewWorkItemEvent } from "../../schema/work-item-events";
+
+type WorkItemExecutor = Pick<Database, "select" | "insert">;
+
+export type CreateWorkItemOptions = {
+  /** Join an existing transaction for atomic batch generation. */
+  executor?: WorkItemExecutor;
+  /** New parents in the same batch are not yet represented by a committed row. */
+  skipParentStateChecks?: boolean;
+};
 
 // Helper: log a single event in the background (fire-and-forget, errors are silently caught)
 const logEvent = (event: NewWorkItemEvent): void => {
@@ -119,9 +128,10 @@ const hasDodHumanActionRequirement = (metadata: Record<string, unknown> | null |
  */
 const resolveBoardColumnIdForBoard = async (
   boardId: string,
-  inputBoardColumnId: string
+  inputBoardColumnId: string,
+  executor: WorkItemExecutor = db,
 ): Promise<string> => {
-  const [directColumn] = await db
+  const [directColumn] = await executor
     .select({ id: boardColumns.id, boardId: boardColumns.boardId })
     .from(boardColumns)
     .where(eq(boardColumns.id, inputBoardColumnId))
@@ -142,7 +152,7 @@ const resolveBoardColumnIdForBoard = async (
   }
 
   const role = areaVirtualMatch[2] as ColumnRole;
-  const [columnForBoardRole] = await db
+  const [columnForBoardRole] = await executor
     .select({ id: boardColumns.id })
     .from(boardColumns)
     .where(and(eq(boardColumns.boardId, boardId), eq(boardColumns.role, role)))
@@ -156,6 +166,32 @@ const resolveBoardColumnIdForBoard = async (
   }
 
   return columnForBoardRole.id;
+};
+
+const resolveDefaultBoardColumnIdForBoard = async (
+  boardId: string,
+  executor: WorkItemExecutor = db,
+): Promise<string> => {
+  const [backlogColumn] = await executor
+    .select({ id: boardColumns.id })
+    .from(boardColumns)
+    .where(and(eq(boardColumns.boardId, boardId), eq(boardColumns.role, "backlog")))
+    .orderBy(asc(boardColumns.order))
+    .limit(1);
+
+  if (backlogColumn) return backlogColumn.id;
+
+  const [firstColumn] = await executor
+    .select({ id: boardColumns.id })
+    .from(boardColumns)
+    .where(eq(boardColumns.boardId, boardId))
+    .orderBy(asc(boardColumns.order))
+    .limit(1);
+
+  if (!firstColumn) {
+    throw new Error(`BOARD_COLUMN_NOT_FOUND: Board "${boardId}" has no columns`);
+  }
+  return firstColumn.id;
 };
 
 /**
@@ -227,15 +263,15 @@ const hydrateWorkItemRelations = async (
       getAssigneesByWorkItem(item.id),
     ]);
 
-  // If the item has a real boardColumnId, use the direct column result.
-  // Otherwise (parent types: epic/feature/story), compute the virtual column.
+  // Parent types keep virtual hierarchy status even when the Community schema
+  // requires a persisted board column. Leaf items use their direct column.
   let columnName = columnResult[0]?.name ?? "";
   let columnColor = columnResult[0]?.color ?? "";
   let columnIsDone = columnResult[0]?.isDone ?? false;
 
   let childrenSummary: ChildrenSummary | undefined;
 
-  if (!item.boardColumnId) {
+  if (isParentType(item.type as WorkItemType)) {
     const boardColumnsForVirtual = await db
       .select({ id: boardColumns.id, order: boardColumns.order, role: boardColumns.role, isDone: boardColumns.isDone, name: boardColumns.name, color: boardColumns.color })
       .from(boardColumns)
@@ -586,9 +622,14 @@ export const buildTypedPrefix = (projectPrefix: string, type: string): string =>
 };
 
 // Get next sequential task ID atomically using upsert
-export const getNextTaskId = async (prefix: string, type: string, workspaceId: string): Promise<string> => {
+export const getNextTaskId = async (
+  prefix: string,
+  type: string,
+  workspaceId: string,
+  executor: WorkItemExecutor = db,
+): Promise<string> => {
   const typedPrefix = buildTypedPrefix(prefix, type);
-  const [result] = await db
+  const [result] = await executor
     .insert(taskIdCounters)
     .values({ prefix: typedPrefix, workspaceId: workspaceId ?? null, nextNumber: 2 })
     .onConflictDoUpdate({
@@ -651,9 +692,9 @@ export const isAncestorCompleted = async (
 
     let isDone = false;
 
-    if (item.boardColumnId) {
+    if (!isParentType(item.type as WorkItemType)) {
       // Leaf item — direct column check
-      const col = columnById.get(item.boardColumnId);
+      const col = item.boardColumnId ? columnById.get(item.boardColumnId) : undefined;
       isDone = col?.isDone ?? false;
     } else {
       // Parent type — compute virtual column
@@ -685,7 +726,7 @@ export const isAncestorCompleted = async (
  * Checks whether the DIRECT parent work item is NOT in the Backlog column.
  *
  * - Leaf parents (with `boardColumnId`): blocked if `column.role !== "backlog"`
- * - Parent types (without `boardColumnId`): uses `computeVirtualColumns` to
+ * - Parent types (whose persisted `boardColumnId` is ignored): uses `computeVirtualColumns` to
  *   derive a virtual column. If the parent has no descendants (not present in
  *   the virtualColumnMap), it is treated as backlog (allowed). Otherwise,
  *   blocked if the virtual column's `role !== "backlog"`.
@@ -728,9 +769,9 @@ export const isParentNotInBacklog = async (
 
   let role: string | undefined;
 
-  if (parent.boardColumnId) {
+  if (!isParentType(parent.type as WorkItemType)) {
     // Leaf parent -- direct column lookup
-    const col = columnById.get(parent.boardColumnId);
+    const col = parent.boardColumnId ? columnById.get(parent.boardColumnId) : undefined;
     role = col?.role;
   } else {
     // Parent type -- compute virtual column
@@ -761,23 +802,25 @@ export const isParentNotInBacklog = async (
 export const createWorkItem = async (
   workspaceId: string,
   data: CreateWorkItemRequest,
-  context: TriggeredByContext = defaultTriggeredByContext
+  context: TriggeredByContext = defaultTriggeredByContext,
+  options: CreateWorkItemOptions = {},
 ): Promise<WorkItemWithRelations> => {
+  const executor = options.executor ?? db;
   const { tagIds, dueDate, id: providedId, ...workItemData } = data;
-  // Parent types (epic, feature, story) have no boardColumnId -- skip resolution for them
+  // Community's persisted work_items schema requires a board column for every
+  // row. Parent types still use hierarchy-derived virtual placement in reads,
+  // but store the caller's column or a backlog/default column.
   const resolvedBoardColumnId = workItemData.boardColumnId
-    ? await resolveBoardColumnIdForBoard(workItemData.boardId, workItemData.boardColumnId)
-    : null;
-  const [resolvedColumn] = resolvedBoardColumnId
-    ? await db
-        .select({ isDone: boardColumns.isDone })
-        .from(boardColumns)
-        .where(eq(boardColumns.id, resolvedBoardColumnId))
-        .limit(1)
-    : [];
+    ? await resolveBoardColumnIdForBoard(workItemData.boardId, workItemData.boardColumnId, executor)
+    : await resolveDefaultBoardColumnIdForBoard(workItemData.boardId, executor);
+  const [resolvedColumn] = await executor
+    .select({ isDone: boardColumns.isDone })
+    .from(boardColumns)
+    .where(eq(boardColumns.id, resolvedBoardColumnId))
+    .limit(1);
 
   // Enforce board-level type restrictions (if configured). Default is permissive.
-  const [boardRow] = await db
+  const [boardRow] = await executor
     .select({ id: boards.id, allowedTypes: boards.allowedTypes })
     .from(boards)
     .where(and(eq(boards.id, workItemData.boardId), eq(boards.workspaceId, workspaceId)))
@@ -799,7 +842,7 @@ export const createWorkItem = async (
   }
 
   // Block creation inside a completed parent (or any completed ancestor)
-  if (data.parentId) {
+  if (data.parentId && !options.skipParentStateChecks) {
     const { isCompleted, completedItem } = await isAncestorCompleted(data.parentId, workItemData.boardId);
     if (isCompleted && completedItem) {
       throw new Error(
@@ -817,12 +860,11 @@ export const createWorkItem = async (
     }
   }
 
-  // If position not provided, set to max position + 1 for that column
-  // Parent types (boardColumnId is null) default to position 0
+  // If position not provided, set to max position + 1 for that column.
   let position = workItemData.position;
   if (position === undefined || position === null) {
     if (resolvedBoardColumnId) {
-      const [maxPos] = await db
+      const [maxPos] = await executor
         .select({ maxPosition: sql<number>`coalesce(max(${workItems.position}), -1)` })
         .from(workItems)
         .where(and(eq(workItems.boardColumnId, resolvedBoardColumnId), isNull(workItems.archivedAt)));
@@ -835,7 +877,7 @@ export const createWorkItem = async (
   // Generate taskId from project initials + sequential number
   let projectName: string | null = null;
   if (workItemData.projectId) {
-    const [proj] = await db
+    const [proj] = await executor
       .select({ name: projects.name })
       .from(projects)
       .where(and(eq(projects.id, workItemData.projectId), eq(projects.workspaceId, workspaceId)))
@@ -848,50 +890,42 @@ export const createWorkItem = async (
     projectName = proj.name;
   }
   const prefix = generateProjectPrefix(projectName);
-  const taskId = await getNextTaskId(prefix, workItemData.type ?? "task", workspaceId);
+  const taskId = await getNextTaskId(prefix, workItemData.type ?? "task", workspaceId, executor);
 
-  // Insert work item
-  const [newItem] = await db
-    .insert(workItems)
-    .values({
-      id: providedId ?? crypto.randomUUID(),
-      ...workItemData,
-      boardColumnId: resolvedBoardColumnId,
-      taskId,
-      position,
-      enteredDoneAt: resolvedColumn?.isDone ? new Date() : null,
-      dueDate: dueDate ? new Date(dueDate) : undefined,
-      priority: workItemData.priority || "medium",
-      metadata: workItemData.metadata || {},
-    })
-    .returning();
-
-  if (!newItem) throw new Error("Failed to create work item");
-
-  // Add tags if provided
-  if (tagIds && tagIds.length > 0) {
-    await db.insert(workItemTags).values(
-      tagIds.map((tagId) => ({
-        workItemId: newItem.id,
-        tagId,
-      }))
-    );
-  }
-
-  // Auto-assign creator as responsible stakeholder
-  if (data.createdByUserId) {
-    await db
-      .insert(workItemAssignees)
+  const insertItem = async (tx: WorkItemExecutor) => {
+    const [created] = await tx
+      .insert(workItems)
       .values({
-        workItemId: newItem.id,
+        id: providedId ?? crypto.randomUUID(),
+        ...workItemData,
+        boardColumnId: resolvedBoardColumnId,
+        taskId,
+        position,
+        enteredDoneAt: resolvedColumn?.isDone ? new Date() : null,
+        dueDate: dueDate ? new Date(dueDate) : undefined,
+        priority: workItemData.priority || "medium",
+        metadata: workItemData.metadata || {},
+      })
+      .returning();
+    if (!created) throw new Error("Failed to create work item");
+
+    if (tagIds && tagIds.length > 0) {
+      await tx.insert(workItemTags).values(tagIds.map((tagId) => ({ workItemId: created.id, tagId })));
+    }
+
+    if (data.createdByUserId) {
+      await tx.insert(workItemAssignees).values({
+        workItemId: created.id,
         userId: data.createdByUserId,
         role: "responsible",
-      })
-      .onConflictDoNothing();
-  }
+      }).onConflictDoNothing();
+    }
+    return created;
+  };
 
-  // Log "created" event
-  logEvent({
+  const newItem = options.executor ? await insertItem(options.executor) : await db.transaction(insertItem);
+
+  const createdEvent: NewWorkItemEvent = {
     workItemId: newItem.id,
     eventType: "created",
     triggeredBy: context.triggeredBy,
@@ -902,9 +936,16 @@ export const createWorkItem = async (
       boardId: newItem.boardId,
       boardColumnId: newItem.boardColumnId,
     },
-  });
+  };
+  if (options.executor) {
+    await options.executor.insert(workItemEvents).values(createdEvent);
+  } else {
+    logEvent(createdEvent);
+  }
 
-  return getWorkItemById(newItem.id) as Promise<WorkItemWithRelations>;
+  return options.executor
+    ? newItem as unknown as WorkItemWithRelations
+    : getWorkItemById(newItem.id) as Promise<WorkItemWithRelations>;
 };
 
 // Update work item
@@ -1586,6 +1627,7 @@ export const computeVirtualColumns = async (
       .select({
         parentId: workItems.parentId,
         id: workItems.id,
+        type: workItems.type,
         boardColumnId: workItems.boardColumnId,
         metadata: workItems.metadata,
         taskId: workItems.taskId,
@@ -1656,11 +1698,14 @@ export const computeVirtualColumns = async (
         );
       }
 
-      if (child.boardColumnId) {
+      if (!isParentType(child.type as WorkItemType)) {
         // Leaf node — has a board column assignment
-        leafEntriesByParent.get(originalParent)!.push({ columnId: child.boardColumnId, itemId: child.id });
+        if (child.boardColumnId) {
+          leafEntriesByParent.get(originalParent)!.push({ columnId: child.boardColumnId, itemId: child.id });
+        }
       } else {
-        // Intermediate node (parent type, no boardColumnId) — descend
+        // Intermediate parent node — descend even when it stores a column
+        // for Community's NOT NULL board-column schema.
         nextLevel.set(child.id, originalParent);
       }
     }
@@ -1938,15 +1983,17 @@ export const getWorkItemsByBoard = async (
     }
   })();
 
-  // Separate leaf items (have boardColumnId) and parent items (null boardColumnId)
+  // Separate leaf items from hierarchy parents by type. Community parents may
+  // carry a persisted board column because the database column is NOT NULL.
   const itemsByColumnId = new Map<string, (typeof allItems)>();
   const parentItems: typeof allItems = [];
 
   for (const item of allItems) {
-    if (!item.boardColumnId) {
+    if (isParentType(item.type as WorkItemType)) {
       parentItems.push(item);
       continue;
     }
+    if (!item.boardColumnId) continue;
     const list = itemsByColumnId.get(item.boardColumnId);
     if (list) {
       list.push(item);
@@ -2259,16 +2306,16 @@ export const getWorkItemsByArea = async (
     }
   })();
 
-  // 5. Separate leaf items (have boardColumnId) and parent items (null boardColumnId)
+  // 5. Separate leaf items from hierarchy parents by type.
   const itemsByRole = new Map<ColumnRole, (typeof allItems)>();
   const areaParentItems: typeof allItems = [];
 
   for (const item of allItems) {
-    if (!item.boardColumnId) {
+    if (isParentType(item.type as WorkItemType)) {
       areaParentItems.push(item);
       continue;
     }
-    const role = columnIdToRole.get(item.boardColumnId) ?? "other";
+    const role = item.boardColumnId ? columnIdToRole.get(item.boardColumnId) ?? "other" : "other";
     const list = itemsByRole.get(role);
     if (list) {
       list.push(item);
@@ -2838,6 +2885,7 @@ export const getDescendantLeafIds = async (parentId: string): Promise<string[]> 
     const children = await db
       .select({
         id: workItems.id,
+        type: workItems.type,
         boardColumnId: workItems.boardColumnId,
       })
       .from(workItems)
@@ -2845,7 +2893,7 @@ export const getDescendantLeafIds = async (parentId: string): Promise<string[]> 
 
     const nextParentIds: string[] = [];
     for (const child of children) {
-      if (child.boardColumnId) {
+      if (!isParentType(child.type as WorkItemType)) {
         leafIds.push(child.id);
       } else {
         nextParentIds.push(child.id);

@@ -26,6 +26,7 @@ import {
   getRepositories,
   getJobById,
   listAgentJobLogsByJobId,
+  getLatestPlanReviewAdmissionBySession,
 } from "@almirant/database";
 import { resolveRuntime } from "@almirant/shared";
 import {
@@ -42,6 +43,7 @@ import { renameDiscordThread } from "../../../integrations/discord/services/disc
 import { logger } from "@almirant/config";
 import { inferPlanningSkillName } from "../services/planning-skill-routing";
 import { getOrRefreshCanonicalSessionProjection } from "../services/canonical-session-projection";
+import { planReviewHydrationResponse } from "../services/plan-review-hydration";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -210,6 +212,32 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
         }
 
         return successResponse({ ...session, pendingInteraction });
+      } catch (error) {
+        const mapped = mapPlanningErrorToHttp(normalizeErrorMessage(error));
+        ctx.set.status = mapped.status;
+        return errorResponse(mapped.message, mapped.status);
+      }
+    },
+    { params: t.Object({ id: t.String() }) }
+  )
+
+  // GET /planning-sessions/:id/plan-review — Hydrate the latest review state.
+  // Deliberately returns only lifecycle fields; persisted snapshots/results may
+  // contain internal review evidence and are never exposed by this endpoint.
+  .get(
+    "/:id/plan-review",
+    async (ctx) => {
+      try {
+        const { params, set } = ctx;
+        const workspaceId = getWorkspaceIdFromContext(ctx);
+        const session = await getPlanningSessionById(params.id);
+        if (!session || session.workspaceId !== workspaceId) {
+          set.status = 404;
+          return notFoundResponse("Planning session");
+        }
+
+        const admission = await getLatestPlanReviewAdmissionBySession(workspaceId, params.id);
+        return successResponse(planReviewHydrationResponse(params.id, admission));
       } catch (error) {
         const mapped = mapPlanningErrorToHttp(normalizeErrorMessage(error));
         ctx.set.status = mapped.status;

@@ -57,15 +57,84 @@ export interface WorkItemPreview extends GeneratedWorkItem {
 
 export interface GenerateWorkItemsRequest {
   items: GeneratedWorkItem[];
+  dependencies?: Array<{ blockedTempId: string; blockedByTempId: string }>;
   projectId: string;
   boardId: string;
   boardColumnId: string;
+  planningSessionId: string;
+  planReview?: {
+    enabled: boolean;
+    requestedCriticCount?: 2 | 3 | 4;
+  };
 }
 
-export interface GenerateWorkItemsResponse {
+export interface GenerateWorkItemsCreatedResponse {
   createdIds: string[];
   errors: { tempId: string; error: string }[];
 }
+
+export interface GenerateWorkItemsPendingReviewResponse {
+  status: "queued" | "pending_review" | "applying" | "applied" | "completed" | "rejected" | "failed";
+  reviewJobId: string;
+  reviewResolution: {
+    status: "ready" | "degraded" | "skipped";
+    degradation: {
+      status: "none" | "same_model_isolated" | "fewer_critics" | "skipped_unavailable";
+      reason: string;
+    };
+  };
+  createdIds?: string[];
+  errors?: { tempId: string; error: string }[];
+  result?: Record<string, unknown> | null;
+}
+
+export type GenerateWorkItemsResponse = GenerateWorkItemsCreatedResponse | GenerateWorkItemsPendingReviewResponse;
+
+export type PlanReviewLifecycleStatus =
+  | "idle"
+  | "queued"
+  | "pending_review"
+  | "applying"
+  | "applied"
+  | "completed"
+  | "rejected"
+  | "failed"
+  | "mismatch"
+  | "polling_failed";
+
+export interface PlanReviewLifecycleState {
+  activeReviewJobId: string | null;
+  status: PlanReviewLifecycleStatus;
+  error: string | null;
+  createdItemIds: string[];
+  originalPlanSha256?: string | null;
+}
+
+export const INITIAL_PLAN_REVIEW_LIFECYCLE_STATE: PlanReviewLifecycleState = {
+  activeReviewJobId: null,
+  status: "idle",
+  error: null,
+  createdItemIds: [],
+};
+
+export interface PlanReviewHydrationResponse {
+  planningSessionId: string;
+  reviewJobId: string | null;
+  originalPlanSha256: string | null;
+  status: PlanReviewLifecycleStatus;
+  error: string | null;
+  createdItemIds: string[];
+}
+
+export const toPlanReviewLifecycleState = (
+  hydration: PlanReviewHydrationResponse,
+): PlanReviewLifecycleState => ({
+  activeReviewJobId: hydration.reviewJobId,
+  status: hydration.status,
+  error: hydration.error,
+  createdItemIds: [...hydration.createdItemIds],
+  originalPlanSha256: hydration.originalPlanSha256,
+});
 
 // ---------------------------------------------------------------------------
 // Component props (presentational)
@@ -232,10 +301,14 @@ export interface ChatFullPanelProps {
   ) => void;
   onRemoveItem: (tempId: string) => void;
   onColumnChange: (columnId: string) => void;
-  onConfirmGeneration: () => void;
+  onConfirmGeneration: (planReview?: { enabled: true; requestedCriticCount: 2 | 3 | 4 }) => void;
   onCancelGeneration: () => void;
   /** When true, generated items were already created during planning. */
   isAlreadyCreated?: boolean;
+  /** When true, creation is waiting for a durable plan-review result. */
+  isPendingReview?: boolean;
+  /** Persistent actionable plan-review error; not toast-only. */
+  planReviewError?: string | null;
   /** Optional toolbar rendered above the chat input. */
   toolbar?: React.ReactNode;
   /** Custom empty state rendered when there are no messages. */
@@ -356,12 +429,15 @@ export interface GenerationConfirmPanelProps {
     changes: Partial<GeneratedWorkItem>,
   ) => void;
   onRemoveItem: (tempId: string) => void;
-  onConfirm: () => void;
+  onConfirm: (planReview?: { enabled: true; requestedCriticCount: 2 | 3 | 4 }) => void;
   onCancel: () => void;
   isConfirming: boolean;
   itemCount: number;
   /** When true, items were already created during planning — show review mode. */
   isAlreadyCreated?: boolean;
+  isPendingReview?: boolean;
+  /** Persistent actionable plan-review error; not toast-only. */
+  planReviewError?: string | null;
 }
 
 export interface ModelSelectorProps {
@@ -572,6 +648,8 @@ export interface ChatPanelProps {
   onCancelGeneration: () => void;
   /** When true, generated items were already created during planning. */
   isAlreadyCreated?: boolean;
+  isPendingReview?: boolean;
+  planReviewError?: string | null;
 }
 
 // ---------------------------------------------------------------------------

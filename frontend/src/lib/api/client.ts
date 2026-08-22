@@ -10,6 +10,7 @@ import type { CodingAgent } from "@/domains/agents/domain/coding-agent-compatibi
 import type {
   GenerateWorkItemsRequest,
   GenerateWorkItemsResponse,
+  GenerateWorkItemsPendingReviewResponse,
 } from "@/domains/ai-planning/domain/types";
 import type { SkillInterviewMessageRole } from "@/domains/skill-interview/domain/types";
 import type {
@@ -1220,6 +1221,11 @@ export const aiApi = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  getPlanReviewStatus: (jobId: string) =>
+    request<GenerateWorkItemsPendingReviewResponse>(
+      `/ai/chat/generate/review/${encodeURIComponent(jobId)}`,
+    ),
 
   transcribeAudio: async (audioBlob: Blob, language?: string) => {
     const url = `${API_BASE}/ai/transcribe`;

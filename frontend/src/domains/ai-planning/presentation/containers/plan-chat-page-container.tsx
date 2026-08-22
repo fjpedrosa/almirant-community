@@ -338,7 +338,9 @@ export const PlanChatPageContainer: React.FC = () => {
             onColumnChange={page.generation.onColumnChange}
             onConfirmGeneration={page.generation.onConfirm}
             onCancelGeneration={page.session.onCancelGeneration}
-            isAlreadyCreated={page.generation.isAlreadyCreated}
+             isAlreadyCreated={page.generation.isAlreadyCreated}
+             isPendingReview={page.generation.isPendingReview}
+             planReviewError={page.generation.planReviewError}
             pendingQuestion={page.question.pendingQuestion}
             onAnswerQuestion={page.question.sendAnswer}
             bottomRef={autoScroll.bottomRef}

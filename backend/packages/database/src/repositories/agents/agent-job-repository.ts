@@ -1,4 +1,4 @@
-import { db } from "../../client";
+import { db, type Database } from "../../client";
 import { agentJobs, agentJobClaimSequenceReceipts, workItems, projects, boards, planningSessions, user, workerRegistrations, workspaceSettings, workspace, feedbackItems } from "../../schema";
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, isNotNull, lte, or, sql, notInArray, count } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -136,6 +136,9 @@ export type CreateAgentJobInput = {
   provider: AgentProvider;
   priority?: "low" | "medium" | "high" | "urgent";
   config: AgentJobConfig;
+  status?: AgentJobStatus;
+  result?: unknown;
+  completedAt?: Date | null;
   codingAgent?: CodingAgent;
   aiProvider?: AiProvider;
   model?: string;
@@ -146,6 +149,11 @@ export type CreateAgentJobInput = {
   triggerType?: TriggerType;
   interactive?: boolean;
 };
+
+export interface CreateJobOptions {
+  /** Join an existing transaction for durable plan-review admission. */
+  executor?: Pick<Database, "insert">;
+}
 
 export type AgentJobWithRelations = {
   job: typeof agentJobs.$inferSelect;
@@ -218,7 +226,10 @@ const isDuplicateActiveJobViolation = (err: unknown): boolean => {
   return probe((err as PgUniqueViolationError).cause);
 };
 
-export const createJob = async (input: CreateAgentJobInput): Promise<typeof agentJobs.$inferSelect> => {
+export const createJob = async (
+  input: CreateAgentJobInput,
+  options: CreateJobOptions = {},
+): Promise<typeof agentJobs.$inferSelect> => {
   const {
     prompt: resolvedPrompt,
     skillName: resolvedSkillName,
@@ -273,7 +284,13 @@ export const createJob = async (input: CreateAgentJobInput): Promise<typeof agen
     // Common fields
     provider: input.provider,
     priority: input.priority ?? "medium",
-    status: "queued" as const,
+    status: (input.status ?? "queued") as AgentJobStatus,
+    ...(input.result !== undefined ? { result: input.result as never } : {}),
+    ...(input.completedAt !== undefined
+      ? { completedAt: input.completedAt }
+      : input.status === "completed"
+        ? { completedAt: new Date() }
+        : {}),
     config: configWithOverrides,
     codingAgent:
       input.codingAgent ??
@@ -286,7 +303,7 @@ export const createJob = async (input: CreateAgentJobInput): Promise<typeof agen
 
   let created: typeof agentJobs.$inferSelect | undefined;
   try {
-    [created] = await db.insert(agentJobs).values(jobValues).returning();
+    [created] = await (options.executor ?? db).insert(agentJobs).values(jobValues).returning();
   } catch (error) {
     if (isDuplicateActiveJobViolation(error)) {
       throw new DuplicateActiveJobError(jobValues.workItemId, jobValues.jobType ?? null);

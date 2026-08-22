@@ -36,6 +36,7 @@ import type {
   EvidenceArtifactDescriptor,
   ResourceEstimate,
   RunnerCustomMcpServersConfig,
+  PlanReviewJobConfig,
 } from "@almirant/shared";
 
 export interface AgentJobPendingTerminalIntent {
@@ -151,6 +152,8 @@ export interface AgentJobConfig {
    * short-circuiting the org's default resolution order.
    */
   providerConnectionId?: string;
+  /** Optional immutable, capability-aware implementation-plan review request. */
+  planReview?: PlanReviewJobConfig;
   /** Whether the runner should operate in a read-only or write-capable workspace. */
   workspaceIntent?: "read-only" | "write";
   /** Whether the runner should push branch changes automatically when the session ends successfully. */
