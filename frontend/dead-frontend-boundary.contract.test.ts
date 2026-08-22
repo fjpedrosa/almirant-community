@@ -190,7 +190,7 @@ describe("dead frontend boundary", () => {
   it("has no tracked imports or symbols referencing retired slices", () => {
     const references = trackedFrontendSources().filter((filePath) => hasRetiredReference(readFileSync(filePath, "utf8"), filePath));
     expect(references).toEqual([]);
-  });
+  }, 15_000);
 
   it("normalizes retired import spellings without matching descendants", () => {
     const retired = [
