@@ -337,6 +337,7 @@ describe("connectionsRoutes OAuth callback", () => {
           name: "Z.AI Coding Plan",
           config: { baseUrl: "https://api.z.ai/api/coding/paas/v4/" },
           implementationModel: " GLM-5.2 ",
+          planReviewModel: " GLM-5.1 ",
           implementationReasoningBudget: "MAX",
         }),
       ),
@@ -348,6 +349,7 @@ describe("connectionsRoutes OAuth callback", () => {
       zaiPlan: "coding",
       baseUrl: "https://api.z.ai/api/coding/paas/v4",
       implementationModel: "glm-5.2",
+      planReviewModel: "glm-5.1",
       implementationReasoningBudget: "max",
     });
   });
@@ -380,6 +382,28 @@ describe("connectionsRoutes OAuth callback", () => {
     expect(updateRes.status).toBe(400);
     expect(state.createConnectionCalls).toHaveLength(0);
     expect(state.updateConnectionCalls).toHaveLength(0);
+  });
+
+  it("rejects an unsupported Plan Review critic model before persistence", async () => {
+    const { Elysia } = await import("elysia");
+    const { connectionsRoutes } = await import("./connections.routes");
+    const app = new Elysia().use(withTestOrg).use(connectionsRoutes);
+
+    const response = await app.handle(
+      new Request(
+        "http://localhost/connections",
+        json({
+          provider: "openai",
+          category: "ai",
+          scope: "organization",
+          name: "Invalid critic model",
+          planReviewModel: "not-a-supported-model",
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    expect(state.createConnectionCalls).toHaveLength(0);
   });
 });
 

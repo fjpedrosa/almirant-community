@@ -46,6 +46,31 @@ beforeEach(() => {
 });
 
 describe("GenerationConfirmPanel plan-review states", () => {
+  test.each([2, 3, 4] as const)("submits the selected critic count (%s)", async (requestedCriticCount) => {
+    const onConfirm = mock(() => {});
+    render(<GenerationConfirmPanel {...baseProps()} onConfirm={onConfirm} />);
+
+    fireEvent.click(screen.getByRole("checkbox"));
+    await waitFor(() => expect(screen.getByLabelText("synthesizerConnection")).not.toBeDisabled());
+    fireEvent.change(screen.getByLabelText("synthesizerConnection"), {
+      target: { value: "prs1.test-synthesizer" },
+    });
+    fireEvent.change(screen.getByLabelText("synthesizerModel"), {
+      target: { value: "claude-sonnet-4-5" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: /criticCount/ }), {
+      target: { value: String(requestedCriticCount) },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /createAll/ }));
+
+    expect(onConfirm).toHaveBeenCalledWith({
+      enabled: true,
+      requestedCriticCount,
+      synthesizerConnectionRef: "prs1.test-synthesizer",
+      synthesizerModel: "claude-sonnet-4-5",
+    });
+  });
+
   test("shows persistent retry UI after mismatch or polling failure", async () => {
     const onConfirm = mock(() => {});
     render(

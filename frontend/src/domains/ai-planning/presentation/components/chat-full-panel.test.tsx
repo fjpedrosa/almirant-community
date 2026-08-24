@@ -66,7 +66,11 @@ mock.module("./question-wizard", () => ({
 }));
 
 mock.module("./generation-confirm-panel", () => ({
-  GenerationConfirmPanel: () => <div data-testid="generation-confirm-panel" />,
+  GenerationConfirmPanel: ({ planReviewError }: { planReviewError?: string | null }) => (
+    <div data-testid="generation-confirm-panel">
+      {planReviewError ? <div role="alert">{planReviewError}</div> : null}
+    </div>
+  ),
 }));
 
 mock.module("./interrupted-banner", () => ({
@@ -206,6 +210,20 @@ describe("ChatFullPanel", () => {
     expect(screen.getByTestId("chat-input")).toBeInTheDocument();
     expect(screen.getByTestId("follow-up-hint")).toHaveTextContent(
       "¿Qué alcance quieres aprobar?",
+    );
+  });
+
+  it("renders the persistent plan-review error through the active generation panel", () => {
+    render(
+      <ChatFullPanel
+        {...createBaseProps()}
+        showGeneration
+        planReviewError="Review status could not be verified."
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Review status could not be verified.",
     );
   });
 });

@@ -11,9 +11,10 @@ const MODEL_FIELDS = [
   "planningModel",
   "implementationModel",
   "validationModel",
+  "planReviewModel",
 ] as const;
 
-const REASONING_FIELD_BY_MODEL = {
+const REASONING_FIELD_BY_MODEL: Partial<Record<(typeof MODEL_FIELDS)[number], string>> = {
   planningModel: "planningReasoningBudget",
   implementationModel: "implementationReasoningBudget",
   validationModel: "validationReasoningBudget",
@@ -77,6 +78,8 @@ export const normalizeAiConnectionConfig = (input: {
         effectiveModel = model;
       }
     }
+
+    if (!reasoningField) continue;
 
     const rawReasoning = config[reasoningField];
     if (rawReasoning === undefined || rawReasoning === null) continue;

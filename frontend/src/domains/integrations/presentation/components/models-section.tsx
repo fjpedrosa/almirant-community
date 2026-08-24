@@ -43,6 +43,11 @@ export const ModelsSection: React.FC<ModelsSectionProps> = ({
       ?.displayName ||
     modelSettings.validationModel ||
     "Default";
+  const planReviewName =
+    availableModels.find((m) => m.id === modelSettings.planReviewModel)
+      ?.displayName ||
+    modelSettings.planReviewModel ||
+    "Default";
 
   const reasoningOptionsFor = (model: string) =>
     getReasoningEffortOptions({
@@ -77,7 +82,7 @@ export const ModelsSection: React.FC<ModelsSectionProps> = ({
           <span>Models</span>
           {!expanded && (
             <span className="truncate text-xs text-muted-foreground max-w-[280px]">
-              {planningName} · {implementationName} · {validationName}
+              {planningName} · {implementationName} · {validationName} · {planReviewName}
             </span>
           )}
         </div>
@@ -92,7 +97,7 @@ export const ModelsSection: React.FC<ModelsSectionProps> = ({
       {/* Expanded content */}
       {expanded && !disabled && availableModels.length > 0 && (
         <div className="px-3 pb-3 pt-1 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {/* Planning Model */}
             <div className="space-y-1">
               <p className="text-xs font-medium text-muted-foreground">
@@ -173,6 +178,36 @@ export const ModelsSection: React.FC<ModelsSectionProps> = ({
                 <SelectContent>
                   <SelectItem value="__default__">
                     Default provider behavior
+                  </SelectItem>
+                  {availableModels.map((model) => (
+                    <SelectItem key={model.id} value={model.id}>
+                      {model.displayName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Plan Review Critic Model */}
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">
+                Plan Review Critic Model
+              </p>
+              <Select
+                value={modelSettings.planReviewModel || "__default__"}
+                onValueChange={(value) =>
+                  onModelSettingChange(
+                    "planReviewModel",
+                    value === "__default__" ? "" : value,
+                  )
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Plan Review critic model" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__default__">
+                    Disabled for Plan Review
                   </SelectItem>
                   {availableModels.map((model) => (
                     <SelectItem key={model.id} value={model.id}>
