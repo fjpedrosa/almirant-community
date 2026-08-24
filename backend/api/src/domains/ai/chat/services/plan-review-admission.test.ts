@@ -68,6 +68,11 @@ const validPlan = () => ({
   dependencies: [],
 });
 
+const validSynthesizerSelector = {
+  synthesizerConnectionRef: `prs1.${"s".repeat(43)}`,
+  synthesizerModel: "gpt-5.6-sol",
+};
+
 describe("admitPlanReviewJob", () => {
   beforeEach(() => {
     admitPlanReviewWithJob.mockClear();
@@ -83,7 +88,7 @@ describe("admitPlanReviewJob", () => {
       userId: "user-1",
       planningSessionId: "session-1",
       plan: validPlan(),
-      policy: { enabled: true, requestedCriticCount: 2 },
+       policy: { enabled: true, requestedCriticCount: 2, ...validSynthesizerSelector },
     }, dependencies);
 
     expect(admission?.status).toBe("completed");
@@ -97,7 +102,7 @@ describe("admitPlanReviewJob", () => {
       userId: "user-1",
       planningSessionId: "session-1",
       plan: validPlan(),
-      policy: { enabled: true, requestedCriticCount: 2 },
+       policy: { enabled: true, requestedCriticCount: 2, ...validSynthesizerSelector },
     }, dependencies);
     const first = await request();
     const second = await request();

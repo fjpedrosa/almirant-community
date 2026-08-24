@@ -117,7 +117,7 @@ export const usePlanChatPage = () => {
   const showGeneration = generation.activeItemCount > 0;
 
   // ----- Confirm generation -----
-  const handleConfirmGeneration = useCallback((planReview?: { enabled: true; requestedCriticCount: 2 | 3 | 4 }) => {
+  const handleConfirmGeneration = useCallback((planReview?: Parameters<typeof generation.confirmGeneration>[1]) => {
     if (!boardColumns.activeColumnId) return;
     generation.confirmGeneration(boardColumns.activeColumnId, planReview);
   }, [boardColumns.activeColumnId, generation]);

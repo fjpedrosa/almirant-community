@@ -62,10 +62,21 @@ export interface GenerateWorkItemsRequest {
   boardId: string;
   boardColumnId: string;
   planningSessionId: string;
-  planReview?: {
-    enabled: boolean;
-    requestedCriticCount?: 2 | 3 | 4;
-  };
+  planReview?: PlanReviewSelection;
+}
+
+export interface PlanReviewSelection {
+  enabled: true;
+  requestedCriticCount: 2 | 3 | 4;
+  synthesizerConnectionRef: string;
+  synthesizerModel: string;
+}
+
+export interface PlanReviewCapabilityOption {
+  connectionRef: string;
+  name: string;
+  provider: "anthropic" | "openai" | "google" | "zai" | "xai";
+  models: readonly string[];
 }
 
 export interface GenerateWorkItemsCreatedResponse {
@@ -301,7 +312,7 @@ export interface ChatFullPanelProps {
   ) => void;
   onRemoveItem: (tempId: string) => void;
   onColumnChange: (columnId: string) => void;
-  onConfirmGeneration: (planReview?: { enabled: true; requestedCriticCount: 2 | 3 | 4 }) => void;
+  onConfirmGeneration: (planReview?: PlanReviewSelection) => void;
   onCancelGeneration: () => void;
   /** When true, generated items were already created during planning. */
   isAlreadyCreated?: boolean;
@@ -429,7 +440,7 @@ export interface GenerationConfirmPanelProps {
     changes: Partial<GeneratedWorkItem>,
   ) => void;
   onRemoveItem: (tempId: string) => void;
-  onConfirm: (planReview?: { enabled: true; requestedCriticCount: 2 | 3 | 4 }) => void;
+  onConfirm: (planReview?: PlanReviewSelection) => void;
   onCancel: () => void;
   isConfirming: boolean;
   itemCount: number;
@@ -644,7 +655,7 @@ export interface ChatPanelProps {
   ) => void;
   onRemoveItem: (tempId: string) => void;
   onColumnChange: (columnId: string) => void;
-  onConfirmGeneration: () => void;
+  onConfirmGeneration: (planReview?: PlanReviewSelection) => void;
   onCancelGeneration: () => void;
   /** When true, generated items were already created during planning. */
   isAlreadyCreated?: boolean;

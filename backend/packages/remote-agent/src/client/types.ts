@@ -203,17 +203,13 @@ export type UpdateJobStatusPayload = {
   sequenceHighWater?: ProducerSequenceHighWater;
 };
 
-export type ProviderKeyProvider = "anthropic" | "openai" | "zai" | "xai" | (string & {});
+export type ProviderKeyProvider = "anthropic" | "openai" | "google" | "zai" | "xai" | (string & {});
 
 export type ProviderKeyConnectionDebug = {
   connectionId: string;
   connectionName: string;
   provider: string;
   authMethod: "api_key" | "subscription";
-  /** First 8 chars of the token/key for identification */
-  tokenPrefix: string;
-  /** Last 4 chars of the token/key for identification */
-  tokenSuffix: string;
   tokenExpiresAt: string | null;
   /** Scope that matched: "user" or "organization" */
   scope: string;
@@ -224,6 +220,7 @@ export type ProviderKeyConnectionDebug = {
 export type ProviderKeysResponse = {
   anthropicApiKey?: string;
   openaiApiKey?: string;
+  googleApiKey?: string;
   xaiApiKey?: string;
   anthropicAuthMethod?: "api_key" | "subscription";
   openaiAuthMethod?: "api_key" | "subscription";

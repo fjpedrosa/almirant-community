@@ -12,9 +12,29 @@ export type PlanReviewDegradationStatus =
   | "fewer_critics"
   | "skipped_unavailable";
 
+export type PlanReviewLens =
+  | "architecture_dependencies"
+  | "reliability_tests_dod"
+  | "risk_migration_rollback"
+  | "scope_sequencing_overengineering";
+
+export type PlanReviewFailureCategory =
+  | "timeout"
+  | "process_lost"
+  | "rate_limited"
+  | "model_refusal"
+  | "unavailable"
+  | "malformed_output";
+
+export type PlanReviewCriticFailureCategory = PlanReviewFailureCategory;
+
 export interface PlanReviewPolicy {
   enabled: boolean;
   requestedCriticCount?: 2 | 3 | 4;
+  /** Server-issued opaque selector for the exact final-plan synthesizer. */
+  synthesizerConnectionRef?: string;
+  /** Explicit model selected for the exact final-plan synthesizer. */
+  synthesizerModel?: string;
 }
 
 export type PlanReviewWorkItemType = "epic" | "feature" | "story" | "task";
@@ -51,10 +71,21 @@ export interface PlanReviewFrozenPlan {
 export interface PlanReviewCriticSnapshot {
   /** Opaque audit handle, not a bearer credential and not an authorization token. */
   correlationRef: string;
+  /** Server-issued opaque connection selector resolved before persistence. */
+  connectionRef: string;
   provider: PlanReviewProvider;
   model: string;
   runtime: PlanReviewRuntime;
+  lens: PlanReviewLens;
   isolated: boolean;
+}
+
+export interface PlanReviewSynthesizerSnapshot {
+  /** Server-issued opaque connection selector resolved before persistence. */
+  connectionRef: string;
+  provider: PlanReviewProvider;
+  model: string;
+  runtime: PlanReviewRuntime;
 }
 
 export interface PlanReviewResolution {
@@ -73,6 +104,8 @@ export interface PlanReviewJobSnapshotV2 {
   originalPlan: PlanReviewFrozenPlan;
   requestedCriticCount: 2 | 3 | 4;
   maxRevisions: 1;
+  /** Null is persisted only for a fail-closed skipped admission. */
+  synthesizer: PlanReviewSynthesizerSnapshot | null;
   critics: PlanReviewCriticSnapshot[];
   resolution: PlanReviewResolution;
 }
@@ -83,21 +116,27 @@ export type PlanReviewLegacyJobConfig = { version: 1; enabled?: boolean } & Reco
 export type PlanReviewJobConfig = PlanReviewJobSnapshotV2 | PlanReviewLegacyJobConfig;
 
 export interface PlanReviewCapabilityCandidate {
+  /** Server-issued opaque connection selector. */
+  connectionRef: string;
   provider: PlanReviewProvider;
-  model: string;
+  model: string | null;
   runtime: PlanReviewRuntime;
   supportsIndependentCritics: boolean;
   maxIndependentCritics: number;
 }
 
+export interface PlanReviewCapabilityOption {
+  /** Server-issued opaque connection selector. */
+  connectionRef: string;
+  name: string;
+  provider: PlanReviewProvider;
+  models: readonly string[];
+}
+
 export interface PlanReviewFinding {
   findingId: string;
   criticRef: string;
-  lens:
-    | "architecture_dependencies"
-    | "reliability_tests_dod"
-    | "risk_migration_rollback"
-    | "scope_sequencing_overengineering";
+  lens: PlanReviewLens;
   severity: "critical" | "high" | "medium" | "low" | "info";
   summary: string;
   requirementEvidence: string[];
@@ -111,6 +150,23 @@ export interface PlanReviewFindingDecision {
   evidence: string;
 }
 
+export interface PlanReviewCriticFailure {
+  criticRef: string;
+  category: PlanReviewCriticFailureCategory;
+  reason: string;
+}
+
+export interface PlanReviewCriticOutput {
+  outputVersion: 1;
+  intent: "plan-review-critic";
+  reviewJobId: string;
+  criticRef: string;
+  originalPlanSha256: string;
+  findings: PlanReviewFinding[];
+  outcome: "completed" | "not_completed";
+  rationale: string;
+}
+
 export interface PlanReviewOutput {
   outputVersion: 1;
   intent: "plan-review";
@@ -119,12 +175,20 @@ export interface PlanReviewOutput {
   finalPlan: PlanReviewFrozenPlan;
   findings: PlanReviewFinding[];
   findingDecisions: PlanReviewFindingDecision[];
+  criticFailures?: PlanReviewCriticFailure[];
+  synthesizerFailure?: PlanReviewSynthesizerFailure;
   outcome: PlanReviewOutcome;
   rationale: string;
   revisionCount: 0 | 1;
 }
 
+export interface PlanReviewSynthesizerFailure {
+  category: PlanReviewFailureCategory;
+  reason: string;
+}
+
 const identifier = z.string().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
+const capabilityRef = z.string().regex(/^prs1\.[A-Za-z0-9_-]{43}$/);
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/i).transform((value) => value.toLowerCase());
 
 /** RFC 8785-style key ordering for the JSON-compatible values used here. */
@@ -262,19 +326,39 @@ export const planReviewPolicySchema = z.union([
   z.object({
     enabled: z.literal(false),
     requestedCriticCount: z.union([z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    synthesizerConnectionRef: capabilityRef.optional(),
+    synthesizerModel: identifier.optional(),
   }).strict(),
   z.object({
     enabled: z.literal(true),
     requestedCriticCount: z.union([z.literal(2), z.literal(3), z.literal(4)]),
+    synthesizerConnectionRef: capabilityRef,
+    synthesizerModel: identifier,
   }).strict(),
+]);
+
+const planReviewLensSchema = z.enum([
+  "architecture_dependencies",
+  "reliability_tests_dod",
+  "risk_migration_rollback",
+  "scope_sequencing_overengineering",
 ]);
 
 const criticSnapshotSchema = z.object({
   correlationRef: z.string().regex(/^prc1\.[A-Za-z0-9_-]{43}$/),
+  connectionRef: capabilityRef,
   provider: z.enum(["anthropic", "openai", "google", "zai", "xai"]),
   model: identifier,
-  runtime: z.enum(["opencode", "claude-code", "codex"]),
+  runtime: z.literal("opencode"),
+  lens: planReviewLensSchema,
   isolated: z.boolean(),
+}).strict();
+
+const synthesizerSnapshotSchema = z.object({
+  connectionRef: capabilityRef,
+  provider: z.enum(["anthropic", "openai", "google", "zai", "xai"]),
+  model: identifier,
+  runtime: z.literal("opencode"),
 }).strict();
 
 const resolutionSchema = z.object({
@@ -293,23 +377,48 @@ export const planReviewJobSnapshotSchema = z.object({
   originalPlan: frozenPlanSchema,
   requestedCriticCount: z.union([z.literal(2), z.literal(3), z.literal(4)]),
   maxRevisions: z.literal(1),
+  synthesizer: synthesizerSnapshotSchema.nullable(),
   critics: z.array(criticSnapshotSchema).max(4),
   resolution: resolutionSchema,
 }).strict().superRefine((snapshot, context) => {
-  if (snapshot.resolution.status === "skipped" && snapshot.critics.length > 0) {
-    context.addIssue({ code: "custom", path: ["critics"], message: "Skipped review cannot carry executable critics." });
+  if (snapshot.resolution.status === "skipped") {
+    if (snapshot.critics.length > 0) {
+      context.addIssue({ code: "custom", path: ["critics"], message: "Skipped review cannot carry executable critics." });
+    }
+    if (snapshot.synthesizer !== null) {
+      context.addIssue({ code: "custom", path: ["synthesizer"], message: "Skipped review cannot carry a synthesizer." });
+    }
+  } else {
+    if (snapshot.critics.length < 2) {
+      context.addIssue({ code: "custom", path: ["critics"], message: "Runnable review requires at least two critics." });
+    }
+    if (snapshot.critics.length > snapshot.requestedCriticCount) {
+      context.addIssue({ code: "custom", path: ["critics"], message: "Runnable review cannot execute more critics than requested." });
+    }
+    if (snapshot.synthesizer === null) {
+      context.addIssue({ code: "custom", path: ["synthesizer"], message: "Runnable review requires a synthesizer." });
+    }
+    const criticRefs = new Set(snapshot.critics.map((critic) => critic.correlationRef));
+    if (criticRefs.size !== snapshot.critics.length) {
+      context.addIssue({ code: "custom", path: ["critics"], message: "Runnable review critics require distinct correlation references." });
+    }
+    const lenses = new Set(snapshot.critics.map((critic) => critic.lens));
+    if (lenses.size !== snapshot.critics.length) {
+      context.addIssue({ code: "custom", path: ["critics"], message: "Runnable review critics require distinct assigned lenses." });
+    }
+    if (snapshot.critics.some((critic) => !critic.isolated)) {
+      context.addIssue({ code: "custom", path: ["critics"], message: "Runnable review critics require isolated execution." });
+    }
+    if (snapshot.synthesizer && snapshot.critics.some((critic) => critic.connectionRef === snapshot.synthesizer?.connectionRef)) {
+      context.addIssue({ code: "custom", path: ["critics"], message: "The synthesizer connection cannot also be admitted as a critic." });
+    }
   }
 });
 
 const findingSchema = z.object({
   findingId: identifier,
   criticRef: z.string().regex(/^prc1\.[A-Za-z0-9_-]{43}$/),
-  lens: z.enum([
-    "architecture_dependencies",
-    "reliability_tests_dod",
-    "risk_migration_rollback",
-    "scope_sequencing_overengineering",
-  ]),
+  lens: planReviewLensSchema,
   severity: z.enum(["critical", "high", "medium", "low", "info"]),
   summary: safeFreeText(10_000, "Finding contains sensitive material."),
   requirementEvidence: z.array(safeFreeText(5_000, "Finding evidence contains sensitive material.")).max(20),
@@ -323,6 +432,28 @@ const findingDecisionSchema = z.object({
   evidence: safeFreeText(10_000, "Finding decision contains sensitive material."),
 }).strict();
 
+const criticFailureSchema = z.object({
+  criticRef: z.string().regex(/^prc1\.[A-Za-z0-9_-]{43}$/),
+  category: z.enum(["timeout", "process_lost", "rate_limited", "model_refusal", "unavailable", "malformed_output"]),
+  reason: safeFreeText(1_000, "Critic failure reason contains sensitive material."),
+}).strict();
+
+const synthesizerFailureSchema = z.object({
+  category: z.enum(["timeout", "process_lost", "rate_limited", "model_refusal", "unavailable", "malformed_output"]),
+  reason: safeFreeText(1_000, "Synthesizer failure reason contains sensitive material."),
+}).strict();
+
+const planReviewCriticOutputSchema = z.object({
+  outputVersion: z.literal(1),
+  intent: z.literal("plan-review-critic"),
+  reviewJobId: identifier,
+  criticRef: z.string().regex(/^prc1\.[A-Za-z0-9_-]{43}$/),
+  originalPlanSha256: sha256,
+  findings: z.array(findingSchema).max(100),
+  outcome: z.enum(["completed", "not_completed"]),
+  rationale: safeFreeText(20_000, "Critic rationale contains sensitive material."),
+}).strict();
+
 const planReviewOutputSchema = z.object({
   outputVersion: z.literal(1),
   intent: z.literal("plan-review"),
@@ -331,6 +462,8 @@ const planReviewOutputSchema = z.object({
   finalPlan: frozenPlanSchema,
   findings: z.array(findingSchema).max(100),
   findingDecisions: z.array(findingDecisionSchema).max(100),
+  criticFailures: z.array(criticFailureSchema).max(4).optional(),
+  synthesizerFailure: synthesizerFailureSchema.optional(),
   outcome: z.enum(["accept", "revise", "reject", "skipped_unavailable", "not_completed"]),
   rationale: safeFreeText(20_000, "Plan review rationale contains sensitive material."),
   revisionCount: z.union([z.literal(0), z.literal(1)]),
@@ -364,10 +497,68 @@ export const createPlanReviewOpaqueReference = (input: {
   return `prc1.${digest}`;
 };
 
-const runtimeForProvider = (provider: PlanReviewProvider): PlanReviewRuntime => {
-  if (provider === "anthropic") return "claude-code";
-  if (provider === "openai") return "codex";
+/**
+ * Build the public selector for one exact authorized AI connection.
+ * The connection ID is included only in the server-side digest and is never
+ * returned to the browser, persisted in the Plan Review snapshot, or placed
+ * in a prompt.
+ */
+export const createPlanReviewCapabilityRef = (input: {
+  workspaceId: string;
+  userId: string;
+  connectionId: string;
+  provider: PlanReviewProvider;
+}): string => {
+  const digest = createHash("sha256")
+    .update(canonicalJson({ purpose: "plan-review-synthesizer", ...input }), "utf8")
+    .digest("base64url");
+  return `prs1.${digest}`;
+};
+
+const runtimeForProvider = (): PlanReviewRuntime => {
+  // Plan Review is intentionally native OpenCode. Provider/model selection is
+  // carried by the immutable connection binding and injected into each
+  // isolated OpenCode runtime; never infer a different runtime from provider.
   return "opencode";
+};
+
+const PLAN_REVIEW_LENSES: PlanReviewLens[] = [
+  "architecture_dependencies",
+  "reliability_tests_dod",
+  "risk_migration_rollback",
+  "scope_sequencing_overengineering",
+];
+
+export const resolvePlanReviewSynthesizer = (input: {
+  requestedConnectionRef: string;
+  requestedModel: string;
+  candidates: Array<PlanReviewCapabilityCandidate & { isActive?: boolean; suspendedAt?: Date | null }>;
+}): { synthesizer: PlanReviewSynthesizerSnapshot | null; reason: string } => {
+  const candidate = input.candidates.find((item) =>
+    item.connectionRef === input.requestedConnectionRef &&
+    item.isActive !== false &&
+    item.suspendedAt == null,
+  );
+  const model = candidate ? normalizeAgentModel(candidate.provider, input.requestedModel) : null;
+
+  if (!candidate || !model) {
+    return {
+      synthesizer: null,
+      reason: !candidate
+        ? "The requested synthesizer connection is not active, authorized, or executable."
+        : "The requested synthesizer model is not supported by the selected provider.",
+    };
+  }
+
+  return {
+    synthesizer: {
+      connectionRef: candidate.connectionRef,
+      provider: candidate.provider,
+      model,
+      runtime: runtimeForProvider(),
+    },
+    reason: "The requested synthesizer connection is authorized and executable.",
+  };
 };
 
 export const resolvePlanReviewCritics = (input: {
@@ -380,8 +571,8 @@ export const resolvePlanReviewCritics = (input: {
   const candidates = input.candidates
     .map((candidate) => ({
       ...candidate,
-      model: normalizeAgentModel(candidate.provider, candidate.model) ?? candidate.model,
-      runtime: candidate.runtime || runtimeForProvider(candidate.provider),
+      model: normalizeAgentModel(candidate.provider, candidate.model),
+      runtime: runtimeForProvider(),
       maxIndependentCritics: Math.max(0, Math.min(4, Math.floor(candidate.maxIndependentCritics))),
     }));
 
@@ -395,8 +586,8 @@ export const resolvePlanReviewCritics = (input: {
     };
   }
 
-  const executable = candidates.filter((candidate) =>
-    candidate.supportsIndependentCritics && candidate.maxIndependentCritics > 0,
+  const executable = candidates.filter((candidate): candidate is typeof candidate & { model: string } =>
+    candidate.model !== null && candidate.supportsIndependentCritics && candidate.maxIndependentCritics > 0,
   );
   if (executable.length === 0) {
     return {
@@ -426,13 +617,28 @@ export const resolvePlanReviewCritics = (input: {
           runtime: candidate.runtime,
           criticIndex: selected.length,
         }),
+        connectionRef: candidate.connectionRef,
         provider: candidate.provider,
         model: candidate.model,
         runtime: candidate.runtime,
-        isolated: false,
+        lens: PLAN_REVIEW_LENSES[selected.length]!,
+        isolated: true,
       });
       counts.set(key, current + 1);
     }
+  }
+
+  if (selected.length < 2) {
+    return {
+      critics: [],
+      resolution: {
+        status: "skipped",
+        degradation: {
+          status: "skipped_unavailable",
+          reason: "Fewer than two authorized critics are executable.",
+        },
+      },
+    };
   }
 
   if (selected.length < input.requestedCriticCount) {
@@ -453,7 +659,7 @@ export const resolvePlanReviewCritics = (input: {
   const modelKeys = new Set(selected.map((critic) => `${critic.provider}/${critic.model}/${critic.runtime}`));
   const sameModel = modelKeys.size === 1;
   return {
-    critics: selected.map((critic) => ({ ...critic, isolated: sameModel })),
+    critics: selected.map((critic) => ({ ...critic, isolated: true })),
     resolution: {
       status: sameModel ? "degraded" : "ready",
       degradation: {
@@ -468,6 +674,8 @@ export const buildSkippedPlanReviewResult = (
   reviewJobId: string,
   snapshot: PlanReviewJobSnapshotV2,
   reason: string,
+  criticFailures: PlanReviewCriticFailure[] = [],
+  synthesizerFailure?: PlanReviewSynthesizerFailure,
 ): PlanReviewOutput => ({
   outputVersion: 1,
   intent: "plan-review",
@@ -476,6 +684,8 @@ export const buildSkippedPlanReviewResult = (
   finalPlan: snapshot.originalPlan,
   findings: [],
   findingDecisions: [],
+  criticFailures,
+  ...(synthesizerFailure ? { synthesizerFailure } : {}),
   outcome: "skipped_unavailable",
   rationale: reason,
   revisionCount: 0,
@@ -496,11 +706,59 @@ export const extractPlanReviewOutput = (result: unknown): unknown => {
   if (!result || typeof result !== "object" || Array.isArray(result)) return null;
 
   const record = result as Record<string, unknown>;
+  if (record.intent === "plan-review") return record;
   for (const key of ["planReviewOutput", "output", "planReview"]) {
     if (record[key] !== undefined) return record[key];
   }
   if (typeof record.summary === "string") return parsePlanReviewJson(record.summary);
   return null;
+};
+
+export const extractPlanReviewCriticOutput = (result: unknown): unknown => {
+  if (typeof result === "string") return parsePlanReviewJson(result);
+  if (!result || typeof result !== "object" || Array.isArray(result)) return null;
+
+  const record = result as Record<string, unknown>;
+  if (record.intent === "plan-review-critic") return record;
+  for (const key of ["planReviewCriticOutput", "criticOutput", "output", "planReview"]) {
+    if (record[key] !== undefined) return record[key];
+  }
+  if (typeof record.summary === "string") return parsePlanReviewJson(record.summary);
+  return null;
+};
+
+export const validatePlanReviewCriticOutput = (
+  output: unknown,
+  snapshot: PlanReviewJobSnapshotV2,
+  critic: PlanReviewCriticSnapshot,
+): PlanReviewCriticOutput => {
+  const parsed = planReviewCriticOutputSchema.parse(output);
+  if (parsed.reviewJobId !== snapshot.reviewJobId) throw new Error("Plan review critic job binding mismatch.");
+  if (parsed.criticRef !== critic.correlationRef) throw new Error("Plan review critic binding mismatch.");
+  if (parsed.originalPlanSha256 !== snapshot.originalPlan.sha256) throw new Error("Plan review critic original digest mismatch.");
+  for (const finding of parsed.findings) {
+    if (finding.criticRef !== critic.correlationRef) throw new Error("Plan review finding critic binding mismatch.");
+    if (finding.lens !== critic.lens) throw new Error("Plan review finding lens binding mismatch.");
+  }
+  return parsed;
+};
+
+export const buildPlanReviewSynthesisInput = (
+  snapshot: PlanReviewJobSnapshotV2,
+  criticOutputs: PlanReviewCriticOutput[],
+): string => {
+  const input = {
+    intent: "plan-review-synthesis",
+    reviewJobId: snapshot.reviewJobId,
+    originalPlan: snapshot.originalPlan,
+    originalPlanSha256: snapshot.originalPlan.sha256,
+    criticOutputs,
+  };
+  const serialized = canonicalJson(input);
+  if (containsSensitivePlanContent(serialized)) {
+    throw new Error("Plan review synthesis input contains sensitive material.");
+  }
+  return serialized;
 };
 
 export const sanitizePlanReviewJobResult = (
@@ -567,11 +825,16 @@ export const validatePlanReviewOutput = (
   }
 
   const criticRefs = new Set(snapshot.critics.map((critic) => critic.correlationRef));
+  const criticLenses = new Map(snapshot.critics.map((critic) => [critic.correlationRef, critic.lens]));
   const findingIds = new Set<string>();
   for (const finding of parsed.findings) {
     if (!criticRefs.has(finding.criticRef)) throw new Error("Plan review finding references an unauthorized critic.");
+    if (criticLenses.get(finding.criticRef) !== finding.lens) throw new Error("Plan review finding lens does not match its critic.");
     if (findingIds.has(finding.findingId)) throw new Error("Plan review output contains duplicate findings.");
     findingIds.add(finding.findingId);
+  }
+  for (const failure of parsed.criticFailures ?? []) {
+    if (!criticRefs.has(failure.criticRef)) throw new Error("Plan review failure references an unauthorized critic.");
   }
   if (parsed.findingDecisions.length !== parsed.findings.length) throw new Error("Every plan review finding requires exactly one decision.");
   const decisionIds = new Set(parsed.findingDecisions.map((decision) => decision.findingId));

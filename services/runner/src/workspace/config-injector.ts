@@ -89,7 +89,7 @@ export type InjectedEnvResult = {
   openCodeConfig: ReturnType<typeof buildOpenCodeConfig>;
   /** Raw model ID (e.g. "claude-opus-4-6") without provider prefix. */
   resolvedModel: string;
-  /** Debug metadata about the resolved provider key, for logging. */
+  /** Non-secret metadata about the resolved provider key, for logging. */
   keyDebug?: Record<string, unknown>;
   /** Outcome of resolving the git clone credential. */
   cloneCredential?: CloneCredentialOutcome;
@@ -276,7 +276,7 @@ const providerToApiKeyEnv = (provider: string): string | undefined => {
 
 const providerToKeyProvider = (
   provider: string
-): "anthropic" | "openai" | "openai-compatible" | "zai" | "xai" => {
+): "anthropic" | "openai" | "openai-compatible" | "zai" | "xai" | "google" => {
   switch (resolveProviderKey(provider)) {
     case "anthropic":
     case "claude-code":
@@ -292,6 +292,8 @@ const providerToKeyProvider = (
       return "xai";
     case "openai-compatible":
       return "openai-compatible";
+    case "google":
+      return "google";
     default:
       return "openai";
   }
@@ -313,6 +315,8 @@ const providerToOpenCodeProvider = (provider: string): string => {
       return "openai";
     case "openai-compatible":
       return "openai-compatible";
+    case "google":
+      return "openai-compatible";
     default:
       return "openai";
   }
@@ -328,6 +332,8 @@ const providerFromAiProvider = (aiProvider: string | undefined): string | undefi
       return "zai";
     case "xai":
       return "xai";
+    case "google":
+      return "google";
     default:
       return undefined;
   }
@@ -367,6 +373,8 @@ const defaultSmallModelForProvider = (provider: string): string | undefined => {
 
 const baseUrlForOpenCodeProvider = (provider: string): string | undefined => {
   switch (provider) {
+    case "google":
+      return "https://generativelanguage.googleapis.com/v1beta/openai";
     case "zai-coding-plan":
       return ZAI_CODING_PLAN_BASE_URL;
     case "xai":
@@ -764,7 +772,7 @@ export const buildInjectedEnv = async (
     }
   }
 
-  const authenticatedMcpServers = Object.entries(mcpServers).filter(([_, s]) => 'headers' in s && (s as any).headers?.Authorization);
+  const authenticatedMcpServers = Object.entries(mcpServers).filter(([_, s]) => 'headers' in s && s.headers?.Authorization);
   if (
     !isReadOnlyVisualJudge &&
     authenticatedMcpServers.length === 0 &&
@@ -780,7 +788,8 @@ export const buildInjectedEnv = async (
     model: resolvedModel,
     smallModel: resolvedSmallModel,
     apiKeyEnvVar: keyEnvName,
-    baseUrl: baseUrlForOpenCodeProvider(openCodeProviderName) ??
+    baseUrl: baseUrlForOpenCodeProvider(provider) ??
+      baseUrlForOpenCodeProvider(openCodeProviderName) ??
       (openCodeProviderName === "openai-compatible" ? keys.baseUrl : undefined),
     mcpServers,
     // Forward the resolved reasoning level so OpenCode (grok/zipu) honors it,
@@ -930,16 +939,38 @@ export const buildInjectedEnv = async (
     safeConsole.warn(`[config-injector] No repository.id — skipping GitHub token. repo.url=${input.repository.url}`);
   }
 
-  // Collect debug metadata about the resolved key for job logs
+  // Collect only non-secret metadata about the resolved key for job logs. Do
+  // not copy the API response wholesale: older workers may still receive
+  // token fingerprints from a rolling deployment, and even a prefix/suffix is
+  // secret-derived material.
+  const providerDebug = keys._debug?.[keyProviderName];
+  const safeProviderDebug = providerDebug
+    ? {
+        ...(typeof providerDebug.connectionId === "string"
+          ? { connectionId: providerDebug.connectionId }
+          : {}),
+        ...(typeof providerDebug.connectionName === "string"
+          ? { connectionName: providerDebug.connectionName }
+          : {}),
+        ...(typeof providerDebug.provider === "string"
+          ? { provider: providerDebug.provider }
+          : {}),
+        ...(providerDebug.authMethod === "api_key" || providerDebug.authMethod === "subscription"
+          ? { authMethod: providerDebug.authMethod }
+          : {}),
+        ...(typeof providerDebug.tokenExpiresAt === "string" || providerDebug.tokenExpiresAt === null
+          ? { tokenExpiresAt: providerDebug.tokenExpiresAt }
+          : {}),
+        ...(typeof providerDebug.scope === "string" ? { scope: providerDebug.scope } : {}),
+      }
+    : {};
+
   const keyDebug: Record<string, unknown> = {
+    ...safeProviderDebug,
     keyEnvName,
     authMethod: isAnthropicSubscription ? "subscription" : isCodexSubscription ? "codex_subscription" : "api_key",
-    tokenPrefix: keyValue.slice(0, 8),
-    tokenSuffix: keyValue.slice(-4),
-    tokenLength: keyValue.length,
     codingAgent: jobCodingAgent ?? actualRuntimeExecutor.codingAgent,
     runtimeType: actualRuntimeType,
-    ...(keys._debug ?? {}),
   };
 
   return { env, openCodeConfig, resolvedModel, keyDebug, cloneCredential };

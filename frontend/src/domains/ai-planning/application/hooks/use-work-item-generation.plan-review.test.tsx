@@ -17,6 +17,13 @@ const items: GeneratedWorkItem[] = [
   { tempId: "task-1", type: "task", title: "Task", priority: "medium" },
 ];
 
+const planReview = {
+  enabled: true as const,
+  requestedCriticCount: 2 as const,
+  synthesizerConnectionRef: "prs1.test-synthesizer",
+  synthesizerModel: "claude-sonnet-4-5",
+};
+
 const queuedResponse = (reviewJobId: string, status: "queued" | "pending_review" | "applying" = "queued") => ({
   status,
   reviewJobId,
@@ -98,7 +105,7 @@ describe("useWorkItemGeneration plan-review lifecycle", () => {
     const hook = renderGeneration(api, state, (next) => { state = next; });
 
     await act(async () => {
-      hook.result.current.confirmGeneration("column-1", { enabled: true, requestedCriticCount: 2 });
+      hook.result.current.confirmGeneration("column-1", planReview);
     });
     hook.rerender({ state, sessionId: "session-a" });
     await waitFor(() => expect(state.status).toBe("mismatch"));
@@ -119,7 +126,7 @@ describe("useWorkItemGeneration plan-review lifecycle", () => {
     const hook = renderGeneration(api, state, (next) => { state = next; });
 
     await act(async () => {
-      hook.result.current.confirmGeneration("column-1", { enabled: true, requestedCriticCount: 2 });
+      hook.result.current.confirmGeneration("column-1", planReview);
     });
     hook.rerender({ state, sessionId: "session-a" });
     await waitFor(() => expect(state.status).toBe("polling_failed"));
@@ -208,7 +215,7 @@ describe("useWorkItemGeneration plan-review lifecycle", () => {
     const hook = renderGeneration(api, state, (next) => { state = next; }, createClient(), "session-a");
 
     await act(async () => {
-      hook.result.current.confirmGeneration("column-1", { enabled: true, requestedCriticCount: 2 });
+      hook.result.current.confirmGeneration("column-1", planReview);
     });
     state = { ...INITIAL_PLAN_REVIEW_LIFECYCLE_STATE };
     hook.rerender({ state, sessionId: "session-b" });
@@ -237,7 +244,7 @@ describe("useWorkItemGeneration plan-review lifecycle", () => {
     expect(hook.result.current.isAlreadyCreated).toBe(true);
     expect(hook.result.current.createdItemIds).toEqual(["work-item-1"]);
     await act(async () => {
-      hook.result.current.confirmGeneration("column-1", { enabled: true, requestedCriticCount: 2 });
+      hook.result.current.confirmGeneration("column-1", planReview);
     });
     expect(generateWorkItems).not.toHaveBeenCalled();
     expect(hook.result.current.updateItem("task-1", { title: "Changed" }));
@@ -258,7 +265,7 @@ describe("useWorkItemGeneration plan-review lifecycle", () => {
     const hook = renderGeneration(api, state, (next) => { state = next; }, createClient(), null);
 
     await act(async () => {
-      hook.result.current.confirmGeneration("column-1", { enabled: true, requestedCriticCount: 2 });
+      hook.result.current.confirmGeneration("column-1", planReview);
     });
     await waitFor(() => expect(generateWorkItems).toHaveBeenCalledTimes(1));
 
