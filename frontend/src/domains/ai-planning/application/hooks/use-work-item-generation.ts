@@ -12,6 +12,7 @@ import {
   type PlanReviewLifecycleState,
   type WorkItemPreview,
   type GenerateWorkItemsResponse,
+  type PlanReviewSelection,
 } from "../../domain/types";
 
 const UUID_PREFIX_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-/;
@@ -22,7 +23,7 @@ type PlanReviewStatus = Awaited<ReturnType<typeof aiApi.getPlanReviewStatus>>;
 export type PlanReviewApi = Pick<typeof aiApi, "generateWorkItems" | "getPlanReviewStatus">;
 type GenerateWorkItemsVariables = {
   boardColumnId: string;
-  planReview?: { enabled: true; requestedCriticCount: 2 | 3 | 4 };
+  planReview?: PlanReviewSelection;
   planningSessionId: string | null;
   sessionGeneration: number;
   requestGeneration: number;
@@ -375,7 +376,7 @@ export const useWorkItemGeneration = (
     },
   });
 
-  const confirmGeneration = useCallback((boardColumnId: string, planReview?: { enabled: true; requestedCriticCount: 2 | 3 | 4 }) => {
+  const confirmGeneration = useCallback((boardColumnId: string, planReview?: PlanReviewSelection) => {
     if (isPendingReview) return;
     if (isDurablyReadOnly) {
       queryClient.invalidateQueries({ queryKey: workItemKeys.all });

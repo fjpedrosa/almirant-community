@@ -124,7 +124,7 @@ import { broadcastAgentJobStatusChanged } from "../../../shared/ws/agent-job-eve
 import { resolveAiKey } from "../../ai/shared/services/resolve-ai-key";
 import { upsertNotificationBySource } from "../../../shared/services/notification-service";
 import { refreshConnectionCredentialsIfNeeded } from "../../ai/shared/services/resolve-ai-key";
-import { suspendConnection, getConnectionById } from "@almirant/database";
+import { listConnections, suspendConnection, getConnectionById } from "@almirant/database";
 import { sanitizeLogMessage, sanitizeLogPayload } from "../services/agent-job-log-sanitizer";
 import { autoLinkCommitsToWorkItems } from "../../integrations/github/services/github-webhook-handlers";
 import { deriveJobUsageMetrics } from "../services/job-usage-metrics";
@@ -132,6 +132,7 @@ import { persistJobMemoryFromTerminalState } from "../../../lib/memory/post-job"
 import {
   resolveRuntime,
   decodeAgentPluginBundleDescriptor,
+  createPlanReviewCapabilityRef,
   type AgentRuntimePluginReference,
 } from "@almirant/shared";
 import {
@@ -692,7 +693,7 @@ const broadcastStatusChanged = async (
   });
 };
 
-type ResolvableWorkerProvider = "anthropic" | "openai" | "zai" | "xai";
+type ResolvableWorkerProvider = "anthropic" | "openai" | "google" | "zai" | "xai";
 
 const normalizeWorkerProvider = (provider: string): ResolvableWorkerProvider | null => {
   const normalized = provider.trim().toLowerCase();
@@ -701,6 +702,8 @@ const normalizeWorkerProvider = (provider: string): ResolvableWorkerProvider | n
       return "anthropic";
     case "openai":
       return "openai";
+    case "google":
+      return "google";
     case "openai-compatible":
     case "openai_compatible":
     case "zai":
@@ -711,6 +714,40 @@ const normalizeWorkerProvider = (provider: string): ResolvableWorkerProvider | n
     default:
       return null;
   }
+};
+
+const resolvePlanReviewConnectionId = async (input: {
+  capabilityRef: string | null;
+  workspaceId: string;
+  userId: string | null;
+}): Promise<string | null> => {
+  if (!input.capabilityRef || !input.userId) return null;
+
+  const [organizationConnections, userConnections] = await Promise.all([
+    listConnections({
+      scope: "organization",
+      scopeId: input.workspaceId,
+      category: "ai",
+      isActive: true,
+    }),
+    listConnections({
+      scope: "user",
+      scopeId: input.userId,
+      category: "ai",
+      isActive: true,
+    }),
+  ]);
+
+  const match = [...organizationConnections, ...userConnections].find((connection) => {
+    const provider = normalizeWorkerProvider(String(connection.provider));
+    return connection.isActive === true && connection.suspendedAt === null && provider !== null && createPlanReviewCapabilityRef({
+      workspaceId: input.workspaceId,
+      userId: input.userId!,
+      connectionId: connection.id,
+      provider,
+    }) === input.capabilityRef;
+  });
+  return match?.id ?? null;
 };
 
 const normalizeJobResultPayload = (
@@ -936,7 +973,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       // Admin-pinned connection (set via system_settings.agent_routing for
       // Almirant-internal skills). When supplied, we look it up directly and
       // use its credentials, bypassing the org's default resolution order.
-      const preferredConnectionId = query.preferredConnectionId?.trim() || null;
+       const requestedPreferredConnectionRef = query.preferredConnectionId?.trim() || null;
 
       // Security: derive workspaceId from the API key, falling back to the
       // job's org when a jobId is provided.  Shared/dynamic runners may have an
@@ -947,9 +984,9 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       // org are never leaked to a job from another.
       let createdByUserId = query.createdByUserId?.trim() || null;
       let workspaceId: string | null = workerApiKey!.workspaceId;
-      const jobId = query.jobId?.trim() || null;
+       const jobId = query.jobId?.trim() || null;
 
-      if (jobId) {
+       if (jobId) {
         const job = await getJobById(jobId);
         if (!job) {
           set.status = 404;
@@ -960,11 +997,33 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         // can serve jobs from any workspace.
         if (job.job.workspaceId) {
           workspaceId = job.job.workspaceId;
-        }
-      }
+         }
+       }
 
-      const result: Record<string, unknown> = {};
-      const debugInfo: Record<string, unknown> = {};
+       const job = jobId ? await getJobById(jobId) : null;
+       const jobConfig = job?.job.config && typeof job.job.config === "object" && !Array.isArray(job.job.config)
+         ? job.job.config as unknown as Record<string, unknown>
+         : {};
+       const requiresExactPreferredConnection = jobConfig.planReview !== undefined;
+       if (requiresExactPreferredConnection && !workspaceId) {
+         set.status = 403;
+         return errorResponse("The exact Plan Review connection is not available for this job", 403);
+       }
+       const preferredConnectionId = requiresExactPreferredConnection
+         ? await resolvePlanReviewConnectionId({
+             capabilityRef: requestedPreferredConnectionRef,
+             workspaceId: workspaceId!,
+             userId: createdByUserId,
+           })
+         : requestedPreferredConnectionRef;
+
+       if (requiresExactPreferredConnection && !preferredConnectionId) {
+         set.status = 403;
+         return errorResponse("The exact Plan Review connection is not available for this job", 403);
+       }
+
+       const result: Record<string, unknown> = {};
+       const debugInfo: Record<string, unknown> = {};
 
       for (const provider of uniqueProviders) {
         let connection:
@@ -972,23 +1031,29 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           | null = null;
         let credentials: Record<string, unknown> | null = null;
 
-        // 0. Admin-pinned connection short-circuit. Scoped to the job's org
-        //    so a malformed/forged preferredConnectionId cannot leak
-        //    credentials across orgs. If the pinned connection exists, is
-        //    active, and matches the requested provider, use it directly.
-        //    Otherwise we log a warning and fall through to the normal
-        //    resolution path below so the job still executes.
+        // 0. Admin-pinned connection short-circuit. Scope the lookup to the
+        //    persisted job's organization or requesting user so a forged ID
+        //    cannot cross either authorization boundary.
         if (preferredConnectionId && workspaceId) {
-          const pinned = await getConnectionById(
+          const organizationPinned = await getConnectionById(
             preferredConnectionId,
             env.ENCRYPTION_KEY,
             { scope: "organization", scopeId: workspaceId },
           );
+          const userPinned = !organizationPinned && createdByUserId
+            ? await getConnectionById(
+                preferredConnectionId,
+                env.ENCRYPTION_KEY,
+                { scope: "user", scopeId: createdByUserId },
+              )
+            : null;
+          const pinned = organizationPinned ?? userPinned;
           if (
             pinned &&
             pinned.isActive &&
+            (!requiresExactPreferredConnection || pinned.suspendedAt === null) &&
             pinned.category === "ai" &&
-            pinned.provider === provider &&
+            normalizeWorkerProvider(String(pinned.provider)) === provider &&
             pinned.credentials
           ) {
             connection = pinned;
@@ -997,10 +1062,13 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
               {
                 provider,
                 workspaceId,
-                connectionId: pinned.id,
+                connectionId: requiresExactPreferredConnection ? "plan-review-capability" : pinned.id,
               },
               "provider-keys: using admin-pinned connection",
             );
+          } else if (requiresExactPreferredConnection) {
+            set.status = 403;
+            return errorResponse("The exact Plan Review connection is not available for this job", 403);
           } else {
             logger.warn(
               {
@@ -1201,18 +1269,15 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           result.baseUrl = baseUrlFromConfig ?? baseUrlFromCreds;
         }
 
-        // Build debug metadata for this provider
-        const tokenFingerprint = apiKey.length > 12
-          ? { prefix: apiKey.slice(0, 8), suffix: apiKey.slice(-4) }
-          : { prefix: apiKey.slice(0, 4), suffix: "****" };
+        const debugConnectionId = requiresExactPreferredConnection
+          ? "plan-review-capability"
+          : connection.id;
 
         debugInfo[provider] = {
-          connectionId: connection.id,
+          connectionId: debugConnectionId,
           connectionName: connection.name ?? "unnamed",
           provider,
           authMethod: resolvedAuthMethod,
-          tokenPrefix: tokenFingerprint.prefix,
-          tokenSuffix: tokenFingerprint.suffix,
           tokenExpiresAt: connection.tokenExpiresAt
             ? new Date(connection.tokenExpiresAt).toISOString()
             : null,
@@ -1223,11 +1288,9 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
           {
             jobId: query.jobId,
             provider,
-            connectionId: connection.id,
+            connectionId: debugConnectionId,
             connectionName: connection.name,
             authMethod: resolvedAuthMethod,
-            tokenPrefix: tokenFingerprint.prefix,
-            tokenSuffix: tokenFingerprint.suffix,
             tokenExpiresAt: connection.tokenExpiresAt
               ? new Date(connection.tokenExpiresAt).toISOString()
               : null,

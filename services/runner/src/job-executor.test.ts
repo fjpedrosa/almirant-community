@@ -1,6 +1,18 @@
 import { describe, expect, it } from "bun:test";
-import { resolveTeardownFailureEvent } from "./job-executor";
+import {
+  resolveTeardownFailureEvent,
+  shouldPrepareParentRuntime,
+} from "./job-executor";
 import { classifyContainerFailure } from "./shared/failure-signal";
+
+describe("native Plan Review parent runtime preparation", () => {
+  it("bypasses the parent runtime only for ready native reviews", () => {
+    expect(shouldPrepareParentRuntime({ jobType: "review", planReviewStatus: "ready" })).toBe(false);
+    expect(shouldPrepareParentRuntime({ jobType: "review", planReviewStatus: "skipped_unavailable" })).toBe(true);
+    expect(shouldPrepareParentRuntime({ jobType: "implementation", planReviewStatus: "ready" })).toBe(true);
+    expect(shouldPrepareParentRuntime({ jobType: "review" })).toBe(true);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // resolveTeardownFailureEvent — the teardown-time event-emission decision

@@ -7,11 +7,15 @@ import {
 import {
   buildSkippedPlanReviewResult,
   canonicalizePlanReviewPlan,
+  createPlanReviewCapabilityRef,
+  getAgentModels,
   normalizeAgentModel,
   planReviewJobSnapshotSchema,
   planReviewPolicySchema,
+  resolvePlanReviewSynthesizer,
   resolvePlanReviewCritics,
   type PlanReviewCapabilityCandidate,
+  type PlanReviewCapabilityOption,
   type PlanReviewJobSnapshotV2,
   type PlanReviewProvider,
   type PlanReviewRuntime,
@@ -21,16 +25,22 @@ import { generateWorkItems, aiWorkItemsPayloadSchema } from "../../shared/servic
 
 export const planReviewRequestSchema = planReviewPolicySchema;
 
-type PlanReviewConnection = Pick<ProviderConnection, "provider" | "config" | "suspendedAt">;
+type PlanReviewConnection = Pick<
+  ProviderConnection,
+  "id" | "name" | "provider" | "config" | "suspendedAt" | "isActive"
+>;
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
-const getConfiguredModel = (connection: PlanReviewConnection): string | null => {
+/** Resolve a critic candidate's dedicated Plan Review model only. */
+const getConfiguredCriticModel = (connection: PlanReviewConnection): string | null => {
   const config = asRecord(connection.config);
-  const configured = [config.planReviewModel, config.planningModel, config.implementationModel]
-    .find((value): value is string => typeof value === "string" && value.trim().length > 0);
-  return normalizeAgentModel(String(connection.provider), configured);
+  const configured = config.planReviewModel;
+  return normalizeAgentModel(
+    String(connection.provider),
+    typeof configured === "string" ? configured : null,
+  );
 };
 
 const asPlanReviewProvider = (provider: string): PlanReviewProvider | null =>
@@ -38,28 +48,63 @@ const asPlanReviewProvider = (provider: string): PlanReviewProvider | null =>
     ? provider
     : null;
 
-const runtimeForProvider = (provider: PlanReviewProvider): PlanReviewRuntime =>
-  provider === "anthropic" ? "claude-code" : provider === "openai" ? "codex" : "opencode";
+const runtimeForProvider = (): PlanReviewRuntime => "opencode";
 
 const agentProviderForRuntime = (runtime: PlanReviewRuntime): "claude-code" | "codex" | "zipu" | "grok" =>
   runtime === "claude-code" ? "claude-code" : runtime === "codex" ? "codex" : "zipu";
 
-const capabilityCandidates = (connections: PlanReviewConnection[]): PlanReviewCapabilityCandidate[] => connections
-  .filter((connection) => connection.suspendedAt === null)
+const capabilityCandidates = (
+  connections: PlanReviewConnection[],
+  workspaceId: string,
+  userId: string,
+): PlanReviewCapabilityCandidate[] => connections
+  .filter((connection) => connection.isActive && connection.suspendedAt === null)
   .flatMap((connection) => {
     const provider = asPlanReviewProvider(String(connection.provider));
-    const model = getConfiguredModel(connection);
-    if (!provider || !model) return [];
+    const model = getConfiguredCriticModel(connection);
+    if (!provider) return [];
     return [{
       provider,
+      connectionRef: createPlanReviewCapabilityRef({
+        workspaceId,
+        userId,
+        connectionId: connection.id,
+        provider,
+      }),
       model,
-      runtime: runtimeForProvider(provider),
-      // Community has no independent critic fan-out boundary yet. Record this
-      // explicitly rather than pretending one ordinary session is many critics.
-      supportsIndependentCritics: false,
-      maxIndependentCritics: 0,
+      runtime: runtimeForProvider(),
+      supportsIndependentCritics: true,
+      maxIndependentCritics: 4,
     }];
   });
+
+const capabilityOptions = (
+  connections: PlanReviewConnection[],
+  workspaceId: string,
+  userId: string,
+): PlanReviewCapabilityOption[] => {
+  const seen = new Set<string>();
+  return connections
+    .filter((connection) => connection.isActive && connection.suspendedAt === null)
+    .flatMap((connection) => {
+      const provider = asPlanReviewProvider(String(connection.provider));
+      if (!provider) return [];
+      const connectionRef = createPlanReviewCapabilityRef({
+        workspaceId,
+        userId,
+        connectionId: connection.id,
+        provider,
+      });
+      if (seen.has(connectionRef)) return [];
+      seen.add(connectionRef);
+      return [{
+        connectionRef,
+        name: connection.name,
+        provider,
+        models: getAgentModels(provider),
+      }];
+    });
+};
 
 export type CreatePlanReviewAdmissionInput = {
   workspaceId: string;
@@ -90,6 +135,17 @@ const defaultPlanReviewAdmissionDependencies: PlanReviewAdmissionDependencies = 
   generateWorkItems,
 };
 
+export const listPlanReviewCapabilities = async (
+  input: { workspaceId: string; userId: string },
+  dependencies: Pick<PlanReviewAdmissionDependencies, "listConnections"> = defaultPlanReviewAdmissionDependencies,
+): Promise<PlanReviewCapabilityOption[]> => {
+  const [workspaceConnections, userConnections] = await Promise.all([
+    dependencies.listConnections({ scope: "organization", scopeId: input.workspaceId, category: "ai", isActive: true }),
+    dependencies.listConnections({ scope: "user", scopeId: input.userId, category: "ai", isActive: true }),
+  ]);
+  return capabilityOptions([...workspaceConnections, ...userConnections], input.workspaceId, input.userId);
+};
+
 export const admitPlanReviewJob = async (
   input: CreatePlanReviewAdmissionInput,
   dependencies: PlanReviewAdmissionDependencies = defaultPlanReviewAdmissionDependencies,
@@ -103,14 +159,37 @@ export const admitPlanReviewJob = async (
     dependencies.listConnections({ scope: "organization", scopeId: input.workspaceId, category: "ai", isActive: true }),
     dependencies.listConnections({ scope: "user", scopeId: input.userId, category: "ai", isActive: true }),
   ]);
-  const candidates = capabilityCandidates([...workspaceConnections, ...userConnections]);
-  const { critics, resolution } = resolvePlanReviewCritics({
+  const candidates = capabilityCandidates(
+    [...workspaceConnections, ...userConnections],
+    input.workspaceId,
+    input.userId,
+  );
+  const synthesizerResolution = resolvePlanReviewSynthesizer({
+    requestedConnectionRef: parsedPolicy.synthesizerConnectionRef,
+    requestedModel: parsedPolicy.synthesizerModel,
+    candidates,
+  });
+  const criticCandidates = candidates.filter(
+    (candidate) => candidate.connectionRef !== parsedPolicy.synthesizerConnectionRef,
+  );
+  const criticResolution = resolvePlanReviewCritics({
     workspaceId: input.workspaceId,
     userId: input.userId,
     reviewJobId,
     requestedCriticCount: parsedPolicy.requestedCriticCount,
-    candidates,
+    candidates: criticCandidates,
   });
+  const resolution = synthesizerResolution.synthesizer === null
+    ? {
+        status: "skipped" as const,
+        degradation: {
+          status: "skipped_unavailable" as const,
+          reason: synthesizerResolution.reason,
+        },
+      }
+    : criticResolution.resolution;
+  const critics = resolution.status === "skipped" ? [] : criticResolution.critics;
+  const synthesizer = resolution.status === "skipped" ? null : synthesizerResolution.synthesizer;
 
   const snapshot: PlanReviewJobSnapshotV2 = {
     version: 2,
@@ -120,6 +199,7 @@ export const admitPlanReviewJob = async (
     originalPlan,
     requestedCriticCount: parsedPolicy.requestedCriticCount,
     maxRevisions: 1,
+    synthesizer,
     critics,
     resolution,
   };
@@ -163,6 +243,7 @@ export const admitPlanReviewJob = async (
         sessionMode: "review",
         requestedByUserId: input.userId,
         planningSessionId: input.planningSessionId,
+        providerConnectionId: skipped ? undefined : primary?.connectionRef,
         planReview: validatedSnapshot,
       },
     },

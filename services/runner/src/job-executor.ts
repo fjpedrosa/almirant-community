@@ -3,7 +3,7 @@ import {
   type AlmirantWorkerClient,
   type ClaimedJob,
   type WorkItemDetails,
-  type OpenCodeSessionManager,
+  createOpenCodeSessionManager,
 } from "@almirant/remote-agent";
 import {
   createStreamPublisher,
@@ -115,6 +115,14 @@ import {
 import { DEFAULT_PRE_SESSION_TIMEOUT_MS } from "./shared/timeout";
 import type { QuotaPauseRequest } from "./shared/quota-pause";
 import { runWithPreSessionWatchdog } from "./orchestration/pre-session-watchdog";
+import {
+  executePlanReviewPrompt,
+  normalizePlanReviewSnapshotForRunner,
+  runPlanReviewFanout,
+} from "./plan-review/index";
+import type { PlanReviewExecutionRequest } from "./plan-review/index";
+import { resolveAgentEgressPolicy } from "./workspace/agent-egress-policy";
+import { randomUUID } from "node:crypto";
 
 // skillLabel removed — replaced by templateLabel() from job-intent.ts
 
@@ -168,6 +176,9 @@ type JobExecutorConfig = {
   webOutputEnabled?: boolean;
   /** Path to baked platform config (skills, CLAUDE.md, AGENTS.md). Used to read SKILL.md for Codex. */
   platformConfigPath?: string;
+  agentEgressNetwork?: string;
+  agentEgressProxyUrl?: string;
+  agentControlNetwork?: string;
 };
 
 type JobExecutorDeps = {
@@ -298,6 +309,8 @@ type JobExecutionContext = {
    * Community-native execution deadline plugs into.
    */
   executionBoundary: ExecutionBoundary;
+  agentEgressNetwork?: string;
+  agentEgressProxyUrl?: string;
   /** Null in legacy mode (older API without receipt-capable claims). */
   sequenceReceipt: DurableSequenceReceipt | null;
 };
@@ -336,6 +349,17 @@ const isPhaseTimeoutError = (error: unknown): boolean =>
   error !== null &&
   "code" in error &&
   (error as { code?: unknown }).code === "phase_timeout";
+
+type NativePlanReviewStatus = "ready" | "skipped_unavailable";
+
+/**
+ * A ready native review owns its child runtimes. The parent must not resolve
+ * credentials, prepare a workspace, or start a second runtime of its own.
+ */
+export const shouldPrepareParentRuntime = (input: {
+  jobType?: string | null;
+  planReviewStatus?: NativePlanReviewStatus;
+}): boolean => input.jobType !== "review" || input.planReviewStatus !== "ready";
 
 // ---------------------------------------------------------------------------
 // JobExecutor
@@ -555,8 +579,16 @@ export const createJobExecutor = (
 
     try {
       await claimAndResolve(ctx);
-      await preparePrFirstFlow(ctx);
-      await prepareContainer(ctx);
+      const nativePlanReviewStatus =
+        job.jobType === "review" && ctx.jobConfig.planReview !== undefined
+          ? normalizePlanReviewSnapshotForRunner(ctx.jobConfig.planReview).status
+          : undefined;
+      if (shouldPrepareParentRuntime({ jobType: job.jobType, planReviewStatus: nativePlanReviewStatus })) {
+        await preparePrFirstFlow(ctx);
+        await prepareContainer(ctx);
+      } else {
+        await prepareNativePlanReviewNetworkPolicy(ctx);
+      }
       setupIntervals(ctx);
 
       if (ctx.initialJobConfig.isPrewarm === true) {
@@ -761,6 +793,32 @@ export const createJobExecutor = (
       sequenceNumber: nextSequence(),
       event: { kind: "system.info", message: `Runner claimed ${ctx.humanTaskId}. Preparing workspace...` },
     });
+
+    const nativePlanReviewNormalization =
+      job.jobType === "review" && ctx.jobConfig.planReview !== undefined
+        ? normalizePlanReviewSnapshotForRunner(ctx.jobConfig.planReview)
+        : null;
+    if (nativePlanReviewNormalization?.status === "ready") {
+      const snapshot = nativePlanReviewNormalization.snapshot;
+      ctx.effectiveJobType = "review";
+      ctx.jobCodingAgent = "opencode";
+      ctx.skillName = "plan-review";
+      ctx.workspace = { kind: "empty_workspace", source: "implicit" };
+      ctx.repositoryOverride = { workspaceKind: "empty_workspace" };
+      ctx.evidenceArtifacts = [];
+      ctx.resolvedModel = snapshot.synthesizer?.model ?? "";
+      ctx.runtimeExecutor = runtimeExecutorRegistry.resolve({
+        provider: "openai",
+        codingAgent: "opencode",
+      });
+      ctx.runtimeConfig = ctx.runtimeExecutor.resolveRuntimeConfig({
+        opencodeImage: config.opencodeImage,
+        claudeShimImage: config.claudeShimImage,
+        codexShimImage: config.codexShimImage,
+        servePort: OPENCODE_SERVE_PORT,
+      });
+      return;
+    }
 
     const { jobConfig } = ctx;
 
@@ -1544,6 +1602,30 @@ export const createJobExecutor = (
     });
   }
 
+  const prepareNativePlanReviewNetworkPolicy = async (ctx: JobExecutionContext): Promise<void> => {
+    if (containerManager.capabilities.networking !== "bridge") return;
+
+    const egressPolicy = resolveAgentEgressPolicy(ctx.job, {
+      networkName: config.agentEgressNetwork,
+      proxyUrl: config.agentEgressProxyUrl,
+    });
+    if (
+      !containerManager.resolveAgentEgressProxy ||
+      !containerManager.assertAgentControlNetwork ||
+      !containerManager.assertContainerNetworkIsolation ||
+      !config.agentControlNetwork
+    ) {
+      throw new Error("Native Plan Review requires verified agent egress and control networks");
+    }
+
+    ctx.agentEgressNetwork = egressPolicy.networkName;
+    await containerManager.assertAgentControlNetwork(config.agentControlNetwork);
+    ctx.agentEgressProxyUrl = await containerManager.resolveAgentEgressProxy(
+      egressPolicy.networkName,
+      egressPolicy.proxyUrl,
+    );
+  };
+
   // ---------------------------------------------------------------------------
   // Phase 5: Setup intervals — checkpoint, heartbeat, token refresh
   // ---------------------------------------------------------------------------
@@ -1552,7 +1634,7 @@ export const createJobExecutor = (
     const { job, eventLogger } = ctx;
 
     // Start checkpoint interval — persists workspace to S3 periodically.
-    if (ctx.evidenceArtifacts.length === 0) {
+    if (ctx.evidenceArtifacts.length === 0 && ctx.containerId) {
       const checkpointContainerId = ctx.containerId;
       const checkpointJobId = job.id;
       const checkpointOrgId = ctx.orgId;
@@ -1760,6 +1842,142 @@ export const createJobExecutor = (
   // ---------------------------------------------------------------------------
 
   const executeSession = async (ctx: JobExecutionContext): Promise<SessionExecutionResult> => {
+    const planReviewConfig = ctx.jobConfig.planReview;
+    if (ctx.job.jobType === "review" && planReviewConfig !== undefined) {
+      const normalized = normalizePlanReviewSnapshotForRunner(planReviewConfig);
+      if (normalized.status !== "ready") {
+        throw new Error(`Plan review job is not runnable: ${normalized.reason}`);
+      }
+
+      const snapshot = normalized.snapshot;
+      const executeIsolatedPrompt = async ({ role, authority, input }: PlanReviewExecutionRequest): Promise<unknown> => {
+        const childRuntimeId = randomUUID();
+        const childJob = {
+          ...ctx.job,
+          id: childRuntimeId,
+          provider: "zipu" as const,
+          codingAgent: "opencode" as const,
+          aiProvider: authority.provider,
+          model: authority.model,
+          jobType: "review" as const,
+          config: {
+            ...ctx.jobConfig,
+            planReview: snapshot,
+            providerConnectionId: authority.connectionRef,
+            skillName: undefined,
+            prompt: undefined,
+            mcpServers: undefined,
+            selectedMcpServerIds: undefined,
+            selectedPluginIds: undefined,
+            workspaceIntent: "read-only" as const,
+            sessionMode: "review" as const,
+          },
+        } as typeof ctx.job;
+        const credentialJob = { ...childJob, id: ctx.job.id };
+        const requestSignal = ctx.executionBoundary.signal(
+          ctx.executionBoundary.timeoutMs(10 * 60_000),
+        );
+        let childContainerId: string | null = null;
+
+        try {
+          const childInjection = await buildInjectedEnv({
+            workerClient,
+            job: credentialJob,
+            repository: { workspaceKind: "empty_workspace" },
+            apiBaseUrl: config.apiBaseUrl,
+            model: authority.model,
+            registerSensitiveValue: (label, value) => {
+              ctx.secretRedactor.register(`plan_review_${childRuntimeId}_${label}`, value);
+            },
+          });
+          const childRuntimeConfig = ctx.runtimeExecutor!.resolveRuntimeConfig({
+            opencodeImage: config.opencodeImage,
+            claudeShimImage: config.claudeShimImage,
+            codexShimImage: config.codexShimImage,
+            servePort: OPENCODE_SERVE_PORT,
+          });
+          const childSpec = buildContainerSpecForJob(
+            childJob,
+            null,
+            childRuntimeConfig,
+            childInjection.env,
+            childInjection.openCodeConfig,
+            "tmpfs",
+            ctx.agentEgressProxyUrl,
+          );
+
+          await containerManager.pullImage(childSpec.image);
+          childContainerId = await containerManager.createContainer(childRuntimeId, childSpec);
+
+          if (containerManager.capabilities.networking === "bridge") {
+            if (!ctx.agentEgressNetwork || !config.agentControlNetwork) {
+              throw new Error("Plan Review isolated runtime networks are unavailable");
+            }
+            await containerManager.connectToNetwork(childContainerId, ctx.agentEgressNetwork);
+            await containerManager.connectToNetwork(childContainerId, config.agentControlNetwork);
+            await containerManager.assertContainerNetworkIsolation?.(
+              childContainerId,
+              config.agentControlNetwork,
+              [ctx.agentEgressNetwork],
+            );
+          } else {
+            const runnerNetwork = await containerManager.getRunnerNetworkName();
+            if (runnerNetwork) await containerManager.connectToNetwork(childContainerId, runnerNetwork);
+          }
+
+          await containerManager.startContainer(childContainerId);
+          const childIp = await containerManager.getContainerIp(
+            childContainerId,
+            containerManager.capabilities.networking === "bridge"
+              ? config.agentControlNetwork
+              : undefined,
+          );
+          const baseUrl = `http://${childIp}:${OPENCODE_SERVE_PORT}`;
+          await waitForServeReadyFn(baseUrl, childContainerId);
+          const sessionManager = createOpenCodeSessionManager({
+            baseUrl,
+            timeoutMs: ctx.executionBoundary.timeoutMs(30_000),
+          });
+          return executePlanReviewPrompt({
+            sessionManager,
+            prompt: input,
+            requestOptions: {
+              signal: requestSignal,
+              timeoutMs: ctx.executionBoundary.timeoutMs(30_000),
+            },
+          });
+        } catch (error) {
+          ctx.eventLogger.warn(
+            "plan-review",
+            "plan_review.isolated_runtime_failed",
+            "An isolated Plan Review runtime failed closed",
+            { role, errorMessage: error instanceof Error ? error.message : String(error) },
+          );
+          throw error;
+        } finally {
+          if (childContainerId) {
+            await containerManager.stopContainer(childContainerId, 5_000).catch(() => undefined);
+            await containerManager.removeContainer(childContainerId, true).catch(() => undefined);
+          }
+        }
+      };
+
+      const output = await runPlanReviewFanout({
+        snapshot,
+        execute: executeIsolatedPrompt,
+        maxConcurrency: 4,
+        signal: ctx.executionBoundary.signal(
+          ctx.executionBoundary.timeoutMs(config.overallTimeoutMs ?? 3 * 60 * 60_000),
+        ),
+      });
+      return {
+        success: true,
+        sessionId: `plan-review:${ctx.job.id}`,
+        summary: JSON.stringify({ planReviewOutput: output }),
+        completionState: "complete",
+      };
+    }
+
     return runServeSessionWrapper({
       baseUrl: ctx.containerServeBaseUrl!,
       containerId: ctx.containerId,
@@ -2469,6 +2687,7 @@ export const createJobExecutor = (
     injectedEnv: Record<string, string>,
     openCodeConfig: Awaited<ReturnType<typeof buildInjectedEnv>>["openCodeConfig"],
     workspaceMountMode: "bind" | "tmpfs",
+    egressProxyUrl?: string,
   ): RunnerContainerSpec => {
     return buildContainerSpec({
       job,
@@ -2478,6 +2697,7 @@ export const createJobExecutor = (
       openCodeConfig,
       workspaceMountMode,
       reposHostPath: config.reposHostPath,
+      egressProxyUrl,
     });
   };
 

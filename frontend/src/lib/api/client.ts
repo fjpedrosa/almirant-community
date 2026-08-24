@@ -11,6 +11,7 @@ import type {
   GenerateWorkItemsRequest,
   GenerateWorkItemsResponse,
   GenerateWorkItemsPendingReviewResponse,
+  PlanReviewCapabilityOption,
 } from "@/domains/ai-planning/domain/types";
 import type { SkillInterviewMessageRole } from "@/domains/skill-interview/domain/types";
 import type {
@@ -1225,6 +1226,11 @@ export const aiApi = {
   getPlanReviewStatus: (jobId: string) =>
     request<GenerateWorkItemsPendingReviewResponse>(
       `/ai/chat/generate/review/${encodeURIComponent(jobId)}`,
+    ),
+
+  getPlanReviewCapabilities: () =>
+    request<PlanReviewCapabilityOption[]>(
+      "/ai/chat/generate/plan-review/capabilities",
     ),
 
   transcribeAudio: async (audioBlob: Blob, language?: string) => {

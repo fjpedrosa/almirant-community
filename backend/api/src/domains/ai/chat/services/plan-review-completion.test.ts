@@ -69,6 +69,7 @@ const criticRef = createPlanReviewOpaqueReference({
   runtime: "codex",
   criticIndex: 0,
 });
+const capabilityRef = (value: string): string => `prs1.${value.repeat(43).slice(0, 43)}`;
 const snapshot = planReviewJobSnapshotSchema.parse({
   version: 2,
   intent: "plan-review",
@@ -77,7 +78,40 @@ const snapshot = planReviewJobSnapshotSchema.parse({
   originalPlan,
   requestedCriticCount: 2,
   maxRevisions: 1,
-  critics: [{ correlationRef: criticRef, provider: "openai", model: "gpt-5.4", runtime: "codex", isolated: false }],
+  synthesizer: {
+    connectionRef: capabilityRef("synth"),
+    provider: "openai",
+    model: "gpt-5.4",
+    runtime: "opencode",
+  },
+  critics: [
+    {
+      correlationRef: criticRef,
+      connectionRef: capabilityRef("critic-0"),
+      provider: "openai",
+      model: "gpt-5.4",
+      runtime: "opencode",
+      lens: "architecture_dependencies",
+      isolated: true,
+    },
+    {
+      correlationRef: createPlanReviewOpaqueReference({
+        workspaceId: "workspace-1",
+        userId: "user-1",
+        reviewJobId: "job-review",
+        provider: "openai",
+        model: "gpt-5.4",
+        runtime: "opencode",
+        criticIndex: 1,
+      }),
+      connectionRef: capabilityRef("critic-1"),
+      provider: "openai",
+      model: "gpt-5.4",
+      runtime: "opencode",
+      lens: "reliability_tests_dod",
+      isolated: true,
+    },
+  ],
   resolution: { status: "ready", degradation: { status: "none", reason: "ready" } },
 });
 

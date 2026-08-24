@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { GenerationConfirmPanelProps } from "../../domain/types";
 
 mock.module("next-intl", () => ({
@@ -10,6 +10,21 @@ mock.module("./work-item-preview-tree", () => ({
   WorkItemPreviewTree: ({ readOnly }: { readOnly?: boolean }) => (
     <div data-testid="preview-tree" data-read-only={readOnly ? "true" : "false"} />
   ),
+}));
+
+const synthesizerCapability = {
+  connectionRef: "prs1.test-synthesizer",
+  name: "Team Synthesizer",
+  provider: "anthropic" as const,
+  models: ["claude-sonnet-4-5"],
+};
+
+let capabilities = [synthesizerCapability];
+
+mock.module("@/lib/api/client", () => ({
+  aiApi: {
+    getPlanReviewCapabilities: async () => capabilities,
+  },
 }));
 
 const { GenerationConfirmPanel } = await import("./generation-confirm-panel-view");
@@ -26,8 +41,12 @@ const baseProps = (): GenerationConfirmPanelProps => ({
 
 afterAll(() => mock.restore());
 
+beforeEach(() => {
+  capabilities = [synthesizerCapability];
+});
+
 describe("GenerationConfirmPanel plan-review states", () => {
-  test("shows persistent retry UI after mismatch or polling failure", () => {
+  test("shows persistent retry UI after mismatch or polling failure", async () => {
     const onConfirm = mock(() => {});
     render(
       <GenerationConfirmPanel
@@ -38,8 +57,21 @@ describe("GenerationConfirmPanel plan-review states", () => {
     );
 
     expect(screen.getByRole("alert")).toHaveTextContent("Review status could not be verified.");
+    fireEvent.click(screen.getByRole("checkbox"));
+    await waitFor(() => expect(screen.getByLabelText("synthesizerConnection")).not.toBeDisabled());
+    fireEvent.change(screen.getByLabelText("synthesizerConnection"), {
+      target: { value: "prs1.test-synthesizer" },
+    });
+    fireEvent.change(screen.getByLabelText("synthesizerModel"), {
+      target: { value: "claude-sonnet-4-5" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "retryPlanReview" }));
-    expect(onConfirm).toHaveBeenCalledWith({ enabled: true, requestedCriticCount: 2 });
+    expect(onConfirm).toHaveBeenCalledWith({
+      enabled: true,
+      requestedCriticCount: 2,
+      synthesizerConnectionRef: "prs1.test-synthesizer",
+      synthesizerModel: "claude-sonnet-4-5",
+    });
   });
 
   test("freezes queued previews and renders applied previews read-only", () => {
@@ -50,5 +82,33 @@ describe("GenerationConfirmPanel plan-review states", () => {
     rerender(<GenerationConfirmPanel {...baseProps()} isAlreadyCreated />);
     expect(screen.getByTestId("preview-tree")).toHaveAttribute("data-read-only", "true");
     expect(screen.getByRole("button", { name: "done" })).toBeInTheDocument();
+  });
+
+  test("does not auto-select a synthesizer or submit review before explicit choices", async () => {
+    const onConfirm = mock(() => {});
+    render(<GenerationConfirmPanel {...baseProps()} onConfirm={onConfirm} />);
+
+    fireEvent.click(screen.getByRole("checkbox"));
+    await waitFor(() => expect(screen.getByLabelText("synthesizerConnection")).not.toBeDisabled());
+
+    expect((screen.getByLabelText("synthesizerConnection") as HTMLSelectElement).value).toBe("");
+    expect((screen.getByLabelText("synthesizerModel") as HTMLSelectElement).value).toBe("");
+
+    const createButton = screen.getByRole("button", { name: /createAll/ });
+    expect(createButton).toBeDisabled();
+    fireEvent.click(createButton);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  test("keeps review disabled and reports an empty capability state", async () => {
+    capabilities = [];
+    const onConfirm = mock(() => {});
+    render(<GenerationConfirmPanel {...baseProps()} onConfirm={onConfirm} />);
+
+    fireEvent.click(screen.getByRole("checkbox"));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("noSynthesizerCapabilities"));
+
+    expect(screen.getByRole("button", { name: /createAll/ })).toBeDisabled();
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 });

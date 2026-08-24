@@ -203,7 +203,7 @@ export const usePlanningPageLayout = () => {
   }
 
   // ----- Confirm generation -----
-  const handleConfirmGeneration = useCallback((planReview?: { enabled: true; requestedCriticCount: 2 | 3 | 4 }) => {
+  const handleConfirmGeneration = useCallback((planReview?: Parameters<typeof generation.confirmGeneration>[1]) => {
     if (!activeColumnId) return;
     generation.confirmGeneration(activeColumnId, planReview);
   }, [activeColumnId, generation]);

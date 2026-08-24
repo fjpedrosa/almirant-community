@@ -16,6 +16,7 @@ const snapshot = planReviewJobSnapshotSchema.parse({
   }),
   requestedCriticCount: 2,
   maxRevisions: 1,
+  synthesizer: null,
   critics: [],
   resolution: {
     status: "skipped",

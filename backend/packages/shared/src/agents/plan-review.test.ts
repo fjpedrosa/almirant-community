@@ -25,6 +25,25 @@ const plan = {
   dependencies: [{ blockedTempId: "task-1", blockedByTempId: "story-1" }],
 };
 
+const capabilityRef = (value: string): string => `prs1.${value.repeat(43).slice(0, 43)}`;
+const critic = (index: number, lens: "architecture_dependencies" | "reliability_tests_dod") => ({
+  correlationRef: createPlanReviewOpaqueReference({
+    workspaceId: "workspace-1",
+    userId: "user-1",
+    reviewJobId: "job-ready-1",
+    provider: "openai",
+    model: "gpt-5.6-sol",
+    runtime: "opencode",
+    criticIndex: index,
+  }),
+  connectionRef: capabilityRef(`critic-${index}`),
+  provider: "openai" as const,
+  model: "gpt-5.6-sol",
+  runtime: "opencode" as const,
+  lens,
+  isolated: true,
+});
+
 const readySnapshot = planReviewJobSnapshotSchema.parse({
   version: 2,
   intent: "plan-review",
@@ -33,7 +52,13 @@ const readySnapshot = planReviewJobSnapshotSchema.parse({
   originalPlan: canonicalizePlanReviewPlan(plan),
   requestedCriticCount: 2,
   maxRevisions: 1,
-  critics: [],
+  synthesizer: {
+    connectionRef: capabilityRef("synth"),
+    provider: "openai",
+    model: "gpt-5.6-sol",
+    runtime: "opencode",
+  },
+  critics: [critic(0, "architecture_dependencies"), critic(1, "reliability_tests_dod")],
   resolution: {
     status: "ready",
     degradation: { status: "none", reason: "Heterogeneous authorized critics are executable." },
@@ -131,6 +156,7 @@ describe("v2 plan-review contract", () => {
       ...readySnapshot,
       reviewJobId: "job-skipped-1",
       critics: [],
+      synthesizer: null,
       resolution: {
         status: "skipped",
         degradation: { status: "skipped_unavailable", reason: "native fan-out unavailable" },

@@ -32,10 +32,34 @@ import {
   generateWorkItems,
   aiWorkItemsArraySchema,
 } from "../../shared/services/work-item-generator";
-import { admitPlanReviewJob } from "../services/plan-review-admission";
+import {
+  admitPlanReviewJob,
+  listPlanReviewCapabilities,
+} from "../services/plan-review-admission";
 import { applyPlanReviewTerminalJob } from "../services/plan-review-completion";
 
 const WORK_ITEMS_BLOCK_REGEX = /```work-items\s*([\s\S]*?)```/;
+const PLAN_REVIEW_CAPABILITY_REF_PATTERN = "^prs1\\.[A-Za-z0-9_-]{43}$";
+const PLAN_REVIEW_MODEL_PATTERN = "^[A-Za-z0-9][A-Za-z0-9._:-]*$";
+const PLAN_REVIEW_CRITIC_COUNT_SCHEMA = t.Union([
+  t.Literal(2),
+  t.Literal(3),
+  t.Literal(4),
+]);
+const planReviewRequestBodySchema = t.Union([
+  t.Object({
+    enabled: t.Literal(false),
+    requestedCriticCount: t.Optional(PLAN_REVIEW_CRITIC_COUNT_SCHEMA),
+    synthesizerConnectionRef: t.Optional(t.String({ pattern: PLAN_REVIEW_CAPABILITY_REF_PATTERN })),
+    synthesizerModel: t.Optional(t.String({ minLength: 1, maxLength: 200, pattern: PLAN_REVIEW_MODEL_PATTERN })),
+  }),
+  t.Object({
+    enabled: t.Literal(true),
+    requestedCriticCount: PLAN_REVIEW_CRITIC_COUNT_SCHEMA,
+    synthesizerConnectionRef: t.String({ pattern: PLAN_REVIEW_CAPABILITY_REF_PATTERN }),
+    synthesizerModel: t.String({ minLength: 1, maxLength: 200, pattern: PLAN_REVIEW_MODEL_PATTERN }),
+  }),
+]);
 
 const planReviewStatusResponse = (admission: Awaited<ReturnType<typeof getPlanReviewAdmissionByJobId>>) => {
   if (!admission) return null;
@@ -353,6 +377,17 @@ export const aiChatRoutes = new Elysia({ prefix: "/ai/chat" })
     params: t.Object({ jobId: t.String() }),
   })
 
+  // GET /ai/chat/generate/plan-review/capabilities — List safe server-issued
+  // selectors for exact synthesizer connections. Raw connection IDs/config are
+  // intentionally not returned to the browser.
+  .get("/generate/plan-review/capabilities", async ({ activeWorkspace, user }) => {
+    const capabilities = await listPlanReviewCapabilities({
+      workspaceId: activeWorkspace!.id,
+      userId: user!.id,
+    });
+    return successResponse(capabilities);
+  })
+
   // POST /ai/chat/generate — Generate work items from AI output
   .post("/generate", async ({ body, set, activeWorkspace, user }) => {
     try {
@@ -478,9 +513,6 @@ export const aiChatRoutes = new Elysia({ prefix: "/ai/chat" })
       boardId: t.String(),
       boardColumnId: t.String(),
       planningSessionId: t.String(),
-      planReview: t.Optional(t.Object({
-        enabled: t.Boolean(),
-        requestedCriticCount: t.Optional(t.Union([t.Literal(2), t.Literal(3), t.Literal(4)])),
-      })),
+       planReview: t.Optional(planReviewRequestBodySchema),
     }),
   });
