@@ -14,6 +14,7 @@ describe("normalizeAiConnectionConfig", () => {
         baseUrl: `${ZAI_CODING_PLAN_BASE_URL}/`,
         planningModel: " GLM-5.2 ",
         implementationModel: "glm-5.1",
+        planReviewModel: " GLM-5.1 ",
         planningReasoningBudget: "MAX",
       },
     })).toMatchObject({
@@ -21,6 +22,7 @@ describe("normalizeAiConnectionConfig", () => {
       baseUrl: ZAI_CODING_PLAN_BASE_URL,
       planningModel: "glm-5.2",
       implementationModel: "glm-5.1",
+      planReviewModel: "glm-5.1",
       planningReasoningBudget: "max",
     });
   });
@@ -57,6 +59,14 @@ describe("normalizeAiConnectionConfig", () => {
         validationReasoningBudget: "high",
       },
     })).toThrow(/reasoning/i);
+  });
+
+  it("rejects an unsupported Plan Review critic model", () => {
+    expect(() => normalizeAiConnectionConfig({
+      provider: "openai",
+      category: "ai",
+      config: { planReviewModel: "not-a-supported-model" },
+    })).toThrow(/model/i);
   });
 
   it("leaves non-AI connection metadata untouched", () => {

@@ -596,6 +596,9 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
         if (body.validationModel !== undefined) {
           nextConfig.validationModel = body.validationModel;
         }
+        if (body.planReviewModel !== undefined) {
+          nextConfig.planReviewModel = body.planReviewModel;
+        }
         if (body.planningReasoningBudget !== undefined) {
           nextConfig.planningReasoningBudget = body.planningReasoningBudget;
         }
@@ -660,6 +663,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
         planningModel: t.Optional(t.String()),
         implementationModel: t.Optional(t.String()),
         validationModel: t.Optional(t.String()),
+        planReviewModel: t.Optional(t.String()),
         planningReasoningBudget: t.Optional(t.String()),
         implementationReasoningBudget: t.Optional(t.String()),
         validationReasoningBudget: t.Optional(t.String()),
@@ -714,6 +718,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
           body.planningModel !== undefined ||
           body.implementationModel !== undefined ||
           body.validationModel !== undefined ||
+          body.planReviewModel !== undefined ||
           body.planningReasoningBudget !== undefined ||
           body.implementationReasoningBudget !== undefined ||
           body.validationReasoningBudget !== undefined ||
@@ -733,6 +738,9 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
                   : {}),
                 ...(body.validationModel !== undefined
                   ? { validationModel: body.validationModel }
+                  : {}),
+                ...(body.planReviewModel !== undefined
+                  ? { planReviewModel: body.planReviewModel }
                   : {}),
                 ...(body.planningReasoningBudget !== undefined
                   ? { planningReasoningBudget: body.planningReasoningBudget }
@@ -810,6 +818,7 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
         planningModel: t.Optional(t.String()),
         implementationModel: t.Optional(t.String()),
         validationModel: t.Optional(t.String()),
+        planReviewModel: t.Optional(t.String()),
         planningReasoningBudget: t.Optional(t.String()),
         implementationReasoningBudget: t.Optional(t.String()),
         validationReasoningBudget: t.Optional(t.String()),

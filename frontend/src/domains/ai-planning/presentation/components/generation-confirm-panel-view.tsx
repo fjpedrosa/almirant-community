@@ -36,6 +36,7 @@ export const GenerationConfirmPanel: React.FC<GenerationConfirmPanelProps> = ({
   const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null);
   const [selectedConnectionRef, setSelectedConnectionRef] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
+  const [requestedCriticCount, setRequestedCriticCount] = useState<PlanReviewSelection["requestedCriticCount"]>(2);
 
   useEffect(() => {
     if (!shouldShowGenerationReviewControls(isAlreadyCreated, isPendingReview)) {
@@ -65,7 +66,7 @@ export const GenerationConfirmPanel: React.FC<GenerationConfirmPanelProps> = ({
   const planReview: PlanReviewSelection | undefined = selectedCapability && selectedModel && selectedCapability.models.includes(selectedModel)
     ? {
         enabled: true,
-        requestedCriticCount: 2,
+        requestedCriticCount,
         synthesizerConnectionRef: selectedCapability.connectionRef,
         synthesizerModel: selectedModel,
       }
@@ -133,6 +134,23 @@ export const GenerationConfirmPanel: React.FC<GenerationConfirmPanelProps> = ({
           </label>
           {reviewEnabled && (
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <label className="grid gap-1 text-xs font-medium" htmlFor="plan-review-critic-count">
+                {t("criticCount")}
+                <select
+                  id="plan-review-critic-count"
+                  className="h-9 rounded-md border border-input bg-background px-2 text-sm font-normal"
+                  value={requestedCriticCount}
+                  onChange={(event) => setRequestedCriticCount(Number(event.target.value) as PlanReviewSelection["requestedCriticCount"])}
+                  disabled={isConfirming || isPendingReview || capabilitiesLoading || !!capabilitiesError}
+                >
+                  {[2, 3, 4].map((count) => (
+                    <option key={count} value={count}>
+                      {t("criticCountOption", { count })}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs font-normal text-muted-foreground">{t("criticCountHint")}</span>
+              </label>
               <label className="grid gap-1 text-xs font-medium" htmlFor="plan-review-synthesizer">
                 {t("synthesizerConnection")}
                 <select

@@ -45,13 +45,14 @@ export interface ProviderPanelHookReturn {
     planningModel: string;
     implementationModel: string;
     validationModel: string;
+    planReviewModel: string;
     planningReasoningBudget: string;
     implementationReasoningBudget: string;
     validationReasoningBudget: string;
   };
   hasModelChanges: boolean;
   isSavingModelSettings: boolean;
-  handleModelSettingChange: (field: "planningModel" | "implementationModel" | "validationModel" | "planningReasoningBudget" | "implementationReasoningBudget" | "validationReasoningBudget", value: string) => void;
+  handleModelSettingChange: (field: "planningModel" | "implementationModel" | "validationModel" | "planReviewModel" | "planningReasoningBudget" | "implementationReasoningBudget" | "validationReasoningBudget", value: string) => void;
   handleSaveModelSettings: () => Promise<void>;
   isModelsSectionExpanded: boolean;
   setModelsSectionExpanded: (expanded: boolean) => void;
@@ -156,6 +157,7 @@ const readConnectionModels = (connection: ProviderConnection | null) => {
     planningModel: typeof config.planningModel === "string" ? config.planningModel : "",
     implementationModel: typeof config.implementationModel === "string" ? config.implementationModel : "",
     validationModel: typeof config.validationModel === "string" ? config.validationModel : "",
+    planReviewModel: typeof config.planReviewModel === "string" ? config.planReviewModel : "",
     planningReasoningBudget: typeof config.planningReasoningBudget === "string" ? config.planningReasoningBudget : "",
     implementationReasoningBudget: typeof config.implementationReasoningBudget === "string" ? config.implementationReasoningBudget : "",
     validationReasoningBudget: typeof config.validationReasoningBudget === "string" ? config.validationReasoningBudget : "",
@@ -182,6 +184,7 @@ export const useProviderPanel = (panelState: ProviderPanelState | null): Provide
     planningModel: "",
     implementationModel: "",
     validationModel: "",
+    planReviewModel: "",
     planningReasoningBudget: "",
     implementationReasoningBudget: "",
     validationReasoningBudget: "",
@@ -267,6 +270,7 @@ export const useProviderPanel = (panelState: ProviderPanelState | null): Provide
     modelSettings.planningModel !== sourceModelSettings.planningModel ||
     modelSettings.implementationModel !== sourceModelSettings.implementationModel ||
     modelSettings.validationModel !== sourceModelSettings.validationModel ||
+    modelSettings.planReviewModel !== sourceModelSettings.planReviewModel ||
     modelSettings.planningReasoningBudget !== sourceModelSettings.planningReasoningBudget ||
     modelSettings.implementationReasoningBudget !== sourceModelSettings.implementationReasoningBudget ||
     modelSettings.validationReasoningBudget !== sourceModelSettings.validationReasoningBudget;
@@ -423,7 +427,7 @@ export const useProviderPanel = (panelState: ProviderPanelState | null): Provide
   );
 
   const handleModelSettingChange = useCallback(
-    (field: "planningModel" | "implementationModel" | "validationModel" | "planningReasoningBudget" | "implementationReasoningBudget" | "validationReasoningBudget", value: string) => {
+    (field: "planningModel" | "implementationModel" | "validationModel" | "planReviewModel" | "planningReasoningBudget" | "implementationReasoningBudget" | "validationReasoningBudget", value: string) => {
       setModelSettings((previous) => {
         const next = { ...previous, [field]: value };
         const reasoningField = field === "planningModel"
@@ -465,6 +469,10 @@ export const useProviderPanel = (panelState: ProviderPanelState | null): Provide
           panelState.provider,
           modelSettings.validationModel,
         );
+        const planReviewModel = normalizeAiConnectionModel(
+          panelState.provider,
+          modelSettings.planReviewModel,
+        );
         const planningReasoningBudget = normalizeConnectionReasoning(
           panelState.provider,
           planningModel,
@@ -497,6 +505,12 @@ export const useProviderPanel = (panelState: ProviderPanelState | null): Provide
           existingConfig.validationModel = validationModel;
         } else {
           delete existingConfig.validationModel;
+        }
+
+        if (planReviewModel) {
+          existingConfig.planReviewModel = planReviewModel;
+        } else {
+          delete existingConfig.planReviewModel;
         }
 
         if (planningReasoningBudget) {
