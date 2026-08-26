@@ -1,14 +1,137 @@
 import { describe, expect, test } from "bun:test";
 import {
+  CODING_AGENT_OPTIONS,
   agentProviderToAiProvider,
   defaultCodingAgentForProvider,
   getModelsForAgentProvider,
   getProvidersForAgent,
+  getRuntimeCapabilityTuples,
   isSingleProviderAgent,
+  resolveRuntimeCapabilityAdmission,
+  resolveRuntimeCapabilityPolicy,
+  runtimeCapabilityProjection,
+  type CodingAgent,
 } from "./coding-agent-compatibility";
 import { getModelsForProvider } from "@/lib/ai-models-catalog";
+import generatedProjection from "@/generated/runtime-capability-projection.v1.json";
 
 describe("coding agent compatibility", () => {
+  test("consumes the generated projection with its exact schema, version, and hash", () => {
+    expect(JSON.stringify(runtimeCapabilityProjection)).toBe(
+      JSON.stringify(generatedProjection),
+    );
+    expect(runtimeCapabilityProjection.schemaVersion).toBe(
+      "runtime-capability-projection-v1",
+    );
+    expect(runtimeCapabilityProjection.version).toBe(1);
+    expect(generatedProjection.hash).toBe(runtimeCapabilityProjection.hash);
+    expect(runtimeCapabilityProjection.hash).toMatch(/^sha256:[a-f0-9]{64}$/);
+  });
+
+  test("offers Pi only for the admitted Z.AI GLM-5.3 tuple", () => {
+    const pi: CodingAgent = "pi";
+    const admittedPiTuples = getRuntimeCapabilityTuples({
+      codingAgent: pi,
+      admissionEnabled: true,
+    });
+
+    expect(runtimeCapabilityProjection.codingAgents).toContain(pi);
+    expect(admittedPiTuples.map((tuple) => ({
+      aiProvider: tuple.aiProvider,
+      model: tuple.model,
+    }))).toEqual([{ aiProvider: "zai", model: "glm-5.3" }]);
+    expect(getRuntimeCapabilityTuples({
+      codingAgent: pi,
+      aiProvider: "google",
+      admissionEnabled: true,
+    })).toEqual([]);
+    expect(getProvidersForAgent(pi)).toEqual(["zipu"]);
+    expect(isSingleProviderAgent(pi)).toBe(true);
+    expect(CODING_AGENT_OPTIONS.map((option) => option.agent)).toEqual([
+      "claude-code",
+      "codex",
+      "opencode",
+      "pi",
+    ]);
+  });
+
+  test("resolves compatibility and rejection reasons from the projected contract", () => {
+    expect(resolveRuntimeCapabilityAdmission({
+      codingAgent: "pi",
+      aiProvider: "zai",
+      model: "glm-5.3",
+      authClass: "api_key",
+      capabilities: [],
+    })).toMatchObject({ admitted: true });
+
+    expect(resolveRuntimeCapabilityAdmission({
+      codingAgent: "pi",
+      aiProvider: "custom",
+      model: "custom-model",
+      authClass: "api_key",
+      capabilities: [],
+      customProvider: true,
+    })).toMatchObject({
+      admitted: false,
+      code: "PI_CUSTOM_PROVIDER_DISABLED",
+      dimension: "aiProvider",
+    });
+
+    expect(resolveRuntimeCapabilityAdmission({
+      codingAgent: "pi",
+      aiProvider: "zai",
+      model: "glm-5.2",
+      authClass: "api_key",
+      capabilities: [],
+    })).toMatchObject({
+      admitted: false,
+      code: "RUNTIME_ADMISSION_DISABLED",
+      dimension: "model",
+    });
+
+    expect(resolveRuntimeCapabilityAdmission({
+      codingAgent: "pi",
+      aiProvider: "zai",
+      model: "glm-5.3",
+      authClass: "provider_oauth",
+      capabilities: [],
+    })).toMatchObject({
+      admitted: false,
+      code: "PI_AUTH_PROVIDER_OAUTH_DISABLED",
+      dimension: "authClass",
+    });
+
+    expect(resolveRuntimeCapabilityAdmission({
+      codingAgent: "pi",
+      aiProvider: "zai",
+      model: "glm-5.3",
+      authClass: "api_key",
+      capabilities: ["browser"],
+    })).toMatchObject({
+      admitted: false,
+      code: "PI_CAPABILITY_BROWSER_DISABLED",
+      dimension: "capability",
+      value: "browser",
+    });
+    expect(resolveRuntimeCapabilityPolicy("pi", "extensions")).toEqual({
+      available: false,
+      code: "PI_CAPABILITY_EXTENSIONS_DISABLED",
+      capability: "extensions",
+    });
+    expect(resolveRuntimeCapabilityPolicy("pi", "mcp")).toEqual({
+      available: false,
+      code: "PI_CAPABILITY_MCP_DISABLED",
+      capability: "mcp",
+    });
+  });
+
+  test("resolves models by exact coding-agent and legacy provider tuple", () => {
+    expect(
+      getModelsForAgentProvider("pi", "zipu").map((model) => model.id),
+    ).toEqual(["glm-5.3"]);
+    expect(getModelsForAgentProvider("pi", "claude-code")).toEqual([]);
+  });
+
   test("Claude Code accepts Anthropic and z.ai", () => {
     const providers = getProvidersForAgent("claude-code");
     expect(providers).toEqual(["claude-code", "zipu"]);
@@ -30,7 +153,7 @@ describe("coding agent compatibility", () => {
   });
 
   test("Claude Code exposes the Claude 5 wave models in its catalog", () => {
-    const modelIds = getModelsForAgentProvider("claude-code").map((m) => m.id);
+    const modelIds = getModelsForAgentProvider("claude-code", "claude-code").map((m) => m.id);
     expect(modelIds).toContain("claude-opus-5");
     expect(modelIds).toContain("claude-opus-4-8");
     expect(modelIds).toContain("claude-fable-5");
@@ -42,7 +165,7 @@ describe("coding agent compatibility", () => {
   });
 
   test("Claude Code defaults to Opus 5 (first catalog entry), with Fable 5 selectable but not default", () => {
-    const models = getModelsForAgentProvider("claude-code");
+    const models = getModelsForAgentProvider("claude-code", "claude-code");
     // use-model-selector picks availableModels[0] as the default selection.
     expect(models[0]?.id).toBe("claude-opus-5");
     expect(models[0]?.category).toBe("best");
@@ -53,7 +176,7 @@ describe("coding agent compatibility", () => {
   });
 
   test("Codex exposes the GPT-5.6 family and defaults to Sol", () => {
-    const models = getModelsForAgentProvider("codex");
+    const models = getModelsForAgentProvider("codex", "codex");
     expect(models.slice(0, 3).map((model) => model.id)).toEqual([
       "gpt-5.6-sol",
       "gpt-5.6-terra",
@@ -62,9 +185,10 @@ describe("coding agent compatibility", () => {
   });
 
   test("z.ai agent runtimes expose the Coding Plan entitlement, not API-only VLMs", () => {
-    const codingPlanModelIds = getModelsForAgentProvider("zipu").map((model) => model.id);
+    const codingPlanModelIds = getModelsForAgentProvider("claude-code", "zipu").map((model) => model.id);
 
     expect(codingPlanModelIds).toEqual([
+      "glm-5.3",
       "glm-5.2",
       "glm-5.1",
       "glm-5",

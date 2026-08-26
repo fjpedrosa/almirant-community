@@ -9,11 +9,12 @@ import {
 } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { getModelsGroupedByCategory, findModelById } from "@/lib/ai-models-catalog";
+import { findModelById } from "@/lib/ai-models-catalog";
 import type { ModelDefinition } from "@/domains/integrations/domain/types";
 import { CODING_AGENT_ICON_MAP, getProviderIcon } from "@/domains/shared/presentation/utils/provider-icons";
 import {
   CODING_AGENT_OPTIONS,
+  getModelsForAgentProvider,
   getProvidersForAgent,
   agentProviderToAiProvider,
 } from "@/domains/agents/domain/coding-agent-compatibility";
@@ -62,9 +63,33 @@ export const ModelFloatingSelector: React.FC<ModelFloatingSelectorProps> = ({
   const compatibleKeys = useMemo(() => {
     if (!pickedAgent) return providerKeys;
     const compatibleAgentProviders = getProvidersForAgent(pickedAgent);
-    const compatibleAiProviders = compatibleAgentProviders.map(agentProviderToAiProvider);
-    return providerKeys.filter((k) => compatibleAiProviders.includes(k.provider));
+    const compatibleAiProviders = new Set<string>(
+      compatibleAgentProviders.map(agentProviderToAiProvider),
+    );
+    return providerKeys.filter((k) => compatibleAiProviders.has(k.provider));
   }, [pickedAgent, providerKeys]);
+
+  const selectedKey = useMemo(
+    () => providerKeys.find((key) => key.id === selectedKeyId) ?? null,
+    [providerKeys, selectedKeyId],
+  );
+  const modelCodingAgent = pickedAgent ?? selectedCodingAgent ?? null;
+  const exactModels = useMemo(() => {
+    if (!modelCodingAgent || !selectedKey) return [];
+    const agentProvider = getProvidersForAgent(modelCodingAgent).find(
+      (provider) => agentProviderToAiProvider(provider) === selectedKey.provider,
+    );
+    if (!agentProvider) return [];
+    return getModelsForAgentProvider(modelCodingAgent, agentProvider);
+  }, [modelCodingAgent, selectedKey]);
+  const modelsGrouped = useMemo(
+    () => exactModels.reduce((grouped, model) => {
+      if (!grouped[model.category]) grouped[model.category] = [];
+      grouped[model.category].push(model);
+      return grouped;
+    }, {} as Record<string, ModelDefinition[]>),
+    [exactModels],
+  );
 
   const resetState = useCallback(() => {
     setStep("agent");
@@ -85,8 +110,10 @@ export const ModelFloatingSelector: React.FC<ModelFloatingSelectorProps> = ({
       onCodingAgentChange?.(agent);
 
       const compatibleAgentProviders = getProvidersForAgent(agent);
-      const compatibleAiProviders = compatibleAgentProviders.map(agentProviderToAiProvider);
-      const keys = providerKeys.filter((k) => compatibleAiProviders.includes(k.provider));
+      const compatibleAiProviders = new Set<string>(
+        compatibleAgentProviders.map(agentProviderToAiProvider),
+      );
+      const keys = providerKeys.filter((k) => compatibleAiProviders.has(k.provider));
 
       if (keys.length === 1) {
         onKeyChange(keys[0].id);
@@ -108,11 +135,12 @@ export const ModelFloatingSelector: React.FC<ModelFloatingSelectorProps> = ({
 
   const handleModelClick = useCallback(
     (model: string) => {
+      if (!exactModels.some((candidate) => candidate.id === model)) return;
       onModelChange(model);
       setIsOpen(false);
       resetState();
     },
-    [onModelChange, resetState]
+    [exactModels, onModelChange, resetState]
   );
 
   const handleBack = useCallback(() => {
@@ -134,6 +162,7 @@ export const ModelFloatingSelector: React.FC<ModelFloatingSelectorProps> = ({
   const isReadOnly = isSessionActive || isSessionCompleted;
   const modelDef = selectedModel ? findModelById(selectedModel) : null;
   const displayLabel = modelDef?.displayName || selectedModel || t("model");
+  const readonlyDisplayLabel = activeModelLabel || selectedModel || t("model");
 
   const positionClass = isSidebarOpen ? "left-4" : "left-12";
   const topClass = "top-14 md:top-3";
@@ -147,7 +176,7 @@ export const ModelFloatingSelector: React.FC<ModelFloatingSelectorProps> = ({
         <span className="inline-flex items-center gap-1.5 rounded-full bg-accent backdrop-blur-sm border border-border/50 px-3 h-8 text-sm text-muted-foreground shadow-sm">
           {agentLabel && <span className="text-foreground">{agentLabel}</span>}
           {agentLabel && <span className="opacity-40">/</span>}
-          {displayLabel}
+          {readonlyDisplayLabel}
         </span>
       </div>
     );
@@ -165,11 +194,6 @@ export const ModelFloatingSelector: React.FC<ModelFloatingSelectorProps> = ({
       </div>
     );
   }
-
-  const selectedKey = providerKeys.find((k) => k.id === selectedKeyId);
-  const modelsGrouped = selectedKey
-    ? getModelsGroupedByCategory(selectedKey.provider)
-    : {};
 
   const agentLabel = selectedCodingAgent
     ? CODING_AGENT_OPTIONS.find((o) => o.agent === selectedCodingAgent)?.label

@@ -1,103 +1,41 @@
-export type AgentAiProvider = "anthropic" | "openai" | "google" | "zai" | "xai";
+import {
+  runtimeCapabilityRegistry,
+  type RuntimeAiProvider,
+} from "./runtime-capability-registry";
 
-const MODEL_CATALOG: Record<AgentAiProvider, readonly string[]> = {
-  anthropic: [
-    "claude-opus-5",
-    "claude-opus-4-8",
-    "claude-fable-5",
-    "claude-opus-4-7",
-    "claude-sonnet-5",
-    "claude-haiku-4-5",
-    // Kept for existing connections and scheduled-agent configurations.
-    "claude-opus-4-6",
-    "claude-sonnet-4-6",
-    "claude-opus-4-5",
-    "claude-sonnet-4-5",
-  ],
-  openai: [
-    "gpt-5.6",
-    "gpt-5.6-sol",
-    "gpt-5.6-terra",
-    "gpt-5.6-luna",
-    "gpt-5.5",
-    "gpt-5.5-pro",
-    "gpt-5.4",
-    "gpt-5.4-pro",
-    "gpt-5.4-mini",
-    "gpt-5.4-nano",
-    "gpt-5.3-codex",
-    "gpt-4.1",
-    "gpt-4.1-mini",
-  ],
-  google: [
-    "gemini-3.1-pro-preview",
-    "gemini-3.5-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-3-flash-preview",
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-  ],
-  // Agent execution with Z.AI uses the Coding Plan endpoint. General API/VLM
-  // slugs are deliberately absent even if the generic catalogue knows them.
-  zai: [
-    "glm-5.2",
-    "glm-5.1",
-    "glm-5",
-    "glm-5-turbo",
-    "glm-4.7",
-    "glm-4.6",
-    "glm-4.5",
-    "glm-4.5-air",
-  ],
-  xai: [
-    "grok-4.3",
-    "grok-4.20-reasoning",
-    "grok-4.20-multi-agent",
-    "grok-4.20",
-    "grok-build-0.1",
-  ],
-};
+export type AgentAiProvider = RuntimeAiProvider;
 
-const DEFAULT_MODELS: Record<AgentAiProvider, string> = {
-  anthropic: "claude-opus-5",
-  openai: "gpt-5.6-sol",
-  google: "gemini-3.1-pro-preview",
-  zai: "glm-5.2",
-  xai: "grok-4.3",
-};
-
-const CURRENT_OPENAI = new Set([
-  "gpt-5.6",
-  "gpt-5.6-sol",
-  "gpt-5.6-terra",
-  "gpt-5.6-luna",
-  "gpt-5.5",
-  "gpt-5.4",
-  "gpt-5.4-mini",
-  "gpt-5.4-nano",
-  "gpt-5.3-codex",
-]);
-const PRO_OPENAI = new Set(["gpt-5.5-pro", "gpt-5.4-pro"]);
-
-const normalizeProvider = (provider: string | null | undefined): AgentAiProvider | null => {
+/**
+ * Legacy provider normalization for persisted rows and callers predating exact
+ * runtime admission. Modern requests must use runtimeCapabilityRegistry.admit().
+ */
+const normalizeLegacyProvider = (
+  provider: string | null | undefined,
+): AgentAiProvider | null => {
   const value = provider?.trim().toLowerCase();
   if (value === "zipu") return "zai";
   if (value === "grok") return "xai";
-  return value === "anthropic" || value === "openai" || value === "google" ||
-    value === "zai" || value === "xai"
-    ? value
+  return runtimeCapabilityRegistry.aiProviders.some((entry) => entry === value)
+    ? (value as AgentAiProvider)
     : null;
 };
 
+/**
+ * Legacy model facade. It deliberately preserves historical trim/lowercase
+ * behavior, while all authoritative model data comes from the runtime registry.
+ * Modern admission is exact, case-sensitive, and never rewrites an explicit ID.
+ */
 export const normalizeAgentModel = (
   provider: string | null | undefined,
   model: string | null | undefined,
 ): string | null => {
-  const normalizedProvider = normalizeProvider(provider);
+  const normalizedProvider = normalizeLegacyProvider(provider);
   const normalizedModel = model?.trim().toLowerCase();
   if (!normalizedProvider || !normalizedModel) return null;
-  return MODEL_CATALOG[normalizedProvider].includes(normalizedModel)
+
+  return runtimeCapabilityRegistry
+    .getModels(normalizedProvider)
+    .some((entry) => entry.id === normalizedModel)
     ? normalizedModel
     : null;
 };
@@ -105,8 +43,10 @@ export const normalizeAgentModel = (
 export const getDefaultAgentModel = (
   provider: string | null | undefined,
 ): string | null => {
-  const normalizedProvider = normalizeProvider(provider);
-  return normalizedProvider ? DEFAULT_MODELS[normalizedProvider] : null;
+  const normalizedProvider = normalizeLegacyProvider(provider);
+  return normalizedProvider
+    ? runtimeCapabilityRegistry.getDefaultModel(normalizedProvider)
+    : null;
 };
 
 /**
@@ -117,42 +57,24 @@ export const getAgentModelReasoningEfforts = (
   provider: string | null | undefined,
   model: string | null | undefined,
 ): readonly string[] | null => {
-  const normalizedProvider = normalizeProvider(provider);
+  const normalizedProvider = normalizeLegacyProvider(provider);
   if (!normalizedProvider) return null;
   const normalizedModel = normalizeAgentModel(normalizedProvider, model);
   if (!normalizedModel) return null;
 
-  if (normalizedProvider === "openai") {
-    if (PRO_OPENAI.has(normalizedModel)) return ["medium", "high", "xhigh"];
-    if (CURRENT_OPENAI.has(normalizedModel)) return ["low", "medium", "high", "xhigh"];
-    return [];
-  }
-
-  if (normalizedProvider === "anthropic") {
-    if (normalizedModel.includes("haiku")) return [];
-    if (/claude-(?:opus|sonnet)-4-6/.test(normalizedModel)) {
-      return ["low", "medium", "high", "max"];
-    }
-    // Keep in sync with supportsCurrentClaudeEffort in
-    // frontend/src/lib/ai-model-reasoning.ts, which gates the same set for the
-    // effort selector. A model listed there but not here fails runtime
-    // validation; here but not there renders an empty selector.
-    if (/claude-(?:fable-5|opus-5|opus-4-(?:7|8)|sonnet-5)/.test(normalizedModel)) {
-      return ["low", "medium", "high", "xhigh", "max"];
-    }
-    return [];
-  }
-
-  if (normalizedProvider === "zai" && normalizedModel === "glm-5.2") {
-    return ["high", "max"];
-  }
-
-  return [];
+  return runtimeCapabilityRegistry.getReasoningEfforts(
+    normalizedProvider,
+    normalizedModel,
+  );
 };
 
 export const getAgentModels = (
   provider: string | null | undefined,
 ): readonly string[] => {
-  const normalizedProvider = normalizeProvider(provider);
-  return normalizedProvider ? MODEL_CATALOG[normalizedProvider] : [];
+  const normalizedProvider = normalizeLegacyProvider(provider);
+  return normalizedProvider
+    ? runtimeCapabilityRegistry
+        .getModels(normalizedProvider)
+        .map((entry) => entry.id)
+    : [];
 };

@@ -407,6 +407,7 @@ export const CODING_AGENT_ICON_MAP: Record<CodingAgent, IconComponent> = {
   "claude-code": ClaudeCodeIcon,
   "codex": CodexIcon,
   "opencode": OpenCodeIcon,
+  "pi": Cpu,
 };
 
 export const getCodingAgentIcon = (agent: CodingAgent): IconComponent =>

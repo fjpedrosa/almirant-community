@@ -1,4 +1,6 @@
+import { getRuntimeCapabilityTuples } from "@/domains/agents/domain/coding-agent-compatibility";
 import type { ReasoningBudget } from "@/domains/integrations/domain/types";
+import generatedProjection from "@/generated/runtime-capability-projection.v1.json";
 
 export type ReasoningEffortOption = {
   value: ReasoningBudget;
@@ -6,8 +8,8 @@ export type ReasoningEffortOption = {
 };
 
 type ReasoningEffortContext = {
-  codingAgent?: "claude-code" | "codex" | "opencode" | string | null;
-  aiProvider?: "anthropic" | "openai" | "zai" | "xai" | string | null;
+  codingAgent?: string | null;
+  aiProvider?: string | null;
   model?: string | null;
 };
 
@@ -19,72 +21,59 @@ const options = (
     label: value === "xhigh" ? "XHigh" : `${value[0]?.toUpperCase()}${value.slice(1)}`,
   }));
 
-// `none` means omitting modelReasoningEffort in codex-sdk. The SDK's typed
-// ThreadOptions cannot serialize GPT-5.6's API-only `max`, and `minimal` is not
-// a documented effort for the current selectable GPT models.
-const CODEX_CURRENT_EFFORTS = options(["low", "medium", "high", "xhigh"]);
-const CODEX_PRO_EFFORTS = options(["medium", "high", "xhigh"]);
-const CLAUDE_CURRENT_EFFORTS = options(["low", "medium", "high", "xhigh", "max"]);
-const CLAUDE_46_EFFORTS = options(["low", "medium", "high", "max"]);
-const GLM_52_CODING_PLAN_EFFORTS = options(["high", "max"]);
-
-const CODEX_CURRENT_MODELS = new Set([
-  "gpt-5.6",
-  "gpt-5.6-sol",
-  "gpt-5.6-terra",
-  "gpt-5.6-luna",
-  "gpt-5.5",
-  "gpt-5.4",
-  "gpt-5.4-mini",
-  "gpt-5.4-nano",
-  "gpt-5.3-codex",
-]);
-
-const CODEX_PRO_MODELS = new Set([
-  "gpt-5.5-pro",
-  "gpt-5.4-pro",
-]);
-
-// Keep in sync with getAgentModelReasoningEfforts in
-// backend/packages/shared/src/agents/model-capabilities.ts, which gates the
-// same set server-side. A model added there but not here renders an empty
-// effort selector; added here but not there fails runtime validation.
-const supportsCurrentClaudeEffort = (model: string): boolean =>
-  /claude-(?:fable-5|opus-5|opus-4-(?:7|8)|sonnet-5)/.test(model);
+const normalizeValue = (value: string | null | undefined): string | undefined => {
+  const normalized = value?.trim().toLowerCase();
+  return normalized || undefined;
+};
 
 /**
- * Return only effort values verified for the selected runtime/model pair.
- * Empty means the UI must defer to the runtime instead of sending an
- * unsupported value (notably Claude Haiku and non-5.2 Coding Plan models).
+ * Preserve historical inference when callers omit aiProvider, while resolving
+ * every model and effort list from the generated projection.
+ */
+const resolveReasoningAiProvider = (context: {
+  codingAgent?: string;
+  aiProvider?: string;
+  model?: string;
+}): string | undefined => {
+  if (context.aiProvider) return context.aiProvider;
+  if (context.codingAgent === "claude-code") return "anthropic";
+  if (context.codingAgent === "codex") return "openai";
+  if (!context.codingAgent && context.model?.startsWith("claude-")) {
+    return "anthropic";
+  }
+  return undefined;
+};
+
+/**
+ * Return only effort values carried by an admitted generated runtime tuple.
+ * Empty means the UI must defer to the runtime instead of sending a value.
  */
 export const getReasoningEffortOptions = (
   context: ReasoningEffortContext,
 ): readonly ReasoningEffortOption[] => {
-  const aiProvider = context.aiProvider?.trim().toLowerCase();
-  const codingAgent = context.codingAgent?.trim().toLowerCase();
-  const model = context.model?.trim().toLowerCase() ?? "";
+  const codingAgent = normalizeValue(context.codingAgent);
+  const aiProvider = resolveReasoningAiProvider({
+    codingAgent,
+    aiProvider: normalizeValue(context.aiProvider),
+    model: normalizeValue(context.model),
+  });
+  const requestedModel = normalizeValue(context.model);
 
-  if (aiProvider === "zai") {
-    return model === "" || model === "glm-5.2"
-      ? GLM_52_CODING_PLAN_EFFORTS
-      : [];
-  }
+  if (!aiProvider) return [];
 
-  if (aiProvider === "anthropic" || codingAgent === "claude-code" || model.startsWith("claude-")) {
-    if (model.includes("haiku")) return [];
-    if (/claude-(?:opus|sonnet)-4-6/.test(model)) return CLAUDE_46_EFFORTS;
-    if (model === "" || supportsCurrentClaudeEffort(model)) return CLAUDE_CURRENT_EFFORTS;
-    return [];
-  }
+  const model = requestedModel ?? generatedProjection.defaults.find(
+    (entry) => entry.aiProvider === aiProvider,
+  )?.model;
+  if (!model) return [];
 
-  if (aiProvider === "openai" || codingAgent === "codex") {
-    if (model === "") return CODEX_CURRENT_EFFORTS;
-    if (CODEX_PRO_MODELS.has(model)) return CODEX_PRO_EFFORTS;
-    if (CODEX_CURRENT_MODELS.has(model)) return CODEX_CURRENT_EFFORTS;
-    return [];
-  }
+  const tuple = getRuntimeCapabilityTuples({
+    codingAgent,
+    aiProvider,
+    model,
+    admissionEnabled: true,
+  })[0];
 
-  return [];
+  return tuple ? options(tuple.reasoningEfforts) : [];
 };
 
 /** Canonicalize an effort only when the selected model/runtime can serialize it. */

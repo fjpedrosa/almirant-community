@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Server, TerminalSquare } from "lucide-react";
+import { Bot, Cpu, Server, TerminalSquare } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -54,6 +54,7 @@ const CODING_AGENT_LABELS: Record<CodingAgent, string> = {
   "claude-code": "Claude Code",
   codex: "Codex",
   opencode: "OpenCode",
+  pi: "Pi",
 };
 
 const SYSTEM_RUNNER_SKILLS = new Set([
@@ -65,15 +66,37 @@ const SYSTEM_RUNNER_SKILLS = new Set([
 ]);
 
 const isCodingAgent = (value: unknown): value is CodingAgent =>
-  value === "claude-code" || value === "codex" || value === "opencode";
+  value === "claude-code" ||
+  value === "codex" ||
+  value === "opencode" ||
+  value === "pi";
 
-const resolveCodingAgent = (session: AgentSessionListItem): CodingAgent => {
-  if (session.codingAgent) return session.codingAgent;
+interface CodingAgentDisplay {
+  codingAgent: CodingAgent | null;
+  label: string;
+}
 
-  const configuredCodingAgent = session.config?.codingAgent;
-  return isCodingAgent(configuredCodingAgent)
-    ? configuredCodingAgent
-    : defaultCodingAgentForProvider(session.provider);
+const readPersistedCodingAgent = (value: unknown): string | null =>
+  typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+
+const resolveCodingAgentDisplay = (
+  session: AgentSessionListItem,
+): CodingAgentDisplay => {
+  const persistedCodingAgent =
+    readPersistedCodingAgent(session.codingAgent) ??
+    readPersistedCodingAgent(session.config?.codingAgent);
+
+  if (persistedCodingAgent) {
+    return isCodingAgent(persistedCodingAgent)
+      ? {
+          codingAgent: persistedCodingAgent,
+          label: CODING_AGENT_LABELS[persistedCodingAgent],
+        }
+      : { codingAgent: null, label: persistedCodingAgent };
+  }
+
+  const codingAgent = defaultCodingAgentForProvider(session.provider);
+  return { codingAgent, label: CODING_AGENT_LABELS[codingAgent] };
 };
 
 const normalizeSkillDisplay = (
@@ -162,8 +185,7 @@ export const SessionsTable: React.FC<SessionsTableProps> = ({
             const launcher = resolveSessionLauncherIdentity(session);
             const skillDisplay = normalizeSkillDisplay(resolveSkillLabel(session));
             const SkillIcon = skillDisplay.isRunner ? Server : TerminalSquare;
-            const codingAgent = resolveCodingAgent(session);
-            const codingAgentLabel = CODING_AGENT_LABELS[codingAgent];
+            const codingAgentDisplay = resolveCodingAgentDisplay(session);
             const model = resolveModel(
               session.model,
               session.config?.model,
@@ -251,8 +273,18 @@ export const SessionsTable: React.FC<SessionsTableProps> = ({
                 <TableCell className="w-[14rem] max-w-[14rem]">
                   <div className="space-y-1.5">
                     <div className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
-                      {renderCodingAgentIcon(codingAgent, "size-3.5 shrink-0")}
-                      <span className="truncate">{codingAgentLabel}</span>
+                      {codingAgentDisplay.codingAgent ? (
+                        renderCodingAgentIcon(
+                          codingAgentDisplay.codingAgent,
+                          "size-3.5 shrink-0",
+                        )
+                      ) : (
+                        <Cpu
+                          className="size-3.5 shrink-0 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                      )}
+                      <span className="truncate">{codingAgentDisplay.label}</span>
                     </div>
                     <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                       {getModelIcon(model, session.provider, "size-3.5 shrink-0")}

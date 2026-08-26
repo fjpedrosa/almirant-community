@@ -66,12 +66,29 @@ describe("getReasoningEffortOptions", () => {
     expect(valuesFor({ codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-haiku-4-5" })).toEqual([]);
   });
 
-  test("only exposes verified GLM-5.2 Coding Plan efforts", () => {
+  test("only exposes verified Coding Plan flagship efforts", () => {
+    expect(valuesFor({ codingAgent: "opencode", aiProvider: "zai", model: "glm-5.3" })).toEqual([
+      "high",
+      "max",
+    ]);
     expect(valuesFor({ codingAgent: "opencode", aiProvider: "zai", model: "glm-5.2" })).toEqual([
       "high",
       "max",
     ]);
     expect(valuesFor({ codingAgent: "opencode", aiProvider: "zai", model: "glm-5.1" })).toEqual([]);
+  });
+
+  test("does not expose reasoning from disabled Pi tuples", () => {
+    expect(valuesFor({
+      codingAgent: "pi",
+      aiProvider: "anthropic",
+      model: "claude-opus-5",
+    })).toEqual([]);
+    expect(valuesFor({
+      codingAgent: "pi",
+      aiProvider: "openai",
+      model: "gpt-5.6-sol",
+    })).toEqual([]);
   });
 
   test("clears stale reasoning when switching to an incompatible model", () => {
