@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { gunzipSync, gzipSync } from "node:zlib";
+import { gunzipSync } from "node:zlib";
 import { describe, expect, mock, test } from "bun:test";
 import type { AgentNativeEventDb } from "@almirant/database";
 
@@ -16,7 +16,7 @@ mock.module("../../../shared/services/archive-blob-store", () => ({ putArchiveBl
 
 const { uploadAgentJobNativeEventsArchivePages } = await import("./agent-job-archive-storage");
 
-const event = (sequenceNum: number) => ({ id: `event-${sequenceNum}`, agentJobId: "job-1", planningSessionId: null, sequenceNum, nativeEventType: "message", sourceFormat: "sse", provider: null, codingAgent: null, runtimeSessionId: null, payload: { text: "hello" }, emittedAt: null, receivedAt: new Date("2026-01-01T00:00:00Z"), createdAt: new Date("2026-01-01T00:00:00Z") }) as AgentNativeEventDb;
+const event = (sequenceNum: number) => ({ id: `event-${sequenceNum}`, agentJobId: "job-1", planningSessionId: null, sequenceNum, nativeEventType: "message", sourceFormat: "sse", provider: null, codingAgent: null, aiProvider: null, model: null, runtimeSessionId: null, payload: { text: "hello" }, emittedAt: null, receivedAt: new Date("2026-01-01T00:00:00Z"), createdAt: new Date("2026-01-01T00:00:00Z") }) as AgentNativeEventDb;
 
 describe("agent job native archive storage", () => {
   test("serializes pages without retaining the complete history", async () => {
@@ -33,8 +33,19 @@ describe("agent job native archive storage", () => {
     const ndjson = gunzipSync(uploadedBody).toString("utf8");
     const expected = [event(1), event(2), event(3)].map((value) => `${JSON.stringify({ ...value, emittedAt: null, receivedAt: "2026-01-01T00:00:00.000Z", createdAt: "2026-01-01T00:00:00.000Z" })}\n`).join("");
     expect(ndjson).toBe(expected);
-    expect(uploadedBody).toEqual(gzipSync(Buffer.from(expected)));
     expect(uploaded?.checksumSha256).toBe(createHash("sha256").update(uploadedBody).digest("hex"));
+
+    capturedPath = null;
+    capturedBody = null;
+    const regroupedPages = (async function* () { yield [event(1)]; yield [event(2), event(3)]; })();
+    const regroupedUpload = await uploadAgentJobNativeEventsArchivePages("job-1", regroupedPages);
+    expect(regroupedUpload?.rowCount).toBe(3);
+    expect(regroupedUpload?.lastSequenceNum).toBe(3);
+    expect(capturedPath).not.toBeNull();
+    const regroupedBody = capturedBody as unknown as Buffer;
+    expect(regroupedBody).toEqual(uploadedBody);
+    expect(regroupedUpload?.checksumSha256).toBe(uploaded?.checksumSha256);
+    expect(regroupedUpload?.checksumSha256).toBe(createHash("sha256").update(regroupedBody).digest("hex"));
   });
 
   test("cleans the spool when durable upload fails", async () => {

@@ -15,6 +15,8 @@ type FormattedStreamEvent = AgentOutputEvent & {
   sourceFormat?: string;
   provider?: string;
   codingAgent?: string;
+  aiProvider?: string;
+  model?: string;
   runtimeSessionId?: string;
   emittedAt?: string;
   sequenceProtocolVersion?: "durable.v2";
@@ -100,6 +102,8 @@ const toNativeStreamEvent = (
     sourceFormat: map.get("sourceFormat"),
     provider: map.get("provider"),
     codingAgent: map.get("codingAgent"),
+    ...(map.get("aiProvider") ? { aiProvider: map.get("aiProvider")! } : {}),
+    ...(map.get("model") ? { model: map.get("model")! } : {}),
     runtimeSessionId: map.get("runtimeSessionId"),
     emittedAt: map.get("emittedAt"),
   } as AgentOutputEvent;
@@ -180,6 +184,8 @@ export const readStreamEvent = (event: AgentOutputEvent): StreamReadResult => {
       payload,
       ...(rawEvent.provider ? ["provider", rawEvent.provider] : []),
       ...(rawEvent.codingAgent ? ["codingAgent", rawEvent.codingAgent] : []),
+      ...(rawEvent.aiProvider ? ["aiProvider", rawEvent.aiProvider] : []),
+      ...(rawEvent.model ? ["model", rawEvent.model] : []),
       ...(rawEvent.runtimeSessionId ? ["runtimeSessionId", rawEvent.runtimeSessionId] : []),
       ...(rawEvent.emittedAt ? ["emittedAt", rawEvent.emittedAt] : []),
     ]);

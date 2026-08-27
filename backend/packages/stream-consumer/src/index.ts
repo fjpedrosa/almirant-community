@@ -151,3 +151,13 @@ export {
   type CanonicalTextCoalescerConfig,
   createCanonicalTextCoalescer,
 } from "./canonical-text-coalescer";
+
+// Bounded native delta coalescer (runner-side)
+export {
+  type NativeDeltaEnvelopeInput,
+  type NativeDeltaCoalescerLimitResource,
+  NativeDeltaCoalescerLimitError,
+  type NativeDeltaCoalescerConfig,
+  type NativeDeltaCoalescer,
+  createNativeDeltaCoalescer,
+} from "./native-delta-coalescer";

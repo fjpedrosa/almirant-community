@@ -1,9 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import {
   deserializeCanonicalEnvelope,
+  deserializeNativeEnvelope,
   isCanonicalFormat,
   serializeCanonicalEnvelope,
+  serializeNativeEnvelope,
   type CanonicalEventEnvelope,
+  type NativeEventEnvelope,
 } from "./index";
 
 const envelope: CanonicalEventEnvelope = {
@@ -93,5 +96,130 @@ describe("@almirant/canonical-events", () => {
     expect(deserialized).not.toBeNull();
     expect(Number.isNaN(deserialized!.sequenceNumber)).toBe(true);
     expect(deserialized!.sequenceNumber).not.toBe(0);
+  });
+
+  it("keeps infrastructure, AI provider, and exact model in separate native lanes", () => {
+    const native: NativeEventEnvelope = {
+      jobId: "job-pi",
+      sessionId: "session-pi",
+      workspaceId: "org-pi",
+      threadId: "thread-pi",
+      timestamp: 1_710_000_000_100,
+      sequenceNumber: 43,
+      nativeEventType: "message_end",
+      sourceFormat: "pi-rpc",
+      provider: "zipu",
+      codingAgent: "pi",
+      aiProvider: "zai",
+      model: "glm-5.3",
+      runtimeSessionId: "pi-runtime-session",
+      emittedAt: "2026-08-21T12:00:00.000Z",
+      payload: { type: "message_end" },
+    };
+
+    const parsed = deserializeNativeEnvelope(serializeNativeEnvelope(native));
+
+    expect(parsed).toEqual(native);
+    expect(parsed?.provider).toBe("zipu");
+    expect(parsed?.aiProvider).toBe("zai");
+    expect(parsed?.model).toBe("glm-5.3");
+    expect(parsed?.provider).not.toBe(parsed?.aiProvider);
+  });
+
+  it("keeps native producer payloads without runtime-selection fields byte-for-byte compatible", () => {
+    const existing: NativeEventEnvelope = {
+      jobId: "job-existing",
+      sessionId: "session-existing",
+      workspaceId: "org-existing",
+      threadId: "thread-existing",
+      timestamp: 1_710_000_000_200,
+      sequenceNumber: 44,
+      nativeEventType: "message.part.updated",
+      sourceFormat: "opencode-sse",
+      provider: "zipu",
+      codingAgent: "opencode",
+      runtimeSessionId: "runtime-existing",
+      emittedAt: "2026-08-21T12:00:01.000Z",
+      payload: { type: "message.part.updated" },
+    };
+
+    const serialized = serializeNativeEnvelope(existing);
+
+    expect(serialized).toEqual([
+      "jobId", "job-existing",
+      "sessionId", "session-existing",
+      "workspaceId", "org-existing",
+      "threadId", "thread-existing",
+      "timestamp", "1710000000200",
+      "sequenceNumber", "44",
+      "nativeEventType", "message.part.updated",
+      "sourceFormat", "opencode-sse",
+      "payload", '{"type":"message.part.updated"}',
+      "_format", "native",
+      "provider", "zipu",
+      "codingAgent", "opencode",
+      "runtimeSessionId", "runtime-existing",
+      "emittedAt", "2026-08-21T12:00:01.000Z",
+    ]);
+    expect(deserializeNativeEnvelope(serialized)).toEqual(existing);
+    expect(serialized).not.toContain("aiProvider");
+    expect(serialized).not.toContain("model");
+  });
+
+  it("rejects invalid infrastructure lanes and unbounded runtime identity strings", () => {
+    const native: NativeEventEnvelope = {
+      jobId: "job-bounds",
+      sessionId: "session-bounds",
+      workspaceId: "org-bounds",
+      threadId: "thread-bounds",
+      timestamp: 1_710_000_000_300,
+      sequenceNumber: 45,
+      nativeEventType: "message_end",
+      sourceFormat: "pi-rpc",
+      provider: "zipu",
+      codingAgent: "pi",
+      aiProvider: "zai",
+      model: "glm-5.3",
+      payload: { type: "message_end" },
+    };
+
+    expect(() =>
+      serializeNativeEnvelope({
+        ...native,
+        provider: "zai",
+      } as unknown as NativeEventEnvelope),
+    ).toThrow("provider must be an infrastructure provider");
+    expect(() =>
+      serializeNativeEnvelope({
+        ...native,
+        aiProvider: "z".repeat(257),
+      }),
+    ).toThrow("aiProvider");
+    expect(() =>
+      serializeNativeEnvelope({
+        ...native,
+        model: "m".repeat(257),
+      }),
+    ).toThrow("model");
+  });
+
+  it("reads a legacy AI provider from provider without returning it in the infrastructure lane", () => {
+    const serialized = serializeNativeEnvelope({
+      jobId: "job-legacy-provider",
+      sessionId: "session-legacy-provider",
+      workspaceId: "org-legacy-provider",
+      threadId: "thread-legacy-provider",
+      timestamp: 1_710_000_000_400,
+      sequenceNumber: 46,
+      nativeEventType: "message_end",
+      sourceFormat: "legacy-rpc",
+      payload: { type: "message_end" },
+    });
+    serialized.push("provider", "zai");
+
+    const parsed = deserializeNativeEnvelope(serialized);
+
+    expect(parsed?.provider).toBeUndefined();
+    expect(parsed?.aiProvider).toBe("zai");
   });
 });

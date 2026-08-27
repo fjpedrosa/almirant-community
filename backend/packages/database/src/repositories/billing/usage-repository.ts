@@ -91,13 +91,106 @@ const buildAdminUsageFilterConditions = (
   };
 };
 
-// Create a usage record
+export const USAGE_RECORD_IDEMPOTENCY_CONFLICT =
+  "USAGE_RECORD_IDEMPOTENCY_CONFLICT" as const;
+
+export class UsageRecordIdempotencyConflictError extends Error {
+  public readonly code = USAGE_RECORD_IDEMPOTENCY_CONFLICT;
+
+  public constructor() {
+    super("Usage record idempotency conflict");
+    this.name = "UsageRecordIdempotencyConflictError";
+  }
+}
+
+export type CreateUsageRecordInput = Omit<
+  NewUsageRecord,
+  "id" | "createdAt" | "providerCostUsd"
+>;
+
+const providerCostFromRuntimeEvidence = (
+  evidence: CreateUsageRecordInput["runtimeEvidence"],
+): string | null => {
+  if (evidence?.usage.status !== "reported") return null;
+  const totalUsd = evidence.usage.cost?.totalUsd;
+  return totalUsd === undefined ? null : String(totalUsd);
+};
+
+const normalizeJsonValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(normalizeJsonValue);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => [key, normalizeJsonValue(child)]),
+  );
+};
+
+const jsonValuesEqual = (left: unknown, right: unknown): boolean =>
+  JSON.stringify(normalizeJsonValue(left)) ===
+  JSON.stringify(normalizeJsonValue(right));
+
+const datesEqual = (left: Date, right: Date): boolean =>
+  left.getTime() === right.getTime();
+
+const numericValuesEqual = (
+  left: string | null,
+  right: string | null | undefined,
+): boolean =>
+  left === null || right === null || right === undefined
+    ? left === (right ?? null)
+    : Number(left) === Number(right);
+
+const usageRecordsMatch = (
+  record: UsageRecordDb,
+  expected: Omit<NewUsageRecord, "id" | "createdAt">,
+): boolean =>
+  record.workspaceId === expected.workspaceId &&
+  record.userId === (expected.userId ?? null) &&
+  record.projectId === (expected.projectId ?? null) &&
+  record.jobId === (expected.jobId ?? null) &&
+  record.idempotencyKey === (expected.idempotencyKey ?? null) &&
+  record.sessionType === expected.sessionType &&
+  datesEqual(record.startedAt, expected.startedAt) &&
+  datesEqual(record.endedAt, expected.endedAt) &&
+  record.durationSeconds === expected.durationSeconds &&
+  record.tokensUsed === (expected.tokensUsed ?? null) &&
+  jsonValuesEqual(record.runtimeEvidence, expected.runtimeEvidence ?? null) &&
+  numericValuesEqual(record.providerCostUsd, expected.providerCostUsd);
+
+// Create a usage record. Keyed writes are immutable: exact redelivery returns
+// the durable winner, while a reused key with different evidence fails closed.
 export const createUsageRecord = async (
-  data: Omit<NewUsageRecord, "id" | "createdAt">
+  data: CreateUsageRecordInput,
 ): Promise<UsageRecordDb> => {
-  const [record] = await db.insert(usageRecords).values(data).returning();
-  if (!record) throw new Error("Failed to create usage record");
-  return record;
+  const values: Omit<NewUsageRecord, "id" | "createdAt"> = {
+    ...data,
+    providerCostUsd: providerCostFromRuntimeEvidence(data.runtimeEvidence),
+  };
+
+  if (values.idempotencyKey === undefined || values.idempotencyKey === null) {
+    const [record] = await db.insert(usageRecords).values(values).returning();
+    if (!record) throw new Error("Failed to create usage record");
+    return record;
+  }
+
+  const [inserted] = await db
+    .insert(usageRecords)
+    .values(values)
+    .onConflictDoNothing({ target: usageRecords.idempotencyKey })
+    .returning();
+  if (inserted) return inserted;
+
+  const [existing] = await db
+    .select()
+    .from(usageRecords)
+    .where(eq(usageRecords.idempotencyKey, values.idempotencyKey))
+    .limit(1);
+  if (!existing) throw new Error("Failed to resolve idempotent usage record");
+  if (!usageRecordsMatch(existing, values)) {
+    throw new UsageRecordIdempotencyConflictError();
+  }
+  return existing;
 };
 
 // Get usage records for a workspace within a date range
