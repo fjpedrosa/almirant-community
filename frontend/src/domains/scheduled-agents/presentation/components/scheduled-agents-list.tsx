@@ -59,10 +59,14 @@ const CODING_AGENT_LABELS: Record<CodingAgent, string> = {
   "claude-code": "Claude Code",
   codex: "Codex",
   opencode: "OpenCode",
+  pi: "Pi",
 };
 
 const isCodingAgent = (value: unknown): value is CodingAgent =>
-  value === "claude-code" || value === "codex" || value === "opencode";
+  value === "claude-code" ||
+  value === "codex" ||
+  value === "opencode" ||
+  value === "pi";
 
 const resolveCodingAgent = (item: ScheduledAgentConfig): CodingAgent =>
   isCodingAgent(item.codingAgent)

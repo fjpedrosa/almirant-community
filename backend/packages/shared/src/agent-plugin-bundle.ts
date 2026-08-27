@@ -1,4 +1,4 @@
-export type AgentPluginProvider = "claude-code" | "codex" | "opencode";
+export type AgentPluginProvider = "claude-code" | "codex" | "opencode" | "pi";
 export type AgentPluginBundleKind = "portable_skill" | "claude_plugin";
 
 export type AgentRuntimePluginProvider = "portable" | AgentPluginProvider;
@@ -227,7 +227,7 @@ export const validateAgentPluginBundleFiles = (
 
   return {
     kind: "portable_skill",
-    providers: ["claude-code", "codex", "opencode"],
+    providers: ["claude-code", "codex", "opencode", "pi"],
     files,
     totalBytes,
     skillRoots,

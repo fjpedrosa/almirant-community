@@ -103,6 +103,10 @@ const envSchema = z.object({
     .int()
     .min(10_000)
     .default(60_000),
+  // Instance-wide producer admission switch for new Pi selections. Default on
+  // preserves compatibility. Set to "false" to stop new Pi enqueue/persistence
+  // during rollback; already-running jobs are allowed to complete.
+  PI_CODING_AGENT_ADMISSION_ENABLED: z.enum(["true", "false"]).default("true"),
   // Telegram (optional - only required if enabling the Telegram bot integration)
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_WEBHOOK_SECRET_TOKEN: z.string().optional(),

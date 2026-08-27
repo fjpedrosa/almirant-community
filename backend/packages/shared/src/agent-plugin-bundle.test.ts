@@ -16,7 +16,7 @@ describe("agent plugin bundle validation", () => {
     ]);
 
     expect(result.kind).toBe("portable_skill");
-    expect(result.providers).toEqual(["claude-code", "codex", "opencode"]);
+    expect(result.providers).toEqual(["claude-code", "codex", "opencode", "pi"]);
     expect(result.skillRoots).toEqual([""]);
     expect(result.totalBytes).toBeGreaterThan(0);
   });

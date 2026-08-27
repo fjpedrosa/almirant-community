@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "pi-rpc-framing-cases-v1",
+  "packageVersion": "0.84.2",
+  "limits": {
+    "inboundMaxBytes": 262144,
+    "outboundMaxBytes": 4194304,
+    "finalLfRequired": true
+  },
+  "cases": [
+    {
+      "id": "lf-object",
+      "kind": "literal",
+      "wire": "{\"type\":\"get_state\"}\n",
+      "expected": {
+        "accepted": true,
+        "records": 1
+      }
+    },
+    {
+      "id": "crlf-object",
+      "kind": "literal",
+      "wire": "{\"type\":\"get_state\"}\r\n",
+      "expected": {
+        "accepted": true,
+        "records": 1
+      }
+    },
+    {
+      "id": "unicode-separators-content",
+      "kind": "literal",
+      "wire": "{\"type\":\"prompt\",\"message\":\"alpha beta gamma\"}\n",
+      "expected": {
+        "accepted": true,
+        "records": 1
+      }
+    },
+    {
+      "id": "max-sized-record",
+      "kind": "sized-object",
+      "recordBytes": 262144,
+      "expected": {
+        "accepted": true,
+        "records": 1
+      }
+    },
+    {
+      "id": "malformed-json",
+      "kind": "literal",
+      "wire": "{\"type\":\n",
+      "expected": {
+        "accepted": false,
+        "code": "PI_RPC_MALFORMED_JSON",
+        "failureScope": "session"
+      }
+    },
+    {
+      "id": "null",
+      "kind": "literal",
+      "wire": "null\n",
+      "expected": {
+        "accepted": false,
+        "code": "PI_RPC_NON_OBJECT",
+        "failureScope": "session"
+      }
+    },
+    {
+      "id": "array",
+      "kind": "literal",
+      "wire": "[]\n",
+      "expected": {
+        "accepted": false,
+        "code": "PI_RPC_NON_OBJECT",
+        "failureScope": "session"
+      }
+    },
+    {
+      "id": "primitive",
+      "kind": "literal",
+      "wire": "7\n",
+      "expected": {
+        "accepted": false,
+        "code": "PI_RPC_NON_OBJECT",
+        "failureScope": "session"
+      }
+    },
+    {
+      "id": "oversized-record",
+      "kind": "sized-object",
+      "recordBytes": 262145,
+      "expected": {
+        "accepted": false,
+        "code": "PI_RPC_RECORD_TOO_LARGE",
+        "failureScope": "session"
+      }
+    },
+    {
+      "id": "unterminated-record",
+      "kind": "literal",
+      "wire": "{\"type\":\"get_state\"}",
+      "expected": {
+        "accepted": false,
+        "code": "PI_RPC_UNTERMINATED_RECORD",
+        "failureScope": "session"
+      }
+    }
+  ]
+}
