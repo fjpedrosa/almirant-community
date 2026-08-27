@@ -212,6 +212,10 @@ beforeEach(() => {
         repository: "almirant-codex-shim",
         tag: "0.145.0",
       },
+      pi: {
+        repository: "almirant-pi-shim",
+        tag: "0.84.2",
+      },
     }),
   );
   writeFileSync(
@@ -220,6 +224,7 @@ beforeEach(() => {
       "OPENCODE_IMAGE=almirant-opencode-shim:1.18.4",
       "CLAUDE_SHIM_IMAGE=almirant-claude-shim:2.1.218",
       "CODEX_SHIM_IMAGE=almirant-codex-shim:0.145.0",
+      "PI_SHIM_IMAGE=almirant-pi-shim:0.84.2",
       "",
     ].join("\n"),
   );
@@ -485,6 +490,7 @@ describe("updater HTTP server", () => {
     expect(env).toContain("OPENCODE_IMAGE=almirant-opencode-shim:1.18.4");
     expect(env).toContain("CLAUDE_SHIM_IMAGE=almirant-claude-shim:2.1.218");
     expect(env).toContain("CODEX_SHIM_IMAGE=ghcr.io/example/custom-codex-shim:edge");
+    expect(env).toContain("PI_SHIM_IMAGE=almirant-pi-shim:0.84.2");
 
     const final = runner.getJob(jobId);
     expect(final?.logTail.some((line) =>

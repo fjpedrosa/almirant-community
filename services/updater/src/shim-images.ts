@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-type ShimName = "opencode" | "claude" | "codex";
+type ShimName = "opencode" | "claude" | "codex" | "pi";
 
 interface ManifestEntry {
   repository: string;
@@ -24,11 +24,12 @@ export interface ShimImageEnvSyncResult {
   skippedCustom: Array<{ envVar: string; value: string; expected: string }>;
 }
 
-const SHIM_NAMES: ShimName[] = ["opencode", "claude", "codex"];
+const SHIM_NAMES: ShimName[] = ["opencode", "claude", "codex", "pi"];
 const SHIM_ENV_VARS: Record<ShimName, string> = {
   opencode: "OPENCODE_IMAGE",
   claude: "CLAUDE_SHIM_IMAGE",
   codex: "CODEX_SHIM_IMAGE",
+  pi: "PI_SHIM_IMAGE",
 };
 
 const isManifestEntry = (value: unknown): value is ManifestEntry => {
