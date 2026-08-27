@@ -8,7 +8,7 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
-import { agentProviderEnum, codingAgentEnum } from "./enums";
+import { agentProviderEnum, aiProviderEnum, codingAgentEnum } from "./enums";
 import { agentJobs } from "./agent-jobs";
 import { planningSessions } from "./planning-sessions";
 
@@ -27,6 +27,8 @@ export const agentNativeEvents = pgTable(
     sourceFormat: varchar("source_format", { length: 50 }).notNull().default("sse"),
     provider: agentProviderEnum("provider"),
     codingAgent: codingAgentEnum("coding_agent"),
+    aiProvider: aiProviderEnum("ai_provider"),
+    model: varchar("model", { length: 256 }),
     runtimeSessionId: varchar("runtime_session_id", { length: 255 }),
     payload: jsonb("payload").notNull().$type<Record<string, unknown>>(),
     emittedAt: timestamp("emitted_at", { withTimezone: true }),

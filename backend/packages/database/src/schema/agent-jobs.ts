@@ -38,6 +38,7 @@ import type {
   RunnerCustomMcpServersConfig,
   PlanReviewJobConfig,
   ResolvedRuntimeSelection,
+  RuntimeEvidence,
 } from "@almirant/shared";
 
 export interface AgentJobPendingTerminalIntent {
@@ -251,6 +252,7 @@ export const agentJobs = pgTable(
     aiProvider: aiProviderEnum("ai_provider").notNull().default("anthropic"),
     model: varchar("model", { length: 100 }).notNull().default("claude-opus-4-8"),
     resolvedRuntimeSelection: jsonb("resolved_runtime_selection").$type<ResolvedRuntimeSelection>(),
+    runtimeEvidence: jsonb("runtime_evidence").$type<RuntimeEvidence>(),
     priority: priorityEnum("priority").notNull().default("medium"),
 
     // New model columns (prompt + trigger)
