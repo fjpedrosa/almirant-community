@@ -10,5 +10,9 @@
   "codex": {
     "repository": "almirant-codex-shim",
     "tag": "0.145.0"
+  },
+  "pi": {
+    "repository": "almirant-pi-shim",
+    "tag": "0.84.2"
   }
 }

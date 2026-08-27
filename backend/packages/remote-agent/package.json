@@ -13,6 +13,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@almirant/shared": "workspace:*",
     "@almirant/stream-consumer": "workspace:*",
     "ioredis": "^5.6.1"
   },

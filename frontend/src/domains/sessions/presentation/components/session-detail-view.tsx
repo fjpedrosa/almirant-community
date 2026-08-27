@@ -6,7 +6,7 @@ import { SessionEventTimeline } from './session-event-timeline';
 import { SessionInteractionPanel } from './session-interaction-panel';
 import { SessionResourceTimeline } from './session-resource-timeline';
 import { SessionResourceSidebar } from './session-resource-sidebar';
-import { Bot, Check, ChevronsDownUp, ChevronsUpDown, Copy, Square } from 'lucide-react';
+import { Bot, Check, ChevronsDownUp, ChevronsUpDown, Copy, Cpu, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useIsMobile } from '@/lib/hooks';
@@ -82,6 +82,28 @@ export interface SessionDetailViewProps {
 const formatShortId = (id: string | null | undefined): string | null => {
   if (!id) return null;
   return id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
+};
+
+const CODING_AGENT_LABELS: Record<CodingAgent, string> = {
+  'claude-code': 'Claude Code',
+  codex: 'Codex',
+  opencode: 'OpenCode',
+  pi: 'Pi',
+};
+
+const isCodingAgent = (value: unknown): value is CodingAgent =>
+  value === 'claude-code' ||
+  value === 'codex' ||
+  value === 'opencode' ||
+  value === 'pi';
+
+const readPersistedCodingAgent = (...values: unknown[]): string | null => {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
 };
 
 const CopyableIdValue: React.FC<{
@@ -177,10 +199,18 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
   );
   const skill = resolveSkill(job.jobType, job.config?.skillName);
   const launcher = resolveSessionLauncherIdentity(job);
-  const codingAgent =
-    (job.codingAgent as CodingAgent | null | undefined) ??
-    (job.config?.codingAgent as CodingAgent | null | undefined) ??
-    null;
+  const persistedCodingAgent = readPersistedCodingAgent(
+    job.codingAgent,
+    job.config?.codingAgent,
+  );
+  const codingAgent = isCodingAgent(persistedCodingAgent)
+    ? persistedCodingAgent
+    : null;
+  const codingAgentLabel = persistedCodingAgent
+    ? codingAgent
+      ? CODING_AGENT_LABELS[codingAgent]
+      : persistedCodingAgent
+    : null;
   const processingStartedAt = job.startedAt
     ? new Date(job.startedAt).getTime()
     : undefined;
@@ -200,15 +230,6 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
 
   const jobIdShort = formatShortId(job.id);
   const sessionIdShort = formatShortId(job.sessionId);
-
-  const codingAgentLabel =
-    codingAgent === 'claude-code'
-      ? 'Claude Code'
-      : codingAgent === 'codex'
-        ? 'Codex'
-        : codingAgent === 'opencode'
-          ? 'OpenCode'
-          : null;
 
   const isMobile = useIsMobile();
 
@@ -279,9 +300,16 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
               <div className="flex min-w-0 flex-col gap-0.5">
                 <dt className="text-xs text-muted-foreground">Coding Agent</dt>
                 <dd className="flex items-center gap-1.5 text-sm font-medium">
-                  {codingAgent && codingAgentLabel ? (
+                  {codingAgentLabel ? (
                     <>
-                      {renderCodingAgentIcon(codingAgent, 'size-3.5')}
+                      {codingAgent ? (
+                        renderCodingAgentIcon(codingAgent, 'size-3.5')
+                      ) : (
+                        <Cpu
+                          className="size-3.5 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                      )}
                       {codingAgentLabel}
                     </>
                   ) : (
@@ -451,9 +479,16 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
           <div className="flex min-w-0 flex-col gap-0.5">
             <dt className="text-xs text-muted-foreground">Coding Agent</dt>
             <dd className="flex items-center gap-1.5 text-sm font-medium">
-              {codingAgent && codingAgentLabel ? (
+              {codingAgentLabel ? (
                 <>
-                  {renderCodingAgentIcon(codingAgent, 'size-3.5')}
+                  {codingAgent ? (
+                    renderCodingAgentIcon(codingAgent, 'size-3.5')
+                  ) : (
+                    <Cpu
+                      className="size-3.5 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  )}
                   {codingAgentLabel}
                 </>
               ) : (

@@ -5,10 +5,14 @@ import {
   buildCanonicalSessionProjection,
   type CanonicalEvent,
   type CanonicalEventEnvelope,
+  type NativeEventEnvelope,
   type BridgeRendererContext,
 } from "@almirant/stream-consumer";
 import { createSequenceGuard } from "../src/sequence-guard";
-import { buildOutboundCanonicalEnvelope } from "../src/consumer";
+import {
+  buildNativeEventPersistencePayload,
+  buildOutboundCanonicalEnvelope,
+} from "../src/consumer";
 
 // ---------------------------------------------------------------------------
 // Mock Redis Pub/Sub — records publish calls instead of connecting to Redis
@@ -58,6 +62,71 @@ const wrapInEnvelope = (
 });
 
 const noop = () => {};
+
+// ===========================================================================
+// Test Suite: native persistence transport
+// ===========================================================================
+
+describe("Web Bridge: native persistence transport", () => {
+  it("preserves the separated Pi runtime tuple through the consumer boundary", () => {
+    const envelope: NativeEventEnvelope = {
+      jobId: "job-pi",
+      sessionId: "session-pi",
+      workspaceId: "org-pi",
+      threadId: "thread-pi",
+      timestamp: 1_710_000_000_500,
+      sequenceNumber: 47,
+      sequenceProtocolVersion: "durable.v2",
+      claimAttemptId: "attempt-pi",
+      nativeEventType: "message_end",
+      sourceFormat: "pi-rpc",
+      provider: "zipu",
+      codingAgent: "pi",
+      aiProvider: "zai",
+      model: "glm-5.3",
+      runtimeSessionId: "runtime-pi",
+      emittedAt: "2026-08-21T12:00:02.000Z",
+      payload: { type: "message_end" },
+    };
+
+    const payload = buildNativeEventPersistencePayload(envelope);
+
+    expect(payload).toEqual({
+      sequenceNum: 47,
+      sequenceProtocolVersion: "durable.v2",
+      claimAttemptId: "attempt-pi",
+      nativeEventType: "message_end",
+      sourceFormat: "pi-rpc",
+      provider: "zipu",
+      codingAgent: "pi",
+      aiProvider: "zai",
+      model: "glm-5.3",
+      runtimeSessionId: "runtime-pi",
+      emittedAt: "2026-08-21T12:00:02.000Z",
+      payload: { type: "message_end" },
+    });
+    expect(payload.provider).not.toBe(payload.aiProvider);
+  });
+
+  it("does not add runtime-selection keys to existing producer payloads", () => {
+    const payload = buildNativeEventPersistencePayload({
+      jobId: "job-existing",
+      sessionId: "session-existing",
+      workspaceId: "org-existing",
+      threadId: "thread-existing",
+      timestamp: 1_710_000_000_600,
+      sequenceNumber: 48,
+      nativeEventType: "message.part.updated",
+      sourceFormat: "opencode-sse",
+      provider: "zipu",
+      codingAgent: "opencode",
+      payload: { type: "message.part.updated" },
+    });
+
+    expect(Object.hasOwn(payload, "aiProvider")).toBe(false);
+    expect(Object.hasOwn(payload, "model")).toBe(false);
+  });
+});
 
 // ===========================================================================
 // Test Suite: WebRenderer WS message mapping

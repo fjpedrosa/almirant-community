@@ -1,4 +1,8 @@
-import type { CanonicalEvent } from "@almirant/canonical-events";
+import {
+  assertValidNativeEventMetadata,
+  type CanonicalEvent,
+  type NativeInfrastructureProvider,
+} from "@almirant/canonical-events";
 
 export type PersistenceLogger = (
   level: string,
@@ -49,6 +53,7 @@ export type SessionEventPayload = {
   kind: string;
   payload: Record<string, unknown>;
   provider?: string;
+  occurredAt?: string;
 };
 
 export type SessionEventPersistenceResult = {
@@ -62,8 +67,11 @@ export type NativeEventPayload = {
   nativeEventType: string;
   sourceFormat: string;
   payload: Record<string, unknown>;
-  provider?: string;
+  /** Infrastructure provider only. */
+  provider?: NativeInfrastructureProvider;
   codingAgent?: string;
+  aiProvider?: string;
+  model?: string;
   runtimeSessionId?: string;
   emittedAt?: string;
 };
@@ -96,6 +104,7 @@ export type SessionEventBatcher = {
     provider?: string,
     sequenceProtocolVersion?: "durable.v2",
     claimAttemptId?: string,
+    occurredAt?: string,
   ) => void;
   flushJob: (jobId: string) => Promise<void>;
   flushAll: () => Promise<void>;
@@ -108,6 +117,8 @@ export type EventPersistenceContext = {
   provider?: string;
   sequenceProtocolVersion?: "durable.v2";
   claimAttemptId?: string;
+  /** Producer wall-clock emission time, sourced from the canonical envelope's own timestamp. */
+  occurredAt?: string;
 };
 
 export type EventPersistenceStrategy = {
@@ -337,6 +348,9 @@ export const createBridgeApiClient = (
 
     persistNativeEvents: async (jobId, events) => {
       if (events.length === 0) return;
+      for (const event of events) {
+        assertValidNativeEventMetadata(event);
+      }
       const path = `/workers/agent-jobs/${jobId}/native-events`;
       try {
         await request(path, {
@@ -406,6 +420,7 @@ export const createSessionEventBatcher = (
       provider,
       sequenceProtocolVersion,
       claimAttemptId,
+      occurredAt,
     ) => {
       let buffer = buffers.get(jobId);
       if (!buffer) {
@@ -420,6 +435,7 @@ export const createSessionEventBatcher = (
         provider,
         sequenceProtocolVersion,
         claimAttemptId,
+        occurredAt,
       });
 
       if (buffer.events.length >= EVENT_BATCH_SIZE) {
@@ -744,6 +760,7 @@ export const createApiPersistenceStrategy = (
           provider: context.provider,
           sequenceProtocolVersion: context.sequenceProtocolVersion,
           claimAttemptId: context.claimAttemptId,
+          occurredAt: context.occurredAt,
         };
         if (context.sequenceProtocolVersion === "durable.v2") {
           // An in-memory batch is not durability. The Redis message remains
@@ -761,6 +778,7 @@ export const createApiPersistenceStrategy = (
             context.provider,
             context.sequenceProtocolVersion,
             context.claimAttemptId,
+            context.occurredAt,
           );
         }
       }
