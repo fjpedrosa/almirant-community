@@ -449,7 +449,9 @@ export async function consumeSseEvents(
         sequenceNumber: nextNativeSequence(),
         nativeEventType,
         sourceFormat,
-        provider: asOptionalString(args.props.provider),
+        provider: asOptionalString(args.props.provider) as Parameters<
+            typeof publishNativeEvent
+          >[1]["provider"],
         codingAgent: asOptionalString(args.props.codingAgent),
         runtimeSessionId: asOptionalString(args.props.runtimeSessionId) ?? sessionId,
         emittedAt: asOptionalIsoTimestamp(args.props.emittedAt),
