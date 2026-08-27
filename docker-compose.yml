@@ -195,6 +195,7 @@ services:
       OPENCODE_IMAGE: ${OPENCODE_IMAGE:-almirant-opencode-shim:1.18.4}
       CLAUDE_SHIM_IMAGE: ${CLAUDE_SHIM_IMAGE:-almirant-claude-shim:2.1.218}
       CODEX_SHIM_IMAGE: ${CODEX_SHIM_IMAGE:-almirant-codex-shim:0.145.0}
+      PI_SHIM_IMAGE: ${PI_SHIM_IMAGE:-almirant-pi-shim:0.84.2}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -323,6 +324,15 @@ services:
       context: .
       dockerfile: services/runner/docker/Dockerfile.opencode
     image: almirant-opencode-shim:1.18.4
+
+  # Local build artifact only. Production must set PI_SHIM_IMAGE to an
+  # immutable registry image@sha256 reference.
+  pi-shim:
+    profiles: ["shims"]
+    build:
+      context: .
+      dockerfile: services/runner/docker/Dockerfile.pi
+    image: almirant-pi-shim:0.84.2
 
 networks:
   almirant:

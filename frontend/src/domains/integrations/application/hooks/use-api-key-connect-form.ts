@@ -18,6 +18,7 @@ import type {
   ApiKeyProvider,
   ConnectionCategory,
   ConnectionScope,
+  CreateConnectionInput,
   UseApiKeyConnectFormReturn,
 } from "../../domain/types";
 
@@ -103,6 +104,29 @@ const PROVIDER_CATEGORY: Record<ApiKeyProvider, ConnectionCategory> = {
   zipu: "ai",
   gitlab: "code",
 };
+
+type BuildCreateConnectionInputParams = {
+  provider: ApiKeyProvider;
+  scope: ConnectionScope;
+  name: string;
+  credentials: Record<string, unknown>;
+  config: Record<string, unknown>;
+};
+
+export const buildCreateConnectionInput = ({
+  provider,
+  scope,
+  name,
+  credentials,
+  config,
+}: BuildCreateConnectionInputParams): CreateConnectionInput => ({
+  provider,
+  category: PROVIDER_CATEGORY[provider],
+  scope,
+  name,
+  credentials,
+  config,
+});
 
 const normalizeConnectionReasoning = (
   provider: string,
@@ -423,15 +447,13 @@ export const useApiKeyConnectForm = (
 
       // Step 2: Test passed — create the connection
       try {
-        await createConnection.mutateAsync({
+        await createConnection.mutateAsync(buildCreateConnectionInput({
           provider: data.provider,
-          category: PROVIDER_CATEGORY[data.provider],
           scope: activeScope,
           name: data.name,
-          accountIdentifier: `${String(data.apiKey).slice(0, 7)}...`,
           credentials,
           config,
-        });
+        }));
 
         showToast.success(t("connectionCreated"));
         form.reset(DEFAULT_FORM_VALUES);

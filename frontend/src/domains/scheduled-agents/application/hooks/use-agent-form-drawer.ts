@@ -12,8 +12,6 @@ import type {
   UpdateScheduledAgentData,
   TimeWindowConfig,
   CronConfig,
-  CodingAgent,
-  AIProvider,
   AgentProvider,
   BacklogDrainPreviewResult,
   AgentKind,
@@ -30,18 +28,19 @@ import {
   isTimeWindowConfig,
   isOnceConfig,
   getAiProvidersForScheduledRuntime,
-  MODELS_BY_PROVIDER,
+  getModelsForScheduledRuntime,
   getScheduledReasoningLevelOptions,
+  normalizeScheduledAiProvider,
   normalizeScheduledCodingAgent,
 } from "../../domain/types";
 import type { SkillSelectorItem } from "@/domains/skills/domain/types";
 import { resolveDefaultCronExpression } from "../../presentation/components/cron-form-defaults";
 import { scheduledAgentsApi } from "@/lib/api/client";
-import {
-  resolveCanonicalModelId,
-  reconcileModelWithAvailable,
-} from "@/lib/ai-models-catalog";
 import { normalizeReasoningEffort } from "@/lib/ai-model-reasoning";
+import {
+  resolveRuntimeCapabilityAdmission,
+  type RuntimeCapabilityAdmissionResult,
+} from "@/domains/agents/domain/coding-agent-compatibility";
 import {
   isZonedDateTimeInPast,
   isoToZonedDateTimeLocal,
@@ -55,7 +54,7 @@ export const scheduledAgentFormSchema = z
     projectId: z.string().optional(),
     prompt: z.string().optional(),
     jobType: z.enum(["implementation", "planning", "review", "validation", "bug-fix", "recording", "prewarm", "scheduled", "integration"]).default("scheduled"),
-    provider: z.enum(["claude-code", "codex", "zipu", "grok"]),
+    provider: z.string().nullable().optional(),
     trigger: z.enum(["scheduled", "webhook"]).default("scheduled"),
     webhookId: z.string().optional(),
     webhookToken: z.string().optional(),
@@ -79,15 +78,15 @@ export const scheduledAgentFormSchema = z
     maxJobsPerRun: z.coerce.number().min(1).max(100),
     // New optional fields (types will be added to ScheduledAgentConfig in A-1481)
     description: z.string().max(1000).optional(),
-    codingAgent: z.enum(["claude-code", "codex", "opencode"]).optional(),
-    aiProvider: z.string().optional(),
-    aiModel: z.string().optional(),
-    reasoningLevel: z.string().optional(),
+    // Persisted edit values may come from a future or disabled runtime. Keep
+    // raw strings in form state; generated projection options govern new selection.
+    codingAgent: z.string().nullable().optional(),
+    aiProvider: z.string().nullable().optional(),
+    aiModel: z.string().nullable().optional(),
+    reasoningLevel: z.string().nullable().optional(),
     // Agents v2 tooling selection (MCP servers + plugins picked from the
-    // owner-aware catalog). Replaces the old raw mcpServersJson textarea,
-    // which the backend now rejects outright: unmanaged remote MCP URLs
-    // without an almirantServerId fail normalizeRunnerCustomMcpServersConfig
-    // at CREATE/PATCH time (see backend/packages/shared/src/runner-mcp-config.ts).
+    // owner-aware catalog). The backend materializes managed selections at dispatch.
+    needsBrowser: z.boolean().default(false),
     selectedPluginIds: z.array(z.string()).default([]),
     selectedMcpServerIds: z.array(z.string()).default([]),
     // Wizard discriminators (frontend-only — derived from persisted shape)
@@ -199,13 +198,14 @@ export const resolveScheduledAgentSubmitJobType = (
 
 export const resolveScheduledAgentSubmitProvider = (
   values: Pick<FormValues, "agentKind" | "automationTargetKind" | "builtinAutomationId" | "provider" | "codingAgent" | "aiProvider">,
-): FormValues["provider"] => {
+): AgentProvider | null | undefined => {
   const isBuiltinAutomation =
     values.agentKind === "automation" &&
     values.automationTargetKind === "builtin";
 
-  if (!isBuiltinAutomation) return values.provider;
-
+  if (!isBuiltinAutomation) {
+    return values.provider as AgentProvider | null | undefined;
+  }
   // For all builtin automations the legacy `provider` AgentProvider value is
   // derived from the (codingAgent, aiProvider) pair the user picked. The
   // runner reads `codingAgent` and `aiProvider` directly, so this is purely
@@ -344,11 +344,114 @@ export const buildBuiltinAutomationTargetConfig = (
   };
 };
 
+const SCHEDULED_RUNTIME_FIELD_NAMES = [
+  "provider",
+  "codingAgent",
+  "aiProvider",
+  "aiModel",
+  "reasoningLevel",
+] as const;
+
+type ScheduledRuntimeDirtyFields = Partial<
+  Record<(typeof SCHEDULED_RUNTIME_FIELD_NAMES)[number], boolean>
+>;
+
+export const hasScheduledAgentRuntimeFieldChanges = (
+  dirtyFields: ScheduledRuntimeDirtyFields,
+): boolean => SCHEDULED_RUNTIME_FIELD_NAMES.some((field) => dirtyFields[field] === true);
+
+/** Preserve persisted runtime strings byte-for-byte at the edit boundary. */
+export const resolveScheduledAgentRuntimeEditDefaults = (
+  config: Pick<
+    ScheduledAgentConfig,
+    "provider" | "codingAgent" | "aiProvider" | "aiModel" | "reasoningLevel"
+  >,
+): Pick<FormValues, "provider" | "codingAgent" | "aiProvider" | "aiModel" | "reasoningLevel"> => ({
+  provider: config.provider,
+  codingAgent: config.codingAgent,
+  aiProvider: config.aiProvider,
+  aiModel: config.aiModel,
+  reasoningLevel: config.reasoningLevel,
+});
+
+export const resolveScheduledAgentRuntimeAdmission = (
+  values: Pick<
+    FormValues,
+    | "provider"
+    | "codingAgent"
+    | "aiProvider"
+    | "aiModel"
+    | "reasoningLevel"
+    | "needsBrowser"
+    | "selectedPluginIds"
+    | "selectedMcpServerIds"
+  >,
+): RuntimeCapabilityAdmissionResult => {
+  const capabilities = [
+    ...(values.needsBrowser ? ["browser"] : []),
+    ...(values.selectedPluginIds.length > 0 ? ["extensions"] : []),
+    ...(values.selectedMcpServerIds.length > 0 ? ["mcp"] : []),
+  ];
+
+  const codingAgent =
+    normalizeScheduledCodingAgent(values.codingAgent) ?? values.codingAgent ?? "";
+  const aiProvider = values.aiProvider ?? "";
+  // An omitted model retains runtime-default behavior for existing agents. Pi is
+  // intentionally excluded: new Pi selections must name GLM-5.3 explicitly.
+  // Resolve legacy defaults from admitted tuple-backed options so admission still
+  // evaluates an exact model without forcing ordinary creates to persist one.
+  const effectiveModel =
+    values.aiModel ||
+    (codingAgent === "pi"
+      ? ""
+      : getModelsForScheduledRuntime(codingAgent, aiProvider)[0]?.value) ||
+    "";
+
+  return resolveRuntimeCapabilityAdmission({
+    codingAgent,
+    aiProvider,
+    model: effectiveModel,
+    authClass: "api_key",
+    capabilities,
+  });
+};
+
 export const resolveScheduledAgentSubmitRuntimeFields = (
-  values: Pick<FormValues, "codingAgent" | "aiProvider" | "aiModel" | "reasoningLevel">,
-): Pick<CreateScheduledAgentData, "codingAgent" | "aiProvider" | "aiModel" | "reasoningLevel"> => {
+  values: Pick<FormValues, "provider" | "codingAgent" | "aiProvider" | "aiModel" | "reasoningLevel">,
+  editState?: {
+    isEditing: boolean;
+    dirtyFields: ScheduledRuntimeDirtyFields;
+  },
+): Partial<Pick<CreateScheduledAgentData, "provider" | "codingAgent" | "aiProvider" | "aiModel" | "reasoningLevel">> => {
+  if (
+    editState?.isEditing &&
+    !hasScheduledAgentRuntimeFieldChanges(editState.dirtyFields)
+  ) {
+    return {};
+  }
+
+  const selectedProvider = resolveScheduledAgentSubmitProvider({
+    agentKind: "repository",
+    automationTargetKind: "builtin",
+    builtinAutomationId: "backlog-drain",
+    ...values,
+  });
+  const provider =
+    selectedProvider === "claude-code" ||
+    selectedProvider === "codex" ||
+    selectedProvider === "zipu" ||
+    selectedProvider === "grok"
+      ? selectedProvider
+      : resolveScheduledAgentSubmitProvider({
+          agentKind: "automation",
+          automationTargetKind: "builtin",
+          builtinAutomationId: "backlog-drain",
+          ...values,
+        });
+
   return {
-    codingAgent: values.codingAgent || undefined,
+    provider: provider ?? undefined,
+    codingAgent: normalizeScheduledCodingAgent(values.codingAgent) ?? undefined,
     aiProvider: values.aiProvider || undefined,
     aiModel: values.aiModel || undefined,
     reasoningLevel: normalizeReasoningEffort({
@@ -450,6 +553,33 @@ export const parseAgentToolingSelection = (
   };
 };
 
+export const AGENT_BROWSER_SELECTION_KEY = "__agent";
+
+export const parseAgentBrowserSelection = (
+  targetConfig: TargetConfig | null | undefined,
+): boolean => {
+  const raw = targetConfig?.customFilters?.[AGENT_BROWSER_SELECTION_KEY];
+  return isRecord(raw) && raw.needsBrowser === true;
+};
+
+export const mergeAgentBrowserSelectionIntoTargetConfig = (
+  targetConfig: TargetConfig | null | undefined,
+  needsBrowser: boolean,
+): TargetConfig => {
+  const existing = targetConfig?.customFilters?.[AGENT_BROWSER_SELECTION_KEY];
+
+  return {
+    ...(targetConfig ?? {}),
+    customFilters: {
+      ...(targetConfig?.customFilters ?? {}),
+      [AGENT_BROWSER_SELECTION_KEY]: {
+        ...(isRecord(existing) ? existing : {}),
+        needsBrowser,
+      },
+    },
+  };
+};
+
 const inferAutomationTargetFromConfig = (
   config: ScheduledAgentConfig,
   knownSkillSlugs: Set<string>,
@@ -522,7 +652,6 @@ export const useAgentFormDrawer = ({
         projectId: config.projectId ?? "",
         prompt: config.prompt ?? "",
         jobType: config.jobType,
-        provider: config.provider,
         trigger: config.trigger ?? "scheduled",
         webhookId: config.id,
         webhookToken: config.webhookToken ?? undefined,
@@ -539,17 +668,8 @@ export const useAgentFormDrawer = ({
         enabled: config.enabled,
         maxJobsPerRun: config.maxJobsPerRun,
         description: config.description ?? "",
-        codingAgent: normalizeScheduledCodingAgent(config.codingAgent) ?? "claude-code",
-        aiProvider: config.aiProvider ?? "",
-        // Canonicalize the persisted model so a value stored with the wrong
-        // casing (e.g. "GLM-5.2") or as a dated snapshot still matches a Select
-        // option; fall back to the raw value rather than dropping it.
-        aiModel: resolveCanonicalModelId(config.aiModel) ?? config.aiModel ?? "",
-        reasoningLevel: normalizeReasoningEffort({
-          codingAgent: config.codingAgent,
-          aiProvider: config.aiProvider,
-          model: config.aiModel,
-        }, config.reasoningLevel) as FormValues["reasoningLevel"],
+        ...resolveScheduledAgentRuntimeEditDefaults(config),
+        needsBrowser: parseAgentBrowserSelection(config.targetConfig),
         selectedPluginIds: toolingSelection.selectedPluginIds,
         selectedMcpServerIds: toolingSelection.selectedMcpServerIds,
         agentKind: inferred.agentKind,
@@ -603,6 +723,7 @@ export const useAgentFormDrawer = ({
       aiProvider: "anthropic",
       aiModel: "",
       reasoningLevel: undefined,
+      needsBrowser: false,
       selectedPluginIds: [],
       selectedMcpServerIds: [],
       agentKind: "repository",
@@ -666,13 +787,16 @@ export const useAgentFormDrawer = ({
     | string
     | undefined;
   const watchedProvider = useWatch({ control: form.control, name: "provider" }) as
-    | AgentProvider
+    | string
+    | null
     | undefined;
   const watchedCodingAgent = useWatch({ control: form.control, name: "codingAgent" }) as
-    | CodingAgent
+    | string
+    | null
     | undefined;
   const watchedAiProvider = useWatch({ control: form.control, name: "aiProvider" }) as
-    | AIProvider
+    | string
+    | null
     | undefined;
   const watchedAiModel = useWatch({ control: form.control, name: "aiModel" }) as
     | string
@@ -708,17 +832,16 @@ export const useAgentFormDrawer = ({
     return getAiProvidersForScheduledRuntime(watchedProvider, watchedCodingAgent);
   }, [watchedProvider, watchedCodingAgent]);
 
-  // Cascading: available models filtered by provider
+  // Cascading: available models filtered by the exact admitted runtime pair.
   const availableModels = useMemo(() => {
-    if (!watchedAiProvider || !(watchedAiProvider in MODELS_BY_PROVIDER)) return [];
-    return MODELS_BY_PROVIDER[watchedAiProvider];
-  }, [watchedAiProvider]);
+    return getModelsForScheduledRuntime(watchedCodingAgent, watchedAiProvider);
+  }, [watchedAiProvider, watchedCodingAgent]);
 
   // Reasoning options vary by runtime, not just by API provider.
   const availableReasoningLevels = useMemo(() => {
     return getScheduledReasoningLevelOptions({
-      codingAgent: watchedCodingAgent,
-      aiProvider: watchedAiProvider,
+      codingAgent: watchedCodingAgent ?? undefined,
+      aiProvider: watchedAiProvider ?? undefined,
       model: watchedAiModel,
     });
   }, [watchedAiModel, watchedAiProvider, watchedCodingAgent]);
@@ -800,46 +923,46 @@ export const useAgentFormDrawer = ({
 
   useEffect(() => {
     if (!open) return;
-    if (availableProviders.length === 1) {
-      const current = form.getValues("aiProvider");
-      if (current !== availableProviders[0]) {
-        form.setValue("aiProvider", availableProviders[0]);
+    // Existing raw runtime strings are an edit-boundary concern, not new
+    // selection options. Reconcile descendants only after the user picks a new
+    // coding agent (or while creating a new config).
+    if (isEditing && !form.getFieldState("codingAgent").isDirty) return;
+
+    const currentCodingAgent = form.getValues("codingAgent");
+    const currentProvider = form.getValues("provider");
+    const providersForCurrentRuntime = getAiProvidersForScheduledRuntime(
+      currentProvider,
+      currentCodingAgent,
+    );
+    const providerValues = new Set<string>(providersForCurrentRuntime);
+    const currentAiProvider = form.getValues("aiProvider");
+
+    if (providersForCurrentRuntime.length === 1) {
+      if (currentAiProvider !== providersForCurrentRuntime[0]) {
+        form.setValue("aiProvider", providersForCurrentRuntime[0]);
+        form.setValue("aiModel", "");
+        form.setValue("reasoningLevel", undefined);
       }
-    } else if (
-      availableProviders.length > 0 &&
-      watchedAiProvider &&
-      !availableProviders.includes(watchedAiProvider)
-    ) {
+    } else if (currentAiProvider && !providerValues.has(currentAiProvider)) {
       form.setValue("aiProvider", "");
       form.setValue("aiModel", "");
+      form.setValue("reasoningLevel", undefined);
     }
-  }, [availableProviders, open, form, watchedAiProvider]);
+  }, [availableProviders, isEditing, open, form, watchedAiProvider]);
 
   useEffect(() => {
     if (!open) return;
-    if (availableModels.length === 0) return;
-    if (!watchedAiProvider) return;
-    const current = form.getValues("aiModel");
-    if (!current) return;
-    // Reconcile against the provider's options: canonicalize case/snapshot
-    // mismatches instead of wiping a valid value; only clear when the model
-    // truly does not belong to the selected provider.
-    const next = reconcileModelWithAvailable(
-      current,
-      availableModels.map((m) => m.value),
-    );
-    if (next !== current) {
-      form.setValue("aiModel", next);
-    }
-  }, [availableModels, open, form, watchedAiProvider]);
+    const runtimeSelectionChanged =
+      form.getFieldState("codingAgent").isDirty ||
+      form.getFieldState("aiProvider").isDirty ||
+      form.getFieldState("aiModel").isDirty;
+    if (isEditing && !runtimeSelectionChanged) return;
 
-  useEffect(() => {
-    if (!open) return;
     const current = form.getValues("reasoningLevel");
     if (current && !availableReasoningLevels.some((option) => option.value === current)) {
       form.setValue("reasoningLevel", undefined);
     }
-  }, [availableReasoningLevels, open, form]);
+  }, [availableReasoningLevels, isEditing, open, form]);
 
   const selectedBacklogDrainProjectIds = useMemo(() => {
     if (automationProjectIds.length > 0) return automationProjectIds;
@@ -899,8 +1022,8 @@ export const useAgentFormDrawer = ({
     queryFn: () => scheduledAgentsApi.previewBacklogDrain({
       projectId: form.getValues("projectId") || null,
       targetConfig: buildBacklogDrainTargetConfig(),
-      codingAgent: watchedCodingAgent ?? null,
-      aiProvider: watchedAiProvider ?? null,
+      codingAgent: normalizeScheduledCodingAgent(watchedCodingAgent) ?? null,
+      aiProvider: normalizeScheduledAiProvider(watchedAiProvider) ?? null,
       aiModel: form.getValues("aiModel") || null,
       reasoningLevel: form.getValues("reasoningLevel") || null,
     }),
@@ -925,6 +1048,44 @@ export const useAgentFormDrawer = ({
   }, [skills]);
 
   const handleSubmit = form.handleSubmit((values) => {
+    const runtimeDirtyFields: ScheduledRuntimeDirtyFields = {
+      provider: form.formState.dirtyFields.provider === true,
+      codingAgent: form.formState.dirtyFields.codingAgent === true,
+      aiProvider: form.formState.dirtyFields.aiProvider === true,
+      aiModel: form.formState.dirtyFields.aiModel === true,
+      reasoningLevel: form.formState.dirtyFields.reasoningLevel === true,
+    };
+    const capabilitySelectionChanged =
+      form.getFieldState("needsBrowser").isDirty ||
+      form.getFieldState("selectedPluginIds").isDirty ||
+      form.getFieldState("selectedMcpServerIds").isDirty;
+    const shouldValidateRuntime =
+      !isEditing ||
+      hasScheduledAgentRuntimeFieldChanges(runtimeDirtyFields) ||
+      capabilitySelectionChanged;
+
+    if (shouldValidateRuntime) {
+      const admission = resolveScheduledAgentRuntimeAdmission(values);
+      if (!admission.admitted) {
+        const fieldName = admission.dimension === "codingAgent"
+          ? "codingAgent"
+          : admission.dimension === "aiProvider" || admission.dimension === "authClass"
+            ? "aiProvider"
+            : admission.dimension === "model"
+              ? "aiModel"
+              : admission.value === "browser"
+                ? "needsBrowser"
+                : admission.value === "extensions"
+                  ? "selectedPluginIds"
+                  : "selectedMcpServerIds";
+        form.setError(fieldName, {
+          type: "runtime-policy",
+          message: `Runtime selection is unavailable (${admission.code}).`,
+        });
+        return;
+      }
+    }
+
     const scheduleConfig =
       values.scheduleType === "manual"
         ? null
@@ -938,17 +1099,18 @@ export const useAgentFormDrawer = ({
             ? buildOnceScheduleConfig(values)
             : { expression: values.cronExpression! };
 
-    const runtimeFields = resolveScheduledAgentSubmitRuntimeFields(values);
+    const runtimeFields = resolveScheduledAgentSubmitRuntimeFields(values, {
+      isEditing,
+      dirtyFields: runtimeDirtyFields,
+    });
     // The old raw mcpServersJson textarea is gone: the backend fails closed on
-    // any unmanaged remote MCP URL (no almirantServerId), so scheduled agents
-    // never submit a manual mcpServers payload anymore. The Agents v2 tooling
-    // selection below carries the same intent through targetConfig instead —
-    // a running job's actual mcpServers config is materialized server-side
-    // from that selection at dispatch time.
-    // Named distinctly from the `mcpServers` catalog param this hook
-    // receives, which stays in outer scope for the returned selector state.
+    // unmanaged remote MCP URLs. Managed catalog selections are persisted in
+    // targetConfig and materialized server-side at dispatch.
     const submittedMcpServers = null;
     const toolingSelection = buildAgentToolingSelection(values);
+    const toolingSelectionChanged =
+      form.getFieldState("selectedPluginIds").isDirty ||
+      form.getFieldState("selectedMcpServerIds").isDirty;
     const hasToolingSelection =
       toolingSelection.selectedPluginIds.length > 0 ||
       toolingSelection.selectedMcpServerIds.length > 0;
@@ -965,13 +1127,12 @@ export const useAgentFormDrawer = ({
 
     const isWebhookTrigger = values.trigger === "webhook";
 
-    const data: CreateScheduledAgentData = {
+    const data: CreateScheduledAgentData | UpdateScheduledAgentData = {
       ...(!isEditing && isWebhookTrigger ? { id: values.webhookId } : {}),
       name: values.name,
       projectId: resolveScheduledAgentSubmitProjectId(values),
       prompt: submittedPrompt,
       jobType: resolveScheduledAgentSubmitJobType(values),
-      provider: resolveScheduledAgentSubmitProvider(values),
       trigger: values.trigger,
       ...(isWebhookTrigger ? { webhookToken: values.webhookToken } : {}),
       skillId: values.skillId ?? null,
@@ -988,15 +1149,38 @@ export const useAgentFormDrawer = ({
       ...runtimeFields,
       mcpServers: submittedMcpServers,
       targetConfig: (() => {
-        const baseTargetConfig = isBuiltinAutomation
+        const generatedTargetConfig = isBuiltinAutomation
           ? buildBuiltinAutomationTargetConfig({
               ...values,
               allProjectIds: projects.map((project) => project.id),
             })
           : undefined;
-        return hasToolingSelection
-          ? mergeAgentToolingSelectionIntoTargetConfig(baseTargetConfig, toolingSelection)
-          : baseTargetConfig;
+        let submittedTargetConfig = generatedTargetConfig;
+
+        // Built-in automations regenerate their queue fields, but unrelated
+        // adapter metadata must survive those edits byte-for-byte.
+        if (submittedTargetConfig && config?.targetConfig?.customFilters) {
+          submittedTargetConfig = {
+            ...submittedTargetConfig,
+            customFilters: config.targetConfig.customFilters,
+          };
+        }
+
+        if (hasToolingSelection || toolingSelectionChanged) {
+          submittedTargetConfig = mergeAgentToolingSelectionIntoTargetConfig(
+            submittedTargetConfig ?? (isEditing ? config?.targetConfig : undefined),
+            toolingSelection,
+          );
+        }
+
+        if (!isEditing || form.getFieldState("needsBrowser").isDirty) {
+          submittedTargetConfig = mergeAgentBrowserSelectionIntoTargetConfig(
+            submittedTargetConfig ?? (isEditing ? config?.targetConfig : undefined),
+            values.needsBrowser,
+          );
+        }
+
+        return submittedTargetConfig;
       })(),
     };
 

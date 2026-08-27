@@ -119,7 +119,37 @@ describe("SessionDetailView (desktop layout)", () => {
 
     expect(screen.getByText("Job ID")).toBeInTheDocument();
     expect(screen.getByText("Session ID")).toBeInTheDocument();
+    expect(screen.getByText("Claude Code")).toBeInTheDocument();
     expect(screen.getByTestId("session-transcript-stub")).toBeInTheDocument();
+  });
+
+  it("renders Pi with its label and coding-agent icon", () => {
+    const piDetail: AgentSessionDetail = {
+      ...detail,
+      job: { ...job, codingAgent: "pi" },
+    };
+    const { container } = render(
+      <SessionDetailView {...createBaseProps({ detail: piDetail })} />,
+    );
+
+    expect(screen.getByText("Pi")).toBeInTheDocument();
+    expect(container.querySelector(".lucide-cpu")).toBeInTheDocument();
+  });
+
+  it("retains an unknown persisted coding-agent label with a safe fallback icon", () => {
+    const unknownDetail: AgentSessionDetail = {
+      ...detail,
+      job: {
+        ...job,
+        codingAgent: "future-agent" as AgentSessionDetail["job"]["codingAgent"],
+      },
+    };
+    const { container } = render(
+      <SessionDetailView {...createBaseProps({ detail: unknownDetail })} />,
+    );
+
+    expect(screen.getByText("future-agent")).toBeInTheDocument();
+    expect(container.querySelector(".lucide-cpu")).toBeInTheDocument();
   });
 
   it("shows the phase progress in the right rail when phases exist", () => {

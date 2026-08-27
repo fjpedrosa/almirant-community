@@ -3,6 +3,11 @@ import type {
   AlmirantWorkerClient,
   ProviderKeysResponse,
 } from "@almirant/remote-agent";
+import {
+  RESOLVED_RUNTIME_SELECTION_SCHEMA_VERSION,
+  runtimeCapabilityRegistry,
+  type ResolvedRuntimeSelection,
+} from "@almirant/shared";
 
 let buildInjectedEnv: typeof import("./config-injector").buildInjectedEnv;
 let resolveRuntimeConfig: typeof import("./config-injector").resolveRuntimeConfig;
@@ -86,6 +91,8 @@ const baseJob = (
 const baseJobDefaults = (provider: string) =>
   ({
     id: "job-1",
+    workerId: "worker-1",
+    claimAttemptId: "claim-attempt-1",
     workItemId: null,
     projectId: null,
     boardId: null,
@@ -114,7 +121,31 @@ const images = {
   opencodeImage: "opencode:1.14.25",
   claudeShimImage: "claude-shim:2.1.119",
   codexShimImage: "codex-shim:0.125.0",
+  piShimImage: "pi-shim:0.84.2",
 };
+
+const makeResolvedRuntimeSelection = (
+  overrides: Partial<ResolvedRuntimeSelection> = {},
+): ResolvedRuntimeSelection => ({
+  schemaVersion: RESOLVED_RUNTIME_SELECTION_SCHEMA_VERSION,
+  registryVersion: runtimeCapabilityRegistry.version,
+  projectionHash: runtimeCapabilityRegistry.projectionHash,
+  provider: "codex",
+  codingAgent: "codex",
+  aiProvider: "openai",
+  model: "gpt-5.6-sol",
+  authClass: "api_key",
+  capabilities: [],
+  provenance: {
+    provider: "explicit",
+    codingAgent: "explicit",
+    aiProvider: "explicit",
+    model: "explicit",
+    authClass: "explicit",
+    capabilities: "explicit",
+  },
+  ...overrides,
+});
 
 // ---------------------------------------------------------------------------
 // resolveRuntimeConfig
@@ -149,9 +180,10 @@ describe("resolveRuntimeConfig", () => {
     expect(cfg.image).toBe("claude-shim:2.1.119");
   });
 
-  it("resolves unknown provider to opencode", () => {
-    const cfg = resolveRuntimeConfig("some-unknown", images);
-    expect(cfg.type).toBe("opencode");
+  it("fails closed for an unknown provider", () => {
+    expect(() => resolveRuntimeConfig("some-unknown", images)).toThrow(
+      "RUNTIME_CODING_AGENT_UNSUPPORTED",
+    );
   });
 
   it("resolves grok to opencode", () => {
@@ -193,6 +225,297 @@ describe("resolveRuntimeConfig", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildInjectedEnv", () => {
+  it("rejects missing or stale claim ownership before provider key lookup", async () => {
+    const getProviderKeys = mock(async () => ({
+      openaiApiKey: "must-not-be-read",
+    }));
+    const getGithubToken = mock(async () => ({
+      token: "must-not-be-read",
+      expiresAt: new Date().toISOString(),
+    }));
+    const registerSensitiveValue = mock(() => undefined);
+
+    for (const invalidClaim of [
+      { id: " " },
+      { workerId: undefined },
+      { workerId: "\t" },
+      { claimAttemptId: undefined },
+      { claimAttemptId: "\n" },
+      { status: "completed" },
+    ]) {
+      await expect(buildInjectedEnv({
+        workerClient: { getProviderKeys, getGithubToken },
+        job: baseJob("codex", invalidClaim),
+        repository: { id: "repo-1" },
+        registerSensitiveValue,
+      })).rejects.toThrow(
+        "Provider key request requires active claim ownership",
+      );
+    }
+
+    expect(getProviderKeys).toHaveBeenCalledTimes(0);
+    expect(getGithubToken).toHaveBeenCalledTimes(0);
+    expect(registerSensitiveValue).toHaveBeenCalledTimes(0);
+  });
+
+  it("injects only one admitted Pi Z.AI bundle with exact claim binding", async () => {
+    const getProviderKeys = mock(async () => ({
+      credentialBundles: [{
+        provider: "zai" as const,
+        connectionId: "connection-zai-1",
+        authClass: "api_key" as const,
+        apiKey: "zai-production-test-key",
+      }],
+      zaiApiKey: "legacy-zai-key",
+      openaiApiKey: "legacy-openai-key",
+      baseUrl: "https://untrusted.example.test/v1",
+    }));
+    const requestSessionToken = mock(async () => ({
+      token: "must-not-be-materialized",
+      expiresAt: new Date().toISOString(),
+    }));
+    const result = await buildInjectedEnv({
+      workerClient: {
+        getProviderKeys,
+        getGithubToken: async () => ({
+          token: "unused-github-token",
+          expiresAt: new Date().toISOString(),
+        }),
+      },
+      job: baseJob("pi", {
+        workerId: "worker-pi-exact",
+        claimAttemptId: "claim-pi-exact",
+        resolvedRuntimeSelection: makeResolvedRuntimeSelection({
+          provider: "pi",
+          codingAgent: "pi",
+          aiProvider: "zai",
+          model: "glm-5.3",
+          authClass: "api_key",
+          capabilities: [],
+        }),
+        config: {
+          reasoningLevel: "high",
+          env: {
+            OPENAI_API_KEY: "hostile-openai-key",
+            ZAI_API_KEY: "hostile-zai-key",
+            NODE_OPTIONS: "--require=/hostile/preload.cjs",
+            ALLOWED_JOB_VALUE: "must-not-be-preserved",
+          },
+        },
+      }),
+      repository: {},
+      apiBaseUrl: "https://api.almirant.example.test",
+      requestSessionToken,
+    });
+
+    expect(getProviderKeys).toHaveBeenCalledWith(
+      ["zai"],
+      {
+        jobId: "job-1",
+        workerId: "worker-pi-exact",
+        claimAttemptId: "claim-pi-exact",
+        preferredConnectionId: undefined,
+      },
+      undefined,
+    );
+    expect(requestSessionToken).toHaveBeenCalledTimes(0);
+    expect(Object.keys(result.env).sort()).toEqual([
+      "ALMIRANT_CODING_AGENT",
+      "ALMIRANT_PROVIDER",
+      "ALMIRANT_USER_LOCALE",
+      "PI_MODEL",
+      "PI_PROVIDER",
+      "PI_THINKING_LEVEL",
+      "WORKSPACE_KIND",
+      "ZAI_API_KEY",
+    ]);
+    expect(result.env).toMatchObject({
+      ZAI_API_KEY: "zai-production-test-key",
+      PI_PROVIDER: "zai",
+      PI_MODEL: "glm-5.3",
+      PI_THINKING_LEVEL: "high",
+      ALMIRANT_PROVIDER: "zai",
+      ALMIRANT_CODING_AGENT: "pi",
+    });
+    expect(result.openCodeConfig.mcp).toEqual({});
+    expect(result.openCodeConfig.provider["zai-coding-plan"].options.endpoint)
+      .toBe("https://api.z.ai/api/coding/paas/v4");
+    expect(result.providerKeyMetadata).toEqual({
+      keyEnvName: "ZAI_API_KEY",
+      authClass: "api_key",
+      codingAgent: "pi",
+      runtimeType: "pi-shim",
+      provider: "zai",
+    });
+  });
+
+  it("preserves Google and Plan Review capability-ref behavior with safe debug", async () => {
+    const capabilityRef = "plan-review-capability-ref-v1";
+    const getProviderKeys = mock(async () => ({
+      googleApiKey: "google-safe-test-key",
+      _debug: {
+        google: {
+          connectionId: "plan-review-capability",
+          connectionName: "Google Plan Review",
+          provider: "google",
+          authMethod: "api_key" as const,
+          tokenExpiresAt: null,
+          scope: "organization",
+          secretPrefix: "must-not-copy",
+          secretSuffix: "must-not-copy-either",
+        },
+      },
+    }));
+    const result = await buildInjectedEnv({
+      workerClient: {
+        getProviderKeys,
+        getGithubToken: async () => ({
+          token: "unused",
+          expiresAt: new Date().toISOString(),
+        }),
+      },
+      job: baseJob("opencode", {
+        codingAgent: "opencode",
+        aiProvider: "google",
+        config: { providerConnectionId: capabilityRef },
+      }),
+      repository: {},
+      model: "gemini-3.1-pro-preview",
+    });
+
+    expect(getProviderKeys).toHaveBeenCalledWith(
+      ["google"],
+      expect.objectContaining({
+        jobId: "job-1",
+        workerId: "worker-1",
+        claimAttemptId: "claim-attempt-1",
+        preferredConnectionId: capabilityRef,
+      }),
+      undefined,
+    );
+    expect(result.env.GEMINI_API_KEY).toBe("google-safe-test-key");
+    expect(result.openCodeConfig.provider["openai-compatible"].options.endpoint)
+      .toBe("https://generativelanguage.googleapis.com/v1beta/openai");
+    expect(result.keyDebug).toMatchObject({
+      connectionId: "plan-review-capability",
+      connectionName: "Google Plan Review",
+      provider: "google",
+      keyEnvName: "GEMINI_API_KEY",
+      runtimeType: "opencode",
+    });
+    expect(result.keyDebug).not.toHaveProperty("secretPrefix");
+    expect(result.keyDebug).not.toHaveProperty("secretSuffix");
+    expect(result.providerKeyMetadata.provider).toBe("google");
+  });
+
+  it("rejects Pi MCP and custom-provider controls before credential lookup", async () => {
+    for (const [config, code] of [
+      [{ mcpServers: {} }, "PI_CAPABILITY_MCP_DISABLED"],
+      [{ env: { ZAI_BASE_URL: "https://attacker.invalid/v1" } }, "PI_CUSTOM_PROVIDER_DISABLED"],
+    ] as const) {
+      const getProviderKeys = mock(async () => ({
+        credentialBundles: [{
+          provider: "zai" as const,
+          connectionId: "must-not-be-read",
+          authClass: "api_key" as const,
+          apiKey: "must-not-be-read",
+        }],
+      }));
+      let error: unknown;
+      try {
+        await buildInjectedEnv({
+          workerClient: {
+            getProviderKeys,
+            getGithubToken: async () => ({
+              token: "must-not-be-read",
+              expiresAt: new Date().toISOString(),
+            }),
+          },
+          job: baseJob("pi", {
+            resolvedRuntimeSelection: makeResolvedRuntimeSelection({
+              provider: "pi",
+              codingAgent: "pi",
+              aiProvider: "zai",
+              model: "glm-5.3",
+              authClass: "api_key",
+              capabilities: [],
+            }),
+            config,
+          }),
+          repository: {},
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      expect((error as { code?: string }).code).toBe(code);
+      expect(getProviderKeys).toHaveBeenCalledTimes(0);
+    }
+  });
+
+  it("rejects missing, duplicate, wrong-provider, and non-API-key Pi bundles", async () => {
+    const invalidResponses: Array<[ProviderKeysResponse, string]> = [
+      [{ zaiApiKey: "legacy-only" }, "RUNTIME_AUTH_CLASS_UNSUPPORTED"],
+      [{
+        credentialBundles: [
+          { provider: "zai", connectionId: "one", authClass: "api_key", apiKey: "one" },
+          { provider: "zai", connectionId: "two", authClass: "api_key", apiKey: "two" },
+        ],
+      }, "RUNTIME_AUTH_CLASS_UNSUPPORTED"],
+      [{
+        credentialBundles: [{
+          provider: "openai",
+          connectionId: "wrong-provider",
+          authClass: "api_key",
+          apiKey: "wrong-key",
+        }],
+      }, "RUNTIME_AUTH_CLASS_UNSUPPORTED"],
+      [{
+        credentialBundles: [{
+          provider: "zai",
+          connectionId: "setup-token",
+          authClass: "setup_token",
+        }],
+      }, "PI_AUTH_SETUP_TOKEN_DISABLED"],
+      [{
+        credentialBundles: [{
+          provider: "zai",
+          connectionId: "subscription",
+          authClass: "subscription",
+        }],
+      }, "PI_AUTH_SUBSCRIPTION_DISABLED"],
+      [{
+        credentialBundles: [{
+          provider: "zai",
+          connectionId: "oauth",
+          authClass: "provider_oauth",
+        }],
+      }, "PI_AUTH_PROVIDER_OAUTH_DISABLED"],
+    ];
+
+    for (const [keys, code] of invalidResponses) {
+      let error: unknown;
+      try {
+        await buildInjectedEnv({
+          workerClient: buildMockClient(keys),
+          job: baseJob("pi", {
+            resolvedRuntimeSelection: makeResolvedRuntimeSelection({
+              provider: "pi",
+              codingAgent: "pi",
+              aiProvider: "zai",
+              model: "glm-5.3",
+              authClass: "api_key",
+              capabilities: [],
+            }),
+          }),
+          repository: {},
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      expect((error as { code?: string }).code).toBe(code);
+    }
+  });
+
   it("uses the same current defaults as runtime-selection when connection models are absent", async () => {
     const openaiResult = await buildInjectedEnv({
       workerClient: buildMockClient({

@@ -971,14 +971,36 @@
         "codingAgent": {
           "claudeCode": "Claude Code",
           "codex": "Codex",
-          "opencode": "OpenCode"
+          "opencode": "OpenCode",
+          "pi": "Pi"
         },
         "aiProvider": {
           "anthropic": "Anthropic",
+          "google": "Google",
           "openai": "OpenAI",
           "zai": "z.ai",
           "xai": "xAI"
         }
+      }
+    },
+    "runtimeSelection": {
+      "fields": {
+        "legacyRunner": "Legacy default runner",
+        "codingAgent": "Coding agent",
+        "aiProvider": "AI provider",
+        "model": "Model",
+        "reasoningLevel": "Reasoning effort"
+      },
+      "retainedValue": "{field}: retained saved value ‘{value}’. Choose a supported value to replace it.",
+      "retainedDefault": "{field}: retained saved default. Choose a supported value to replace it.",
+      "piExactTuple": "Pi is available only with the exact z.ai / GLM-5.3 API-key tuple.",
+      "piReadOnlyUnavailable": "Pi is unavailable here because this flow requires enforced read-only execution.",
+      "rejections": {
+        "PI_CAPABILITY_READ_ONLY_ENFORCEMENT_DISABLED": "Pi cannot run this selection because enforced read-only execution is unavailable.",
+        "RUNTIME_CODING_AGENT_UNSUPPORTED": "The saved coding agent is not supported for new runs.",
+        "RUNTIME_AI_PROVIDER_UNSUPPORTED": "The saved AI provider is not supported for this coding agent.",
+        "RUNTIME_MODEL_UNSUPPORTED": "The saved model is not supported for this runtime tuple.",
+        "RUNTIME_ADMISSION_DISABLED": "This runtime tuple is not admitted for new runs."
       }
     }
   },

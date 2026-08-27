@@ -65,6 +65,101 @@ const GIT_IDENTITY_EXACT_ENV_KEYS = new Set([
 const isGitIdentityOverrideEnvKey = (key: string): boolean =>
   GIT_IDENTITY_EXACT_ENV_KEYS.has(key) || key.startsWith("GIT_CONFIG_");
 
+const PI_CONFIG_DIR = "/tmp/almirant-pi-agent";
+const PI_TEMP_DIR = "/tmp";
+const PI_TRUSTED_RUNTIME_ENV_KEYS = [
+  "PATH",
+  "SHIM_SERVER_HOST",
+  "SHIM_SERVER_PORT",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "NODE_EXTRA_CA_CERTS",
+] as const;
+
+const isMcpArtifactEnvKey = (key: string): boolean =>
+  key.toUpperCase().includes("MCP");
+
+const pickDefinedEnvironment = (
+  source: Record<string, string>,
+  keys: readonly string[],
+): Record<string, string> => {
+  const selected: Record<string, string> = {};
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "string" && value.length > 0) selected[key] = value;
+  }
+  return selected;
+};
+
+const requireExactPiEnvironment = (
+  source: Record<string, string>,
+  key: "PI_PROVIDER" | "PI_MODEL" | "ZAI_API_KEY",
+): string => {
+  const value = source[key];
+  if (typeof value !== "string" || value.length === 0 || value.trim() !== value) {
+    throw new Error(`Pi container requires exact runner-owned ${key}`);
+  }
+  return value;
+};
+
+const assertNoPiMcpMaterialization = (
+  mcpConfig: Record<string, unknown>,
+  ...environmentSources: Array<Record<string, string>>
+): void => {
+  if (
+    Object.keys(mcpConfig).length > 0 ||
+    environmentSources.some((source) =>
+      Object.keys(source).some(isMcpArtifactEnvKey)
+    )
+  ) {
+    throw new Error("Pi runtime does not permit MCP materialization");
+  }
+};
+
+const buildPiContainerEnvironment = (input: {
+  injectedEnv: Record<string, string>;
+  runtimeEnv: Record<string, string>;
+  egressProxyUrl?: string;
+}): Record<string, string> => {
+  const provider = requireExactPiEnvironment(input.injectedEnv, "PI_PROVIDER");
+  if (provider !== "zai") {
+    throw new Error("Pi container requires the admitted Z.AI provider");
+  }
+  const model = requireExactPiEnvironment(input.injectedEnv, "PI_MODEL");
+  const credential = requireExactPiEnvironment(input.injectedEnv, "ZAI_API_KEY");
+  const thinking = input.injectedEnv.PI_THINKING_LEVEL;
+  if (thinking !== undefined && (thinking.length === 0 || thinking.trim() !== thinking)) {
+    throw new Error("Pi container requires exact runner-owned PI_THINKING_LEVEL");
+  }
+
+  return {
+    ...pickDefinedEnvironment(input.runtimeEnv, PI_TRUSTED_RUNTIME_ENV_KEYS),
+    HOME: "/home/opencode",
+    TMPDIR: PI_TEMP_DIR,
+    TMP: PI_TEMP_DIR,
+    TEMP: PI_TEMP_DIR,
+    WORKSPACE_REPO_PATH,
+    PI_CODING_AGENT_DIR: PI_CONFIG_DIR,
+    PI_OFFLINE: "1",
+    PI_SKIP_VERSION_CHECK: "1",
+    PI_TELEMETRY: "0",
+    PI_PROVIDER: provider,
+    PI_MODEL: model,
+    ...(thinking ? { PI_THINKING_LEVEL: thinking } : {}),
+    ZAI_API_KEY: credential,
+    ...(input.egressProxyUrl
+      ? {
+          HTTP_PROXY: input.egressProxyUrl,
+          HTTPS_PROXY: input.egressProxyUrl,
+          http_proxy: input.egressProxyUrl,
+          https_proxy: input.egressProxyUrl,
+          NO_PROXY: AGENT_NO_PROXY,
+          no_proxy: AGENT_NO_PROXY,
+        }
+      : {}),
+  };
+};
+
 const withoutCallerProxyEnvironment = (
   ...sources: Array<Record<string, string>>
 ): Record<string, string> => {
@@ -161,7 +256,17 @@ export const buildContainerSpec = (params: ContainerSpecParams): RunnerContainer
   const taskId = workItem?.taskId ?? "";
   const mcpConfig = openCodeConfig.mcp ?? {};
   const hasMcp = Object.keys(mcpConfig).length > 0;
-  const callerEnvironment = withoutCallerProxyEnvironment(injectedEnv, runtimeConfig.envVars);
+  const isPiRuntime = runtimeConfig.type === "pi-shim";
+  if (isPiRuntime) {
+    assertNoPiMcpMaterialization(
+      mcpConfig as Record<string, unknown>,
+      injectedEnv,
+      runtimeConfig.envVars,
+    );
+  }
+  const callerEnvironment = isPiRuntime
+    ? {}
+    : withoutCallerProxyEnvironment(injectedEnv, runtimeConfig.envVars);
 
   // Build Codex-specific MCP config + extracted bearer tokens
   const codexMcp = hasMcp && runtimeConfig.type === "codex-shim"
@@ -173,52 +278,58 @@ export const buildContainerSpec = (params: ContainerSpecParams): RunnerContainer
     entrypoint: runtimeConfig.entrypoint,
     command: runtimeConfig.command,
     user: CONTAINER_USER,
-    env: {
-      ...callerEnvironment,
-      HOME: "/home/opencode",
+    env: isPiRuntime
+      ? buildPiContainerEnvironment({
+          injectedEnv,
+          runtimeEnv: runtimeConfig.envVars,
+          egressProxyUrl,
+        })
+      : {
+          ...callerEnvironment,
+          HOME: "/home/opencode",
 
-      ALMIRANT_JOB_ID: job.id,
-      ALMIRANT_WORK_ITEM_ID: workItem?.id ?? "",
-      ALMIRANT_TASK_ID: taskId,
-      SKILL_NAME: skillName,
-      ENABLE_BROWSER: intent.needsBrowser ? "true" : (injectedEnv.ENABLE_BROWSER ?? ""),
-      OPENCODE_START_MODE: "serve",
-      WORKSPACE_REPO_PATH,
-      OPENCODE_CONFIG_JSON:
-        runtimeConfig.configFile === "opencode.json"
-          ? JSON.stringify(openCodeConfig)
-          : "",
-      MCP_CONFIG_JSON:
-        hasMcp ? JSON.stringify(mcpConfig) : "",
-      CLAUDE_MCP_JSON:
-        runtimeConfig.type === "claude-shim" && hasMcp
-          ? JSON.stringify(buildClaudeMcpConfig(mcpConfig as Record<string, Record<string, unknown>>))
-          : "",
-      CODEX_MCP_JSON:
-        codexMcp ? JSON.stringify(codexMcp.servers) : "",
-      ...(deliveryGitIdentity.runnerDeliveryEnabled
-        ? {
-            ALMIRANT_GIT_AUTHOR_NAME: deliveryGitIdentity.identity.name,
-            ALMIRANT_GIT_AUTHOR_EMAIL: deliveryGitIdentity.identity.email,
-          }
-        : {}),
-      // Inject extracted bearer tokens as individual env vars for Codex
-      ...(codexMcp?.tokenEnvVars ?? {}),
-      ...(egressProxyUrl
-        ? {
-            HTTP_PROXY: egressProxyUrl,
-            HTTPS_PROXY: egressProxyUrl,
-            http_proxy: egressProxyUrl,
-            https_proxy: egressProxyUrl,
-            NO_PROXY: AGENT_NO_PROXY,
-            no_proxy: AGENT_NO_PROXY,
-          }
-        : {}),
-      // Full validation environment URLs (set by setupValidateEnvironment when applicable)
-      ...(typeof (injectedEnv as Record<string, string>).VALIDATE_FRONTEND_URL === "string"
-        ? { VALIDATE_FRONTEND_URL: (injectedEnv as Record<string, string>).VALIDATE_FRONTEND_URL }
-        : {}),
-    },
+          ALMIRANT_JOB_ID: job.id,
+          ALMIRANT_WORK_ITEM_ID: workItem?.id ?? "",
+          ALMIRANT_TASK_ID: taskId,
+          SKILL_NAME: skillName,
+          ENABLE_BROWSER: intent.needsBrowser ? "true" : (injectedEnv.ENABLE_BROWSER ?? ""),
+          OPENCODE_START_MODE: "serve",
+          WORKSPACE_REPO_PATH,
+          OPENCODE_CONFIG_JSON:
+            runtimeConfig.configFile === "opencode.json"
+              ? JSON.stringify(openCodeConfig)
+              : "",
+          MCP_CONFIG_JSON:
+            hasMcp ? JSON.stringify(mcpConfig) : "",
+          CLAUDE_MCP_JSON:
+            runtimeConfig.type === "claude-shim" && hasMcp
+              ? JSON.stringify(buildClaudeMcpConfig(mcpConfig as Record<string, Record<string, unknown>>))
+              : "",
+          CODEX_MCP_JSON:
+            codexMcp ? JSON.stringify(codexMcp.servers) : "",
+          ...(deliveryGitIdentity.runnerDeliveryEnabled
+            ? {
+                ALMIRANT_GIT_AUTHOR_NAME: deliveryGitIdentity.identity.name,
+                ALMIRANT_GIT_AUTHOR_EMAIL: deliveryGitIdentity.identity.email,
+              }
+            : {}),
+          // Inject extracted bearer tokens as individual env vars for Codex
+          ...(codexMcp?.tokenEnvVars ?? {}),
+          ...(egressProxyUrl
+            ? {
+                HTTP_PROXY: egressProxyUrl,
+                HTTPS_PROXY: egressProxyUrl,
+                http_proxy: egressProxyUrl,
+                https_proxy: egressProxyUrl,
+                NO_PROXY: AGENT_NO_PROXY,
+                no_proxy: AGENT_NO_PROXY,
+              }
+            : {}),
+          // Full validation environment URLs (set by setupValidateEnvironment when applicable)
+          ...(typeof (injectedEnv as Record<string, string>).VALIDATE_FRONTEND_URL === "string"
+            ? { VALIDATE_FRONTEND_URL: (injectedEnv as Record<string, string>).VALIDATE_FRONTEND_URL }
+            : {}),
+        },
     labels: {
       "work-item-id": workItem?.id ?? "",
     },
