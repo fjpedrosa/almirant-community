@@ -11,6 +11,7 @@ import { testWorkspace } from "../../../test/fixtures";
 
 // ── Save real modules BEFORE mocking (prevents cross-file contamination) ──
 const __real_resolveAiKey = { ...(await import("../../ai/shared/services/resolve-ai-key")) };
+const __real_database = { ...(await import("@almirant/database")) };
 
 const state = {
   updateArgs: null as {
@@ -34,17 +35,28 @@ const state = {
     data: Record<string, unknown> | undefined;
   } | null,
   legacyUpdateSucceeds: true,
+  usageRecordInputs: [] as Array<Record<string, unknown>>,
+  usageRecordsByKey: new Map<string, string>(),
 };
 
 const existingJob = {
   id: "job-1",
   status: "running" as "running" | "cancelled",
   workerId: "worker-1",
-  workItemId: null,
+  workItemId: null as string | null,
   planningSessionId: null,
-  jobType: "planning" as const,
+  jobType: "planning" as string,
   createdByUserId: null,
   workspaceId: testWorkspace.id,
+  provider: "claude-code" as string,
+  codingAgent: "claude-code" as string,
+  aiProvider: "anthropic" as string,
+  model: "claude-opus-4-8",
+  resolvedRuntimeSelection: null as Record<string, unknown> | null,
+  runtimeEvidence: null as Record<string, unknown> | null,
+  cost: null as number | null,
+  tokensUsed: null as number | null,
+  durationMs: null as number | null,
   cumulativeDurationMs: 0,
   startedAt: new Date("2026-04-04T12:00:00.000Z"),
   updatedAt: new Date("2026-04-04T12:00:01.000Z"),
@@ -100,6 +112,11 @@ const dbMocks = createDatabaseMocks({
       status,
       result: data?.result ?? null,
       config: data?.config ?? existingJob.config,
+      model: data?.model ?? existingJob.model,
+      runtimeEvidence: data?.runtimeEvidence ?? existingJob.runtimeEvidence,
+      cost: data?.cost ?? existingJob.cost,
+      tokensUsed: data?.tokensUsed ?? existingJob.tokensUsed,
+      durationMs: data?.durationMs ?? existingJob.durationMs,
       completedAt: status === "completed" || status === "incomplete" ? new Date("2026-04-04T12:10:00.000Z") : null,
       failedAt: status === "failed" ? new Date("2026-04-04T12:10:00.000Z") : null,
     };
@@ -126,9 +143,25 @@ const dbMocks = createDatabaseMocks({
       status,
       result: data?.result ?? null,
       config: data?.config ?? existingJob.config,
+      model: data?.model ?? existingJob.model,
+      runtimeEvidence: data?.runtimeEvidence ?? existingJob.runtimeEvidence,
+      cost: data?.cost ?? existingJob.cost,
+      tokensUsed: data?.tokensUsed ?? existingJob.tokensUsed,
+      durationMs: data?.durationMs ?? existingJob.durationMs,
       completedAt: status === "completed" || status === "incomplete" ? new Date("2026-04-04T12:10:00.000Z") : null,
       failedAt: status === "failed" ? new Date("2026-04-04T12:10:00.000Z") : null,
     };
+  },
+  createUsageRecord: async (input: Record<string, unknown>) => {
+    state.usageRecordInputs.push(input);
+    const key = String(input.idempotencyKey ?? "");
+    const fingerprint = JSON.stringify(input);
+    const previous = state.usageRecordsByKey.get(key);
+    if (previous !== undefined && previous !== fingerprint) {
+      throw new __real_database.UsageRecordIdempotencyConflictError();
+    }
+    state.usageRecordsByKey.set(key, fingerprint);
+    return { id: `usage-${key}`, ...input };
   },
 });
 
@@ -163,6 +196,79 @@ const makeStatusRequest = (): Request =>
     headers: { authorization: "Bearer worker-secret" },
   });
 
+const expectRuntimeFailure = (
+  payload: { runtimeFailure?: unknown },
+  expected: {
+    code: "RUNTIME_USAGE_INTEGRITY_FAILURE" | "RUNTIME_POLICY_FAILURE";
+    category: "usage" | "policy";
+    message: string;
+  },
+): void => {
+  expect(payload.runtimeFailure).toEqual({
+    schemaVersion: "runtime-failure-v1",
+    code: expected.code,
+    category: expected.category,
+    retryable: false,
+    message: expected.message,
+  });
+};
+
+const piResolvedRuntimeSelection = {
+  schemaVersion: "resolved-runtime-selection-v1",
+  registryVersion: 1,
+  projectionHash: "pi-projection-hash",
+  provider: "zipu",
+  codingAgent: "pi",
+  aiProvider: "zai",
+  model: "glm-5.3",
+  authClass: "api_key",
+  capabilities: [],
+  provenance: {
+    provider: "explicit", codingAgent: "explicit", aiProvider: "explicit",
+    model: "explicit", authClass: "explicit", capabilities: "explicit",
+  },
+} as const;
+
+const reportedPiRuntimeEvidence = {
+  schemaVersion: "runtime-evidence-v1",
+  usage: {
+    status: "reported", source: "terminal_aggregate",
+    identities: [{ eventId: `rti_sha256_${"a".repeat(64)}`, turnId: `rti_sha256_${"b".repeat(64)}` }],
+    inputTokens: 10, outputTokens: 5, cacheReadTokens: 2, reasoningTokens: 1,
+    totalTokens: 19,
+    cost: { totalUsd: 0.012345678, detail: { input: 0.002, output: 0.010345678 } },
+  },
+  requested: { codingAgent: "pi", aiProvider: "zai", model: "glm-5.3" },
+  resolved: {
+    schemaVersion: "resolved-runtime-selection-v1",
+    registryVersion: 1,
+    projectionHash: "pi-projection-hash",
+    codingAgent: "pi",
+    aiProvider: "zai",
+    model: "glm-5.3",
+    authClass: "api_key",
+    capabilities: [],
+    provenance: {
+      provider: "explicit",
+      codingAgent: "explicit",
+      aiProvider: "explicit",
+      model: "explicit",
+      authClass: "explicit",
+      capabilities: "explicit",
+    },
+  },
+  observed: { codingAgent: "pi", aiProvider: "zai", model: "glm-5.3" },
+  infrastructureProvider: "zipu",
+} as const;
+
+const configureModernPiJob = (): void => {
+  existingJob.provider = "zipu";
+  existingJob.codingAgent = "pi";
+  existingJob.aiProvider = "zai";
+  existingJob.model = "glm-5.3";
+  existingJob.resolvedRuntimeSelection = piResolvedRuntimeSelection;
+};
+
 describe("workersRoutes POST /workers/jobs/:jobId/status", () => {
   beforeEach(() => {
     state.updateArgs = null;
@@ -171,11 +277,222 @@ describe("workersRoutes POST /workers/jobs/:jobId/status", () => {
     state.claimUpdateOutcome = "updated";
     state.legacyUpdateArgs = null;
     state.legacyUpdateSucceeds = true;
+    state.usageRecordInputs = [];
+    state.usageRecordsByKey = new Map();
     existingJob.status = "running";
+    existingJob.workItemId = null;
+    existingJob.jobType = "planning";
+    existingJob.provider = "claude-code";
+    existingJob.codingAgent = "claude-code";
+    existingJob.aiProvider = "anthropic";
+    existingJob.model = "claude-opus-4-8";
+    existingJob.resolvedRuntimeSelection = null;
+    existingJob.runtimeEvidence = null;
+    existingJob.cost = null;
+    existingJob.tokensUsed = null;
+    existingJob.durationMs = null;
     existingJob.updatedAt = new Date("2026-04-04T12:00:01.000Z");
     existingJob.config = {};
     existingJob.workspaceId = testWorkspace.id;
     existingJob.result = null;
+  });
+
+  it("persists exact reported runtime evidence, total tokens, and provider cost without overwriting a modern model", async () => {
+    configureModernPiJob();
+    const { workersRoutes } = await import("./workers.routes");
+    const app = new Elysia().use(workersRoutes);
+
+    const res = await app.handle(makeRequest({
+      status: "completed",
+      runtimeEvidence: reportedPiRuntimeEvidence,
+      tokensUsed: 999,
+      inputTokens: 999,
+      outputTokens: 999,
+      cost: 999,
+      model: "must-not-overwrite-requested-model",
+    }));
+
+    expect(res.status).toBe(200);
+    expect(state.legacyUpdateArgs?.data).toMatchObject({
+      runtimeEvidence: reportedPiRuntimeEvidence,
+      tokensUsed: 19,
+      cost: 0.012345678,
+    });
+    expect(state.legacyUpdateArgs?.data?.model).toBeUndefined();
+    expect(existingJob.model).toBe("glm-5.3");
+  });
+
+  it("persists unavailable evidence while omitting token and cost compatibility fields", async () => {
+    configureModernPiJob();
+    const unavailableEvidence = {
+      ...reportedPiRuntimeEvidence,
+      usage: { status: "unavailable", reason: "not_reported" },
+    } as const;
+    const { workersRoutes } = await import("./workers.routes");
+    const app = new Elysia().use(workersRoutes);
+
+    const res = await app.handle(makeRequest({
+      status: "completed",
+      runtimeEvidence: unavailableEvidence,
+      tokensUsed: 999,
+      inputTokens: 999,
+      outputTokens: 999,
+      cost: 999,
+    }));
+
+    expect(res.status).toBe(200);
+    expect(state.legacyUpdateArgs?.data?.runtimeEvidence).toEqual(unavailableEvidence);
+    expect(state.legacyUpdateArgs?.data?.tokensUsed).toBeUndefined();
+    expect(state.legacyUpdateArgs?.data?.cost).toBeUndefined();
+  });
+
+  it.each([
+    [
+      "malformed",
+      {
+        schemaVersion: "runtime-evidence-v1",
+        usage: { status: "reported", source: "terminal_aggregate", inputTokens: "secret-raw-diagnostic" },
+      },
+    ],
+    [
+      "negative",
+      {
+        ...reportedPiRuntimeEvidence,
+        usage: { ...reportedPiRuntimeEvidence.usage, totalTokens: -1 },
+      },
+    ],
+    [
+      "oversized",
+      {
+        ...reportedPiRuntimeEvidence,
+        requested: {
+          ...reportedPiRuntimeEvidence.requested,
+          model: `secret-raw-diagnostic-${"x".repeat(33_000)}`,
+        },
+      },
+    ],
+  ] as const)("rejects %s runtime evidence before status persistence", async (_case, runtimeEvidence) => {
+    configureModernPiJob();
+    const { workersRoutes } = await import("./workers.routes");
+    const app = new Elysia().use(workersRoutes);
+
+    const res = await app.handle(makeRequest({ status: "completed", runtimeEvidence }));
+    const payload = await res.json() as {
+      error: string;
+      code?: string;
+      runtimeFailure?: unknown;
+    };
+
+    expect(res.status).toBe(400);
+    expect(payload.code).toBe("RUNTIME_EVIDENCE_INVALID");
+    expectRuntimeFailure(payload, {
+      code: "RUNTIME_USAGE_INTEGRITY_FAILURE",
+      category: "usage",
+      message: "Runtime usage integrity validation failed.",
+    });
+    expect(payload.error).not.toContain("secret-raw-diagnostic");
+    expect(JSON.stringify(payload)).not.toContain("secret-raw-diagnostic");
+    expect(state.legacyUpdateArgs).toBeNull();
+    expect(state.claimUpdateArgs).toBeNull();
+  });
+
+  it.each([
+    ["requested", { requested: { ...reportedPiRuntimeEvidence.requested, model: "glm-other" } }],
+    ["resolved", { resolved: { ...reportedPiRuntimeEvidence.resolved, projectionHash: "other-hash" } }],
+    ["observed", { observed: { ...reportedPiRuntimeEvidence.observed, aiProvider: "openai" } }],
+    ["infrastructure", { infrastructureProvider: "codex" }],
+  ] as const)("fails closed on a %s runtime selection mismatch", async (_lane, patch) => {
+    configureModernPiJob();
+    const { workersRoutes } = await import("./workers.routes");
+    const app = new Elysia().use(workersRoutes);
+    const runtimeEvidence = { ...reportedPiRuntimeEvidence, ...patch };
+
+    const res = await app.handle(makeRequest({ status: "completed", runtimeEvidence }));
+    const payload = await res.json() as {
+      error: string;
+      code?: string;
+      runtimeFailure?: unknown;
+    };
+
+    expect(res.status).toBe(400);
+    expect(payload.code).toBe("RUNTIME_EVIDENCE_SELECTION_MISMATCH");
+    expectRuntimeFailure(payload, {
+      code: "RUNTIME_POLICY_FAILURE",
+      category: "policy",
+      message: "Runtime policy rejected the operation.",
+    });
+    expect(payload.error).not.toContain("glm-other");
+    expect(JSON.stringify(payload)).not.toContain("glm-other");
+    expect(state.legacyUpdateArgs).toBeNull();
+  });
+
+  it("re-drives one stable terminal usage record on identical fenced replay", async () => {
+    configureModernPiJob();
+    existingJob.workItemId = "00000000-0000-4000-8000-000000000002";
+    existingJob.jobType = "implementation";
+    existingJob.config = { claimAttemptId: "attempt-terminal" };
+    const { workersRoutes } = await import("./workers.routes");
+    const app = new Elysia().use(workersRoutes);
+    const payload = {
+      status: "completed",
+      workerId: "worker-1",
+      expectedClaimAttemptId: "attempt-terminal",
+      durationMs: 60_000,
+      runtimeEvidence: reportedPiRuntimeEvidence,
+    };
+
+    const first = await app.handle(makeRequest(payload));
+    state.claimUpdateOutcome = "idempotent-replay";
+    const replay = await app.handle(makeRequest(payload));
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(200);
+    expect(state.usageRecordInputs).toHaveLength(2);
+    expect(state.usageRecordsByKey.size).toBe(1);
+    expect(state.usageRecordInputs[0]).toMatchObject({
+      idempotencyKey: `agent-job:${existingJob.id}:terminal:v1`,
+      tokensUsed: 19,
+      runtimeEvidence: reportedPiRuntimeEvidence,
+    });
+    expect(state.usageRecordInputs[1]).toEqual(state.usageRecordInputs[0]);
+  });
+
+  it("returns a sanitized invariant conflict when terminal ledger evidence conflicts", async () => {
+    configureModernPiJob();
+    existingJob.workItemId = "00000000-0000-4000-8000-000000000002";
+    existingJob.jobType = "implementation";
+    existingJob.config = { claimAttemptId: "attempt-terminal" };
+    const { workersRoutes } = await import("./workers.routes");
+    const app = new Elysia().use(workersRoutes);
+    const payload = {
+      status: "completed",
+      workerId: "worker-1",
+      expectedClaimAttemptId: "attempt-terminal",
+      durationMs: 60_000,
+      runtimeEvidence: reportedPiRuntimeEvidence,
+    };
+
+    expect((await app.handle(makeRequest(payload))).status).toBe(200);
+    const key = `agent-job:${existingJob.id}:terminal:v1`;
+    state.usageRecordsByKey.set(key, "secret-conflicting-ledger-evidence");
+    state.claimUpdateOutcome = "idempotent-replay";
+    const conflict = await app.handle(makeRequest(payload));
+    const response = await conflict.json() as {
+      error: string;
+      code?: string;
+      runtimeFailure?: unknown;
+    };
+
+    expect(conflict.status).toBe(409);
+    expect(response.code).toBe("USAGE_RECORD_INTEGRITY_CONFLICT");
+    expectRuntimeFailure(response, {
+      code: "RUNTIME_USAGE_INTEGRITY_FAILURE",
+      category: "usage",
+      message: "Runtime usage integrity validation failed.",
+    });
+    expect(response.error).not.toContain("secret-conflicting-ledger-evidence");
+    expect(JSON.stringify(response)).not.toContain("secret-conflicting-ledger-evidence");
+    expect(state.usageRecordsByKey.get(key)).toBe("secret-conflicting-ledger-evidence");
   });
 
   it("routes an explicit stale release token through the fenced idempotency path", async () => {

@@ -13,6 +13,7 @@ import { env, logger } from "@almirant/config";
 import { wsConnectionManager } from "../../../shared/ws/ws-connection-manager";
 import { resolveScheduledAgentEffectiveRuntimes } from "./scheduled-agent-effective-model-resolver";
 import {
+  assertRuntimeCapabilityIntentAdmission,
   assertValidScheduledAgentRuntime,
   normalizePersistedScheduledAgentRuntime,
 } from "./scheduled-agent-runtime-validation";
@@ -29,6 +30,18 @@ export type RepositoryResolution = "project" | "none";
 
 /** Server-owned dispatch origin. Never inferred from a worker payload. */
 export type ScheduledDispatchTrigger = "manual" | "webhook" | "schedule";
+
+const readNeedsBrowser = (
+  targetConfig: ScheduledAgentConfigDb["targetConfig"],
+): boolean => {
+  const rawMetadata = targetConfig?.customFilters?.__agent;
+  return (
+    typeof rawMetadata === "object" &&
+    rawMetadata !== null &&
+    !Array.isArray(rawMetadata) &&
+    (rawMetadata as Record<string, unknown>).needsBrowser === true
+  );
+};
 
 export interface ExecuteScheduledAgentConfigOptions {
   /** User ID who initiated execution. `null` for unattended (webhook, cron) flows. */
@@ -268,14 +281,15 @@ export const executeScheduledAgentConfigWithResult = async (
     );
   }
 
-  const [resolvedRuntime] = normalizedEffectiveRuntimes;
-  if (!resolvedRuntime) {
+  if (normalizedEffectiveRuntimes.length === 0) {
     throw new Error("Invalid scheduled agent runtime: could not resolve an effective execution runtime");
   }
 
   // Revalidate the complete, current source set immediately before enqueueing.
-  // A connection or project default may have changed since CREATE/PATCH.
-  assertValidScheduledAgentRuntime({
+  // A connection or project default may have changed since CREATE/PATCH. The
+  // assertion returns the exact admitted selection so legacy aliases cannot
+  // bypass the canonical runtime tuple used for persistence.
+  const [resolvedRuntime] = assertValidScheduledAgentRuntime({
     provider: config.provider,
     codingAgent: config.codingAgent,
     aiProvider: config.aiProvider,
@@ -284,9 +298,54 @@ export const executeScheduledAgentConfigWithResult = async (
     effectiveRuntimes: normalizedEffectiveRuntimes,
     targetConfig: config.targetConfig,
   });
+  if (!resolvedRuntime) {
+    throw new Error("Invalid scheduled agent runtime: could not admit an effective execution runtime");
+  }
 
   const tooling = await resolveAgentTooling(config);
   const finalPrompt = composePrompt(config.prompt, options.extraUserPrompt, outputPolicy);
+  const finalCapabilities = [
+    ...new Set([
+      ...resolvedRuntime.capabilities,
+      ...(tooling.agentPlugins.length > 0 ? ["extensions" as const] : []),
+    ]),
+  ];
+  const finalJobConfig = {
+    repoPath: ".",
+    baseBranch,
+    prompt: finalPrompt ?? undefined,
+    projectId: resolvedProjectId,
+    scheduledConfigId: config.id,
+    scheduledConfigName: config.name,
+    repositoryResolution,
+    scheduledDispatchDueKey: dueKey,
+    scheduledDispatchTrigger: dispatchTrigger,
+    source: dispatchTrigger === "webhook" ? "webhook" as const : "scheduled" as const,
+    ...(outputPolicy ? { outputPolicy } : {}),
+    reasoningLevel: resolvedRuntime.reasoningLevel ?? undefined,
+    ...(finalCapabilities.length > 0 ? { capabilities: finalCapabilities } : {}),
+    ...(tooling.mcpServers ? { mcpServers: tooling.mcpServers } : {}),
+    ...(tooling.selectedMcpServerIds.length > 0
+      ? { selectedMcpServerIds: tooling.selectedMcpServerIds }
+      : {}),
+    ...(tooling.selectedPluginIds.length > 0
+      ? { selectedPluginIds: tooling.selectedPluginIds }
+      : {}),
+    ...(tooling.agentPlugins.length > 0
+      ? { agentPlugins: tooling.agentPlugins }
+      : {}),
+    ...(readNeedsBrowser(config.targetConfig) ? { needsBrowser: true } : {}),
+    ...(repoUrl ? { repoUrl } : {}),
+    ...(repositoryId ? { repositoryId } : {}),
+  };
+  const resolvedRuntimeSelection = assertRuntimeCapabilityIntentAdmission({
+    provider: resolvedRuntime.provider,
+    codingAgent: resolvedRuntime.codingAgent,
+    aiProvider: resolvedRuntime.aiProvider,
+    model: resolvedRuntime.model,
+    authClass: resolvedRuntime.authClass,
+    config: finalJobConfig,
+  });
 
   let job;
   try {
@@ -298,35 +357,11 @@ export const executeScheduledAgentConfigWithResult = async (
       jobType: config.jobType,
       provider: resolvedRuntime.provider as typeof config.provider,
       priority: "medium",
-      config: {
-        repoPath: ".",
-        baseBranch,
-        prompt: finalPrompt ?? undefined,
-        projectId: resolvedProjectId,
-        scheduledConfigId: config.id,
-        scheduledConfigName: config.name,
-        repositoryResolution,
-        scheduledDispatchDueKey: dueKey,
-        scheduledDispatchTrigger: dispatchTrigger,
-        source: dispatchTrigger === "webhook" ? "webhook" : "scheduled",
-        ...(outputPolicy ? { outputPolicy } : {}),
-        reasoningLevel: resolvedRuntime.reasoningLevel ?? undefined,
-        ...(tooling.mcpServers ? { mcpServers: tooling.mcpServers } : {}),
-        ...(tooling.selectedMcpServerIds.length > 0
-          ? { selectedMcpServerIds: tooling.selectedMcpServerIds }
-          : {}),
-        ...(tooling.selectedPluginIds.length > 0
-          ? { selectedPluginIds: tooling.selectedPluginIds }
-          : {}),
-        ...(tooling.agentPlugins.length > 0
-          ? { agentPlugins: tooling.agentPlugins }
-          : {}),
-        ...(repoUrl ? { repoUrl } : {}),
-        ...(repositoryId ? { repositoryId } : {}),
-      },
+      config: finalJobConfig,
       codingAgent: resolvedRuntime.codingAgent as never,
       aiProvider: resolvedRuntime.aiProvider as never,
       model: resolvedRuntime.model,
+      resolvedRuntimeSelection,
       prompt: finalPrompt,
       promptTemplate: null,
       triggerType: dispatchTrigger === "schedule" ? "scheduled" : "event",

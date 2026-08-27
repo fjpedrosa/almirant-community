@@ -40,6 +40,46 @@ const txExecute = mock(async (query: unknown) => {
 
 const loggerWarn = mock((..._args: unknown[]) => undefined);
 
+type SqlFragment = { strings: string[]; values: unknown[] };
+type SqlJoin = { items: unknown[]; separator: unknown };
+
+const isSqlFragment = (value: unknown): value is SqlFragment =>
+  typeof value === "object" &&
+  value !== null &&
+  Array.isArray((value as Partial<SqlFragment>).strings) &&
+  Array.isArray((value as Partial<SqlFragment>).values);
+
+const isSqlJoin = (value: unknown): value is SqlJoin =>
+  typeof value === "object" &&
+  value !== null &&
+  Array.isArray((value as Partial<SqlJoin>).items) &&
+  "separator" in (value as object);
+
+const renderFragmentPart = (value: unknown): string => {
+  if (isSqlFragment(value)) return renderSql(value);
+  if (isSqlJoin(value)) {
+    const separatorText = renderFragmentPart(value.separator);
+    return value.items.map((item) => renderFragmentPart(item)).join(separatorText);
+  }
+  return "?";
+};
+
+const renderSql = (fragment: SqlFragment): string =>
+  fragment.strings.reduce((text, part, index) => {
+    if (index === 0) return part;
+    const value = fragment.values[index - 1];
+    return `${text}${renderFragmentPart(value)}${part}`;
+  }, "");
+
+const collectFragmentValues = (value: unknown): unknown[] => {
+  if (isSqlFragment(value)) return collectSqlValues(value);
+  if (isSqlJoin(value)) return value.items.flatMap((item) => collectFragmentValues(item));
+  return [value];
+};
+
+const collectSqlValues = (fragment: SqlFragment): unknown[] =>
+  fragment.values.flatMap((value) => collectFragmentValues(value));
+
 const transactionMock = mock(async (callback: (tx: { execute: typeof txExecute }) => Promise<unknown>) => {
   return callback({ execute: txExecute });
 });
@@ -70,6 +110,21 @@ const insertMock = mock((table: unknown) => ({
   },
 }));
 
+const updateState = {
+  patch: null as Record<string, unknown> | null,
+  rows: [] as Array<Record<string, unknown>>,
+};
+const updateMock = mock(() => ({
+  set: (patch: Record<string, unknown>) => {
+    updateState.patch = patch;
+    return {
+      where: () => ({
+        returning: async () => [...updateState.rows],
+      }),
+    };
+  },
+}));
+
 const sqlTag = Object.assign(
   (strings: TemplateStringsArray, ...values: unknown[]) => ({
     strings: Array.from(strings),
@@ -84,6 +139,7 @@ mock.module("../../client", () => ({
   db: {
     transaction: transactionMock,
     insert: insertMock,
+    update: updateMock,
   },
 }));
 
@@ -134,7 +190,11 @@ mock.module("drizzle-orm/pg-core", () => ({
 }));
 
 mock.module("@almirant/shared", () => ({
+  deriveRuntimeCapabilityIntent: realShared.deriveRuntimeCapabilityIntent,
   getSkillMemoryMb: () => 0,
+  LEGACY_CLAIMABLE_CODING_AGENTS: ["claude-code", "codex", "opencode"],
+  resolveRequestedRuntimeSelection: realShared.resolveRequestedRuntimeSelection,
+  RuntimeCapabilityIntentError: realShared.RuntimeCapabilityIntentError,
 }));
 
 mock.module("@almirant/config", () => ({
@@ -166,6 +226,9 @@ describe("claimJobs SQL regression", () => {
     txExecute.mockClear();
     transactionMock.mockClear();
     loggerWarn.mockClear();
+    updateState.patch = null;
+    updateState.rows = [];
+    updateMock.mockClear();
   });
 
   test("uses workspace_settings when computing workspace concurrency limits", async () => {
@@ -182,6 +245,80 @@ describe("claimJobs SQL regression", () => {
 
     expect(sqlText).toContain("workspace_settings");
     expect(sqlText).not.toContain(legacyTable);
+  });
+
+  test("uses the exact legacy coding-agent gate when no effective set is supplied", async () => {
+    const { claimJobs } = await import("./agent-job-repository");
+
+    await claimJobs("worker-legacy", 1);
+
+    const claimQuery = executeCalls[2] as SqlFragment;
+    expect(renderSql(claimQuery)).toContain(
+      "AND aj.coding_agent::text = ANY(ARRAY[?, ?, ?]::text[])",
+    );
+    expect(
+      collectSqlValues(claimQuery).filter((value) =>
+        ["claude-code", "codex", "opencode"].includes(String(value)),
+      ),
+    ).toEqual(["claude-code", "codex", "opencode"]);
+  });
+
+  test("uses only the supplied effective coding-agent set with text comparison", async () => {
+    const { claimJobs } = await import("./agent-job-repository");
+
+    await claimJobs("worker-codex", 1, ["codex"]);
+
+    const claimQuery = executeCalls[2] as SqlFragment;
+    const sqlText = renderSql(claimQuery);
+    expect(sqlText).toContain(
+      "AND aj.coding_agent::text = ANY(ARRAY[?]::text[])",
+    );
+    expect(
+      collectSqlValues(claimQuery).filter((value) =>
+        ["claude-code", "codex", "opencode", "pi"].includes(String(value)),
+      ),
+    ).toEqual(["codex"]);
+    expect(sqlText).not.toContain("::coding_agent[]");
+  });
+
+  test("fails closed for an explicitly empty effective coding-agent set", async () => {
+    const { claimJobs } = await import("./agent-job-repository");
+
+    await claimJobs("worker-disabled", 1, []);
+
+    const claimQuery = executeCalls[2] as SqlFragment;
+    const sqlText = renderSql(claimQuery);
+    expect(sqlText).toContain("AND FALSE");
+    expect(sqlText).not.toContain("coding_agent::text = ANY");
+  });
+
+  test("persists runtime evidence and the exact model without rewriting", async () => {
+    const { updateJobStatus } = await import("./agent-job-repository");
+    const runtimeEvidence = {
+      schemaVersion: "runtime-evidence-v1",
+      observed: {
+        codingAgent: "pi",
+        aiProvider: "zai",
+        model: "glm-5.3",
+      },
+      infrastructureProvider: "zipu",
+      usage: {
+        status: "reported",
+        source: "terminal_aggregate",
+        inputTokens: 12,
+        outputTokens: 8,
+        totalTokens: 20,
+        cost: { totalUsd: 0.0123 },
+      },
+    } as const;
+
+    await updateJobStatus("job-runtime-evidence", "completed", {
+      model: "glm-5.3",
+      runtimeEvidence,
+    });
+
+    expect(updateState.patch?.model).toBe("glm-5.3");
+    expect(updateState.patch?.runtimeEvidence).toBe(runtimeEvidence);
   });
 });
 
@@ -421,5 +558,62 @@ describe("createJob duplicate-active-job handling", () => {
     });
 
     expect(job).toMatchObject({ id: "created-job-1", status: "queued" });
+    expect(insertState.values).toMatchObject({
+      provider: "claude-code",
+      codingAgent: "claude-code",
+      aiProvider: "anthropic",
+      model: "claude-opus-4-8",
+      resolvedRuntimeSelection: {
+        schemaVersion: "resolved-runtime-selection-v1",
+        provider: "claude-code",
+        codingAgent: "claude-code",
+        aiProvider: "anthropic",
+        model: "claude-opus-4-8",
+        authClass: "api_key",
+        capabilities: [],
+      },
+    });
+  });
+
+  test("admits only the exact capability-neutral Pi tuple", async () => {
+    const { createJob } = await import("./agent-job-repository");
+
+    await expect(createJob({
+      workItemId: "wi-pi-exact",
+      jobType: "implementation",
+      provider: "zipu",
+      codingAgent: "pi",
+      aiProvider: "zai",
+      model: "glm-5.3",
+      config: { repoPath: ".", baseBranch: "main" },
+    })).resolves.toMatchObject({ id: "created-job-1", status: "queued" });
+
+    expect(insertState.values).toMatchObject({
+      provider: "zipu",
+      codingAgent: "pi",
+      aiProvider: "zai",
+      model: "glm-5.3",
+      resolvedRuntimeSelection: {
+        authClass: "api_key",
+        capabilities: [],
+      },
+    });
+  });
+
+  test("rejects restricted Pi intent before insertion", async () => {
+    const { createJob } = await import("./agent-job-repository");
+
+    await expect(createJob({
+      workItemId: "wi-pi-browser",
+      jobType: "implementation",
+      provider: "zipu",
+      codingAgent: "pi",
+      aiProvider: "zai",
+      model: "glm-5.3",
+      config: { repoPath: ".", baseBranch: "main", needsBrowser: true },
+    })).rejects.toThrow("PI_CAPABILITY_BROWSER_DISABLED");
+
+    expect(insertCalls).toHaveLength(0);
+    expect(insertState.values).toBeNull();
   });
 });

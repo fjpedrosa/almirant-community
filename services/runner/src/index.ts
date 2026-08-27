@@ -41,6 +41,7 @@ const jobExecutor = createJobExecutor(
     opencodeImage: env.OPENCODE_IMAGE,
     claudeShimImage: env.CLAUDE_SHIM_IMAGE,
     codexShimImage: env.CODEX_SHIM_IMAGE,
+    piShimImage: env.PI_SHIM_IMAGE,
     opencodeCommand: env.OPENCODE_COMMAND,
     repositoryPath: "/app/repos",
     reposHostPath: env.REPOS_HOST_PATH,

@@ -61,6 +61,7 @@ import { SlashAutocompleteTextarea } from "@/components/ui/slash-autocomplete-te
 import {
   CalendarDays,
   Check,
+  Cpu,
   ChevronsUpDown,
   Clock,
   Copy,
@@ -106,6 +107,7 @@ import {
   parseGuidedCronExpression,
 } from "../../domain/cron-builder";
 import { resolveCronFormActiveMode } from "./cron-form-defaults";
+import { resolveRuntimeCapabilityPolicy } from "@/domains/agents/domain/coding-agent-compatibility";
 
 // Helper to get human-readable cron description
 const getCronDescription = (expression: string): string | null => {
@@ -126,6 +128,8 @@ const getCodingAgentIcon = (value: string) => {
       return <CodexIcon className="size-5" />;
     case "opencode":
       return <OpenCodeIcon className="size-5" />;
+    case "pi":
+      return <Cpu className="size-5" />;
     case "zai":
     case "zipu":
       return <ZAIIcon className="size-5" />;
@@ -162,6 +166,7 @@ const CODING_AGENT_DESCRIPTIONS: Record<CodingAgent, string> = {
   "claude-code": "Anthropic Claude family.",
   codex: "OpenAI GPT family via Codex CLI.",
   opencode: "z.ai GLM models via OpenCode.",
+  pi: "Pi coding agent.",
 };
 
 const PROVIDER_LABEL_BY_VALUE: Record<string, string> = {
@@ -170,6 +175,20 @@ const PROVIDER_LABEL_BY_VALUE: Record<string, string> = {
   zai: "z.ai",
   xai: "xAI",
 };
+
+const RetainedRuntimeNotice = ({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null | undefined;
+}) => (
+  <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
+    {value == null || value === ""
+      ? `Retained default ${label}`
+      : `Retained ${label}: ${value}`}
+  </p>
+);
 
 const DEFAULT_GUIDED_CRON = {
   interval: { mode: "interval" as const, intervalMinutes: 15 },
@@ -362,6 +381,44 @@ export const AgentFormDrawer = ({
   const showDetailsStep = isEditing || wizardStep === "details";
   const showScheduleStep = isEditing || wizardStep === "schedule";
 
+  const watchedLegacyProvider = form.watch("provider") as string | null | undefined;
+  const watchedCodingAgent = form.watch("codingAgent") as string | null | undefined;
+  const watchedAiProvider = form.watch("aiProvider") as string | null | undefined;
+  const watchedAiModel = form.watch("aiModel") as string | null | undefined;
+  const watchedReasoningLevel = form.watch("reasoningLevel") as string | null | undefined;
+
+  const hasRetainedLegacyProvider =
+    isEditing &&
+    !PROVIDER_OPTIONS.some((option) => option.value === watchedLegacyProvider);
+  const hasRetainedCodingAgent =
+    isEditing &&
+    !CODING_AGENT_OPTIONS.some((option) => option.value === watchedCodingAgent);
+  const hasRetainedAiProvider =
+    isEditing &&
+    !availableProviders.some((provider) => provider === watchedAiProvider);
+  const hasRetainedModel =
+    isEditing &&
+    !availableModels.some((model) => model.value === watchedAiModel);
+  const hasRetainedReasoningLevel =
+    isEditing &&
+    Boolean(watchedReasoningLevel) &&
+    !availableReasoningLevels.some(
+      (option) => option.value === watchedReasoningLevel,
+    );
+
+  const browserCapabilityPolicy = resolveRuntimeCapabilityPolicy(
+    watchedCodingAgent ?? "",
+    "browser",
+  );
+  const extensionsCapabilityPolicy = resolveRuntimeCapabilityPolicy(
+    watchedCodingAgent ?? "",
+    "extensions",
+  );
+  const mcpCapabilityPolicy = resolveRuntimeCapabilityPolicy(
+    watchedCodingAgent ?? "",
+    "mcp",
+  );
+
   const backlogDrainExcludedIds = (form.watch("backlogDrainExcludedWorkItemIds") ?? []) as string[];
   const backlogDrainConcurrency = (form.watch("backlogDrainProjectConcurrency") ?? {}) as Record<string, number>;
   const automationProjectIdSet = new Set(automationProjectIds);
@@ -518,6 +575,144 @@ export const AgentFormDrawer = ({
     />
   );
 
+  const renderSelectedPluginsField = () => (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+            Plugins
+          </h3>
+          <Badge variant="outline">{selectedPluginIds.length} selected</Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Instruction plugins extend the system prompt; installed/uploaded packages are materialized in the isolated agent runtime. Manage both from the Plugins tab.
+        </p>
+        {!extensionsCapabilityPolicy.available && (
+          <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
+            Plugins are unavailable for this coding agent ({extensionsCapabilityPolicy.code}). Existing selections are retained.
+          </p>
+        )}
+      </div>
+
+      {plugins.length === 0 ? (
+        <p className="rounded-md bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          No plugins yet. Add one from the Plugins tab, then select it here.
+        </p>
+      ) : (
+        <div className="grid gap-2">
+          {plugins.map((plugin) => {
+            const checked = selectedPluginSet.has(plugin.id);
+            return (
+              <label
+                key={plugin.id}
+                className={cn(
+                  "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50",
+                  checked && "border-primary bg-primary/5",
+                )}
+              >
+                <Checkbox
+                  checked={checked}
+                  disabled={!extensionsCapabilityPolicy.available}
+                  onCheckedChange={() => {
+                    if (extensionsCapabilityPolicy.available) {
+                      toggleSelectedPlugin(plugin.id);
+                    }
+                  }}
+                  className="mt-0.5"
+                />
+                <span className="min-w-0 flex-1 space-y-1">
+                  <span className="flex items-center gap-2">
+                    <span className="font-medium">{plugin.name}</span>
+                    <span className="font-mono text-xs text-muted-foreground">{plugin.slug}</span>
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    {plugin.description ?? "No description provided."}
+                  </span>
+                </span>
+                {!plugin.enabled && <Badge variant="outline">Disabled</Badge>}
+              </label>
+            );
+          })}
+        </div>
+      )}
+
+      <FormField
+        control={form.control}
+        name="selectedPluginIds"
+        render={() => <FormMessage />}
+      />
+    </div>
+  );
+
+  const renderSelectedMcpServersField = () => (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+            MCP servers
+          </h3>
+          <Badge variant="outline">{selectedMcpServerIds.length} selected</Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Select your MCP connectors. Secrets stay server-side and are only decrypted for agents you own when they run. Platform servers like almirant, context7, memory, filesystem, playwright, and sequential-thinking are managed automatically.
+        </p>
+        {!mcpCapabilityPolicy.available && (
+          <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
+            MCP servers are unavailable for this coding agent ({mcpCapabilityPolicy.code}). Existing selections are retained.
+          </p>
+        )}
+      </div>
+
+      {mcpServers.length === 0 ? (
+        <p className="rounded-md bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          No MCP servers yet. Add one from the MCP tab, including its secret if required.
+        </p>
+      ) : (
+        <div className="grid gap-2">
+          {mcpServers.map((server) => {
+            const checked = selectedMcpServerSet.has(server.id);
+            return (
+              <label
+                key={server.id}
+                className={cn(
+                  "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50",
+                  checked && "border-primary bg-primary/5",
+                )}
+              >
+                <Checkbox
+                  checked={checked}
+                  disabled={!mcpCapabilityPolicy.available}
+                  onCheckedChange={() => {
+                    if (mcpCapabilityPolicy.available) {
+                      toggleSelectedMcpServer(server.id);
+                    }
+                  }}
+                  className="mt-0.5"
+                />
+                <span className="min-w-0 flex-1 space-y-1">
+                  <span className="flex items-center gap-2">
+                    <span className="font-medium">{server.name}</span>
+                    <span className="font-mono text-xs text-muted-foreground">{server.slug}</span>
+                    {server.hasSecret && <Badge variant="secondary">Secret</Badge>}
+                  </span>
+                  <span className="block truncate text-sm text-muted-foreground">
+                    {server.url}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+
+      <FormField
+        control={form.control}
+        name="selectedMcpServerIds"
+        render={() => <FormMessage />}
+      />
+    </div>
+  );
+
   const renderAutomationProjectScopeField = () => (
     <div className="space-y-3">
       <div className="space-y-1">
@@ -643,6 +838,13 @@ export const AgentFormDrawer = ({
         {helperText && <p className="text-sm text-muted-foreground">{helperText}</p>}
       </div>
 
+      {hasRetainedLegacyProvider && (
+        <RetainedRuntimeNotice
+          label="legacy provider"
+          value={watchedLegacyProvider}
+        />
+      )}
+
       <FormField
         control={form.control}
         name="codingAgent"
@@ -660,14 +862,26 @@ export const AgentFormDrawer = ({
               </Tooltip>
             </div>
             <div className="grid gap-2 sm:grid-cols-3">
+              {hasRetainedCodingAgent && (
+                <RetainedRuntimeNotice
+                  label="coding agent"
+                  value={watchedCodingAgent}
+                />
+              )}
               {CODING_AGENT_OPTIONS.map((opt) => (
                 <SelectableCard
                   key={opt.value}
                   selected={field.value === opt.value}
-                  onClick={() => field.onChange(opt.value)}
+                  onClick={() => {
+                    if (field.value === opt.value) return;
+                    field.onChange(opt.value);
+                    form.setValue("aiProvider", "", { shouldDirty: true });
+                    form.setValue("aiModel", "", { shouldDirty: true });
+                    form.setValue("reasoningLevel", undefined, { shouldDirty: true });
+                  }}
                   icon={getCodingAgentIcon(opt.value)}
                   title={opt.label}
-                  description={CODING_AGENT_DESCRIPTIONS[opt.value as CodingAgent]}
+                  description={CODING_AGENT_DESCRIPTIONS[opt.value]}
                   compact
                 />
               ))}
@@ -677,11 +891,19 @@ export const AgentFormDrawer = ({
         )}
       />
 
+      {hasRetainedAiProvider && (
+        <RetainedRuntimeNotice
+          label="AI provider"
+          value={watchedAiProvider}
+        />
+      )}
+
       {availableProviders.length === 1 ? (
         <div className="flex items-center gap-2 rounded-md bg-muted/40 px-3 py-2 text-sm">
           {getProviderIcon(availableProviders[0])}
-          <span className="font-medium">{PROVIDER_LABEL_BY_VALUE[availableProviders[0]]}</span>
-          <span className="text-muted-foreground">— inferred from coding agent</span>
+          <span className="text-muted-foreground">
+            {`${PROVIDER_LABEL_BY_VALUE[availableProviders[0]]} — inferred from coding agent`}
+          </span>
         </div>
       ) : (
         <FormField
@@ -695,7 +917,12 @@ export const AgentFormDrawer = ({
                   <SelectableCard
                     key={provider}
                     selected={field.value === provider}
-                    onClick={() => field.onChange(provider)}
+                    onClick={() => {
+                      if (field.value === provider) return;
+                      field.onChange(provider);
+                      form.setValue("aiModel", "", { shouldDirty: true });
+                      form.setValue("reasoningLevel", undefined, { shouldDirty: true });
+                    }}
                     icon={getProviderIcon(provider)}
                     title={PROVIDER_LABEL_BY_VALUE[provider] ?? provider}
                     description=""
@@ -716,8 +943,17 @@ export const AgentFormDrawer = ({
           render={({ field }) => (
             <FormItem>
               <FormLabel>AI Model</FormLabel>
+              {hasRetainedModel && (
+                <RetainedRuntimeNotice
+                  label="model"
+                  value={watchedAiModel}
+                />
+              )}
               <Select
-                onValueChange={field.onChange}
+                onValueChange={(model) => {
+                  field.onChange(model);
+                  form.setValue("reasoningLevel", undefined, { shouldDirty: true });
+                }}
                 value={field.value ?? ""}
                 disabled={availableModels.length === 0}
               >
@@ -748,6 +984,12 @@ export const AgentFormDrawer = ({
             <FormItem>
               <div className="flex items-center gap-1">
                 <FormLabel>Reasoning Level</FormLabel>
+                {hasRetainedReasoningLevel && (
+                  <RetainedRuntimeNotice
+                    label="reasoning level"
+                    value={watchedReasoningLevel}
+                  />
+                )}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <HelpCircle className="size-4 text-muted-foreground cursor-help" />
@@ -780,116 +1022,40 @@ export const AgentFormDrawer = ({
           )}
         />
       </div>
-    </div>
-  );
 
-  const renderSelectedPluginsField = () => (
-    <div className="space-y-3">
-      <div className="space-y-1">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-            Plugins
-          </h3>
-          <Badge variant="outline">{selectedPluginIds.length} selected</Badge>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Instruction plugins extend the system prompt; installed/uploaded packages are materialized in the isolated agent runtime. Manage both from the Plugins tab.
-        </p>
-      </div>
-
-      {plugins.length === 0 ? (
-        <p className="rounded-md bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-          No plugins yet. Add one from the Plugins tab, then select it here.
-        </p>
-      ) : (
-        <div className="grid gap-2">
-          {plugins.map((plugin) => {
-            const checked = selectedPluginSet.has(plugin.id);
-            return (
-              <label
-                key={plugin.id}
-                className={cn(
-                  "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50",
-                  checked && "border-primary bg-primary/5",
-                )}
-              >
-                <Checkbox
-                  checked={checked}
-                  onCheckedChange={() => toggleSelectedPlugin(plugin.id)}
-                  className="mt-0.5"
-                />
-                <span className="min-w-0 flex-1 space-y-1">
-                  <span className="flex items-center gap-2">
-                    <span className="font-medium">{plugin.name}</span>
-                    <span className="font-mono text-xs text-muted-foreground">{plugin.slug}</span>
-                  </span>
-                  <span className="block text-sm text-muted-foreground">
-                    {plugin.description ?? "No description provided."}
-                  </span>
-                </span>
-                {!plugin.enabled && <Badge variant="outline">Disabled</Badge>}
-              </label>
-            );
-          })}
-        </div>
-      )}
+      <FormField
+        control={form.control}
+        name="needsBrowser"
+        render={({ field }) => (
+          <FormItem className="flex items-center justify-between gap-4 rounded-lg border bg-background p-3">
+            <div className="space-y-0.5">
+              <FormLabel>Browser / Playwright</FormLabel>
+              <FormDescription>
+                Provide the managed Playwright browser when this agent runs.
+              </FormDescription>
+              {!browserCapabilityPolicy.available && (
+                <FormDescription className="text-amber-700 dark:text-amber-300">
+                  Browser access is unavailable for this coding agent ({browserCapabilityPolicy.code}). Existing selection is retained.
+                </FormDescription>
+              )}
+            </div>
+            <FormControl>
+              <Switch
+                checked={field.value}
+                disabled={!browserCapabilityPolicy.available}
+                onCheckedChange={field.onChange}
+              />
+            </FormControl>
+          </FormItem>
+        )}
+      />
     </div>
   );
 
   const renderAdvancedMcpSettings = () => (
     <div className="space-y-4">
       {renderSelectedPluginsField()}
-
-      <div className="space-y-3">
-        <div className="space-y-1">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-              MCP servers
-            </h3>
-            <Badge variant="outline">{selectedMcpServerIds.length} selected</Badge>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Select your MCP connectors. Secrets stay server-side and are only decrypted for agents you own when they run. Platform servers like almirant, context7, memory, filesystem, playwright, and sequential-thinking are managed automatically.
-          </p>
-        </div>
-
-        {mcpServers.length === 0 ? (
-          <p className="rounded-md bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-            No MCP servers yet. Add one from the MCP tab, including its secret if required.
-          </p>
-        ) : (
-          <div className="grid gap-2">
-            {mcpServers.map((server) => {
-              const checked = selectedMcpServerSet.has(server.id);
-              return (
-                <label
-                  key={server.id}
-                  className={cn(
-                    "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50",
-                    checked && "border-primary bg-primary/5",
-                  )}
-                >
-                  <Checkbox
-                    checked={checked}
-                    onCheckedChange={() => toggleSelectedMcpServer(server.id)}
-                    className="mt-0.5"
-                  />
-                  <span className="min-w-0 flex-1 space-y-1">
-                    <span className="flex items-center gap-2">
-                      <span className="font-medium">{server.name}</span>
-                      <span className="font-mono text-xs text-muted-foreground">{server.slug}</span>
-                      {server.hasSecret && <Badge variant="secondary">Secret</Badge>}
-                    </span>
-                    <span className="block truncate text-sm text-muted-foreground">
-                      {server.url}
-                    </span>
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      {renderSelectedMcpServersField()}
     </div>
   );
 

@@ -380,6 +380,74 @@ export type CanonicalEventEnvelope = {
 };
 
 
+export type NativeInfrastructureProvider =
+  | "claude-code"
+  | "codex"
+  | "zipu"
+  | "grok";
+
+/** Bounds native metadata before it crosses Redis or the persistence API. */
+export const NATIVE_EVENT_STRING_LIMITS = Object.freeze({
+  nativeEventType: 120,
+  sourceFormat: 50,
+  codingAgent: 256,
+  aiProvider: 256,
+  model: 256,
+  runtimeSessionId: 255,
+  emittedAt: 64,
+});
+
+export const isNativeInfrastructureProvider = (
+  value: unknown,
+): value is NativeInfrastructureProvider =>
+  value === "claude-code" ||
+  value === "codex" ||
+  value === "zipu" ||
+  value === "grok";
+
+export const assertValidNativeEventMetadata = (value: {
+  nativeEventType?: unknown;
+  sourceFormat?: unknown;
+  provider?: unknown;
+  codingAgent?: unknown;
+  aiProvider?: unknown;
+  model?: unknown;
+  runtimeSessionId?: unknown;
+  emittedAt?: unknown;
+}): void => {
+  if (
+    value.provider !== undefined &&
+    !isNativeInfrastructureProvider(value.provider)
+  ) {
+    throw new Error("native event provider must be an infrastructure provider");
+  }
+
+  const assertBoundedString = (
+    field: keyof typeof NATIVE_EVENT_STRING_LIMITS,
+    fieldValue: unknown,
+  ): void => {
+    if (fieldValue === undefined) return;
+    const maxLength = NATIVE_EVENT_STRING_LIMITS[field];
+    if (
+      typeof fieldValue !== "string" ||
+      fieldValue.length === 0 ||
+      fieldValue.length > maxLength
+    ) {
+      throw new Error(
+        `native event ${field} must be a non-empty string no longer than ${maxLength} characters`,
+      );
+    }
+  };
+
+  assertBoundedString("nativeEventType", value.nativeEventType);
+  assertBoundedString("sourceFormat", value.sourceFormat);
+  assertBoundedString("codingAgent", value.codingAgent);
+  assertBoundedString("aiProvider", value.aiProvider);
+  assertBoundedString("model", value.model);
+  assertBoundedString("runtimeSessionId", value.runtimeSessionId);
+  assertBoundedString("emittedAt", value.emittedAt);
+};
+
 export type NativeEventEnvelope = {
   jobId: string;
   sessionId: string;
@@ -392,8 +460,13 @@ export type NativeEventEnvelope = {
   claimAttemptId?: string;
   nativeEventType: string;
   sourceFormat: string;
-  provider?: string;
+  /** Infrastructure provider only (the database agent_provider lane). */
+  provider?: NativeInfrastructureProvider;
   codingAgent?: string;
+  /** AI API provider observed by the runtime; never stored in `provider`. */
+  aiProvider?: string;
+  /** Exact model id observed by the runtime. */
+  model?: string;
   runtimeSessionId?: string;
   emittedAt?: string;
   payload: Record<string, unknown>;
@@ -403,6 +476,7 @@ export const serializeNativeEnvelope = (
   envelope: NativeEventEnvelope,
 ): string[] => {
   assertValidSequenceProtocolMetadata(envelope);
+  assertValidNativeEventMetadata(envelope);
   const fields: string[] = [];
 
   fields.push("jobId", envelope.jobId);
@@ -422,6 +496,8 @@ export const serializeNativeEnvelope = (
 
   if (envelope.provider) fields.push("provider", envelope.provider);
   if (envelope.codingAgent) fields.push("codingAgent", envelope.codingAgent);
+  if (envelope.aiProvider) fields.push("aiProvider", envelope.aiProvider);
+  if (envelope.model) fields.push("model", envelope.model);
   if (envelope.runtimeSessionId) fields.push("runtimeSessionId", envelope.runtimeSessionId);
   if (envelope.emittedAt) fields.push("emittedAt", envelope.emittedAt);
 
@@ -469,6 +545,34 @@ export const deserializeNativeEnvelope = (
     return null;
   }
 
+  const rawProvider = map.get("provider");
+  const provider = isNativeInfrastructureProvider(rawProvider)
+    ? rawProvider
+    : undefined;
+  // Rolling-upgrade compatibility: older native producers put the AI provider
+  // in `provider`. Preserve that information in the corrected lane while never
+  // returning an invalid infrastructure enum value.
+  const aiProvider =
+    map.get("aiProvider") ??
+    (rawProvider !== undefined && provider === undefined
+      ? rawProvider
+      : undefined);
+  const codingAgent = map.get("codingAgent");
+  const model = map.get("model");
+  const runtimeSessionId = map.get("runtimeSessionId");
+  const emittedAt = map.get("emittedAt");
+
+  assertValidNativeEventMetadata({
+    nativeEventType: map.get("nativeEventType"),
+    sourceFormat: map.get("sourceFormat"),
+    provider,
+    codingAgent,
+    aiProvider,
+    model,
+    runtimeSessionId,
+    emittedAt,
+  });
+
   return {
     jobId: map.get("jobId") ?? "",
     sessionId: map.get("sessionId") ?? "",
@@ -482,10 +586,12 @@ export const deserializeNativeEnvelope = (
     ...(claimAttemptId ? { claimAttemptId } : {}),
     nativeEventType: map.get("nativeEventType") ?? "unknown",
     sourceFormat: map.get("sourceFormat") ?? "sse",
-    provider: map.get("provider") || undefined,
-    codingAgent: map.get("codingAgent") || undefined,
-    runtimeSessionId: map.get("runtimeSessionId") || undefined,
-    emittedAt: map.get("emittedAt") || undefined,
+    ...(provider !== undefined ? { provider } : {}),
+    ...(codingAgent !== undefined ? { codingAgent } : {}),
+    ...(aiProvider !== undefined ? { aiProvider } : {}),
+    ...(model !== undefined ? { model } : {}),
+    ...(runtimeSessionId !== undefined ? { runtimeSessionId } : {}),
+    ...(emittedAt !== undefined ? { emittedAt } : {}),
     payload,
   };
 };

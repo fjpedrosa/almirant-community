@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, jest } from "bun:test";
 import type {
   CanonicalEventEnvelope,
   NativeEventEnvelope,
@@ -9,6 +9,8 @@ import {
   createStreamChannelAdapter,
   createSequencedStreamPublisher,
   getCurrentStreamSequenceHighWater,
+  StreamPublishCapacityError,
+  StreamPublishTimeoutError,
   nextNativeSequence,
   nextSequence,
   publishCanonicalEvent,
@@ -501,6 +503,254 @@ describe("durable per-execution stream sequences", () => {
         })).rejects.toThrow("terminal_deadline_exceeded");
       },
     );
+  });
+
+  it("serializes a terminal event behind a slow publisher and commits high-water in order", async () => {
+    let releaseFirst!: () => void;
+    const firstBarrier = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let markFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    const order: string[] = [];
+    let calls = 0;
+    const underlying: StreamPublisher = {
+      publish: async () => "0-0",
+      publishCanonicalEnvelope: async (envelope) => {
+        calls += 1;
+        order.push(`start:${envelope.sequenceNumber}:${envelope.event.kind}`);
+        if (calls === 1) {
+          markFirstStarted();
+          await firstBarrier;
+        }
+        order.push(`finish:${envelope.sequenceNumber}:${envelope.event.kind}`);
+        return `0-${calls}`;
+      },
+      publishNativeEnvelope: async () => "0-0",
+      close: async () => {
+        order.push("close");
+      },
+    };
+
+    await runWithStreamSequenceBases(
+      { canonical: 0, native: 0 },
+      async () => {
+        const publisher = createSequencedStreamPublisher(underlying, {
+          maxPendingEvents: 4,
+        });
+        const first = publishCanonicalEvent(publisher, canonicalEnvelope());
+        const terminal = publishCanonicalEvent(publisher, {
+          ...canonicalEnvelope(),
+          event: { kind: "job.completed", summary: "done" },
+        });
+        await firstStarted;
+        expect(order).toEqual(["start:1:system.info"]);
+
+        const closing = publisher.close();
+        releaseFirst();
+        await Promise.all([first, terminal, closing]);
+        expect(getCurrentStreamSequenceHighWater()).toEqual({
+          canonical: 2,
+          native: 0,
+        });
+      },
+    );
+
+    expect(order).toEqual([
+      "start:1:system.info",
+      "finish:1:system.info",
+      "start:2:job.completed",
+      "finish:2:job.completed",
+      "close",
+    ]);
+  });
+
+  it("fails instead of dropping a terminal event at the pending-event cap", async () => {
+    let releaseFirst!: () => void;
+    const firstBarrier = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let markFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    let xaddCalls = 0;
+    const underlying: StreamPublisher = {
+      publish: async () => "0-0",
+      publishCanonicalEnvelope: async () => {
+        xaddCalls += 1;
+        markFirstStarted();
+        await firstBarrier;
+        return "0-0";
+      },
+      publishNativeEnvelope: async () => "0-0",
+      close: async () => {},
+    };
+
+    await runWithStreamSequenceBases(
+      { canonical: 0, native: 0 },
+      async () => {
+        const publisher = createSequencedStreamPublisher(underlying, {
+          maxPendingEvents: 2,
+        });
+        const first = publishCanonicalEvent(publisher, canonicalEnvelope());
+        await firstStarted;
+        const second = publishCanonicalEvent(publisher, canonicalEnvelope());
+        const terminal = publishCanonicalEvent(publisher, {
+          ...canonicalEnvelope(),
+          event: { kind: "job.completed", summary: "must be durable" },
+        });
+
+        await expect(terminal).rejects.toBeInstanceOf(StreamPublishCapacityError);
+        releaseFirst();
+        await first;
+        await expect(second).rejects.toBeInstanceOf(StreamPublishCapacityError);
+        expect(getCurrentStreamSequenceHighWater().canonical).toBe(1);
+        await expect(publisher.close()).rejects.toBeInstanceOf(
+          StreamPublishCapacityError,
+        );
+      },
+    );
+
+    expect(xaddCalls).toBe(1);
+  });
+
+  it("fails closed with typed byte metadata when one UTF-8 event exceeds capacity", async () => {
+    const underlying: StreamPublisher = {
+      publish: async () => "0-0",
+      publishCanonicalEnvelope: async () => "0-0",
+      publishNativeEnvelope: async () => "0-0",
+      close: async () => {},
+    };
+
+    await runWithStreamSequenceBases(
+      { canonical: 0, native: 0 },
+      async () => {
+        const publisher = createSequencedStreamPublisher(underlying, {
+          maxPendingBytes: 64,
+        });
+        const publication = publishCanonicalEvent(publisher, {
+          ...canonicalEnvelope(),
+          event: { kind: "system.info", message: "🙂".repeat(32) },
+        });
+
+        try {
+          await publication;
+          throw new Error("expected stream byte overflow");
+        } catch (error) {
+          expect(error).toBeInstanceOf(StreamPublishCapacityError);
+          expect(error).toMatchObject({
+            code: "STREAM_PUBLISH_CAPACITY_EXCEEDED",
+            resource: "pending_bytes",
+            limit: 64,
+          });
+          expect(String(error)).not.toContain("🙂");
+        }
+        expect(getCurrentStreamSequenceHighWater().canonical).toBe(0);
+      },
+    );
+  });
+
+  it("bounds a stalled publish attempt without sleeping", async () => {
+    jest.useFakeTimers();
+    try {
+      let markPublishStarted!: () => void;
+      const publishStarted = new Promise<void>((resolve) => {
+        markPublishStarted = resolve;
+      });
+      const underlying: StreamPublisher = {
+        publish: async () => "0-0",
+        publishCanonicalEnvelope: async () => {
+          markPublishStarted();
+          return new Promise<string>(() => {});
+        },
+        publishNativeEnvelope: async () => "0-0",
+        close: async () => {},
+      };
+
+      await runWithStreamSequenceBases(
+        { canonical: 0, native: 0 },
+        async () => {
+          const publisher = createSequencedStreamPublisher(underlying, {
+            maxPublishAttempts: 1,
+            publishAttemptTimeoutMs: 50,
+            closeTimeoutMs: 50,
+          });
+          const publication = publishCanonicalEvent(
+            publisher,
+            canonicalEnvelope(),
+          );
+          await publishStarted;
+          jest.advanceTimersByTime(50);
+
+          await expect(publication).rejects.toBeInstanceOf(
+            StreamPublishTimeoutError,
+          );
+          expect(getCurrentStreamSequenceHighWater().canonical).toBe(0);
+          await expect(publisher.close()).rejects.toBeInstanceOf(
+            StreamPublishTimeoutError,
+          );
+        },
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("bounds close while an accepted publication remains stalled", async () => {
+    jest.useFakeTimers();
+    try {
+      let closeCalls = 0;
+      let markPublishStarted!: () => void;
+      const publishStarted = new Promise<void>((resolve) => {
+        markPublishStarted = resolve;
+      });
+      const underlying: StreamPublisher = {
+        publish: async () => "0-0",
+        publishCanonicalEnvelope: async () => {
+          markPublishStarted();
+          return new Promise<string>(() => {});
+        },
+        publishNativeEnvelope: async () => "0-0",
+        close: async () => {
+          closeCalls += 1;
+        },
+      };
+
+      await runWithStreamSequenceBases(
+        { canonical: 0, native: 0 },
+        async () => {
+          const publisher = createSequencedStreamPublisher(underlying, {
+            maxPublishAttempts: 1,
+            publishAttemptTimeoutMs: 1_000,
+            closeTimeoutMs: 50,
+          });
+          const publication = publishCanonicalEvent(
+            publisher,
+            canonicalEnvelope(),
+          );
+          await publishStarted;
+          const closing = publisher.close();
+          jest.advanceTimersByTime(50);
+
+          await expect(closing).rejects.toMatchObject({
+            code: "STREAM_PUBLISH_TIMEOUT",
+            operation: "close",
+          });
+          expect(closeCalls).toBe(1);
+
+          jest.advanceTimersByTime(950);
+          await expect(publication).rejects.toMatchObject({
+            code: "STREAM_PUBLISH_TIMEOUT",
+            operation: "publish",
+          });
+        },
+      );
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("keeps legacy output ordered without adding it to the durable receipt range", async () => {

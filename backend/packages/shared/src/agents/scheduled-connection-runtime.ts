@@ -10,19 +10,6 @@ export type ScheduledConnectionRuntimeInput = {
   connections: readonly ScheduledRuntimeConnection[];
 };
 
-/**
- * Compatibility map for API consumers that migrate to registry-backed
- * precedence in the next delivery chain.
- *
- * @deprecated Use `resolveScheduledAgentAiProvider` for new call sites.
- */
-export const AI_PROVIDER_BY_AGENT_PROVIDER: Readonly<Record<string, string>> = {
-  "claude-code": "anthropic",
-  codex: "openai",
-  zipu: "zai",
-  grok: "xai",
-};
-
 export type ScheduledConnectionRuntime = Readonly<{
   model?: string;
   reasoningLevel: string | null;

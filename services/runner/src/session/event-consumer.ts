@@ -11,12 +11,21 @@ import type {
   OpenCodeSessionManager,
   BidirectionalRelay,
 } from "@almirant/remote-agent";
+import {
+  parseRuntimeEvidence,
+  type RuntimeEvidence,
+  type RuntimeReportedUsageEvidence,
+} from "@almirant/shared";
 import type {
   CanonicalEvent,
   CanonicalTextCoalescer,
   StreamPublisher,
 } from "@almirant/stream-consumer";
-import { createCanonicalTextCoalescer } from "@almirant/stream-consumer";
+import {
+  createCanonicalTextCoalescer,
+  createNativeDeltaCoalescer,
+  type NativeDeltaCoalescer,
+} from "@almirant/stream-consumer";
 import { createSseCanonicalAdapter } from "./sse-canonical-adapter";
 import type { EventAdapter } from "./adapter-types";
 import {
@@ -44,7 +53,6 @@ import {
   type EventHandlerContext,
   type EventHandlerDeps,
 } from "./event-handlers";
-import { createSessionUsageTracker } from "./usage-tracker";
 import {
   detectQuotaPauseFromText,
   type QuotaPauseRequest,
@@ -84,6 +92,153 @@ export type EventConsumerDeps = {
 };
 
 // ---------------------------------------------------------------------------
+// Terminal runtime evidence and legacy usageSummary capture
+// ---------------------------------------------------------------------------
+
+type CapturedUsageSummary = {
+  totalCostUsd?: number;
+  costDetail?: Record<string, number>;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  reasoningTokens?: number;
+  totalTokens: number;
+};
+
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const asUsageMetric = (value: unknown): number | undefined =>
+  typeof value === "number" &&
+  Number.isFinite(value) &&
+  value >= 0 &&
+  value <= 1_000_000_000_000
+    ? value
+    : undefined;
+
+const asCostDetail = (value: unknown): Record<string, number> | undefined => {
+  if (!isPlainRecord(value) || Object.keys(value).length > 64) return undefined;
+  const detail: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    const metric = asUsageMetric(raw);
+    if (key.length === 0 || key.length > 256 || metric === undefined) return undefined;
+    detail[key] = metric;
+  }
+  return Object.keys(detail).length > 0 ? detail : undefined;
+};
+
+const extractCapturedUsageSummary = (
+  raw: unknown,
+): CapturedUsageSummary | undefined => {
+  if (!isPlainRecord(raw)) return undefined;
+  const inputTokens = asUsageMetric(raw.inputTokens);
+  const outputTokens = asUsageMetric(raw.outputTokens);
+  const totalTokens = asUsageMetric(raw.totalTokens);
+  if (inputTokens === undefined || outputTokens === undefined || totalTokens === undefined) {
+    return undefined;
+  }
+  const totalCostUsd = asUsageMetric(raw.totalCostUsd);
+  const cacheReadTokens = asUsageMetric(raw.cacheReadTokens);
+  const cacheCreationTokens = asUsageMetric(raw.cacheCreationTokens);
+  const reasoningTokens = asUsageMetric(raw.reasoningTokens);
+  const costDetail = asCostDetail(raw.costDetail);
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+    ...(cacheCreationTokens !== undefined ? { cacheCreationTokens } : {}),
+    ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
+    ...(totalCostUsd !== undefined ? { totalCostUsd } : {}),
+    ...(costDetail ? { costDetail } : {}),
+  };
+};
+
+const compatibilitySummaryFromUsage = (
+  usage: RuntimeReportedUsageEvidence,
+): CapturedUsageSummary => ({
+  inputTokens: usage.inputTokens,
+  outputTokens: usage.outputTokens,
+  totalTokens: usage.totalTokens,
+  ...(usage.cacheReadTokens !== undefined ? { cacheReadTokens: usage.cacheReadTokens } : {}),
+  ...(usage.cacheWriteTokens !== undefined ? { cacheCreationTokens: usage.cacheWriteTokens } : {}),
+  ...(usage.reasoningTokens !== undefined ? { reasoningTokens: usage.reasoningTokens } : {}),
+  ...(usage.cost?.totalUsd !== undefined ? { totalCostUsd: usage.cost.totalUsd } : {}),
+  ...(usage.cost?.detail ? { costDetail: { ...usage.cost.detail } } : {}),
+});
+
+const evidenceFromCompatibilitySummary = (
+  summary: CapturedUsageSummary,
+): RuntimeEvidence => parseRuntimeEvidence({
+  schemaVersion: "runtime-evidence-v1",
+  usage: {
+    status: "reported",
+    source: "terminal_aggregate",
+    inputTokens: summary.inputTokens,
+    outputTokens: summary.outputTokens,
+    ...(summary.cacheReadTokens !== undefined ? { cacheReadTokens: summary.cacheReadTokens } : {}),
+    ...(summary.cacheCreationTokens !== undefined ? { cacheWriteTokens: summary.cacheCreationTokens } : {}),
+    ...(summary.reasoningTokens !== undefined ? { reasoningTokens: summary.reasoningTokens } : {}),
+    totalTokens: summary.totalTokens,
+    ...(summary.totalCostUsd !== undefined || summary.costDetail
+      ? {
+          cost: {
+            ...(summary.totalCostUsd !== undefined ? { totalUsd: summary.totalCostUsd } : {}),
+            ...(summary.costDetail ? { detail: { ...summary.costDetail } } : {}),
+          },
+        }
+      : {}),
+  },
+});
+
+const terminalEvidenceIdentity = (evidence: RuntimeEvidence): string => {
+  if (
+    evidence.usage.status === "reported" &&
+    evidence.usage.identities &&
+    evidence.usage.identities.length > 0
+  ) {
+    return evidence.usage.identities
+      .map((identity) => [
+        identity.eventId ?? "",
+        identity.turnId ?? "",
+        identity.messageId ?? "",
+        identity.contentKey ?? "",
+      ].join("|"))
+      .sort()
+      .join(";");
+  }
+  return JSON.stringify(evidence);
+};
+
+const createPendingFlushTracker = () => {
+  const pending = new Set<Promise<void>>();
+  let hasFailure = false;
+  let firstFailure: unknown;
+
+  return {
+    track(operation: Promise<void>): Promise<void> {
+      pending.add(operation);
+      void operation.then(
+        () => pending.delete(operation),
+        (error) => {
+          pending.delete(operation);
+          if (!hasFailure) {
+            hasFailure = true;
+            firstFailure = error;
+          }
+        },
+      );
+      return operation;
+    },
+    async settle(): Promise<void> {
+      await Promise.allSettled([...pending]);
+      if (hasFailure) throw firstFailure;
+    },
+  };
+};
+
+// ---------------------------------------------------------------------------
 // consumeSseEvents
 // ---------------------------------------------------------------------------
 
@@ -104,6 +259,8 @@ export async function consumeSseEvents(
     webWorkspaceId?: string;
     tmpfsWatcher?: { cleanup: () => void; isCritical: () => boolean } | null;
     redactor: JobSecretRedactor;
+    /** Authoritative infrastructure-provider lane supplied by the claimed job. */
+    infrastructureProvider?: string;
   },
 ): Promise<{
   success: boolean;
@@ -116,9 +273,16 @@ export async function consumeSseEvents(
   timedOut?: boolean;
   backgroundAgentTimedOut?: boolean;
   sessionId: string;
+  runtimeEvidence?: RuntimeEvidence;
   inputTokens?: number;
   outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  reasoningTokens?: number;
   tokensUsed?: number;
+  /** Exact totalCostUsd from terminal runtime evidence, when present. */
+  costUsd?: number;
+  costDetail?: Record<string, number>;
   pausedForQuota?: QuotaPauseRequest;
 }> {
   const {
@@ -136,6 +300,7 @@ export async function consumeSseEvents(
     webWorkspaceId,
     tmpfsWatcher,
     redactor,
+    infrastructureProvider,
   } = params;
   const safeConsole = createJobSafeConsole(redactor);
 
@@ -148,7 +313,9 @@ export async function consumeSseEvents(
   let terminalStatusPollPromise: Promise<void> | null = null;
   let acceptTerminalStatusPollResults = true;
   let quotaPauseRequest: QuotaPauseRequest | undefined;
-  const usageTracker = createSessionUsageTracker();
+  let capturedUsageSummary: CapturedUsageSummary | undefined;
+  let capturedRuntimeEvidence: RuntimeEvidence | undefined;
+  const terminalEvidenceByIdentity = new Map<string, string>();
 
   // Shared mutable state consumed by event handlers via the context object.
   const ctx: EventHandlerContext = {
@@ -218,8 +385,24 @@ export async function consumeSseEvents(
   // publishing. This keeps `session_events` rows manageable AND ensures the
   // runner-implement completion validator can see the trailing `## Summary`
   // block within its 2_000-event window.
+  const canonicalFlushes = createPendingFlushTracker();
   const canonicalCoalescer: CanonicalTextCoalescer = createCanonicalTextCoalescer({
-    onFlush: publishCanonicalCoalesced,
+    onFlush: (event) => canonicalFlushes.track(publishCanonicalCoalesced(event)),
+    idleMs: 250,
+  });
+
+  // Allocate native sequence numbers only when buffered deltas flush, keeping
+  // diagnostic persistence bounded without reserving numbers for merged rows.
+  const nativeFlushes = createPendingFlushTracker();
+  const publishNativeWithSequence = (
+    envelope: Parameters<NativeDeltaCoalescer["push"]>[0],
+  ): Promise<void> => publishNativeEvent(streamPublisher, {
+    ...envelope,
+    sequenceNumber: nextNativeSequence(),
+  } as Parameters<typeof publishNativeEvent>[1]);
+  const nativeCoalescer: NativeDeltaCoalescer = createNativeDeltaCoalescer({
+    onFlush: (envelope) =>
+      nativeFlushes.track(publishNativeWithSequence(envelope)),
     idleMs: 250,
   });
 
@@ -317,6 +500,29 @@ export async function consumeSseEvents(
 
   const asOptionalString = (value: unknown): string | undefined =>
     typeof value === "string" && value.length > 0 ? value : undefined;
+
+  const asInfrastructureProvider = (
+    value: unknown,
+  ): "claude-code" | "codex" | "zipu" | "grok" | undefined =>
+    value === "claude-code" ||
+    value === "codex" ||
+    value === "zipu" ||
+    value === "grok"
+      ? value
+      : undefined;
+
+  const publishOrCoalesceNativeEnvelope = async (
+    envelope: Parameters<NativeDeltaCoalescer["push"]>[0],
+  ): Promise<void> => {
+    // Claude diagnostics historically persist one envelope per SSE event. Its
+    // deltas also carry tool-use boundaries that concatenation would erase.
+    // Pi text/thinking deltas remain on the bounded coalescing path.
+    if (asInfrastructureProvider(infrastructureProvider) === "claude-code") {
+      await publishNativeWithSequence(envelope);
+      return;
+    }
+    nativeCoalescer.push(envelope);
+  };
 
   const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === "object" && value !== null && !Array.isArray(value);
@@ -440,17 +646,27 @@ export async function consumeSseEvents(
           ? (args.props.payload as Record<string, unknown>)
           : { payload: args.props.payload ?? null };
 
-      await publishNativeEvent(streamPublisher, {
+      const rawProvider = asOptionalString(args.props.provider);
+      const provider = asInfrastructureProvider(infrastructureProvider) ??
+        asInfrastructureProvider(rawProvider);
+      const aiProvider = asOptionalString(args.props.aiProvider) ??
+        (rawProvider && asInfrastructureProvider(rawProvider) === undefined
+          ? rawProvider
+          : undefined);
+      await publishOrCoalesceNativeEnvelope({
         jobId,
         sessionId: webSessionId ?? "",
         workspaceId: webWorkspaceId ?? "",
         threadId: threadId ?? "",
         timestamp: Date.now(),
-        sequenceNumber: nextNativeSequence(),
         nativeEventType,
         sourceFormat,
-        provider: asOptionalString(args.props.provider),
+        ...(provider ? { provider } : {}),
         codingAgent: asOptionalString(args.props.codingAgent),
+        ...(aiProvider ? { aiProvider } : {}),
+        ...(asOptionalString(args.props.model)
+          ? { model: asOptionalString(args.props.model)! }
+          : {}),
         runtimeSessionId: asOptionalString(args.props.runtimeSessionId) ?? sessionId,
         emittedAt: asOptionalIsoTimestamp(args.props.emittedAt),
         payload,
@@ -458,15 +674,17 @@ export async function consumeSseEvents(
       return true;
     }
 
-    await publishNativeEvent(streamPublisher, {
+    await publishOrCoalesceNativeEnvelope({
       jobId,
       sessionId: webSessionId ?? "",
       workspaceId: webWorkspaceId ?? "",
       threadId: threadId ?? "",
       timestamp: Date.now(),
-      sequenceNumber: nextNativeSequence(),
       nativeEventType: args.eventType || "unknown",
       sourceFormat: "runtime-sse",
+      ...(asInfrastructureProvider(infrastructureProvider)
+        ? { provider: asInfrastructureProvider(infrastructureProvider)! }
+        : {}),
       runtimeSessionId:
         asOptionalString(args.props.sessionId) ??
         asOptionalString(args.props.sessionID) ??
@@ -729,6 +947,48 @@ export async function consumeSseEvents(
           ? (eventData.properties as Record<string, unknown>)
           : eventData;
 
+      // Runtime evidence is untrusted shim input. Parse it through the bounded
+      // shared boundary before capture. Legacy usageSummary producers are
+      // adapted without recomputing total tokens or estimating cost.
+      if (eventType === "session.idle") {
+        const nestedMetadata = isPlainRecord(props.metadata)
+          ? props.metadata
+          : undefined;
+        const rawRuntimeEvidence =
+          props.runtimeEvidence ?? nestedMetadata?.runtimeEvidence;
+        const flatSummary = extractCapturedUsageSummary(props.usageSummary);
+        const nestedSummary = extractCapturedUsageSummary(
+          nestedMetadata?.usageSummary,
+        );
+        const legacySummary = flatSummary ?? nestedSummary;
+        const evidence = rawRuntimeEvidence !== undefined
+          ? parseRuntimeEvidence(rawRuntimeEvidence)
+          : legacySummary
+            ? evidenceFromCompatibilitySummary(legacySummary)
+            : undefined;
+
+        if (evidence) {
+          const identity = terminalEvidenceIdentity(evidence);
+          const fingerprint = JSON.stringify(evidence);
+          const previousFingerprint = terminalEvidenceByIdentity.get(identity);
+          if (
+            previousFingerprint !== undefined &&
+            previousFingerprint !== fingerprint
+          ) {
+            throw new Error(
+              "Conflicting terminal runtime evidence for a stable identity",
+            );
+          }
+          if (previousFingerprint === undefined) {
+            terminalEvidenceByIdentity.set(identity, fingerprint);
+            capturedRuntimeEvidence = evidence;
+            capturedUsageSummary = evidence.usage.status === "reported"
+              ? compatibilitySummaryFromUsage(evidence.usage)
+              : undefined;
+          }
+        }
+      }
+
       const quotaDetection = detectQuotaPauseFromText(
         buildQuotaDetectionText({
           eventType,
@@ -775,8 +1035,6 @@ export async function consumeSseEvents(
 
       // Dual-publish: canonical events alongside old format (when enabled)
       await publishCanonicalEvents(event);
-
-      usageTracker.trackEvent(eventType, props);
 
       // Dispatch to registered handler or fall back to unknown-event handler
       const handler = EVENT_HANDLERS[eventType];
@@ -841,7 +1099,27 @@ export async function consumeSseEvents(
         canonicalCoalescer.push(evt);
       }
     }
-    canonicalCoalescer.destroy();
+    let hasCoalescerCleanupError = false;
+    let coalescerCleanupError: unknown;
+    const captureCoalescerCleanupError = (error: unknown): void => {
+      if (hasCoalescerCleanupError) return;
+      hasCoalescerCleanupError = true;
+      coalescerCleanupError = error;
+    };
+
+    try {
+      canonicalCoalescer.destroy();
+    } catch (error) {
+      captureCoalescerCleanupError(error);
+    }
+    try {
+      nativeCoalescer.destroy();
+    } catch (error) {
+      captureCoalescerCleanupError(error);
+    }
+    await canonicalFlushes.settle().catch(captureCoalescerCleanupError);
+    await nativeFlushes.settle().catch(captureCoalescerCleanupError);
+    if (hasCoalescerCleanupError) throw coalescerCleanupError;
   }
 
   if (isPlanningJob && !deps.config.webOutputEnabled) {
@@ -882,8 +1160,6 @@ export async function consumeSseEvents(
   // to avoid duplicate embeds in Discord.
 
   const assistantSummary = ctx.accumulatedAssistantText.trim() || ctx.lastAssistantText.trim();
-  const usageSummary = usageTracker.getSummary();
-  const hasUsage = usageSummary.tokensUsed > 0;
 
   return {
     success:
@@ -913,11 +1189,31 @@ export async function consumeSseEvents(
     backgroundAgentTimedOut,
     sessionId,
     pausedForQuota: quotaPauseRequest,
-    ...(hasUsage
+    ...(capturedRuntimeEvidence
+      ? { runtimeEvidence: capturedRuntimeEvidence }
+      : {}),
+    // Never zero-fill or recompute: compatibility fields are exact copies of
+    // validated terminal evidence while modern consumers use the versioned union.
+    ...(capturedUsageSummary
       ? {
-          inputTokens: usageSummary.inputTokens,
-          outputTokens: usageSummary.outputTokens,
-          tokensUsed: usageSummary.tokensUsed,
+          inputTokens: capturedUsageSummary.inputTokens,
+          outputTokens: capturedUsageSummary.outputTokens,
+          ...(capturedUsageSummary.cacheReadTokens !== undefined
+            ? { cacheReadTokens: capturedUsageSummary.cacheReadTokens }
+            : {}),
+          ...(capturedUsageSummary.cacheCreationTokens !== undefined
+            ? { cacheCreationTokens: capturedUsageSummary.cacheCreationTokens }
+            : {}),
+          ...(capturedUsageSummary.reasoningTokens !== undefined
+            ? { reasoningTokens: capturedUsageSummary.reasoningTokens }
+            : {}),
+          tokensUsed: capturedUsageSummary.totalTokens,
+          ...(capturedUsageSummary.totalCostUsd !== undefined
+            ? { costUsd: capturedUsageSummary.totalCostUsd }
+            : {}),
+          ...(capturedUsageSummary.costDetail
+            ? { costDetail: { ...capturedUsageSummary.costDetail } }
+            : {}),
         }
       : {}),
   };

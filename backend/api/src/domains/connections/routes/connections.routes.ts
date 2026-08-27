@@ -75,6 +75,24 @@ const buildTokenPrefix = (token: string): string => {
   return `${token.slice(0, 7)}...`;
 };
 
+const usesApiKeyCredential = (
+  config: Record<string, unknown>,
+  credentials: Record<string, unknown> | undefined,
+): boolean => {
+  const authMethod =
+    typeof config.authMethod === "string"
+      ? config.authMethod
+      : typeof credentials?.authMethod === "string"
+        ? credentials.authMethod
+        : null;
+  return (
+    authMethod === "api_key" ||
+    authMethod === "setup_token" ||
+    (credentials !== undefined &&
+      (Object.hasOwn(credentials, "apiKey") || Object.hasOwn(credentials, "api_key")))
+  );
+};
+
 const replaceAuthUrlState = (url: string, state: string): string => {
   const parsed = new URL(url);
   parsed.searchParams.set("state", state);
@@ -622,7 +640,12 @@ export const connectionsRoutes = new Elysia({ prefix: "/connections" })
             scopeId,
             createdByUserId: userId,
             name: body.name.trim(),
-            accountIdentifier: body.accountIdentifier?.trim() ?? null,
+            accountIdentifier: usesApiKeyCredential(
+              normalizedConfig,
+              body.credentials,
+            )
+              ? null
+              : body.accountIdentifier?.trim() ?? null,
             isActive: true,
             isDefault: body.isDefault,
             config: normalizedConfig,

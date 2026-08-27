@@ -18,14 +18,49 @@ import { logger } from "@almirant/config";
 type ConnectionCategory = ProviderConnection["category"];
 type ConnectionScope = ProviderConnection["scope"];
 
+export type ConnectionAuthClass =
+  | "api_key"
+  | "setup_token"
+  | "provider_oauth"
+  | "subscription"
+  | "unknown";
+
+/**
+ * Derive the runtime auth class from public connection metadata only.
+ * Missing, malformed, and non-canonical methods are deliberately unknown;
+ * callers must never treat an unrecognized value as an API key.
+ */
+export const deriveConnectionAuthClass = (
+  config: unknown,
+): ConnectionAuthClass => {
+  if (typeof config !== "object" || config === null || Array.isArray(config)) {
+    return "unknown";
+  }
+
+  const authMethod = (config as Record<string, unknown>).authMethod;
+  switch (authMethod) {
+    case "api_key":
+      return "api_key";
+    case "setup_token":
+      return "setup_token";
+    case "oauth":
+    case "provider_oauth":
+      return "provider_oauth";
+    case "subscription":
+      return "subscription";
+    default:
+      return "unknown";
+  }
+};
+
 /** Optional scope filter for verifying ownership when fetching/updating by ID. */
 export interface ScopeFilter {
   scope: ConnectionScope;
   scopeId: string;
 }
 
-/** Fields returned in listings (no encrypted credential data). */
-type ConnectionMetadata = Omit<
+/** Fields returned in listings and ID validation (no encrypted credential data). */
+export type ConnectionMetadata = Omit<
   ProviderConnection,
   "encryptedCredentials" | "credentialsIv" | "credentialsAuthTag"
 >;
@@ -318,12 +353,18 @@ export const getConnectionById = async (
     return { ...row, credentials };
   }
 
-  // No encryption key: return metadata only, pad encrypted fields as null
-  const [row] = await db
-    .select(metadataColumns)
-    .from(providerConnections)
-    .where(and(eq(providerConnections.id, id), ...scopeConditions))
-    .limit(1);
+  // No encryption key: return metadata only, pad encrypted fields as null.
+  let row: ConnectionMetadata | null;
+  if (scopeFilter) {
+    row = await getConnectionMetadataById(id, scopeFilter);
+  } else {
+    const [unscopedRow] = await db
+      .select(metadataColumns)
+      .from(providerConnections)
+      .where(eq(providerConnections.id, id))
+      .limit(1);
+    row = unscopedRow ?? null;
+  }
 
   if (!row) return null;
 
@@ -333,6 +374,32 @@ export const getConnectionById = async (
     credentialsIv: null,
     credentialsAuthTag: null,
   };
+};
+
+/**
+ * Get metadata for a connection by ID within an exact ownership scope.
+ *
+ * This lookup is intentionally incapable of returning encrypted credential
+ * columns, making it suitable for preferred/excluded connection validation
+ * before any credential operation.
+ */
+export const getConnectionMetadataById = async (
+  id: string,
+  scopeFilter: ScopeFilter,
+): Promise<ConnectionMetadata | null> => {
+  const [row] = await db
+    .select(metadataColumns)
+    .from(providerConnections)
+    .where(
+      and(
+        eq(providerConnections.id, id),
+        eq(providerConnections.scope, scopeFilter.scope),
+        eq(providerConnections.scopeId, scopeFilter.scopeId),
+      ),
+    )
+    .limit(1);
+
+  return row ?? null;
 };
 
 /**

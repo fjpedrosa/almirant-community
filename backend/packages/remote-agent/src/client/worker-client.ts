@@ -14,6 +14,7 @@ import type {
   JobStatusResponse,
   NightlyProjectValidationConfig,
   ProviderKeyProvider,
+  ProviderKeyRequestContext,
   ProviderKeysResponse,
   QuotaCheckResponse,
   RepoConfigResponse,
@@ -189,7 +190,7 @@ const requestJson = async <T>(
           await sleep(delay);
           continue;
         }
-        throw new ApiError(message);
+        throw new ApiError(message, response.status);
       }
 
       const contentType = response.headers.get("content-type") ?? "";
@@ -374,6 +375,41 @@ const requestEvidenceArtifact = async (
   throw new NetworkError("Request failed after exhausting retries");
 };
 
+type AdditiveClaimCompatibilityField =
+  | "runtimeCapabilityIdentity"
+  | "capabilities";
+
+const explicitlyRejectedClaimCompatibilityField = (
+  error: unknown,
+): AdditiveClaimCompatibilityField | null => {
+  if (
+    !(error instanceof ApiError) ||
+    (error.statusCode !== 400 && error.statusCode !== 422)
+  ) {
+    return null;
+  }
+
+  const message = error.message.toLowerCase();
+  const explicitlyUnsupported = [
+    "unexpected",
+    "unknown",
+    "unrecognized",
+    "unsupported",
+    "additional",
+    "not allowed",
+    "not permitted",
+  ].some((marker) => message.includes(marker));
+  if (!explicitlyUnsupported) return null;
+
+  if (message.includes("runtimecapabilityidentity")) {
+    return "runtimeCapabilityIdentity";
+  }
+  if (message.includes("capabilities")) {
+    return "capabilities";
+  }
+  return null;
+};
+
 export const createAlmirantWorkerClient = (
   config: ApiClientConfig
 ): AlmirantWorkerClient => {
@@ -394,27 +430,24 @@ export const createAlmirantWorkerClient = (
       const capabilities = Array.from(
         new Set([...(payload.capabilities ?? []), "durable.v2.receipts" as const]),
       );
+      const modernPayload = { ...payload, capabilities };
       let jobs: ClaimedJob[];
       try {
         jobs = await requestJson<ClaimedJob[]>(config, "/workers/jobs/claim", {
           method: "POST",
-          json: { ...payload, capabilities },
+          json: modernPayload,
         });
       } catch (error) {
-        if (
-          !(error instanceof ApiError) ||
-          (error.statusCode !== 400 && error.statusCode !== 422)
-        ) {
-          throw error;
-        }
+        const rejectedField = explicitlyRejectedClaimCompatibilityField(error);
+        if (rejectedField === null) throw error;
 
-        // During a server-first rolling upgrade, new APIs fence legacy workers.
-        // This one-shot fallback handles the reverse order too: an older API may
-        // reject the additive field, but only has receipt-free jobs to return.
-        const { capabilities: _unsupportedCapabilities, ...legacyPayload } = payload;
+        // Remove only the additive field named by an older API. The accepted
+        // coding-agent intersection must never be widened by fallback.
+        const fallbackPayload = { ...modernPayload };
+        Reflect.deleteProperty(fallbackPayload, rejectedField);
         jobs = await requestJson<ClaimedJob[]>(config, "/workers/jobs/claim", {
           method: "POST",
-          json: legacyPayload,
+          json: fallbackPayload,
         });
       }
       for (const job of jobs) {
@@ -523,38 +556,79 @@ export const createAlmirantWorkerClient = (
     },
 
     getProviderKeys: async (
-      providers?: ProviderKeyProvider[],
-      context?: {
-        jobId?: string;
-        createdByUserId?: string;
-        workspaceId?: string;
-        preferredConnectionId?: string;
-      }
+      providers: ProviderKeyProvider[] | undefined,
+      context: ProviderKeyRequestContext,
+      requestOptions?: WorkerClientRequestOptions,
     ) => {
+      const jobId = typeof context?.jobId === "string" ? context.jobId.trim() : "";
+      const hasExplicitWorkerId =
+        typeof context === "object" && context !== null && "workerId" in context;
+      const hasExplicitClaimAttemptId =
+        typeof context === "object" && context !== null && "claimAttemptId" in context;
+      const explicitWorkerId = typeof context?.workerId === "string"
+        ? context.workerId.trim()
+        : "";
+      const explicitClaimAttemptId = typeof context?.claimAttemptId === "string"
+        ? context.claimAttemptId.trim()
+        : "";
+      const activeOwnership = claimOwnershipByJobId.get(jobId);
+
+      if (
+        !jobId ||
+        hasExplicitWorkerId !== hasExplicitClaimAttemptId ||
+        (hasExplicitWorkerId && (!explicitWorkerId || !explicitClaimAttemptId))
+      ) {
+        throw new ConflictError(
+          "Provider key request requires active claim ownership",
+        );
+      }
+
+      const workerId = explicitWorkerId || activeOwnership?.workerId.trim() || "";
+      const claimAttemptId =
+        explicitClaimAttemptId || activeOwnership?.claimAttemptId.trim() || "";
+      if (
+        !workerId ||
+        !claimAttemptId ||
+        (activeOwnership !== undefined &&
+          (activeOwnership.workerId.trim() !== workerId ||
+            activeOwnership.claimAttemptId.trim() !== claimAttemptId))
+      ) {
+        throw new ConflictError(
+          "Provider key request requires active claim ownership",
+        );
+      }
+
       const providerList = providers?.filter(Boolean) ?? [];
+      const excludeConnectionIds = Array.isArray(context.excludeConnectionIds)
+        ? context.excludeConnectionIds
+          .map((connectionId) => connectionId.trim())
+          .filter(Boolean)
+        : [];
+      const preferredConnectionId =
+        typeof context.preferredConnectionId === "string"
+          ? context.preferredConnectionId.trim()
+          : "";
       const params = new URLSearchParams();
       if (providerList.length > 0) {
         params.set("providers", providerList.join(","));
       }
-      if (context?.jobId) {
-        params.set("jobId", context.jobId);
+      params.set("jobId", jobId);
+      params.set("workerId", workerId);
+      params.set("claimAttemptId", claimAttemptId);
+      if (excludeConnectionIds.length > 0) {
+        params.set("excludeConnectionIds", excludeConnectionIds.join(","));
       }
-      if (context?.createdByUserId) {
-        params.set("createdByUserId", context.createdByUserId);
+      if (preferredConnectionId) {
+        params.set("preferredConnectionId", preferredConnectionId);
       }
-      if (context?.workspaceId) {
-        params.set("workspaceId", context.workspaceId);
-      }
-      if (context?.preferredConnectionId) {
-        params.set("preferredConnectionId", context.preferredConnectionId);
-      }
-      const query = params.toString().length > 0 ? `?${params.toString()}` : "";
       return requestJson<ProviderKeysResponse>(
         config,
-        `/workers/provider-keys${query}`,
+        `/workers/provider-keys?${params.toString()}`,
         {
           method: "GET",
-        }
+          timeoutMs: requestOptions?.timeoutMs,
+          signal: requestOptions?.signal,
+        },
       );
     },
 

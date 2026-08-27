@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   EMPTY_DEV_FLOW_AUTOMATION_OVERRIDE,
   applyDevFlowAutomationDrafts,
+  buildDevFlowAutomationOverrideDirtyPatch,
   buildDevFlowAutomationsPatchPayload,
   devFlowAutomationOverridesEqual,
   formatDevFlowEffectiveSummary,
@@ -96,7 +97,7 @@ describe("serializeDevFlowAutomationOverride", () => {
     });
   });
 
-  it("omits a legacy Haiku reasoning override during serialization", () => {
+  it("preserves raw persisted runtime values instead of normalizing them during serialization", () => {
     expect(serializeDevFlowAutomationOverride(
       override({
         codingAgent: "claude-code",
@@ -108,6 +109,7 @@ describe("serializeDevFlowAutomationOverride", () => {
       codingAgent: "claude-code",
       aiProvider: "anthropic",
       model: "claude-haiku-4-5",
+      reasoningLevel: "low",
       schedule: null,
     });
   });
@@ -136,12 +138,11 @@ describe("serializeDevFlowAutomationOverride", () => {
     expect(wire.schedule).toEqual({ expression: "0 * * * *", timezone: "Europe/Madrid" });
   });
 
-  it("omits the timezone key from the wire schedule when the schedule override has a null timezone", () => {
+  it("preserves an explicit null schedule timezone on the merge-shaped wire contract", () => {
     const wire = serializeDevFlowAutomationOverride(
       override({ schedule: { expression: "0 * * * *", timezone: null } }),
     );
-    expect(wire.schedule).toEqual({ expression: "0 * * * *" });
-    expect(wire.schedule).not.toHaveProperty("timezone");
+    expect(wire.schedule).toEqual({ expression: "0 * * * *", timezone: null });
   });
 
   it("resetting to the empty override always produces the ausente/null reset payload", () => {
@@ -149,6 +150,57 @@ describe("serializeDevFlowAutomationOverride", () => {
     expect(serializeDevFlowAutomationOverride(EMPTY_DEV_FLOW_AUTOMATION_OVERRIDE)).toEqual({
       schedule: null,
     });
+  });
+});
+
+describe("buildDevFlowAutomationOverrideDirtyPatch", () => {
+  it("returns an empty patch when the draft matches the server override", () => {
+    const server = override({
+      model: "future-model",
+      reasoningLevel: "future-effort",
+      schedule: { expression: "0 9 * * *", timezone: null },
+    });
+
+    expect(buildDevFlowAutomationOverrideDirtyPatch({ ...server }, server)).toEqual({});
+  });
+
+  it("emits only changed scalar fields and uses explicit null to clear an override", () => {
+    const server = override({
+      enabled: true,
+      codingAgent: "future-agent",
+      aiProvider: "future-provider",
+      model: "future-model",
+      reasoningLevel: "future-effort",
+      maxConcurrentJobs: 3,
+    });
+    const draft = { ...server, enabled: false, model: null, reasoningLevel: null };
+
+    expect(buildDevFlowAutomationOverrideDirtyPatch(draft, server)).toEqual({
+      enabled: false,
+      model: null,
+      reasoningLevel: null,
+    });
+  });
+
+  it("omits a deeply equal schedule and emits changed or cleared schedules", () => {
+    const server = override({
+      schedule: { expression: "0 9 * * *", timezone: "UTC" },
+    });
+
+    expect(buildDevFlowAutomationOverrideDirtyPatch(
+      override({ schedule: { expression: "0 9 * * *", timezone: "UTC" } }),
+      server,
+    )).toEqual({});
+    expect(buildDevFlowAutomationOverrideDirtyPatch(
+      override({ schedule: { expression: "0 10 * * *", timezone: null } }),
+      server,
+    )).toEqual({
+      schedule: { expression: "0 10 * * *", timezone: null },
+    });
+    expect(buildDevFlowAutomationOverrideDirtyPatch(
+      EMPTY_DEV_FLOW_AUTOMATION_OVERRIDE,
+      server,
+    )).toEqual({ schedule: null });
   });
 });
 
@@ -273,7 +325,7 @@ describe("overridesByAutomationIdFromStatuses", () => {
     expect(result["dod-remediation"]!.reasoningLevel).toBe("low");
   });
 
-  it("clears an unsupported legacy override while hydrating a Haiku automation", () => {
+  it("preserves an unsupported legacy override while hydrating for read-open display", () => {
     const result = overridesByAutomationIdFromStatuses([
       status({
         overrides: { ...EMPTY_DEV_FLOW_AUTOMATION_OVERRIDE, reasoningLevel: "low" },
@@ -281,7 +333,7 @@ describe("overridesByAutomationIdFromStatuses", () => {
       }),
     ]);
 
-    expect(result["backlog-drain"]!.reasoningLevel).toBeNull();
+    expect(result["backlog-drain"]!.reasoningLevel).toBe("low");
   });
 
   it("returns an empty object for an empty automations array", () => {

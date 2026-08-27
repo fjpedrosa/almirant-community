@@ -13,6 +13,7 @@ import {
   type WorkItemDetails,
   type BidirectionalRelay,
 } from "@almirant/remote-agent";
+import type { RuntimeEvidence } from "@almirant/shared";
 import type { StreamPublisher } from "@almirant/stream-consumer";
 import {
   nextSequence,
@@ -95,9 +96,16 @@ export async function runServeSession(
   timedOut?: boolean;
   backgroundAgentTimedOut?: boolean;
   sessionId: string;
+  runtimeEvidence?: RuntimeEvidence;
   inputTokens?: number;
   outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  reasoningTokens?: number;
   tokensUsed?: number;
+  /** Exact totalCostUsd from terminal runtime evidence, when present. */
+  costUsd?: number;
+  costDetail?: Record<string, number>;
   pausedForQuota?: QuotaPauseRequest;
 }> {
   const { baseUrl, containerId, job, workItem, eventLogger, streamPublisher, threadId, resolvedModel, completedTaskIds, webSessionId, webWorkspaceId, runtimeConfig, runtimeExecutor, evidenceManifestPath, redactor } = params;
@@ -436,6 +444,7 @@ export async function runServeSession(
     webWorkspaceId,
     tmpfsWatcher,
     redactor,
+    infrastructureProvider: String(job.provider ?? ""),
     onStreamReady: async () => {
       // Send the initial prompt once the SSE stream is connected
       await sessionManager.sendPromptAsync(session.id, { prompt });
