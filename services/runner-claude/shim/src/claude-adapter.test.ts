@@ -300,6 +300,11 @@ describe("resolveClaudeEffortLevel", () => {
     expect(resolveClaudeEffortLevel("claude-opus-4-8", "")).toBeUndefined();
   });
 
+  test("fails closed for unsupported Pi-only reasoning selections", () => {
+    expect(resolveClaudeEffortLevel("claude-opus-4-8", "off")).toBeUndefined();
+    expect(resolveClaudeEffortLevel("claude-opus-4-8", "arbitrary")).toBeUndefined();
+  });
+
   test("passes effort through when the model is unknown", () => {
     // We cannot prove an unknown model lacks effort support, so don't strip it.
     expect(resolveClaudeEffortLevel(undefined, "high")).toBe("high");

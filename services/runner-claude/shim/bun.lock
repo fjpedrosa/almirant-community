@@ -5,18 +5,27 @@
     "": {
       "name": "@almirant/claude-shim",
       "dependencies": {
-        "@almirant/shim-server": "file:../shim-server",
+        "@almirant/canonical-events": "file:../../../backend/packages/canonical-events",
+        "@almirant/shim-server": "file:../../runner/docker/shim-server",
       },
       "devDependencies": {
+        "@types/bun": "^1.2.14",
         "@types/node": "^20.19.30",
         "typescript": "^5.9.3",
       },
     },
   },
+  "overrides": {
+    "@almirant/canonical-events": "file:../../../backend/packages/canonical-events",
+  },
   "packages": {
-    "@almirant/shim-server": ["@almirant/shim-server@file:../shim-server", { "dependencies": { "express": "^5.1.0" }, "devDependencies": { "@types/express": "^5.0.5", "@types/node": "^20.19.30", "typescript": "^5.9.3" } }],
+    "@almirant/canonical-events": ["@almirant/canonical-events@file:../../../backend/packages/canonical-events", { "devDependencies": { "@types/bun": "^1.3.8", "typescript": "^5.8.0" } }],
+
+    "@almirant/shim-server": ["@almirant/shim-server@file:../../runner/docker/shim-server", { "dependencies": { "@almirant/canonical-events": "file:../../../../backend/packages/canonical-events", "express": "^5.1.0" }, "devDependencies": { "@types/express": "^5.0.5", "@types/node": "^20.19.30", "typescript": "^5.9.3" } }],
 
     "@types/body-parser": ["@types/body-parser@1.19.6", "", { "dependencies": { "@types/connect": "*", "@types/node": "*" } }, "sha512-HLFeCYgz89uk22N5Qg3dvGvsv46B8GLvKKo1zKG4NybA8U2DiEO3w9lqGg29t/tfLRJpJ6iQxnVw4OnB7MoM9g=="],
+
+    "@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 
     "@types/connect": ["@types/connect@3.4.38", "", { "dependencies": { "@types/node": "*" } }, "sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug=="],
 
@@ -39,6 +48,8 @@
     "accepts": ["accepts@2.0.0", "", { "dependencies": { "mime-types": "^3.0.0", "negotiator": "^1.0.0" } }, "sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng=="],
 
     "body-parser": ["body-parser@2.2.2", "", { "dependencies": { "bytes": "^3.1.2", "content-type": "^1.0.5", "debug": "^4.4.3", "http-errors": "^2.0.0", "iconv-lite": "^0.7.0", "on-finished": "^2.4.1", "qs": "^6.14.1", "raw-body": "^3.0.1", "type-is": "^2.0.1" } }, "sha512-oP5VkATKlNwcgvxi0vM0p/D3n2C3EReYVX+DNYs5TjZFn/oQt2j+4sVJtSMr18pdRr8wjTcBl6LoV+FUwzPmNA=="],
+
+    "bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
     "bytes": ["bytes@3.1.2", "", {}, "sha512-/Nf7TyzTx6S3yRJObOAV7956r8cr2+Oj8AC5dt8wSP3BQAoeX58NoHyCU8P8zGkNXStjTSi6fzO6F0pBdcYbEg=="],
 
@@ -169,5 +180,7 @@
     "vary": ["vary@1.1.2", "", {}, "sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg=="],
 
     "wrappy": ["wrappy@1.0.2", "", {}, "sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ=="],
+
+    "@almirant/shim-server/@almirant/canonical-events": ["@almirant/canonical-events@file:../../../backend/packages/canonical-events", {}],
   }
 }

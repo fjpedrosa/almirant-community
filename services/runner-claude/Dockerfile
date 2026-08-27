@@ -34,14 +34,24 @@ RUN npx playwright install chromium
 
 WORKDIR /app
 
-COPY backend/packages/canonical-events /backend/packages/canonical-events
-COPY services/runner/docker/shim-server ./shim-server
-COPY services/runner-claude/shim ./claude-shim
+COPY backend/packages/canonical-events ./backend/packages/canonical-events
+COPY services/runner/docker/shim-server ./services/runner/docker/shim-server
+COPY services/runner-claude/shim ./services/runner-claude/shim
 COPY services/runner/docker/entrypoint-shim.sh /entrypoint-shim.sh
 
+RUN rm -rf \
+    /app/services/runner/docker/shim-server/node_modules \
+    /app/services/runner/docker/shim-server/dist \
+    /app/services/runner-claude/shim/node_modules \
+    /app/services/runner-claude/shim/dist
+
 RUN chmod +x /entrypoint-shim.sh \
-  && cd /app/shim-server && bun install && bun run build \
-  && cd /app/claude-shim && bun install && bun run build
+  && cd /app/services/runner/docker/shim-server \
+  && bun install --frozen-lockfile --ignore-scripts \
+  && bun run build \
+  && cd /app/services/runner-claude/shim \
+  && bun install --frozen-lockfile --ignore-scripts \
+  && bun run build
 
 RUN useradd -m -u 1001 -s /bin/bash opencode \
   && chown -R opencode:opencode /app /entrypoint-shim.sh
@@ -49,7 +59,7 @@ RUN useradd -m -u 1001 -s /bin/bash opencode \
 USER opencode
 WORKDIR /workspace
 
-ENV SHIM_ENTRY=/app/claude-shim/dist/index.js
+ENV SHIM_ENTRY=/app/services/runner-claude/shim/dist/index.js
 ENV OPENCODE_SERVER_HOST=0.0.0.0
 ENV OPENCODE_SERVER_PORT=4096
 
