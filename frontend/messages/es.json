@@ -971,14 +971,36 @@
         "codingAgent": {
           "claudeCode": "Claude Code",
           "codex": "Codex",
-          "opencode": "OpenCode"
+          "opencode": "OpenCode",
+          "pi": "Pi"
         },
         "aiProvider": {
           "anthropic": "Anthropic",
+          "google": "Google",
           "openai": "OpenAI",
           "zai": "z.ai",
           "xai": "xAI"
         }
+      }
+    },
+    "runtimeSelection": {
+      "fields": {
+        "legacyRunner": "Runner por defecto heredado",
+        "codingAgent": "Agente de código",
+        "aiProvider": "Proveedor de IA",
+        "model": "Modelo",
+        "reasoningLevel": "Esfuerzo de razonamiento"
+      },
+      "retainedValue": "{field}: se conserva el valor guardado «{value}». Elige un valor compatible para sustituirlo.",
+      "retainedDefault": "{field}: se conserva el valor por defecto guardado. Elige un valor compatible para sustituirlo.",
+      "piExactTuple": "Pi solo está disponible con la tupla exacta de clave de API z.ai / GLM-5.3.",
+      "piReadOnlyUnavailable": "Pi no está disponible aquí porque este flujo exige ejecución de solo lectura reforzada.",
+      "rejections": {
+        "PI_CAPABILITY_READ_ONLY_ENFORCEMENT_DISABLED": "Pi no puede ejecutar esta selección porque la ejecución de solo lectura reforzada no está disponible.",
+        "RUNTIME_CODING_AGENT_UNSUPPORTED": "El agente de código guardado no es compatible con nuevas ejecuciones.",
+        "RUNTIME_AI_PROVIDER_UNSUPPORTED": "El proveedor de IA guardado no es compatible con este agente de código.",
+        "RUNTIME_MODEL_UNSUPPORTED": "El modelo guardado no es compatible con esta tupla de ejecución.",
+        "RUNTIME_ADMISSION_DISABLED": "Esta tupla de ejecución no está admitida para nuevas ejecuciones."
       }
     }
   },
