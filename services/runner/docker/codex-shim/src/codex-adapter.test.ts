@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import os from "node:os";
 import type { NativeRuntimeEvent } from "@almirant/shim-server";
 
 // The duplicate legacy shim is intentionally outside the root workspace, so a
@@ -6,9 +7,11 @@ import type { NativeRuntimeEvent } from "@almirant/shim-server";
 // require an installer. Runtime execution is not exercised in this unit: mock
 // only the SDK constructor boundary before loading the adapter.
 const isolatedHome = "/nonexistent/almirant-codex-adapter-test-home";
+const isolatedHomedir = (): string => isolatedHome;
 mock.module("node:os", () => ({
-  default: { homedir: () => isolatedHome },
-  homedir: () => isolatedHome,
+  ...os,
+  default: { ...os, homedir: isolatedHomedir },
+  homedir: isolatedHomedir,
 }));
 mock.module("@openai/codex-sdk", () => ({
   Codex: class CodexStub {
