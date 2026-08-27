@@ -6,7 +6,11 @@ import type {
   ReleaseIntegrationQueueResult,
   ScheduledAgentConfig,
 } from "@almirant/remote-agent";
-import { isTimeWindowActive } from "@almirant/shared";
+import {
+  isTimeWindowActive,
+  runtimeCapabilityProjection,
+} from "@almirant/shared";
+import { createRuntimeExecutorRegistry } from "../runtime-executors/registry";
 import { RunnerOrchestrator } from "./orchestrator";
 
 afterEach(() => {
@@ -1228,5 +1232,62 @@ describe("RunnerOrchestrator scheduler enable/disable", () => {
 
     // stop() before start() — scheduleTimer (and every other timer) is null.
     await expect(orchestrator.stop()).resolves.toBeUndefined();
+  });
+});
+
+describe("RunnerOrchestrator runtime claim identity", () => {
+  it("advertises immutable executors and the exact generated identity on every claim", async () => {
+    const registry = createRuntimeExecutorRegistry();
+    expect(registry.acceptedCodingAgents).toEqual([
+      "claude-code",
+      "codex",
+      "opencode",
+      "pi",
+    ]);
+    expect(Object.isFrozen(registry.acceptedCodingAgents)).toBe(true);
+
+    const claimPayloads: Array<Record<string, unknown>> = [];
+    const batches = [[createClaimedJob("job-first-claim", 512)], []];
+    const orchestrator = new RunnerOrchestrator(
+      {
+        workerId: "worker-registry",
+        hostname: "runner.local",
+        maxConcurrent: 2,
+        heartbeatIntervalMs: 10_000,
+        claimIntervalMs: 10_000,
+        nightlyCheckIntervalMs: 60_000,
+        ramBudgetEnabled: false,
+        apiUrl: "https://api.local",
+        apiKey: "test-key",
+      },
+      {
+        workerClient: {
+          claimJobs: async (payload: Record<string, unknown>) => {
+            claimPayloads.push(payload);
+            return batches.shift() ?? [];
+          },
+        } as never,
+        containerManager: {} as never,
+        jobExecutor: { execute: async () => undefined } as never,
+      },
+    );
+    (orchestrator as unknown as { running: boolean }).running = true;
+
+    await (orchestrator as unknown as {
+      claimAndRun: () => Promise<void>;
+    }).claimAndRun();
+
+    expect(claimPayloads).toHaveLength(2);
+    for (const payload of claimPayloads) {
+      expect(payload).toMatchObject({
+        workerId: "worker-registry",
+        acceptedCodingAgents: ["claude-code", "codex", "opencode", "pi"],
+        runtimeCapabilityIdentity: {
+          schemaVersion: runtimeCapabilityProjection.schemaVersion,
+          version: runtimeCapabilityProjection.version,
+          hash: runtimeCapabilityProjection.hash,
+        },
+      });
+    }
   });
 });

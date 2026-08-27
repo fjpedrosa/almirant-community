@@ -50,6 +50,7 @@ import { useWorkItemTypeFilter } from "../../application/hooks/use-work-item-typ
 import { useAllBoards } from "@/domains/boards/application/hooks/use-boards";
 import { useProjects } from "@/domains/projects/application/hooks/use-projects";
 import { useProjectAiConfig } from "@/domains/projects/application/hooks/use-project-ai-config";
+import { isAiConfigProvider } from "@/domains/projects/domain/project-runtime-selection";
 import type { AgentProvider, AgentJobType, RunnerSkillName, TriggerType } from "@/domains/agents/domain/types";
 import type { CodingAgent } from "@/domains/agents/domain/coding-agent-compatibility";
 import type { RunnerActionType } from "../../domain/column-actions";
@@ -618,6 +619,9 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
   // Fetch the project's default AI provider for the currently selected work item
   const detailPanelProjectId = detailPanel.parentItem?.projectId ?? "";
   const { defaultProvider: panelDefaultProvider } = useProjectAiConfig(detailPanelProjectId);
+  const panelDefaultProviderForClosedConsumer = isAiConfigProvider(panelDefaultProvider)
+    ? panelDefaultProvider
+    : undefined;
 
   // Allow global toasts (WebSocketProvider) to open the detail panel without routing.
   useEffect(() => {
@@ -1289,7 +1293,7 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
         projectRepos={projectRepos}
         selectedRepoId={selectedRepoId}
         onRepoSelect={handleRepoSelect}
-        defaultProvider={panelDefaultProvider ?? undefined}
+        defaultProvider={panelDefaultProviderForClosedConsumer}
         isCopyingPrompt={copyingPromptId === detailPanel.parentItem?.id}
         showCopySuccess={copySuccessId === detailPanel.parentItem?.id}
         // Edit mode props

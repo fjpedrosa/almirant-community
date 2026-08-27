@@ -1,36 +1,35 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { Bot, AlertCircle, ExternalLink } from "lucide-react";
+import { AlertCircle, Bot, ExternalLink } from "lucide-react";
 import Link from "next/link";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getModelsForProvider } from "@/lib/ai-models-catalog";
 import { getReasoningEffortOptions } from "@/lib/ai-model-reasoning";
+import {
+  getProjectRuntimeModels,
+  getRetainedProjectRuntimeFields,
+  resolveProjectRuntimeAdmission,
+} from "../../domain/project-runtime-selection";
 import type {
   ProjectDevFlowCardProps,
   ProjectImplementationAiProvider,
   ProjectImplementationCodingAgent,
 } from "../../domain/types";
-import { useAiProviderOptions, useCodingAgentOptions } from "./project-dev-flow-runtime-options";
+import {
+  ProjectRuntimeRejectionNotice,
+  RetainedRuntimeNotice,
+  RetainedRuntimeSelectItem,
+  retainedRuntimeSelectValue,
+  useAiProviderOptions,
+  useCodingAgentOptions,
+} from "./project-dev-flow-runtime-options";
 import { DevFlowAutomationRow } from "./project-dev-flow-automation-row";
 
 export const ProjectDevFlowCard: React.FC<ProjectDevFlowCardProps> = ({
@@ -58,8 +57,15 @@ export const ProjectDevFlowCard: React.FC<ProjectDevFlowCardProps> = ({
   onAutomationAdopt,
 }) => {
   const t = useTranslations("projects.devFlow.card");
-  const codingAgentOptions = useCodingAgentOptions();
-  const aiProviderOptions = useAiProviderOptions();
+  const tRuntime = useTranslations("projects.runtimeSelection");
+  const selection = {
+    codingAgent: settings.codingAgent,
+    aiProvider: settings.aiProvider,
+    model: settings.model,
+    reasoningLevel: settings.reasoningLevel,
+  };
+  const codingAgentOptions = useCodingAgentOptions("dev-flow-default");
+  const aiProviderOptions = useAiProviderOptions("dev-flow-default", selection.codingAgent);
 
   if (isLoading) {
     return (
@@ -77,15 +83,29 @@ export const ProjectDevFlowCard: React.FC<ProjectDevFlowCardProps> = ({
   }
 
   const isEnabled = settings.enabled;
-  const codingAgent = (settings.codingAgent as ProjectImplementationCodingAgent | null) ?? "claude-code";
-  const aiProvider = (settings.aiProvider as ProjectImplementationAiProvider | null) ?? "anthropic";
-  const modelOptions = getModelsForProvider(aiProvider, "agent-runtime");
-  const reasoningOptions = getReasoningEffortOptions({
-    codingAgent,
-    aiProvider,
-    model: settings.model,
-  });
+  const modelOptions = getProjectRuntimeModels(
+    "dev-flow-default",
+    selection.codingAgent,
+    selection.aiProvider,
+  );
+  const reasoningOptions = getReasoningEffortOptions(selection);
+  const retainedFields = getRetainedProjectRuntimeFields("dev-flow-default", selection);
+  const retainedByField = new Map(retainedFields.map((field) => [field.field, field.value]));
+  const admission = resolveProjectRuntimeAdmission("dev-flow-default", selection);
   const fieldsDisabled = !isEnabled || isSaving;
+
+  const codingAgentValue = retainedByField.has("codingAgent")
+    ? retainedRuntimeSelectValue("codingAgent", selection.codingAgent)
+    : selection.codingAgent ?? "";
+  const aiProviderValue = retainedByField.has("aiProvider")
+    ? retainedRuntimeSelectValue("aiProvider", selection.aiProvider)
+    : selection.aiProvider ?? "";
+  const modelValue = retainedByField.has("model")
+    ? retainedRuntimeSelectValue("model", selection.model)
+    : selection.model ?? "";
+  const reasoningValue = retainedByField.has("reasoningLevel")
+    ? retainedRuntimeSelectValue("reasoningLevel", selection.reasoningLevel)
+    : selection.reasoningLevel ?? "__default__";
 
   return (
     <Card>
@@ -113,19 +133,22 @@ export const ProjectDevFlowCard: React.FC<ProjectDevFlowCardProps> = ({
           </Alert>
         )}
 
-        <div className={`space-y-3 transition-opacity ${!isEnabled ? "opacity-50 pointer-events-none" : ""}`}>
+        <div className={`space-y-3 transition-opacity ${!isEnabled ? "pointer-events-none opacity-50" : ""}`}>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">{t("fields.codingAgent")}</Label>
               <Select
-                value={codingAgent}
+                value={codingAgentValue}
                 onValueChange={(value) => onCodingAgentChange(value as ProjectImplementationCodingAgent)}
                 disabled={fieldsDisabled}
               >
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-9" aria-label={t("fields.codingAgent")}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  {retainedByField.has("codingAgent") && (
+                    <RetainedRuntimeSelectItem field="codingAgent" value={selection.codingAgent} />
+                  )}
                   {codingAgentOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       <div className="flex items-center gap-2">{option.icon}{option.label}</div>
@@ -138,14 +161,17 @@ export const ProjectDevFlowCard: React.FC<ProjectDevFlowCardProps> = ({
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">{t("fields.aiProvider")}</Label>
               <Select
-                value={aiProvider}
+                value={aiProviderValue}
                 onValueChange={(value) => onAiProviderChange(value as ProjectImplementationAiProvider)}
-                disabled={fieldsDisabled}
+                disabled={fieldsDisabled || aiProviderOptions.length === 0}
               >
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-9" aria-label={t("fields.aiProvider")}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  {retainedByField.has("aiProvider") && (
+                    <RetainedRuntimeSelectItem field="aiProvider" value={selection.aiProvider} />
+                  )}
                   {aiProviderOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       <div className="flex items-center gap-2">{option.icon}{option.label}</div>
@@ -158,18 +184,19 @@ export const ProjectDevFlowCard: React.FC<ProjectDevFlowCardProps> = ({
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">{t("fields.model")}</Label>
               <Select
-                value={settings.model ?? ""}
+                value={modelValue}
                 onValueChange={(value) => onModelChange(value || null)}
-                disabled={fieldsDisabled}
+                disabled={fieldsDisabled || modelOptions.length === 0}
               >
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-9" aria-label={t("fields.model")}>
                   <SelectValue placeholder={t("selectModelPlaceholder")} />
                 </SelectTrigger>
                 <SelectContent>
+                  {retainedByField.has("model") && (
+                    <RetainedRuntimeSelectItem field="model" value={selection.model} />
+                  )}
                   {modelOptions.map((model) => (
-                    <SelectItem key={model.id} value={model.id}>
-                      {model.displayName}
-                    </SelectItem>
+                    <SelectItem key={model.id} value={model.id}>{model.displayName}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -178,19 +205,20 @@ export const ProjectDevFlowCard: React.FC<ProjectDevFlowCardProps> = ({
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">{t("fields.reasoningEffort")}</Label>
               <Select
-                value={settings.reasoningLevel ?? "__default__"}
+                value={reasoningValue}
                 onValueChange={(value) => onReasoningLevelChange(value === "__default__" ? null : value)}
                 disabled={fieldsDisabled || reasoningOptions.length === 0}
               >
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-9" aria-label={t("fields.reasoningEffort")}>
                   <SelectValue placeholder={t("defaultRuntimeBehavior")} />
                 </SelectTrigger>
                 <SelectContent>
+                  {retainedByField.has("reasoningLevel") && (
+                    <RetainedRuntimeSelectItem field="reasoningLevel" value={selection.reasoningLevel} />
+                  )}
                   <SelectItem value="__default__">{t("defaultRuntimeBehavior")}</SelectItem>
                   {reasoningOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -208,11 +236,19 @@ export const ProjectDevFlowCard: React.FC<ProjectDevFlowCardProps> = ({
                 className="h-9"
                 placeholder={t("maxConcurrentJobsPlaceholder")}
                 value={settings.maxConcurrentJobs ?? ""}
-                onChange={(e) => onMaxConcurrentJobsChange(e.target.value)}
+                onChange={(event) => onMaxConcurrentJobsChange(event.target.value)}
                 disabled={fieldsDisabled}
               />
             </div>
           </div>
+
+          {retainedFields.map((field) => (
+            <RetainedRuntimeNotice key={field.field} field={field.field} value={field.value} />
+          ))}
+          {!admission.admitted && selection.codingAgent && selection.aiProvider && selection.model && (
+            <ProjectRuntimeRejectionNotice code={admission.code} />
+          )}
+          <p className="text-xs text-muted-foreground">{tRuntime("piReadOnlyUnavailable")}</p>
         </div>
 
         {skippedExistingUserAgents.length > 0 && (
@@ -249,12 +285,8 @@ export const ProjectDevFlowCard: React.FC<ProjectDevFlowCardProps> = ({
 
       {hasChanges && (
         <CardFooter className="flex justify-end gap-2 border-t pt-4">
-          <Button variant="outline" size="sm" onClick={onDiscard} disabled={isSaving}>
-            {t("discard")}
-          </Button>
-          <Button size="sm" onClick={onSave} disabled={isSaving}>
-            {t("saveChanges")}
-          </Button>
+          <Button variant="outline" size="sm" onClick={onDiscard} disabled={isSaving}>{t("discard")}</Button>
+          <Button size="sm" onClick={onSave} disabled={isSaving}>{t("saveChanges")}</Button>
         </CardFooter>
       )}
     </Card>

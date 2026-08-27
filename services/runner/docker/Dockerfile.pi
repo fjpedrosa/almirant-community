@@ -1,0 +1,73 @@
+ARG NODE_IMAGE=node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94
+FROM ${NODE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV NODE_ENV=production
+ENV PI_OFFLINE=1
+ENV PI_SKIP_VERSION_CHECK=1
+ENV PI_TELEMETRY=0
+ENV SHIM_SERVER_HOST=0.0.0.0
+ENV SHIM_SERVER_PORT=4096
+ENV WORKSPACE_REPO_PATH=/workspace/repo
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends bash ca-certificates curl git jq openssh-client tini \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN npm install --global --ignore-scripts @earendil-works/pi-coding-agent@0.84.2 \
+  && pi --version | grep -Fx '0.84.2'
+
+WORKDIR /app
+COPY backend/tsconfig.base.json ./backend/tsconfig.base.json
+COPY backend/packages/canonical-events ./backend/packages/canonical-events
+COPY services/runner/docker/shim-server ./services/runner/docker/shim-server
+COPY services/runner/docker/pi-shim ./services/runner/docker/pi-shim
+
+RUN cd /app/backend/packages/canonical-events \
+  && npm install --ignore-scripts --include=dev \
+  && ./node_modules/.bin/tsc -p tsconfig.json
+
+RUN node --input-type=module <<'NODE'
+import { access, readFile, writeFile } from "node:fs/promises";
+
+const packageRoot = "/app/backend/packages/canonical-events";
+const packagePath = `${packageRoot}/package.json`;
+for (const artifact of [
+  "dist/index.js",
+  "dist/wave-marker.js",
+  "dist/projection.js",
+]) {
+  await access(`${packageRoot}/${artifact}`);
+}
+
+const packageJson = JSON.parse(await readFile(packagePath, "utf8"));
+packageJson.main = "./dist/index.js";
+packageJson.types = "./dist/index.d.ts";
+packageJson.exports = {
+  ".": {
+    types: "./dist/index.d.ts",
+    default: "./dist/index.js",
+  },
+};
+await writeFile(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
+NODE
+
+RUN cd /app/services/runner/docker/shim-server \
+  && npm install --ignore-scripts --include=dev \
+  && npm run build \
+  && cd /app/services/runner/docker/pi-shim \
+  && npm install --ignore-scripts --include=dev \
+  && npm run build \
+  && npm prune --omit=dev \
+  && mkdir -p /workspace/repo /tmp/almirant-pi-agent \
+  && chown -R node:node /app /workspace /tmp/almirant-pi-agent
+
+USER node
+WORKDIR /workspace/repo
+
+EXPOSE 4096
+HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=6 \
+  CMD node -e "fetch('http://127.0.0.1:4096/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node", "/app/services/runner/docker/pi-shim/dist/index.js"]

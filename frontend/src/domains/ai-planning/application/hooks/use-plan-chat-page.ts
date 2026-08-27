@@ -17,6 +17,7 @@ import { useSeedEnrichment } from "./use-seed-enrichment";
 import { useChatFeedback } from "./use-chat-feedback";
 import { useProjectAiConfig } from "@/domains/projects/application/hooks/use-project-ai-config";
 import type { CodingAgent } from "@/domains/agents/domain/coding-agent-compatibility";
+import { isAiConfigProvider } from "@/domains/projects/domain/project-runtime-selection";
 import type { AiConfigProvider } from "@/domains/projects/domain/types";
 import { shouldShowPlanningSeedContext } from "./planning-seed-visibility";
 
@@ -40,7 +41,9 @@ export const usePlanChatPage = () => {
   const projectBoard = useProjectBoardSelector();
   const aiConfig = useProjectAiConfig(projectBoard.selectedProjectId);
   const defaultCodingAgent = useMemo<CodingAgent | undefined>(
-    () => aiConfig.defaultProvider ? AI_CONFIG_TO_CODING_AGENT[aiConfig.defaultProvider] : undefined,
+    () => isAiConfigProvider(aiConfig.defaultProvider)
+      ? AI_CONFIG_TO_CODING_AGENT[aiConfig.defaultProvider]
+      : undefined,
     [aiConfig.defaultProvider],
   );
   const modelSelector = useModelSelector({ defaultCodingAgent });

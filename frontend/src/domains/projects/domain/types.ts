@@ -1,3 +1,4 @@
+import type { AIProvider, CodingAgent } from "@/domains/agents/domain/coding-agent-compatibility";
 import type { PaginationMeta } from "@/domains/shared/domain/types";
 import type { GithubAvailableRepo, GithubInstallation } from "@/domains/github/domain/types";
 import type {
@@ -85,8 +86,9 @@ export interface ProjectNightlyValidationSettings {
 
 export type AiConfigProvider = "claude-code" | "codex" | "zipu" | "grok";
 
-export type ProjectImplementationCodingAgent = "claude-code" | "codex" | "opencode";
-export type ProjectImplementationAiProvider = "anthropic" | "openai" | "zai" | "xai";
+/** Canonical values available for new project-runtime selections. Persisted reads remain raw strings below. */
+export type ProjectImplementationCodingAgent = CodingAgent;
+export type ProjectImplementationAiProvider = AIProvider;
 
 // ---------------------------------------------------------------------------
 // Automated dev flow (issue #230) — one switch + shared runtime defaults that
@@ -161,13 +163,13 @@ export interface ProjectDevFlowAutomationEffective {
  * schedule).
  */
 export interface DevFlowAutomationOverridePatchWire {
-  enabled?: boolean;
-  codingAgent?: string;
-  aiProvider?: string;
-  model?: string;
-  reasoningLevel?: string;
-  maxConcurrentJobs?: number;
-  schedule?: { expression: string; timezone?: string } | null;
+  enabled?: boolean | null;
+  codingAgent?: string | null;
+  aiProvider?: string | null;
+  model?: string | null;
+  reasoningLevel?: string | null;
+  maxConcurrentJobs?: number | null;
+  schedule?: { expression: string; timezone?: string | null } | null;
 }
 
 /**
@@ -212,8 +214,9 @@ export interface ProjectDevFlowAdoptResult {
 
 export interface ProjectAgentDefaults {
   implementation?: {
-    codingAgent?: ProjectImplementationCodingAgent | null;
-    aiProvider?: ProjectImplementationAiProvider | null;
+    /** Raw persisted values are read-open; selectors constrain only new writes. */
+    codingAgent?: string | null;
+    aiProvider?: string | null;
     model?: string | null;
     reasoningLevel?: string | null;
   } | null;
@@ -221,38 +224,28 @@ export interface ProjectAgentDefaults {
 }
 
 export interface ProjectAiConfig {
-  defaultProvider: AiConfigProvider | null;
+  /** Legacy persisted lanes are also read-open; new writes remain AiConfigProvider. */
+  defaultProvider: string | null;
   agentDefaults: ProjectAgentDefaults;
 }
 
 // ---------------------------------------------------------------------------
-// PATCH /projects/:id/ai-config wire body for devFlow saves (review fixes
-// #1+#2, issue #235). The backend's schema requires `defaultProvider`
-// (Nullable, NOT Optional) and `devFlow.enabled` (Boolean, NOT Optional) —
-// see PROJECT_AGENT_DEFAULTS_SCHEMA in projects.routes.ts — and
-// `updateProjectAiConfig` wholesale-replaces the entire `agentDefaults` JSONB
-// column on every write. So a devFlow save can never send a partial body: it
-// must always resend `defaultProvider` + `implementation` (untouched by
-// either dev-flow hook, but still LIVING in that same JSONB) alongside the
-// devFlow scalars + the full `automations` override map (built by
-// `buildDevFlowAutomationsPatchPayload`), or it will either 400 (missing
-// required fields) or silently wipe out data it didn't mean to touch.
-// `useProjectDevFlow` and `useDevFlowAutomationOverrides` are the only two
-// builders of this shape — see their `mutationFn`s.
+// PATCH /projects/:id/ai-config is merge-shaped. Persisted project runtime JSON
+// is read-open, so the frontend sends only paths the user actually changed;
+// omitted implementation/dev-flow/automation paths remain untouched server-side.
 // ---------------------------------------------------------------------------
 
-/** `agentDefaults.devFlow` as sent in a PATCH — the persisted settings shape
- *  PLUS the optional per-automation overrides map (issue #235). */
-export interface ProjectDevFlowSettingsPatch extends ProjectDevFlowSettings {
+/** Omission-aware `agentDefaults.devFlow` PATCH. Only dirty paths are sent. */
+export type ProjectDevFlowSettingsPatch = Partial<ProjectDevFlowSettings> & {
   automations?: Record<string, DevFlowAutomationOverridePatchWire>;
-}
+};
 
-/** Full PATCH /projects/:id/ai-config request body a devFlow save must send. */
+/** Omission-aware PATCH /projects/:id/ai-config request body used by dev-flow saves. */
 export interface ProjectDevFlowPatchBody {
-  defaultProvider: AiConfigProvider | null;
-  agentDefaults: {
+  defaultProvider?: AiConfigProvider | null;
+  agentDefaults?: {
     implementation?: ProjectAgentDefaults["implementation"];
-    devFlow: ProjectDevFlowSettingsPatch;
+    devFlow?: ProjectDevFlowSettingsPatch | null;
   };
 }
 

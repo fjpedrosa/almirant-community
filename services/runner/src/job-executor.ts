@@ -3,6 +3,7 @@ import {
   type AlmirantWorkerClient,
   type ClaimedJob,
   type WorkItemDetails,
+  type UpdateJobStatusPayload,
   createOpenCodeSessionManager,
 } from "@almirant/remote-agent";
 import {
@@ -18,7 +19,11 @@ import {
   runWithStreamSequenceBases,
 } from "./session/stream-events";
 import { createDiscordThreadWithRetry } from "./session/discord-thread";
-import { buildInjectedEnv, resolveRuntimeConfig } from "./workspace/config-injector";
+import {
+  buildInjectedEnv,
+  resolveRuntimeConfig,
+  type ProviderKeyResolvedMetadata,
+} from "./workspace/config-injector";
 import {
   assertRunnableAgentWorkspace,
   getExplicitWorkspaceKind,
@@ -33,8 +38,15 @@ import { provisionUploadedFilesWorkspace } from "./workspace/uploaded-files-prov
 import { resolveEvidenceArtifactsForJob } from "./workspace/evidence-artifact-policy";
 import { provisionEvidenceArtifacts } from "./workspace/evidence-artifact-provisioner";
 import { materializeAgentPlugins } from "./workspace/agent-plugin-materializer";
-import type { EvidenceArtifactDescriptor, AgentRuntimePluginReference, ExecutionBoundary } from "@almirant/shared";
-import { createExecutionBoundary } from "@almirant/shared";
+import {
+  createExecutionBoundary,
+  parseRuntimeEvidence,
+  resolveRuntime,
+  type EvidenceArtifactDescriptor,
+  type AgentRuntimePluginReference,
+  type ExecutionBoundary,
+  type RuntimeEvidence,
+} from "@almirant/shared";
 import type { ContainerDriver } from "./workspace/container-driver";
 import {
   UUID_RE,
@@ -54,6 +66,7 @@ import type { PlatformInjectionResult } from "./workspace/platform-injector";
 import { createPlatformInjector } from "./workspace/platform-injector";
 import type {
   JobExecutionResult,
+  PlatformRuntime,
   RunnerContainerSpec,
   RuntimeConfig,
   RuntimeExecutor,
@@ -140,6 +153,8 @@ type JobExecutorConfig = {
   opencodeImage: string;
   claudeShimImage: string;
   codexShimImage: string;
+  /** Optional only for legacy/test callers; production runner config always provides it. */
+  piShimImage?: string;
   opencodeCommand?: string;
   repositoryPath?: string;
   /** Host-side path equivalent of repositoryPath, used for Docker volume mounts to sibling containers. */
@@ -197,13 +212,230 @@ type SessionExecutionResult = {
   timedOut?: boolean;
   backgroundAgentTimedOut?: boolean;
   sessionId: string;
+  runtimeEvidence?: RuntimeEvidence;
   inputTokens?: number;
   outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  reasoningTokens?: number;
   tokensUsed?: number;
+  /** Exact totalCostUsd from terminal runtime evidence, when present. */
+  costUsd?: number;
+  costDetail?: Record<string, number>;
   completionState?: "complete" | "incomplete" | "failed";
   incompleteReason?: string;
   missingWorkItemIds?: string[];
   pausedForQuota?: QuotaPauseRequest;
+};
+
+type UsagePayloadSource = Pick<
+  SessionExecutionResult,
+  | "runtimeEvidence"
+  | "tokensUsed"
+  | "inputTokens"
+  | "outputTokens"
+  | "cacheReadTokens"
+  | "cacheCreationTokens"
+  | "reasoningTokens"
+  | "costUsd"
+  | "costDetail"
+>;
+
+type UsagePayloadFields = Pick<
+  UpdateJobStatusPayload,
+  | "runtimeEvidence"
+  | "tokensUsed"
+  | "inputTokens"
+  | "outputTokens"
+  | "cacheReadTokens"
+  | "cacheCreationTokens"
+  | "reasoningTokens"
+  | "cost"
+  | "costDetail"
+>;
+
+/** Copy exact evidence and compatibility aggregates without recomputation. */
+export const buildUsagePayloadFields = (
+  result: UsagePayloadSource,
+): UsagePayloadFields => {
+  const fields: UsagePayloadFields = {};
+  const evidence = result.runtimeEvidence;
+
+  if (evidence) {
+    fields.runtimeEvidence = evidence;
+    if (evidence.usage.status === "unavailable") return fields;
+
+    const usage = evidence.usage;
+    fields.tokensUsed = usage.totalTokens;
+    fields.inputTokens = usage.inputTokens;
+    fields.outputTokens = usage.outputTokens;
+    if (usage.cacheReadTokens !== undefined) {
+      fields.cacheReadTokens = usage.cacheReadTokens;
+    }
+    if (usage.cacheWriteTokens !== undefined) {
+      fields.cacheCreationTokens = usage.cacheWriteTokens;
+    }
+    if (usage.reasoningTokens !== undefined) {
+      fields.reasoningTokens = usage.reasoningTokens;
+    }
+    if (usage.cost?.totalUsd !== undefined) fields.cost = usage.cost.totalUsd;
+    if (usage.cost?.detail) fields.costDetail = { ...usage.cost.detail };
+    return fields;
+  }
+
+  if (result.tokensUsed !== undefined) fields.tokensUsed = result.tokensUsed;
+  if (result.inputTokens !== undefined) fields.inputTokens = result.inputTokens;
+  if (result.outputTokens !== undefined) fields.outputTokens = result.outputTokens;
+  if (result.cacheReadTokens !== undefined) fields.cacheReadTokens = result.cacheReadTokens;
+  if (result.cacheCreationTokens !== undefined) {
+    fields.cacheCreationTokens = result.cacheCreationTokens;
+  }
+  if (result.reasoningTokens !== undefined) fields.reasoningTokens = result.reasoningTokens;
+  if (result.costUsd !== undefined) fields.cost = result.costUsd;
+  if (result.costDetail) fields.costDetail = { ...result.costDetail };
+  return fields;
+};
+
+const asEvidenceString = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim().length > 0 ? value : undefined;
+
+const asInfrastructureProvider = (
+  value: unknown,
+): "claude-code" | "codex" | "zipu" | "grok" | undefined =>
+  value === "claude-code" || value === "codex" || value === "zipu" || value === "grok"
+    ? value
+    : undefined;
+
+const resolveModernSelection = (job: ClaimedJob) =>
+  job.resolvedRuntimeSelection ?? job.config?.resolvedRuntimeSelection ?? null;
+
+/** Modern requested models are immutable; legacy jobs retain best-effort updates. */
+export const buildResolvedModelStatusFields = (
+  job: ClaimedJob,
+  resolvedModel: string | undefined,
+): Pick<UpdateJobStatusPayload, "model"> | Record<string, never> =>
+  resolveModernSelection(job) || resolvedModel === undefined
+    ? {}
+    : { model: resolvedModel };
+
+/** Enrich terminal evidence with authoritative requested/resolved/infrastructure lanes. */
+export const buildJobRuntimeEvidence = (
+  job: ClaimedJob,
+  result: UsagePayloadSource,
+): RuntimeEvidence => {
+  const modernSelection = resolveModernSelection(job);
+  const config = normalizeJobConfig(job);
+  const legacySelection = modernSelection
+    ? null
+    : resolveRuntime({
+        provider: String(job.provider ?? ""),
+        codingAgent:
+          asEvidenceString(config.codingAgent) ?? asEvidenceString(job.codingAgent),
+        model: getRequestedModel(job),
+      });
+  const requested = modernSelection
+    ? {
+        codingAgent: asEvidenceString(job.codingAgent),
+        aiProvider: asEvidenceString(job.aiProvider),
+        model: asEvidenceString(job.model),
+      }
+    : {
+        codingAgent:
+          asEvidenceString(job.codingAgent) ??
+          asEvidenceString(config.codingAgent) ??
+          legacySelection?.codingAgent,
+        aiProvider:
+          asEvidenceString(job.aiProvider) ??
+          asEvidenceString(config.aiProvider) ??
+          legacySelection?.aiProvider,
+        model:
+          asEvidenceString(job.model) ??
+          asEvidenceString(config.model) ??
+          legacySelection?.model,
+      };
+  if (!requested.codingAgent || !requested.aiProvider || !requested.model) {
+    throw new Error("Modern job is missing an authoritative requested runtime selection");
+  }
+
+  const usage = result.runtimeEvidence?.usage ??
+    (
+      result.inputTokens !== undefined &&
+      result.outputTokens !== undefined &&
+      result.tokensUsed !== undefined
+        ? {
+            status: "reported" as const,
+            source: "terminal_aggregate" as const,
+            inputTokens: result.inputTokens,
+            outputTokens: result.outputTokens,
+            ...(result.cacheReadTokens !== undefined
+              ? { cacheReadTokens: result.cacheReadTokens }
+              : {}),
+            ...(result.cacheCreationTokens !== undefined
+              ? { cacheWriteTokens: result.cacheCreationTokens }
+              : {}),
+            ...(result.reasoningTokens !== undefined
+              ? { reasoningTokens: result.reasoningTokens }
+              : {}),
+            totalTokens: result.tokensUsed,
+            ...(result.costUsd !== undefined || result.costDetail
+              ? {
+                  cost: {
+                    ...(result.costUsd !== undefined ? { totalUsd: result.costUsd } : {}),
+                    ...(result.costDetail ? { detail: { ...result.costDetail } } : {}),
+                  },
+                }
+              : {}),
+          }
+        : { status: "unavailable" as const, reason: "not_reported" as const }
+    );
+  const infrastructureProvider = asInfrastructureProvider(job.provider);
+
+  return parseRuntimeEvidence({
+    schemaVersion: "runtime-evidence-v1",
+    usage,
+    requested,
+    ...(modernSelection
+      ? {
+          resolved: {
+            schemaVersion: modernSelection.schemaVersion,
+            registryVersion: modernSelection.registryVersion,
+            projectionHash: modernSelection.projectionHash,
+            codingAgent: modernSelection.codingAgent,
+            aiProvider: modernSelection.aiProvider,
+            model: modernSelection.model,
+            authClass: modernSelection.authClass,
+            capabilities: [...modernSelection.capabilities],
+            provenance: { ...modernSelection.provenance },
+          },
+        }
+      : {}),
+    ...(result.runtimeEvidence?.observed
+      ? { observed: { ...result.runtimeEvidence.observed } }
+      : {}),
+    ...(infrastructureProvider ? { infrastructureProvider } : {}),
+  });
+};
+
+type ProviderKeyResolvedEventLogger = {
+  info: (
+    phase: string,
+    eventType: string,
+    message: string,
+    payload?: Record<string, unknown>,
+  ) => void;
+};
+
+export const emitProviderKeyResolvedEvent = (
+  eventLogger: ProviderKeyResolvedEventLogger,
+  metadata: ProviderKeyResolvedMetadata,
+): void => {
+  const { keyEnvName, authClass, codingAgent, runtimeType, provider } = metadata;
+  eventLogger.info(
+    "config",
+    "provider_key.resolved",
+    "Provider key resolved for session",
+    { keyEnvName, authClass, codingAgent, runtimeType, provider },
+  );
 };
 
 export type TeardownFailureEvent = {
@@ -360,6 +592,12 @@ export const shouldPrepareParentRuntime = (input: {
   jobType?: string | null;
   planReviewStatus?: NativePlanReviewStatus;
 }): boolean => input.jobType !== "review" || input.planReviewStatus !== "ready";
+
+/** Pi consumes the same AGENTS.md/.agents platform layout as OpenCode. */
+export const resolvePlatformInjectionRuntime = (
+  runtime: PlatformRuntime,
+): "claude-code" | "opencode" | "codex" =>
+  runtime === "pi" ? "opencode" : runtime;
 
 // ---------------------------------------------------------------------------
 // JobExecutor
@@ -815,6 +1053,7 @@ export const createJobExecutor = (
         opencodeImage: config.opencodeImage,
         claudeShimImage: config.claudeShimImage,
         codexShimImage: config.codexShimImage,
+        piShimImage: config.piShimImage,
         servePort: OPENCODE_SERVE_PORT,
       });
       return;
@@ -917,7 +1156,13 @@ export const createJobExecutor = (
       );
     }
 
-    const { env: injectedEnv, openCodeConfig, resolvedModel, keyDebug, cloneCredential } = await buildInjectedEnv({
+    const {
+      env: injectedEnv,
+      openCodeConfig,
+      resolvedModel,
+      providerKeyMetadata,
+      cloneCredential,
+    } = await buildInjectedEnv({
       workerClient: workerClient,
       job,
       repository: ctx.repositoryOverride,
@@ -955,16 +1200,13 @@ export const createJobExecutor = (
     ctx.openCodeConfig = openCodeConfig;
     ctx.resolvedModel = resolvedModel;
 
-    // Log provider key debug metadata for troubleshooting auth/rate-limit issues
-    if (keyDebug) {
-      eventLogger.info("config", "provider_key.resolved", "Provider key resolved for session", keyDebug);
-    }
+    emitProviderKeyResolvedEvent(eventLogger, providerKeyMetadata);
 
     // Update job with the actual resolved model (may differ from the requested model)
     try {
       await workerClient.updateJobStatus(job.id, {
         status: "running",
-        model: resolvedModel,
+        ...buildResolvedModelStatusFields(job, resolvedModel),
       });
     } catch {
       // Non-critical — model metadata is best-effort
@@ -979,6 +1221,7 @@ export const createJobExecutor = (
       opencodeImage: config.opencodeImage,
       claudeShimImage: config.claudeShimImage,
       codexShimImage: config.codexShimImage,
+      piShimImage: config.piShimImage,
       servePort: OPENCODE_SERVE_PORT,
     });
     ctx.skillName =
@@ -1405,7 +1648,9 @@ export const createJobExecutor = (
             injectionResult = await platformInjector.inject({
               containerId: ctx.containerId,
               workspacePath: WORKSPACE_REPO_PATH,
-              runtime: ctx.runtimeExecutor!.platformRuntime,
+              runtime: resolvePlatformInjectionRuntime(
+                ctx.runtimeExecutor!.platformRuntime,
+              ),
               containerManager: containerManager,
             });
 
@@ -1894,6 +2139,7 @@ export const createJobExecutor = (
             opencodeImage: config.opencodeImage,
             claudeShimImage: config.claudeShimImage,
             codexShimImage: config.codexShimImage,
+            piShimImage: config.piShimImage,
             servePort: OPENCODE_SERVE_PORT,
           });
           const childSpec = buildContainerSpecForJob(
@@ -1978,7 +2224,7 @@ export const createJobExecutor = (
       };
     }
 
-    return runServeSessionWrapper({
+    const result = await runServeSessionWrapper({
       baseUrl: ctx.containerServeBaseUrl!,
       containerId: ctx.containerId,
       job: ctx.job,
@@ -1995,6 +2241,8 @@ export const createJobExecutor = (
       evidenceManifestPath: ctx.evidenceManifestPath,
       redactor: ctx.secretRedactor,
     });
+    result.runtimeEvidence = buildJobRuntimeEvidence(ctx.job, result);
+    return result;
   }
 
   // ---------------------------------------------------------------------------
@@ -2006,6 +2254,7 @@ export const createJobExecutor = (
     result: SessionExecutionResult,
   ): Promise<JobExecutionResult> => {
     const { job, injectedEnv, eventLogger, runtimeConfig } = ctx;
+    const runtimeEvidenceResult = buildUsagePayloadFields(result);
 
     // Stop heartbeat once the session ends.
     if (ctx.heartbeatInterval) clearInterval(ctx.heartbeatInterval);
@@ -2113,6 +2362,7 @@ export const createJobExecutor = (
         result: {
           threadId: ctx.threadId,
           summary: result.summary ?? null,
+          ...runtimeEvidenceResult,
           pausedForQuota: true,
           availableAt: pause.availableAt,
           errorType: pause.errorType,
@@ -2122,10 +2372,8 @@ export const createJobExecutor = (
         errorType: pause.errorType,
         availableAt: pause.availableAt,
         sessionId: result.sessionId,
-        model: ctx.resolvedModel ?? undefined,
-        tokensUsed: result.tokensUsed,
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
+        ...buildResolvedModelStatusFields(job, ctx.resolvedModel),
+        ...runtimeEvidenceResult,
       });
 
       emitJobTelemetry({
@@ -2156,12 +2404,11 @@ export const createJobExecutor = (
       result: {
         threadId: ctx.threadId,
         summary: result.summary ?? null,
+        ...runtimeEvidenceResult,
       },
       sessionId: result.sessionId,
-      model: ctx.resolvedModel ?? undefined,
-      tokensUsed: result.tokensUsed,
-      inputTokens: result.inputTokens,
-      outputTokens: result.outputTokens,
+      ...buildResolvedModelStatusFields(job, ctx.resolvedModel),
+      ...runtimeEvidenceResult,
     });
     eventLogger.info("finish", "job.finalizing", "Session ended; finalizing post-session work", {
       sessionSuccess: result.success,
@@ -2291,6 +2538,7 @@ export const createJobExecutor = (
       result: {
         threadId: ctx.threadId,
         summary: result.summary ?? null,
+        ...runtimeEvidenceResult,
         prSummary: prSummary ?? null,
         completionState: result.completionState ?? (jobCompleted ? "complete" : "failed"),
         incompleteReason: result.incompleteReason ?? null,
@@ -2305,10 +2553,8 @@ export const createJobExecutor = (
       prUrl: ctx.prFirstResult?.prUrl,
       prNumber: ctx.prFirstResult?.prNumber,
       sessionId: result.sessionId,
-      model: ctx.resolvedModel ?? undefined,
-      tokensUsed: result.tokensUsed,
-      inputTokens: result.inputTokens,
-      outputTokens: result.outputTokens,
+      ...buildResolvedModelStatusFields(job, ctx.resolvedModel),
+      ...runtimeEvidenceResult,
     });
     eventLogger.info(
       "finish",
