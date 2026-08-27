@@ -39,6 +39,18 @@ The installer:
 6. Waits for the frontend to become healthy.
 7. Prints the app URL + day-2 ops commands.
 
+### Pi production prerequisite
+
+Pi is optional, but a production runner configured for it must use the immutable Docker Hub image produced by the X64 `.github/workflows/publish-docker.yml` gate:
+
+```text
+PI_SHIM_IMAGE=DOCKERHUB_USERNAME/almirant-pi-shim@sha256:<digest>
+```
+
+A tag or local Docker `sha256:` image ID is not a registry manifest digest. Keep `PI_CODING_AGENT_ADMISSION_ENABLED=false` until Community migrations `0232` and `0233` are applied, the digest is configured, and a canary passes. Add the Z.AI API key only through **Settings → Integrations**; do not export it in a shell or place it in `.env.production`.
+
+Pi admits only `pi/zai/glm-5.3/api_key`, with no optional capabilities and no OpenAI subscription access. Follow the [Pi operator runbook](../operations/pi-coding-agent.md) for publication, rollout, diagnosis, and rollback.
+
 Env overrides (all optional):
 
 | Variable | Default | Description |
@@ -203,13 +215,22 @@ The wizard is idempotent: you can leave it at any time and resume later from
 If you skip the wizard, every step has a "Skip for now" button. The
 `/onboarding` link stays available in the sidebar until all steps are done.
 
-## Optional: build Claude/Codex shim images locally
+## Optional: build agent shim images locally
 
-If you want agent jobs to use local shim images instead of remote defaults:
+The `shims` profile includes Claude, Codex, OpenCode, and Pi images:
 
 ```bash
 docker compose --profile shims build
 ```
+
+The local Pi tag is for development smoke only. Run the credential-free smoke without a real provider key:
+
+```bash
+bash services/runner/scripts/pi-image-smoke.sh \
+  --image almirant-pi-shim:0.84.2
+```
+
+Production still requires `DOCKERHUB_USERNAME/almirant-pi-shim@sha256:<digest>` from the X64 publication workflow. See the [Pi operator runbook](../operations/pi-coding-agent.md#publish-and-pin-the-image).
 
 ## Stop the stack
 

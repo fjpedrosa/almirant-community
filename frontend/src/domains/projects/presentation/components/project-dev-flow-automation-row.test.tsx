@@ -282,4 +282,48 @@ describe("DevFlowAutomationRow", () => {
     expect(input.placeholder).toBe("noLimit");
     expect(input.placeholder).not.toContain("null");
   });
+
+  test("explains why Pi is unavailable for the read-only DoD review automation", async () => {
+    const user = userEvent.setup();
+    render(
+      <DevFlowAutomationRow
+        {...baseProps}
+        row={{ ...baseRow, automationId: "dod-review", name: "DoD review" }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: 'expand:{"name":"DoD review"}' }));
+
+    expect(screen.getByText("piReadOnlyUnavailable")).toBeInTheDocument();
+  });
+
+  test("keeps raw future override values visible as retained notices", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <DevFlowAutomationRow
+        {...baseProps}
+        row={{
+          ...baseRow,
+          override: {
+            ...EMPTY_DEV_FLOW_AUTOMATION_OVERRIDE,
+            codingAgent: "future-agent",
+            aiProvider: "future-provider",
+            model: "future-model",
+            reasoningLevel: "future-effort",
+          },
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: 'expand:{"name":"Backlog drain"}' }));
+
+    const retainedNotices = [...container.querySelectorAll("p")]
+      .filter((element) => element.textContent?.includes("retainedValue"));
+    const noticeText = retainedNotices.map((element) => element.textContent).join(" ");
+    expect(retainedNotices).toHaveLength(4);
+    expect(noticeText).toContain("future-agent");
+    expect(noticeText).toContain("future-provider");
+    expect(noticeText).toContain("future-model");
+    expect(noticeText).toContain("future-effort");
+  });
 });

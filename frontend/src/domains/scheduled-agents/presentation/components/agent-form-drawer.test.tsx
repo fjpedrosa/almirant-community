@@ -115,6 +115,16 @@ const Harness = ({
   onceRunAtLocal = "",
   lastRunAt = null,
   onceRunAtPastWarning = false,
+  isEditing = true,
+  provider = "claude-code",
+  codingAgent = "claude-code",
+  aiProvider = "",
+  aiModel = "",
+  reasoningLevel = undefined,
+  needsBrowser = false,
+  availableProviders = [],
+  availableModels = [],
+  availableReasoningLevels = [],
 }: {
   plugins?: AgentPlugin[];
   mcpServers?: AgentMcpServer[];
@@ -124,16 +134,29 @@ const Harness = ({
   onceRunAtLocal?: string;
   lastRunAt?: string | null;
   onceRunAtPastWarning?: boolean;
+  isEditing?: boolean;
+  provider?: string | null;
+  codingAgent?: string | null;
+  aiProvider?: string | null;
+  aiModel?: string | null;
+  reasoningLevel?: string | null;
+  needsBrowser?: boolean;
+  availableProviders?: AgentFormDrawerProps["availableProviders"];
+  availableModels?: AgentFormDrawerProps["availableModels"];
+  availableReasoningLevels?: AgentFormDrawerProps["availableReasoningLevels"];
 } = {}) => {
   const form = useForm({
     defaultValues: {
       name: "Agent",
       description: "",
+      projectId: "",
       prompt: "",
-      codingAgent: "claude-code",
-      aiProvider: "",
-      aiModel: "",
-      reasoningLevel: undefined,
+      provider,
+      codingAgent,
+      aiProvider,
+      aiModel,
+      reasoningLevel,
+      needsBrowser,
       scheduleType,
       onceRunAtLocal,
       trigger: "scheduled",
@@ -154,7 +177,7 @@ const Harness = ({
   const props: AgentFormDrawerProps = {
     open: true,
     onOpenChange: noop,
-    isEditing: true,
+    isEditing,
     isPending: false,
     form,
     onSubmit: async () => {},
@@ -167,9 +190,9 @@ const Harness = ({
     projects: [],
     scheduleType,
     trigger: "scheduled",
-    availableProviders: [],
-    availableModels: [],
-    availableReasoningLevels: [],
+    availableProviders,
+    availableModels,
+    availableReasoningLevels,
     agentKind: "repository",
     automationTargetKind: "builtin",
     automationSkillSlug: null,
@@ -196,6 +219,7 @@ describe("AgentFormDrawer prompt modal", () => {
     expect(screen.getByText("Prompt")).toBeInTheDocument();
     // The expanded editor is not present until the Expand button is clicked.
     expect(screen.queryByPlaceholderText(MODAL_PLACEHOLDER)).toBeNull();
+
   });
 
   it("opens a modal editor and keeps it in sync with the prompt field", async () => {
@@ -272,6 +296,75 @@ const testMcpServer: AgentMcpServer = {
 };
 
 describe("AgentFormDrawer MCP servers and plugins selection", () => {
+  it("renders raw future, codex-cli, and null runtime values as retained edit data", () => {
+    const futureView = render(
+      <Harness
+        provider="future-lane"
+        codingAgent="future-agent"
+        aiProvider="future-provider"
+        aiModel="Future/Model@1"
+        reasoningLevel="ULTRA"
+      />,
+    );
+
+    expect(screen.getByText("Retained legacy provider: future-lane")).toBeInTheDocument();
+    expect(screen.getByText("Retained coding agent: future-agent")).toBeInTheDocument();
+    expect(screen.getByText("Retained AI provider: future-provider")).toBeInTheDocument();
+    expect(screen.getByText("Retained model: Future/Model@1")).toBeInTheDocument();
+    expect(screen.getByText("Retained reasoning level: ULTRA")).toBeInTheDocument();
+
+    futureView.unmount();
+    const codexView = render(
+      <Harness
+        provider="codex"
+        codingAgent="codex-cli"
+        aiProvider="openai"
+        aiModel="gpt-5.5"
+      />,
+    );
+    expect(screen.getByText("Retained coding agent: codex-cli")).toBeInTheDocument();
+
+    codexView.unmount();
+    render(
+      <Harness
+        provider={null}
+        codingAgent={null}
+        aiProvider={null}
+        aiModel={null}
+      />,
+    );
+    expect(screen.getByText("Retained default legacy provider")).toBeInTheDocument();
+    expect(screen.getByText("Retained default coding agent")).toBeInTheDocument();
+    expect(screen.getByText("Retained default AI provider")).toBeInTheDocument();
+    expect(screen.getByText("Retained default model")).toBeInTheDocument();
+  });
+
+  it("renders only the admitted Pi tuple and disables unsupported capabilities with typed reasons", () => {
+    render(
+      <Harness
+        provider="zipu"
+        codingAgent="pi"
+        aiProvider="zai"
+        aiModel="glm-5.3"
+        availableProviders={["zai"]}
+        availableModels={[{ value: "glm-5.3", label: "GLM-5.3" }]}
+        plugins={[testPlugin]}
+        mcpServers={[testMcpServer]}
+      />,
+    );
+
+    expect(screen.queryByText(/Retained (coding agent|AI provider|model)/)).toBeNull();
+    expect(screen.getByText("Pi coding agent.")).toBeInTheDocument();
+    expect(screen.getByText(/z\.ai.*inferred from coding agent/i)).toBeInTheDocument();
+    expect(screen.getAllByText("GLM-5.3").length).toBeGreaterThan(0);
+    expect(screen.getByRole("switch", { name: "Browser / Playwright" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /Repo audit/i })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /Z Combinator search/i })).toBeDisabled();
+    expect(screen.getByText(/PI_CAPABILITY_BROWSER_DISABLED/)).toBeInTheDocument();
+    expect(screen.getByText(/PI_CAPABILITY_EXTENSIONS_DISABLED/)).toBeInTheDocument();
+    expect(screen.getByText(/PI_CAPABILITY_MCP_DISABLED/)).toBeInTheDocument();
+  });
+
   it("no longer renders the legacy raw MCP servers JSON textarea", () => {
     render(<Harness />);
     expect(screen.queryByText("Additional MCP servers")).toBeNull();
