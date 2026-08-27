@@ -8,9 +8,11 @@ import {
   type Coalescer,
   createCanonicalRouter,
   type CanonicalEventEnvelope,
+  type NativeEventEnvelope,
   normalizeCanonicalEnvelope,
   readStreamEvent,
 } from "@almirant/stream-consumer";
+import type { NativeEventPayload } from "@almirant/bridge-core";
 import Redis from "ioredis";
 import type { BridgeEnv } from "./config";
 import type { ProcessingStats } from "./types";
@@ -92,6 +94,54 @@ export const buildOutboundCanonicalEnvelope = (
     },
   });
 };
+
+// timestamp <= 0 mirrors deserializeCanonicalEnvelope's own sentinel for "field absent".
+export const resolveCanonicalOccurredAt = (
+  envelope: Pick<CanonicalEventEnvelope, "occurredAt" | "timestamp">,
+): string | undefined => {
+  if (typeof envelope.occurredAt === "string" && envelope.occurredAt.length > 0) {
+    const parsedMs = new Date(envelope.occurredAt).getTime();
+    if (Number.isFinite(parsedMs)) return envelope.occurredAt;
+  }
+  if (
+    typeof envelope.timestamp === "number" &&
+    Number.isFinite(envelope.timestamp) &&
+    envelope.timestamp > 0
+  ) {
+    return new Date(envelope.timestamp).toISOString();
+  }
+  return undefined;
+};
+
+/** Preserve the validated native envelope without adding absent optional fields. */
+export const buildNativeEventPersistencePayload = (
+  envelope: NativeEventEnvelope,
+): NativeEventPayload => ({
+  sequenceNum: envelope.sequenceNumber,
+  ...(envelope.sequenceProtocolVersion !== undefined
+    ? { sequenceProtocolVersion: envelope.sequenceProtocolVersion }
+    : {}),
+  ...(envelope.claimAttemptId !== undefined
+    ? { claimAttemptId: envelope.claimAttemptId }
+    : {}),
+  nativeEventType: envelope.nativeEventType,
+  sourceFormat: envelope.sourceFormat,
+  payload: envelope.payload,
+  ...(envelope.provider !== undefined ? { provider: envelope.provider } : {}),
+  ...(envelope.codingAgent !== undefined
+    ? { codingAgent: envelope.codingAgent }
+    : {}),
+  ...(envelope.aiProvider !== undefined
+    ? { aiProvider: envelope.aiProvider }
+    : {}),
+  ...(envelope.model !== undefined ? { model: envelope.model } : {}),
+  ...(envelope.runtimeSessionId !== undefined
+    ? { runtimeSessionId: envelope.runtimeSessionId }
+    : {}),
+  ...(envelope.emittedAt !== undefined
+    ? { emittedAt: envelope.emittedAt }
+    : {}),
+});
 
 /**
  * Per-job turnstile: at most one holder per jobId, granted in arrival order.
@@ -286,19 +336,7 @@ export const createWebBridgeConsumer = (
             }
             if (eventPersistenceRef) {
               await eventPersistenceRef.persistNativeEvent(
-                {
-                  sequenceNum: streamEvent.envelope.sequenceNumber,
-                  sequenceProtocolVersion:
-                    streamEvent.envelope.sequenceProtocolVersion,
-                  claimAttemptId: streamEvent.envelope.claimAttemptId,
-                  nativeEventType: streamEvent.envelope.nativeEventType,
-                  sourceFormat: streamEvent.envelope.sourceFormat,
-                  payload: streamEvent.envelope.payload,
-                  provider: streamEvent.envelope.provider,
-                  codingAgent: streamEvent.envelope.codingAgent,
-                  runtimeSessionId: streamEvent.envelope.runtimeSessionId,
-                  emittedAt: streamEvent.envelope.emittedAt,
-                },
+                buildNativeEventPersistencePayload(streamEvent.envelope),
                 { jobId: streamEvent.envelope.jobId },
               );
             }
@@ -397,6 +435,7 @@ export const createWebBridgeConsumer = (
                   sequenceProtocolVersion:
                     envelope.sequenceProtocolVersion,
                   claimAttemptId: envelope.claimAttemptId,
+                  occurredAt: resolveCanonicalOccurredAt(envelope),
                 },
               );
             }
