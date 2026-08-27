@@ -9,6 +9,11 @@ type CreatedJob = {
   id?: string;
   projectId: string | null;
   workspaceId?: string | null;
+  provider?: string;
+  codingAgent?: string;
+  aiProvider?: string;
+  model?: string;
+  resolvedRuntimeSelection?: Record<string, unknown>;
   config: Record<string, unknown>;
 };
 
@@ -50,6 +55,23 @@ const buildMcpProfile = (id: string, overrides: Record<string, unknown> = {}) =>
   url: "https://mcp.example.com/mcp",
   transport: "remote",
   ...overrides,
+});
+
+const buildPlugin = () => ({
+  id: pluginId,
+  workspaceId: "ws-1",
+  ownerUserId: null,
+  name: "Repo audit",
+  slug: "repo-audit",
+  provider: "portable",
+  sourceType: "upload",
+  marketplaceId: null,
+  storageObjectId: "storage-1",
+  checksumSha256: "c".repeat(64),
+  manifest: { kind: "portable_skill" },
+  version: "1",
+  enabled: true,
+  archivedAt: null,
 });
 
 mock.module("@almirant/database", () =>
@@ -302,26 +324,101 @@ describe("executeScheduledAgentConfig dispatch-time tooling resolution", () => {
     state.putBindingCalls.length = 0;
   });
 
+  it("admits scheduled Pi dispatch only when the final resolved job config has no disabled capability", async () => {
+    await executeScheduledAgentConfig(
+      agentConfig(null, {
+        provider: "zipu",
+        codingAgent: "pi",
+        aiProvider: "zai",
+        aiModel: "glm-5.3",
+      }),
+      { createdByUserId: null, trigger: "schedule", dueKey: "pi:no-capability" },
+    );
+
+    expect(state.created).toHaveLength(1);
+    expect(state.created[0]).toMatchObject({
+      codingAgent: "pi",
+      aiProvider: "zai",
+      model: "glm-5.3",
+      resolvedRuntimeSelection: {
+        authClass: "api_key",
+        capabilities: [],
+      },
+    });
+  });
+
+  it("rejects restricted Pi after resolved MCP tooling and before createJob", async () => {
+    state.associatedMcpIds = [mcpId];
+    state.mcpProfiles = [buildMcpProfile(mcpId, {
+      slug: "scraper",
+      url: "https://scraper.example.com/mcp",
+    })];
+
+    await expect(executeScheduledAgentConfig(
+      agentConfig(null, {
+        provider: "zipu",
+        codingAgent: "pi",
+        aiProvider: "zai",
+        aiModel: "glm-5.3",
+      }),
+      {
+        createdByUserId: null,
+        trigger: "schedule",
+        dueKey: "pi:resolved-mcp",
+      },
+    )).rejects.toMatchObject({ code: "PI_CAPABILITY_MCP_DISABLED" });
+
+    expect(state.created).toEqual([]);
+  });
+
+  it("adds browser intent to the final config and rejects it for Pi before createJob", async () => {
+    const browserTargetConfig = {
+      customFilters: { __agent: { needsBrowser: true } },
+    };
+    await executeScheduledAgentConfig(
+      agentConfig(null, { targetConfig: browserTargetConfig }),
+      { createdByUserId: null },
+    );
+    expect(state.created[0]?.config.needsBrowser).toBe(true);
+
+    state.created.length = 0;
+    await expect(executeScheduledAgentConfig(
+      agentConfig(null, {
+        provider: "zipu",
+        codingAgent: "pi",
+        aiProvider: "zai",
+        aiModel: "glm-5.3",
+        targetConfig: browserTargetConfig,
+      }),
+      { createdByUserId: null },
+    )).rejects.toMatchObject({ code: "PI_CAPABILITY_BROWSER_DISABLED" });
+    expect(state.created).toEqual([]);
+  });
+
+  it("rejects restricted Pi after resolved plugin tooling and before createJob", async () => {
+    state.plugins = [buildPlugin()];
+
+    await expect(executeScheduledAgentConfig(
+      agentConfig(null, {
+        provider: "zipu",
+        codingAgent: "pi",
+        aiProvider: "zai",
+        aiModel: "glm-5.3",
+        targetConfig: {
+          customFilters: {
+            __agentTooling: { selectedPluginIds: [pluginId] },
+          },
+        },
+      }),
+      { createdByUserId: null, trigger: "schedule", dueKey: "pi:resolved-plugin" },
+    )).rejects.toMatchObject({ code: "PI_CAPABILITY_EXTENSIONS_DISABLED" });
+
+    expect(state.created).toEqual([]);
+  });
+
   it("materializes the wizard's persisted MCP/plugin selection into the exact job config shape the runner reads", async () => {
     state.mcpProfiles = [buildMcpProfile(mcpId)];
-    state.plugins = [
-      {
-        id: pluginId,
-        workspaceId: "ws-1",
-        ownerUserId: null,
-        name: "Repo audit",
-        slug: "repo-audit",
-        provider: "portable",
-        sourceType: "upload",
-        marketplaceId: null,
-        storageObjectId: "storage-1",
-        checksumSha256: "c".repeat(64),
-        manifest: { kind: "portable_skill" },
-        version: "1",
-        enabled: true,
-        archivedAt: null,
-      },
-    ];
+    state.plugins = [buildPlugin()];
 
     await executeScheduledAgentConfig(
       agentConfig(null, {
@@ -352,6 +449,7 @@ describe("executeScheduledAgentConfig dispatch-time tooling resolution", () => {
       },
     });
     expect(config?.selectedPluginIds).toEqual([pluginId]);
+    expect(config?.capabilities).toEqual(["extensions"]);
     expect(config?.agentPlugins).toEqual([
       {
         id: pluginId,

@@ -25,6 +25,7 @@ const state = {
     }
   >(),
   decryptedCredentials: new Map<string, Record<string, unknown>>(),
+  decryptCalls: [] as string[],
   updatedCredentials: [] as Array<{
     id: string;
     credentials: Record<string, unknown>;
@@ -77,10 +78,12 @@ spyOn(database, "getAiProviderKeyById").mockImplementation(
 );
 
 spyOn(database, "decryptCredentials").mockImplementation(
-  ((connection: { id: string }) =>
-    state.decryptedCredentials.get(connection.id) ?? {
+  ((connection: { id: string }) => {
+    state.decryptCalls.push(connection.id);
+    return state.decryptedCredentials.get(connection.id) ?? {
       apiKey: `key-${connection.id}`,
-    }) as never,
+    };
+  }) as never,
 );
 
 spyOn(database, "updateAiProviderKeyCredentials").mockImplementation(
@@ -115,6 +118,7 @@ describe("resolveAiKey", () => {
     state.findCalls = [];
     state.connections = new Map();
     state.decryptedCredentials = new Map();
+    state.decryptCalls = [];
     state.updatedCredentials = [];
     state.deactivatedIds = [];
     state.refreshTokenCalls = [];
@@ -250,6 +254,100 @@ describe("resolveAiKey", () => {
     });
     expect(resolved?.connection.id).toBe("conn-zai");
   });
+
+  it("preserves legacy resolution when accepted auth classes are omitted", async () => {
+    state.policy = "org_only";
+    state.connections.set("openai:organization:org-1", {
+      id: "conn-legacy-unknown-auth",
+      provider: "openai",
+      category: "ai",
+      scope: "organization",
+      scopeId: "org-1",
+      config: {},
+      isActive: true,
+    });
+    state.decryptedCredentials.set("conn-legacy-unknown-auth", {
+      apiKey: "legacy-api-key",
+    });
+
+    const { resolveAiKey } = await import("./resolve-ai-key");
+    const resolved = await resolveAiKey({
+      provider: "openai",
+      userId: "user-1",
+      workspaceId: "org-1",
+      encryptionKey: "enc-key",
+    });
+
+    expect(resolved?.connection.id).toBe("conn-legacy-unknown-auth");
+    expect(state.decryptCalls).toEqual(["conn-legacy-unknown-auth"]);
+  });
+
+  it("resolves a connection whose canonical auth class is explicitly accepted", async () => {
+    state.policy = "org_only";
+    state.connections.set("openai:organization:org-1", {
+      id: "conn-setup-token",
+      provider: "openai",
+      category: "ai",
+      scope: "organization",
+      scopeId: "org-1",
+      config: { authMethod: "setup_token" },
+      isActive: true,
+    });
+
+    const { resolveAiKey } = await import("./resolve-ai-key");
+    const resolved = await resolveAiKey({
+      provider: "openai",
+      userId: "user-1",
+      workspaceId: "org-1",
+      encryptionKey: "enc-key",
+      acceptedAuthClasses: ["setup_token"],
+    });
+
+    expect(resolved?.connection.id).toBe("conn-setup-token");
+    expect(state.decryptCalls).toEqual(["conn-setup-token"]);
+  });
+
+  it.each([
+    ["setup_token", "setup_token"],
+    ["oauth", "provider_oauth"],
+    ["subscription", "subscription"],
+    ["unexpected_auth", "unknown"],
+  ] as const)(
+    "rejects %s before decryption or refresh when only api_key is accepted",
+    async (authMethod, expectedAuthClass) => {
+      state.policy = "org_only";
+      state.connections.set("openai_compatible:organization:org-1", {
+        id: `conn-${authMethod}`,
+        provider: "zai",
+        category: "ai",
+        scope: "organization",
+        scopeId: "org-1",
+        config: { authMethod },
+        isActive: true,
+      });
+      state.decryptedCredentials.set(`conn-${authMethod}`, {
+        apiKey: "must-not-be-decrypted",
+        refreshToken: "must-not-refresh",
+      });
+
+      const { resolveAiKey } = await import("./resolve-ai-key");
+      await expect(resolveAiKey({
+        provider: "zai",
+        userId: "user-1",
+        workspaceId: "org-1",
+        encryptionKey: "enc-key",
+        acceptedAuthClasses: ["api_key"],
+      })).rejects.toMatchObject({
+        name: "AiKeyAuthClassRejectedError",
+        rejectedAuthClasses: [expectedAuthClass],
+      });
+
+      expect(state.decryptCalls).toEqual([]);
+      expect(state.refreshTokenCalls).toEqual([]);
+      expect(state.updatedCredentials).toEqual([]);
+      expect(state.deactivatedIds).toEqual([]);
+    },
+  );
 
   it("refreshes expired oauth credentials via centralized token-refresh", async () => {
     // Set up a connection with expired token and a refresh token

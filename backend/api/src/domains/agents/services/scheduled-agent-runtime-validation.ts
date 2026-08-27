@@ -1,31 +1,87 @@
+import { env } from "@almirant/config";
 import {
-  getAgentModelReasoningEfforts,
-  normalizeAgentModel,
+  RESOLVED_SCHEDULED_RUNTIME_SCHEMA_VERSION,
+  ScheduledRuntimeAdmissionError,
+  deriveRuntimeCapabilityIntent,
+  resolveLegacyRuntimeSelection,
+  resolveRequestedRuntimeSelection,
+  resolveScheduledRuntimePrecedence,
+  runtimeCapabilityRegistry,
+  type ResolvedRuntimeSelection,
+  type ResolvedScheduledRuntime,
+  type RuntimeCapabilityIntentErrorCode,
+  type RuntimeRejectionCode,
+  type ScheduledRuntimeSource,
 } from "@almirant/shared";
 
 export const SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR =
   "Invalid scheduled agent runtime";
+const PI_ADMISSION_ENABLED = "PI_ADMISSION_ENABLED" as const;
+export const PI_ADMISSION_DISABLED = "PI_ADMISSION_DISABLED" as const;
 
-type AgentProvider = "claude-code" | "codex" | "zipu" | "grok";
-type AiProvider = "anthropic" | "openai" | "zai" | "xai";
-type CodingAgent = "claude-code" | "codex" | "codex-cli" | "opencode";
+export type RuntimeValidationErrorCode =
+  | RuntimeRejectionCode
+  | RuntimeCapabilityIntentErrorCode
+  | typeof PI_ADMISSION_DISABLED;
 
-type RuntimeValidationInput = {
+export class ScheduledAgentRuntimeValidationError extends Error {
+  readonly category: "policy" | undefined;
+  readonly retryable: false | undefined;
+
+  constructor(
+    message: string,
+    readonly code: RuntimeValidationErrorCode | null = null,
+  ) {
+    super(`${SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR}: ${message}`);
+    this.name = "ScheduledAgentRuntimeValidationError";
+    this.category = code === PI_ADMISSION_DISABLED ? "policy" : undefined;
+    this.retryable = code === PI_ADMISSION_DISABLED ? false : undefined;
+  }
+}
+
+/**
+ * Read the live process value so tests do not depend on module-cache resets.
+ * Production falls back to the startup-validated config value when the variable
+ * is absent. Legacy config mocks and mixed-version processes may omit the new
+ * field entirely, so the compatibility boundary preserves its default-on policy.
+ */
+export const isPiCodingAgentAdmissionEnabled = (
+  configuredValue = process.env.PI_CODING_AGENT_ADMISSION_ENABLED ??
+    env.PI_CODING_AGENT_ADMISSION_ENABLED ??
+    "true",
+): boolean => {
+  if (configuredValue === "true") return true;
+  if (configuredValue === "false") return false;
+  throw new Error("PI_CODING_AGENT_ADMISSION_ENABLED must be 'true' or 'false'");
+};
+
+/** Build a fresh, deeply immutable view of live runtime operator controls. */
+export const buildRuntimeControls = () => {
+  const enabled = isPiCodingAgentAdmissionEnabled();
+  const piCodingAgentAdmission = Object.freeze({
+    enabled,
+    code: enabled ? PI_ADMISSION_ENABLED : PI_ADMISSION_DISABLED,
+  });
+
+  return Object.freeze({ piCodingAgentAdmission });
+};
+
+type EffectiveRuntimeInput = ScheduledRuntimeSource & {
+  model: string;
+};
+
+export type RuntimeValidationInput = {
   provider?: string | null;
   codingAgent?: string | null;
   aiProvider?: string | null;
   aiModel?: string | null;
   reasoningLevel?: string | null;
+  authClass?: string | null;
+  capabilities?: readonly string[] | null;
   /** Every connection model that may be inherited after account fallback. */
   effectiveAiModels?: readonly string[];
   /** Fully resolved execution candidates, including project/connection precedence. */
-  effectiveRuntimes?: ReadonlyArray<{
-    provider?: string | null;
-    codingAgent?: string | null;
-    aiProvider?: string | null;
-    model: string;
-    reasoningLevel?: string | null;
-  }>;
+  effectiveRuntimes?: ReadonlyArray<ResolvedScheduledRuntime | EffectiveRuntimeInput>;
   targetConfig?: unknown;
 };
 
@@ -36,106 +92,308 @@ export type PersistedScheduledAgentRuntime = Pick<
 
 type OmittedPersistedReasoningLevel = {
   model: string;
-  aiProvider: AiProvider;
+  aiProvider: string;
   reasoningLevel: string;
 };
 
-const CODING_AGENTS_BY_PROVIDER: Record<AgentProvider, ReadonlySet<CodingAgent>> = {
-  "claude-code": new Set(["claude-code"]),
-  codex: new Set(["codex", "codex-cli", "opencode"]),
-  zipu: new Set(["claude-code", "opencode"]),
-  grok: new Set(["opencode"]),
-};
+const explicitString = (value: string | null | undefined): string | null =>
+  typeof value === "string" && value.trim().length > 0 ? value : null;
 
-const AI_PROVIDER_TO_AGENT_PROVIDER: Record<AiProvider, AgentProvider> = {
-  anthropic: "claude-code",
-  openai: "codex",
-  zai: "zipu",
-  xai: "grok",
-};
-
-const AGENT_PROVIDER_TO_AI_PROVIDER: Record<AgentProvider, AiProvider> = {
-  "claude-code": "anthropic",
-  codex: "openai",
-  zipu: "zai",
-  grok: "xai",
-};
-
-const normalize = (value: string | null | undefined): string | null => {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim().toLowerCase();
-  return trimmed.length > 0 ? trimmed : null;
-};
-
-/**
- * Canonicalize an aiModel value for persistence. Catalog model ids are
- * lowercase, so a value saved with display-name casing (e.g. "GLM-5.2", coming
- * from an MCP call or a client that sent the label) is normalized to its id
- * ("glm-5.2"). This keeps the stored value in sync with the Select options and
- * prevents the "Select model" placeholder bug on edit. Returns null for
- * empty/nullish values.
- */
+/** Preserve non-empty modern model ids byte-for-byte for storage and admission. */
 export const canonicalizeAiModelForStorage = (
   value: string | null | undefined,
-): string | null => normalize(value);
+): string | null => explicitString(value);
 
-const asRecord = (value: unknown): Record<string, unknown> | null => {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+
+const fail = (
+  message: string,
+  code: RuntimeValidationErrorCode | null = null,
+): never => {
+  throw new ScheduledAgentRuntimeValidationError(message, code);
 };
 
-const asAgentProvider = (value: string | null): AgentProvider | null => {
-  return value === "claude-code" ||
-    value === "codex" ||
-    value === "zipu" ||
-    value === "grok"
-    ? value
-    : null;
-};
-
-const asAiProvider = (value: string | null): AiProvider | null => {
-  return value === "anthropic" ||
-    value === "openai" ||
-    value === "zai" ||
-    value === "xai"
-    ? value
-    : null;
-};
-
-const asCodingAgent = (value: string | null): CodingAgent | null => {
-  return value === "claude-code" ||
-    value === "codex" ||
-    value === "codex-cli" ||
-    value === "opencode"
-    ? value
-    : null;
-};
-
-const inferAiProviderFromModel = (model: string | null | undefined): AiProvider | null => {
-  const normalized = normalize(model);
-  if (!normalized) return null;
-
-  if (normalized.startsWith("glm-")) return "zai";
-  if (normalized.startsWith("grok-")) return "xai";
-  if (normalized.startsWith("claude-")) return "anthropic";
-  if (
-    normalized.startsWith("gpt-") ||
-    normalized.startsWith("o1") ||
-    normalized.startsWith("o3") ||
-    normalized.startsWith("o4") ||
-    normalized.startsWith("o5") ||
-    normalized.startsWith("codex-")
-  ) {
-    return "openai";
+const assertPiCodingAgentAdmission = (codingAgent: string | null | undefined): void => {
+  if (codingAgent === "pi" && !isPiCodingAgentAdmissionEnabled()) {
+    fail(
+      "Pi coding-agent admission is disabled by operator policy.",
+      PI_ADMISSION_DISABLED,
+    );
   }
+};
 
-  return null;
+export type RuntimeCapabilityAdmissionInput = {
+  provider: string;
+  codingAgent: string;
+  aiProvider: string;
+  model: string;
+  config: unknown;
+  /** Already-resolved auth is the fallback when the final config has no override. */
+  authClass?: string | null;
 };
 
 /**
- * Compatibility boundary for runtimes already persisted before model effort
- * support changed. Request validation intentionally remains strict.
+ * Derive auth/capability intent from the exact final enqueue config and admit the
+ * complete runtime tuple before persistence. Known config values are never
+ * reflected in failures; callers can safely expose the bounded typed code.
+ */
+export const assertRuntimeCapabilityIntentAdmission = (
+  input: RuntimeCapabilityAdmissionInput,
+): ResolvedRuntimeSelection => {
+  assertPiCodingAgentAdmission(input.codingAgent);
+  const intent = deriveRuntimeCapabilityIntent(input.config);
+  if (!("intent" in intent)) {
+    return fail(
+      `runtime capability intent is invalid at field '${intent.field}'.`,
+      intent.code,
+    );
+  }
+
+  const resolution = resolveRequestedRuntimeSelection({
+    provider: input.provider,
+    codingAgent: input.codingAgent,
+    aiProvider: input.aiProvider,
+    model: input.model,
+    authClass: intent.intent.authClass ?? input.authClass ?? "api_key",
+    capabilities: intent.intent.capabilities,
+  });
+  if (!("selection" in resolution)) {
+    return fail(
+      `runtime capability intent was rejected with code '${resolution.code}'.`,
+      resolution.code,
+    );
+  }
+  return resolution.selection;
+};
+
+export const assertRuntimeCapabilityIntentAdmissions = (
+  runtimes: readonly ResolvedScheduledRuntime[],
+  config: unknown,
+): readonly ResolvedRuntimeSelection[] =>
+  runtimes.map((runtime) =>
+    assertRuntimeCapabilityIntentAdmission({
+      provider: runtime.provider,
+      codingAgent: runtime.codingAgent,
+      aiProvider: runtime.aiProvider,
+      model: runtime.model,
+      authClass: runtime.authClass,
+      config,
+    })
+  );
+
+const isScheduledRuntimeAdmissionError = (
+  error: unknown,
+): error is ScheduledRuntimeAdmissionError =>
+  error instanceof ScheduledRuntimeAdmissionError;
+
+const admissionFailureMessage = (
+  scope: string,
+  error: ScheduledRuntimeAdmissionError,
+): string => {
+  if (
+    error.code === "RUNTIME_MODEL_UNSUPPORTED" &&
+    error.candidate.aiProvider === "zai"
+  ) {
+    return `${scope}: model '${error.candidate.model}' is not available through the Z.AI Coding Plan.`;
+  }
+
+  return `${scope}: registry rejected the complete runtime tuple with code '${error.code}'.`;
+};
+
+const wrapAdmission = (
+  scope: string,
+  error: ScheduledRuntimeAdmissionError,
+): never => fail(admissionFailureMessage(scope, error), error.code);
+
+/**
+ * Normalize registry failures thrown before this service receives resolved
+ * candidates (for example, effective-runtime resolution in an API route).
+ */
+export const asScheduledAgentRuntimeValidationError = (
+  error: unknown,
+  scope = "agent effective runtime",
+): ScheduledAgentRuntimeValidationError | null => {
+  if (error instanceof ScheduledAgentRuntimeValidationError) return error;
+  if (!isScheduledRuntimeAdmissionError(error)) return null;
+  return new ScheduledAgentRuntimeValidationError(
+    admissionFailureMessage(scope, error),
+    error.code,
+  );
+};
+
+const isResolvedScheduledRuntime = (
+  runtime: ResolvedScheduledRuntime | EffectiveRuntimeInput,
+): runtime is ResolvedScheduledRuntime =>
+  "schemaVersion" in runtime &&
+  runtime.schemaVersion === RESOLVED_SCHEDULED_RUNTIME_SCHEMA_VERSION;
+
+const assertResolvedRegistryIdentity = (
+  runtime: ResolvedScheduledRuntime,
+  scope: string,
+): void => {
+  if (runtime.registryVersion !== runtimeCapabilityRegistry.version) {
+    fail(
+      `${scope}: runtime registry version does not match the authoritative registry.`,
+      "RUNTIME_REGISTRY_VERSION_MISMATCH",
+    );
+  }
+  if (runtime.projectionHash !== runtimeCapabilityRegistry.projectionHash) {
+    fail(
+      `${scope}: runtime registry projection does not match the authoritative registry.`,
+      "RUNTIME_REGISTRY_HASH_MISMATCH",
+    );
+  }
+};
+
+const assertReasoning = (
+  runtime: ResolvedScheduledRuntime,
+  scope: string,
+): void => {
+  if (
+    runtime.reasoningLevel !== null &&
+    !runtime.reasoningEfforts.some((effort) => effort === runtime.reasoningLevel)
+  ) {
+    fail(
+      `${scope}: reasoningLevel '${runtime.reasoningLevel}' is not supported by model '${runtime.model}'.`,
+    );
+  }
+};
+
+const resolveAndValidate = (
+  sources: Parameters<typeof resolveScheduledRuntimePrecedence>[0],
+  scope: string,
+): ResolvedScheduledRuntime => {
+  try {
+    const runtime = resolveScheduledRuntimePrecedence(sources);
+    assertPiCodingAgentAdmission(runtime.codingAgent);
+    assertReasoning(runtime, scope);
+    return runtime;
+  } catch (error) {
+    if (isScheduledRuntimeAdmissionError(error)) {
+      return wrapAdmission(scope, error);
+    }
+    throw error;
+  }
+};
+
+const validateEffectiveRuntime = (
+  runtime: ResolvedScheduledRuntime | EffectiveRuntimeInput,
+  scope: string,
+): ResolvedScheduledRuntime => {
+  if (isResolvedScheduledRuntime(runtime)) {
+    assertPiCodingAgentAdmission(runtime.codingAgent);
+    assertResolvedRegistryIdentity(runtime, scope);
+    assertReasoning(runtime, scope);
+    return runtime;
+  }
+  return resolveAndValidate({ schedule: runtime }, scope);
+};
+
+const scheduledSource = (
+  input: RuntimeValidationInput,
+  model?: string | null,
+): ScheduledRuntimeSource => ({
+  provider: input.provider,
+  codingAgent: input.codingAgent,
+  aiProvider: input.aiProvider,
+  model,
+  reasoningLevel: input.reasoningLevel,
+  authClass: input.authClass,
+  capabilities: input.capabilities,
+});
+
+const projectRules = (
+  key: "backlogDrain" | "dodRemediation",
+  targetConfig: unknown,
+): Array<{ index: number; source: ScheduledRuntimeSource }> => {
+  const target = asRecord(targetConfig);
+  const config = asRecord(target?.[key]);
+  const projects = Array.isArray(config?.projects) ? config.projects : [];
+
+  return projects.flatMap((entry, index) => {
+    const rule = asRecord(entry);
+    if (!rule) return [];
+    return [{
+      index,
+      source: {
+        provider: typeof rule.provider === "string" ? rule.provider : null,
+        codingAgent: typeof rule.codingAgent === "string" ? rule.codingAgent : null,
+        aiProvider: typeof rule.aiProvider === "string" ? rule.aiProvider : null,
+        model: typeof rule.model === "string" ? rule.model : null,
+        reasoningLevel: typeof rule.reasoningLevel === "string"
+          ? rule.reasoningLevel
+          : null,
+        authClass: typeof rule.authClass === "string" ? rule.authClass : null,
+        capabilities: Array.isArray(rule.capabilities)
+          ? rule.capabilities.filter((value): value is string => typeof value === "string")
+          : null,
+      },
+    }];
+  });
+};
+
+/**
+ * Validate scheduled candidates through the same fieldwise resolver used by
+ * execution. A complete candidate is admitted once; already-admitted resolver
+ * output is checked for registry identity and reasoning without re-admission.
+ */
+export const assertValidScheduledAgentRuntime = (
+  input: RuntimeValidationInput,
+): readonly ResolvedScheduledRuntime[] => {
+  assertPiCodingAgentAdmission(input.codingAgent);
+  if (input.effectiveRuntimes !== undefined) {
+    if (input.effectiveRuntimes.length === 0) {
+      fail(
+        "agent: could not resolve an effective model from project defaults or an active provider connection.",
+      );
+    }
+    return input.effectiveRuntimes.map((runtime) =>
+      validateEffectiveRuntime(runtime, "agent effective runtime")
+    );
+  }
+
+  const explicitModel = explicitString(input.aiModel);
+  const effectiveModels = explicitModel
+    ? [explicitModel]
+    : input.effectiveAiModels === undefined
+      ? []
+      : [...new Set(input.effectiveAiModels.flatMap((model) => {
+          const explicit = explicitString(model);
+          return explicit === null ? [] : [explicit];
+        }))];
+
+  if (
+    !explicitModel &&
+    input.effectiveAiModels !== undefined &&
+    effectiveModels.length === 0
+  ) {
+    fail("agent: could not resolve an effective model from an active provider connection.");
+  }
+
+  const runtimes = (effectiveModels.length > 0 ? effectiveModels : [null]).map((model) =>
+    resolveAndValidate({ schedule: scheduledSource(input, model) }, "agent")
+  );
+
+  const schedule = scheduledSource(input, explicitModel);
+  for (const key of ["backlogDrain", "dodRemediation"] as const) {
+    for (const rule of projectRules(key, input.targetConfig)) {
+      runtimes.push(resolveAndValidate(
+        { rule: rule.source, schedule },
+        `targetConfig.${key}.projects[${rule.index}]`,
+      ));
+    }
+  }
+
+  return runtimes;
+};
+
+/**
+ * Compatibility boundary for runtimes persisted before explicit reasoning
+ * support. Defaults and aliases delegate to the named legacy adapter; model ids
+ * remain exact and model-prefix provider inference is deliberately absent.
  */
 export const normalizePersistedScheduledAgentRuntime = (
   runtime: PersistedScheduledAgentRuntime,
@@ -143,19 +401,26 @@ export const normalizePersistedScheduledAgentRuntime = (
   runtime: PersistedScheduledAgentRuntime;
   omittedReasoningLevels: OmittedPersistedReasoningLevel[];
 } => {
-  const model = normalize(runtime.aiModel);
-  const aiProvider = asAiProvider(normalize(runtime.aiProvider)) ?? inferAiProviderFromModel(model);
-  const reasoningLevel = normalize(runtime.reasoningLevel);
-
-  if (!model || !aiProvider || !reasoningLevel) {
+  const model = explicitString(runtime.aiModel);
+  const reasoningLevel = explicitString(runtime.reasoningLevel);
+  if (!model || !reasoningLevel) {
     return { runtime, omittedReasoningLevels: [] };
   }
 
-  const efforts = getAgentModelReasoningEfforts(aiProvider, model);
-  // `getAgentModelReasoningEfforts` uses an empty array for model catalogue
-  // fallthroughs too. Haiku is the only explicit no-effort runtime currently
-  // supported by this compatibility boundary; all other stale values must
-  // reach strict validation and fail closed.
+  let aiProvider = explicitString(runtime.aiProvider);
+  if (!aiProvider) {
+    try {
+      aiProvider = resolveLegacyRuntimeSelection({
+        provider: runtime.provider ?? undefined,
+        codingAgent: runtime.codingAgent ?? undefined,
+        model,
+      }).aiProvider;
+    } catch {
+      return { runtime, omittedReasoningLevels: [] };
+    }
+  }
+
+  const efforts = runtimeCapabilityRegistry.getReasoningEfforts(aiProvider, model);
   if (
     efforts === null ||
     efforts.length !== 0 ||
@@ -169,203 +434,4 @@ export const normalizePersistedScheduledAgentRuntime = (
     runtime: { ...runtime, reasoningLevel: undefined },
     omittedReasoningLevels: [{ model, aiProvider, reasoningLevel }],
   };
-};
-
-const fail = (message: string): never => {
-  throw new Error(`${SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR}: ${message}`);
-};
-
-const validateProviderAndModel = (params: {
-  scope: string;
-  provider?: string | null;
-  codingAgent?: string | null;
-  explicitAiProvider?: string | null;
-  effectiveAiProvider?: string | null;
-  model?: string | null;
-  reasoningLevel?: string | null;
-}): void => {
-  const provider = asAgentProvider(normalize(params.provider));
-  const rawCodingAgent = normalize(params.codingAgent);
-  const codingAgent = asCodingAgent(rawCodingAgent);
-  const explicitAiProvider = normalize(params.explicitAiProvider);
-  const effectiveAiProvider = asAiProvider(
-    normalize(params.effectiveAiProvider) ??
-      explicitAiProvider ??
-      (provider ? AGENT_PROVIDER_TO_AI_PROVIDER[provider] : null),
-  );
-
-  if (explicitAiProvider && !asAiProvider(explicitAiProvider)) {
-    fail(`${params.scope}: unsupported aiProvider '${explicitAiProvider}'. Supported providers: anthropic, openai, zai, xai.`);
-  }
-
-  if (rawCodingAgent && !codingAgent) {
-    fail(`${params.scope}: unsupported codingAgent '${rawCodingAgent}'.`);
-  }
-
-  if (provider && codingAgent && !CODING_AGENTS_BY_PROVIDER[provider].has(codingAgent)) {
-    fail(
-      `${params.scope}: codingAgent '${codingAgent}' is not compatible with provider '${provider}'.`,
-    );
-  }
-
-  if (provider && explicitAiProvider) {
-    const requiredProvider = AI_PROVIDER_TO_AGENT_PROVIDER[explicitAiProvider as AiProvider];
-    if (provider !== requiredProvider) {
-      fail(
-        `${params.scope}: aiProvider '${explicitAiProvider}' requires provider '${requiredProvider}', ` +
-          `but received provider '${provider}'. Use provider='${requiredProvider}' for ${explicitAiProvider} models.`,
-      );
-    }
-  }
-
-  const modelAiProvider = inferAiProviderFromModel(params.model);
-  if (!modelAiProvider) {
-    if (normalize(params.model)) {
-      fail(`${params.scope}: model '${params.model}' is unknown or unsupported.`);
-    }
-    if (normalize(params.reasoningLevel)) {
-      fail(`${params.scope}: could not validate reasoningLevel without a recognized effective model.`);
-    }
-    return;
-  }
-
-  const normalizedModel = normalize(params.model);
-  if (!normalizedModel || !normalizeAgentModel(modelAiProvider, normalizedModel)) {
-    if (modelAiProvider === "zai") {
-      fail(
-        `${params.scope}: model '${params.model}' is not available through the Z.AI Coding Plan.`,
-      );
-    }
-    fail(
-      `${params.scope}: model '${params.model}' is unknown or not available through ` +
-        `the '${modelAiProvider}' agent runtime.`,
-    );
-  }
-
-  if (effectiveAiProvider && effectiveAiProvider !== modelAiProvider) {
-    fail(
-      `${params.scope}: model '${params.model}' belongs to aiProvider '${modelAiProvider}', ` +
-        `but the effective aiProvider is '${effectiveAiProvider}'.`,
-    );
-  }
-
-  if (provider) {
-    const requiredProvider = AI_PROVIDER_TO_AGENT_PROVIDER[modelAiProvider];
-    if (provider !== requiredProvider) {
-      fail(
-        `${params.scope}: model '${params.model}' requires provider '${requiredProvider}', ` +
-          `but received provider '${provider}'.`,
-      );
-    }
-  }
-
-  const reasoningLevel = normalize(params.reasoningLevel);
-  if (reasoningLevel && normalizedModel) {
-    const efforts = getAgentModelReasoningEfforts(modelAiProvider, normalizedModel);
-    if (!efforts?.includes(reasoningLevel)) {
-      fail(
-        `${params.scope}: reasoningLevel '${reasoningLevel}' is not supported by model '${params.model}'.`,
-      );
-    }
-  }
-};
-
-const validateBacklogStyleTarget = (
-  key: "backlogDrain" | "dodRemediation",
-  target: Record<string, unknown> | null,
-  topLevelProvider: string | null,
-  topLevelAiProvider: string | null,
-): void => {
-  const config = asRecord(target?.[key]);
-  const projects = Array.isArray(config?.projects) ? config.projects : [];
-
-  projects.forEach((entry, index) => {
-    const rule = asRecord(entry);
-    if (!rule) return;
-    const ruleAiProvider = normalize(rule.aiProvider as string | null | undefined);
-    const ruleProvider = ruleAiProvider && asAiProvider(ruleAiProvider)
-      ? AI_PROVIDER_TO_AGENT_PROVIDER[ruleAiProvider as AiProvider]
-      : topLevelProvider;
-    validateProviderAndModel({
-      scope: `targetConfig.${key}.projects[${index}]`,
-      provider: ruleProvider,
-      codingAgent: normalize(rule.codingAgent as string | null | undefined),
-      explicitAiProvider: ruleAiProvider,
-      effectiveAiProvider: ruleAiProvider ?? topLevelAiProvider,
-      model: normalize(rule.model as string | null | undefined),
-      reasoningLevel: normalize(rule.reasoningLevel as string | null | undefined),
-    });
-  });
-};
-
-export const assertValidScheduledAgentRuntime = (
-  input: RuntimeValidationInput,
-): void => {
-  const provider = normalize(input.provider);
-  const explicitAiProvider = normalize(input.aiProvider);
-  const topLevelAiProvider =
-    explicitAiProvider ??
-    (asAgentProvider(provider) ? AGENT_PROVIDER_TO_AI_PROVIDER[provider as AgentProvider] : null);
-
-  validateProviderAndModel({
-    scope: "agent",
-    provider,
-    codingAgent: normalize(input.codingAgent),
-    explicitAiProvider,
-    effectiveAiProvider: topLevelAiProvider,
-    model: null,
-  });
-
-  const explicitModel = normalize(input.aiModel);
-  if (input.effectiveRuntimes !== undefined) {
-    if (input.effectiveRuntimes.length === 0) {
-      fail("agent: could not resolve an effective model from project defaults or an active provider connection.");
-    }
-    for (const runtime of input.effectiveRuntimes) {
-      validateProviderAndModel({
-        scope: "agent effective runtime",
-        provider: runtime.provider,
-        codingAgent: runtime.codingAgent,
-        explicitAiProvider: runtime.aiProvider,
-        effectiveAiProvider: runtime.aiProvider,
-        model: runtime.model,
-        reasoningLevel: runtime.reasoningLevel,
-      });
-    }
-  }
-
-  const effectiveModels = explicitModel
-    ? [explicitModel]
-    : input.effectiveAiModels === undefined
-      ? []
-      : [...new Set(input.effectiveAiModels.map((model) => normalize(model)).filter((model): model is string => Boolean(model)))];
-
-  if (
-    input.effectiveRuntimes === undefined &&
-    !explicitModel &&
-    input.effectiveAiModels !== undefined &&
-    effectiveModels.length === 0
-  ) {
-    fail("agent: could not resolve an effective model from an active provider connection.");
-  }
-
-  if (!explicitModel && effectiveModels.length === 0 && normalize(input.reasoningLevel)) {
-    fail("agent: could not resolve an effective model for reasoningLevel validation.");
-  }
-
-  for (const model of input.effectiveRuntimes === undefined ? effectiveModels : []) {
-    validateProviderAndModel({
-      scope: "agent",
-      provider,
-      codingAgent: normalize(input.codingAgent),
-      explicitAiProvider,
-      effectiveAiProvider: topLevelAiProvider,
-      model,
-      reasoningLevel: normalize(input.reasoningLevel),
-    });
-  }
-
-  const targetConfig = asRecord(input.targetConfig);
-  validateBacklogStyleTarget("backlogDrain", targetConfig, provider, topLevelAiProvider);
-  validateBacklogStyleTarget("dodRemediation", targetConfig, provider, topLevelAiProvider);
 };
