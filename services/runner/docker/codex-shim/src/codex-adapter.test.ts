@@ -1,10 +1,28 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { NativeRuntimeEvent } from "@almirant/shim-server";
-import {
+
+// The duplicate legacy shim is intentionally outside the root workspace, so a
+// focused source-tree contract must not read a developer credential store or
+// require an installer. Runtime execution is not exercised in this unit: mock
+// only the SDK constructor boundary before loading the adapter.
+const isolatedHome = "/nonexistent/almirant-codex-adapter-test-home";
+mock.module("node:os", () => ({
+  default: { homedir: () => isolatedHome },
+  homedir: () => isolatedHome,
+}));
+mock.module("@openai/codex-sdk", () => ({
+  Codex: class CodexStub {
+    public startThread(): never {
+      throw new Error("Codex SDK execution is outside this legacy contract test");
+    }
+  },
+}));
+
+const {
   CodexAdapter,
   normalizeCodexReasoningEffort,
   TOOL_CANONICAL_KINDS,
-} from "./codex-adapter";
+} = await import("./codex-adapter.js");
 
 describe("TOOL_CANONICAL_KINDS", () => {
   it("includes the existing tool/file/bash kinds", () => {
@@ -37,18 +55,48 @@ describe("normalizeCodexReasoningEffort", () => {
     }
   });
 
-  it("does not silently translate unsupported none or max values", () => {
+  it("fails closed for unsupported Pi-only reasoning selections", () => {
+    expect(normalizeCodexReasoningEffort("off")).toBeUndefined();
     expect(normalizeCodexReasoningEffort("none")).toBeUndefined();
     expect(normalizeCodexReasoningEffort("max")).toBeUndefined();
     expect(normalizeCodexReasoningEffort("min")).toBeUndefined();
+    expect(normalizeCodexReasoningEffort("arbitrary")).toBeUndefined();
   });
 });
 
+const restoreEnv = (
+  name: "HOME" | "OPENAI_API_KEY" | "OPENAI_BASE_URL",
+  value: string | undefined,
+): void => {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
+};
+
 describe("CodexAdapter native event subscription", () => {
-  // The Codex client constructor reads ~/.codex/auth.json or OPENAI_API_KEY.
-  // Set a stub so instantiation doesn't reject (the promise is lazy: it is
-  // awaited only when sendPrompt is called, which we don't test here).
-  process.env.OPENAI_API_KEY ??= "test-stub-key";
+  let originalHome: string | undefined;
+  let originalOpenAiApiKey: string | undefined;
+  let originalOpenAiBaseUrl: string | undefined;
+
+  beforeEach(() => {
+    originalHome = process.env.HOME;
+    originalOpenAiApiKey = process.env.OPENAI_API_KEY;
+    originalOpenAiBaseUrl = process.env.OPENAI_BASE_URL;
+
+    // Never read a developer's Codex credential store. The loopback-only stub
+    // also makes any accidental future provider call fail closed.
+    process.env.HOME = isolatedHome;
+    process.env.OPENAI_API_KEY = "test-stub-key";
+    process.env.OPENAI_BASE_URL = "http://127.0.0.1:9";
+  });
+
+  afterEach(() => {
+    restoreEnv("HOME", originalHome);
+    restoreEnv("OPENAI_API_KEY", originalOpenAiApiKey);
+    restoreEnv("OPENAI_BASE_URL", originalOpenAiBaseUrl);
+  });
 
   it("exposes onNativeEvent and lets listeners subscribe and unsubscribe", () => {
     const adapter = new CodexAdapter();
