@@ -32,6 +32,8 @@
     "test:discord-bridge": "bun run --filter @almirant/discord-bridge test",
     "test:stream-contracts": "bun run --filter @almirant/stream-consumer test && bun run --filter @almirant/remote-agent test",
     "test:legacy-worker": "cd worker && bun test --pass-with-no-tests",
+    "runtime-capabilities:generate": "bun run scripts/generate-runtime-capability-projection.ts",
+    "runtime-capabilities:check": "bun run scripts/generate-runtime-capability-projection.ts --check",
     "type-check:agent-stack": "bun run type-check:runner && bun run type-check:web-bridge && bun run type-check:discord-bridge && bun run type-check:stream-contracts",
     "type-check:agent-stack:contracts": "bun run type-check:stream-contracts",
     "type-check:runner": "bun run --filter @almirant/runner type-check",

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useProviderKeysCompat as useProviderKeys } from "@/domains/integrations/application/hooks/use-provider-keys-compat";
 import { useAiProviderPreference } from "@/domains/integrations/application/hooks/use-ai-provider-preference";
-import { getModelsForProvider } from "@/lib/ai-models-catalog";
 import type { CodingAgent } from "@/domains/agents/domain/coding-agent-compatibility";
 import {
+  getModelsForAgentProvider,
   getProvidersForAgent,
   agentProviderToAiProvider,
 } from "@/domains/agents/domain/coding-agent-compatibility";
@@ -28,7 +28,7 @@ export const useModelSelector = (options?: UseModelSelectorOptions) => {
   const [userSelectedCodingAgent, setUserSelectedCodingAgent] = useState<CodingAgent | null>(null);
 
   const activeKeys = useMemo(
-    () => (providerKeys ?? []).filter((k) => k.isActive),
+    () => (providerKeys ?? []).filter((key) => key.isActive),
     [providerKeys],
   );
 
@@ -38,60 +38,71 @@ export const useModelSelector = (options?: UseModelSelectorOptions) => {
     [userSelectedCodingAgent, options?.defaultCodingAgent],
   );
 
-  // Auto-select a compatible provider key for the effective coding agent.
-  // Only runs once per agent value (or when keys load), without overriding
-  // an explicit user key selection.
-  const lastAutoAgentRef = useRef<CodingAgent | null>(null);
-  useEffect(() => {
-    if (effectiveCodingAgent === lastAutoAgentRef.current) return;
-    if (activeKeys.length === 0) return;
-
-    lastAutoAgentRef.current = effectiveCodingAgent;
-
-    // Check if the current preferred key is already compatible
-    const compatibleAiProviders = getProvidersForAgent(effectiveCodingAgent).map(agentProviderToAiProvider);
-    const currentKey = activeKeys.find((k) => k.id === (userSelectedKeyId || preferredKeyId));
-    if (currentKey && compatibleAiProviders.includes(currentKey.provider)) return;
-
-    // Pick the first compatible key
-    const compatibleKeys = activeKeys.filter((k) => compatibleAiProviders.includes(k.provider));
-    if (compatibleKeys.length > 0) {
-      setUserSelectedKeyId(compatibleKeys[0].id);
-      persistPreference(compatibleKeys[0].id);
-      setUserSelectedModel("");
-    }
-  }, [effectiveCodingAgent, activeKeys, userSelectedKeyId, preferredKeyId, persistPreference]);
-
-  // Derive effective key: user selection > localStorage preference > first active
-  const selectedKeyId = useMemo(() => {
-    if (userSelectedKeyId) return userSelectedKeyId;
-    if (preferredKeyId && activeKeys.some((k) => k.id === preferredKeyId)) {
-      return preferredKeyId;
-    }
-    return activeKeys[0]?.id ?? "";
-  }, [userSelectedKeyId, preferredKeyId, activeKeys]);
-
-  const selectedKey = useMemo(
-    () => activeKeys.find((k) => k.id === selectedKeyId) ?? null,
-    [activeKeys, selectedKeyId],
+  const compatibleAgentProviders = useMemo(
+    () => getProvidersForAgent(effectiveCodingAgent),
+    [effectiveCodingAgent],
   );
 
-  // Get models with full metadata for the selected provider
+  const compatibleAiProviders = useMemo(
+    () => new Set<string>(compatibleAgentProviders.map(agentProviderToAiProvider)),
+    [compatibleAgentProviders],
+  );
+
+  const compatibleKeys = useMemo(
+    () => activeKeys.filter((key) => compatibleAiProviders.has(key.provider)),
+    [activeKeys, compatibleAiProviders],
+  );
+
+  // Derive a key only from providers admitted for the effective coding agent.
+  // Key identity is intentionally irrelevant to runtime compatibility.
+  const selectedKeyId = useMemo(() => {
+    if (userSelectedKeyId && compatibleKeys.some((key) => key.id === userSelectedKeyId)) {
+      return userSelectedKeyId;
+    }
+    if (preferredKeyId && compatibleKeys.some((key) => key.id === preferredKeyId)) {
+      return preferredKeyId;
+    }
+    return compatibleKeys[0]?.id ?? "";
+  }, [userSelectedKeyId, preferredKeyId, compatibleKeys]);
+
+  const selectedKey = useMemo(
+    () => compatibleKeys.find((key) => key.id === selectedKeyId) ?? null,
+    [compatibleKeys, selectedKeyId],
+  );
+
+  const selectedAgentProvider = useMemo(() => {
+    if (!selectedKey) return null;
+    return compatibleAgentProviders.find(
+      (provider) => agentProviderToAiProvider(provider) === selectedKey.provider,
+    ) ?? null;
+  }, [compatibleAgentProviders, selectedKey]);
+
   const availableModelsWithMetadata = useMemo(() => {
-    if (!selectedKey) return [];
-    return getModelsForProvider(selectedKey.provider);
-  }, [selectedKey]);
+    if (!selectedAgentProvider) return [];
+    return getModelsForAgentProvider(effectiveCodingAgent, selectedAgentProvider);
+  }, [effectiveCodingAgent, selectedAgentProvider]);
 
-  // Legacy compatibility: return just the model IDs for backwards compatibility
-  const availableModels = useMemo(() => {
-    return availableModelsWithMetadata.map(model => model.id);
-  }, [availableModelsWithMetadata]);
+  // Legacy compatibility: return just the model IDs for backwards compatibility.
+  const availableModels = useMemo(
+    () => availableModelsWithMetadata.map((model) => model.id),
+    [availableModelsWithMetadata],
+  );
 
-  // Derive effective model: user selection > first model for auto-selected key
+  // Never expose a stale or unsupported model for the effective runtime tuple.
   const selectedModel = useMemo(() => {
-    if (userSelectedModel) return userSelectedModel;
+    if (userSelectedModel && availableModels.includes(userSelectedModel)) {
+      return userSelectedModel;
+    }
     return availableModels[0] ?? "";
   }, [userSelectedModel, availableModels]);
+
+  // Keep the external preference aligned with the compatible key derived above.
+  // Local user intent remains event-owned rather than synchronized by an effect.
+  useEffect(() => {
+    if (selectedKeyId && preferredKeyId !== selectedKeyId) {
+      persistPreference(selectedKeyId);
+    }
+  }, [selectedKeyId, preferredKeyId, persistPreference]);
 
   const handleKeyChange = useCallback((keyId: string) => {
     setUserSelectedKeyId(keyId);
@@ -100,16 +111,17 @@ export const useModelSelector = (options?: UseModelSelectorOptions) => {
   }, [persistPreference]);
 
   const handleModelChange = useCallback((model: string) => {
+    if (!availableModels.includes(model)) return;
     setUserSelectedModel(model);
-  }, []);
+  }, [availableModels]);
 
   const handleCodingAgentChange = useCallback((agent: CodingAgent) => {
     setUserSelectedCodingAgent(agent);
+    setUserSelectedModel("");
   }, []);
 
-  // Get metadata for currently selected model
   const selectedModelMetadata = useMemo(() => {
-    return availableModelsWithMetadata.find(model => model.id === selectedModel) ?? null;
+    return availableModelsWithMetadata.find((model) => model.id === selectedModel) ?? null;
   }, [availableModelsWithMetadata, selectedModel]);
 
   return {

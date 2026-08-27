@@ -1,10 +1,11 @@
 import {
+  getDefaultAgentModel,
   resolveScheduledRuntimePrecedence,
   type BuiltinAutomationId,
   type ScheduledRuntimeSource,
 } from "@almirant/shared";
 
-export type BacklogDrainCodingAgent = "claude-code" | "codex" | "opencode";
+export type BacklogDrainCodingAgent = "claude-code" | "codex" | "opencode" | "pi";
 export type BacklogDrainAiProvider = "anthropic" | "openai" | "google" | "zai" | "xai";
 export type BacklogDrainProvider = "claude-code" | "codex" | "zipu" | "grok";
 export type BacklogDrainSelectionMode = "implementation" | "dod-remediation";
@@ -206,6 +207,139 @@ export interface BacklogDrainSelectionResult {
 const DEFAULT_MAX_CONCURRENT_PER_PROJECT = 1;
 const DEFAULT_STABILIZATION_WINDOW_MS = 15 * 60 * 1000;
 const MAX_AUTOMATED_DOD_INCOMPLETE_COUNT = 3;
+
+type LegacyBacklogDrainCodingAgent = Exclude<BacklogDrainCodingAgent, "pi">;
+type BacklogDrainRuntimeField =
+  | "codingAgent"
+  | "aiProvider"
+  | "model"
+  | "reasoningLevel";
+
+type ResolvedBacklogDrainRuntime = {
+  provider: BacklogDrainProvider;
+  codingAgent: BacklogDrainCodingAgent;
+  aiProvider: BacklogDrainAiProvider;
+  model: string;
+  reasoningLevel: string | null;
+};
+
+const runtimeValue = (input: string | null | undefined): string | null => {
+  if (typeof input !== "string") return null;
+  const normalized = input.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+};
+
+const firstRuntimeValue = (
+  sources: readonly (ScheduledRuntimeSource | null | undefined)[],
+  key: BacklogDrainRuntimeField,
+): string | null => {
+  for (const source of sources) {
+    const candidate = runtimeValue(source?.[key]);
+    if (candidate) return candidate;
+  }
+  return null;
+};
+
+const isLegacyBacklogDrainCodingAgent = (
+  value: string,
+): value is LegacyBacklogDrainCodingAgent =>
+  value === "claude-code" || value === "codex" || value === "opencode";
+
+const isBacklogDrainAiProvider = (
+  value: string,
+): value is BacklogDrainAiProvider =>
+  value === "anthropic" ||
+  value === "openai" ||
+  value === "google" ||
+  value === "zai" ||
+  value === "xai";
+
+const inferAiProvider = (model: string | null): BacklogDrainAiProvider | null => {
+  if (!model) return null;
+  if (model.startsWith("glm-")) return "zai";
+  if (model.startsWith("grok-")) return "xai";
+  if (model.startsWith("claude-")) return "anthropic";
+  if (model.startsWith("gpt-") || model.startsWith("codex-")) return "openai";
+  if (model.startsWith("gemini-")) return "google";
+  return null;
+};
+
+const aiProviderForCodingAgent = (
+  codingAgent: LegacyBacklogDrainCodingAgent,
+): BacklogDrainAiProvider => {
+  if (codingAgent === "codex") return "openai";
+  if (codingAgent === "opencode") return "zai";
+  return "anthropic";
+};
+
+const providerForRuntime = (
+  codingAgent: BacklogDrainCodingAgent,
+  aiProvider: BacklogDrainAiProvider,
+): BacklogDrainProvider => {
+  if (aiProvider === "zai") return "zipu";
+  if (aiProvider === "xai") return "grok";
+  if (aiProvider === "openai") return "codex";
+  if (aiProvider === "anthropic") return "claude-code";
+  return codingAgent === "codex" ? "codex" : "claude-code";
+};
+
+/**
+ * Keep the backlog drain's historical mixed-agent runtime behavior while
+ * applying authoritative capability admission to Pi. The modern registry is
+ * intentionally fail-closed for Pi, but its narrower legacy tuple catalog must
+ * not reject combinations that unattended backlog execution already supports.
+ */
+const resolveBacklogDrainRuntime = (input: {
+  rule?: ScheduledRuntimeSource | null;
+  schedule?: ScheduledRuntimeSource | null;
+  workItem?: ScheduledRuntimeSource | null;
+  project?: ScheduledRuntimeSource | null;
+  connection?: ScheduledRuntimeSource | null;
+}): ResolvedBacklogDrainRuntime => {
+  const sources = [
+    input.rule,
+    input.schedule,
+    input.workItem,
+    input.project,
+    input.connection,
+  ];
+  const selectedCodingAgent = firstRuntimeValue(sources, "codingAgent");
+  const normalizedCodingAgent = selectedCodingAgent === "codex-cli"
+    ? "codex"
+    : selectedCodingAgent ?? "claude-code";
+  const selectedAiProvider = firstRuntimeValue(sources, "aiProvider");
+
+  if (
+    isLegacyBacklogDrainCodingAgent(normalizedCodingAgent) &&
+    (selectedAiProvider === null || isBacklogDrainAiProvider(selectedAiProvider))
+  ) {
+    const selectedModel = firstRuntimeValue(sources, "model");
+    const aiProvider = selectedAiProvider ??
+      inferAiProvider(selectedModel) ??
+      aiProviderForCodingAgent(normalizedCodingAgent);
+    const model = selectedModel ??
+      getDefaultAgentModel(aiProvider) ??
+      getDefaultAgentModel(aiProviderForCodingAgent(normalizedCodingAgent)) ??
+      "claude-opus-4-8";
+
+    return {
+      provider: providerForRuntime(normalizedCodingAgent, aiProvider),
+      codingAgent: normalizedCodingAgent,
+      aiProvider,
+      model,
+      reasoningLevel: firstRuntimeValue(sources, "reasoningLevel"),
+    };
+  }
+
+  const runtime = resolveScheduledRuntimePrecedence(input);
+  return {
+    provider: providerForRuntime(runtime.codingAgent, runtime.aiProvider),
+    codingAgent: runtime.codingAgent,
+    aiProvider: runtime.aiProvider,
+    model: runtime.model,
+    reasoningLevel: runtime.reasoningLevel,
+  };
+};
 
 const isTruthyEnabled = (enabled: boolean | undefined): boolean => enabled !== false;
 
@@ -662,7 +796,7 @@ export const selectBacklogDrainCandidates = (
         continue;
       }
 
-      const runtime = resolveScheduledRuntimePrecedence({
+      const runtime = resolveBacklogDrainRuntime({
         rule,
         schedule: input.fallbackRuntime,
         workItem: {
@@ -672,10 +806,6 @@ export const selectBacklogDrainCandidates = (
         project: projectDefaults,
         connection: input.connectionRuntime,
       });
-      const codingAgent = runtime.codingAgent as BacklogDrainCodingAgent;
-      const aiProvider = runtime.aiProvider as BacklogDrainAiProvider;
-      const model = runtime.model;
-      const provider = runtime.provider as BacklogDrainProvider;
 
       selected.push({
         id: item.id,
@@ -685,10 +815,10 @@ export const selectBacklogDrainCandidates = (
         parentId: item.parentId,
         projectId: item.projectId,
         boardId: item.boardId,
-        codingAgent,
-        aiProvider,
-        provider,
-        model,
+        codingAgent: runtime.codingAgent,
+        aiProvider: runtime.aiProvider,
+        provider: runtime.provider,
+        model: runtime.model,
         reasoningLevel: runtime.reasoningLevel,
         skillName: mode === "dod-remediation" ? "runner-fix-dod" : "runner-implement",
         ...(mode === "dod-remediation"

@@ -175,3 +175,6 @@ const _exhaustiveCheck = (event: ClusterTimelineEvent): string => {
       return assertNeverEvent(event);
   }
 };
+
+// Keep the compile-time-only guard visible to noUnusedLocals without exporting it.
+void _exhaustiveCheck;

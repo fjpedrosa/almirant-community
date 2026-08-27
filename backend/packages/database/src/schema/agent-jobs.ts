@@ -37,6 +37,7 @@ import type {
   ResourceEstimate,
   RunnerCustomMcpServersConfig,
   PlanReviewJobConfig,
+  ResolvedRuntimeSelection,
 } from "@almirant/shared";
 
 export interface AgentJobPendingTerminalIntent {
@@ -116,8 +117,8 @@ export interface AgentJobConfig {
   recoveryContext?: string;
   /** User locale for i18n in agent prompts and progress updates (e.g. 'es', 'en') */
   locale?: string;
-  /** Which coding agent to use for this job (e.g. claude-code, codex, opencode) */
-  codingAgent?: "claude-code" | "codex" | "opencode";
+  /** Which coding agent to use for this job (e.g. claude-code, codex, opencode, pi) */
+  codingAgent?: "claude-code" | "codex" | "opencode" | "pi";
   /** Explicit model override (e.g. claude-opus-4-8, glm-5.2). Takes priority over provider defaults. */
   model?: string;
   /** Explicit reasoning effort override for this job. Runtime-specific values are normalized by shims. */
@@ -249,6 +250,7 @@ export const agentJobs = pgTable(
     codingAgent: codingAgentEnum("coding_agent").notNull().default("claude-code"),
     aiProvider: aiProviderEnum("ai_provider").notNull().default("anthropic"),
     model: varchar("model", { length: 100 }).notNull().default("claude-opus-4-8"),
+    resolvedRuntimeSelection: jsonb("resolved_runtime_selection").$type<ResolvedRuntimeSelection>(),
     priority: priorityEnum("priority").notNull().default("medium"),
 
     // New model columns (prompt + trigger)

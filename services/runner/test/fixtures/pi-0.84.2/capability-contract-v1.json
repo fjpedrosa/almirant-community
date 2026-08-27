@@ -1,0 +1,774 @@
+{
+  "schemaVersion": "pi-capability-contract-v1",
+  "contractVersion": 1,
+  "runtime": {
+    "packageName": "@earendil-works/pi-coding-agent",
+    "packageVersion": "0.84.2",
+    "nodeEngine": ">=22.19.0",
+    "binary": "pi",
+    "mode": "rpc",
+    "configDirectoryPolicy": "new-empty-per-session",
+    "sessionPersistence": false,
+    "projectResources": false,
+    "offline": true,
+    "telemetry": false,
+    "versionChecks": false,
+    "arguments": [
+      "--mode",
+      "rpc",
+      "--no-session",
+      "--offline",
+      "--no-context-files",
+      "--no-extensions",
+      "--no-skills",
+      "--no-prompt-templates",
+      "--no-themes",
+      "--no-approve"
+    ],
+    "environment": {
+      "PI_CODING_AGENT_DIR": "runtime-config",
+      "PI_OFFLINE": "1",
+      "PI_SKIP_VERSION_CHECK": "1",
+      "PI_TELEMETRY": "0"
+    }
+  },
+  "framing": {
+    "recordDelimiter": "LF",
+    "acceptsCrlfInput": true,
+    "unicodeLineSeparatorsAreContent": true,
+    "finalLfRequired": true,
+    "objectRecordsOnly": true,
+    "inboundMaxBytes": 262144,
+    "outboundMaxBytes": 4194304,
+    "failureScope": "session",
+    "recordSizeExcludesDelimiter": true
+  },
+  "rpc": {
+    "commands": [
+      {
+        "type": "get_state",
+        "responseCardinality": "exactly-one-correlated"
+      },
+      {
+        "type": "set_model",
+        "responseCardinality": "exactly-one-correlated"
+      },
+      {
+        "type": "prompt",
+        "responseCardinality": "exactly-one-correlated"
+      },
+      {
+        "type": "abort",
+        "responseCardinality": "exactly-one-correlated"
+      },
+      {
+        "type": "get_session_stats",
+        "responseCardinality": "exactly-one-correlated"
+      }
+    ],
+    "normalTerminal": "agent_settled",
+    "nonTerminals": [
+      "agent_end"
+    ],
+    "abortAcknowledgementIsTerminal": false,
+    "duplicateTerminalPolicy": "ignore-after-first",
+    "abnormalTerminalClasses": [
+      {
+        "class": "protocol_error",
+        "code": "PI_RPC_PROTOCOL_ERROR"
+      },
+      {
+        "class": "process_exit",
+        "code": "PI_RPC_PROCESS_EXIT"
+      },
+      {
+        "class": "process_signal",
+        "code": "PI_RPC_PROCESS_SIGNAL"
+      },
+      {
+        "class": "stdin_error",
+        "code": "PI_RPC_STDIN_ERROR"
+      },
+      {
+        "class": "timeout",
+        "code": "PI_RPC_TIMEOUT"
+      },
+      {
+        "class": "cancelled",
+        "code": "PI_RPC_CANCELLED"
+      }
+    ],
+    "fatalInputClasses": [
+      "malformed",
+      "null",
+      "array",
+      "primitive",
+      "oversized",
+      "unterminated"
+    ]
+  },
+  "usage": {
+    "streaming": "cumulative-snapshot-never-sum",
+    "finalMessage": "per-message-authoritative",
+    "postSettlementSessionStats": "whole-session-aggregate",
+    "continuedTurns": "subtract-pre-turn-session-baseline",
+    "reasoning": "subset-of-output",
+    "unavailable": "unknown-never-zero-filled",
+    "precedence": [
+      "post-settlement-session-stats-delta",
+      "deduplicated-final-message",
+      "unknown"
+    ]
+  },
+  "authClasses": [
+    {
+      "id": "api_key",
+      "documentationCandidate": true,
+      "admissionEnabled": true,
+      "rejectionCode": null
+    },
+    {
+      "id": "setup_token",
+      "documentationCandidate": false,
+      "admissionEnabled": false,
+      "rejectionCode": "PI_AUTH_SETUP_TOKEN_DISABLED"
+    },
+    {
+      "id": "provider_oauth",
+      "documentationCandidate": false,
+      "admissionEnabled": false,
+      "rejectionCode": "PI_AUTH_PROVIDER_OAUTH_DISABLED"
+    },
+    {
+      "id": "subscription",
+      "documentationCandidate": false,
+      "admissionEnabled": false,
+      "rejectionCode": "PI_AUTH_SUBSCRIPTION_DISABLED"
+    }
+  ],
+  "providers": [
+    {
+      "displayName": "Anthropic",
+      "aiProvider": "anthropic",
+      "piProvider": "anthropic",
+      "authClass": "api_key",
+      "environmentVariable": "ANTHROPIC_API_KEY",
+      "endpoint": "https://api.anthropic.com",
+      "apis": [
+        "anthropic-messages"
+      ],
+      "targetCatalogModels": [
+        "claude-opus-5",
+        "claude-opus-4-8",
+        "claude-fable-5",
+        "claude-opus-4-7",
+        "claude-sonnet-5",
+        "claude-haiku-4-5"
+      ],
+      "candidateModels": [
+        "claude-opus-5",
+        "claude-opus-4-8",
+        "claude-fable-5",
+        "claude-opus-4-7",
+        "claude-sonnet-5",
+        "claude-haiku-4-5"
+      ],
+      "candidateModelApis": {
+        "claude-opus-5": "anthropic-messages",
+        "claude-opus-4-8": "anthropic-messages",
+        "claude-fable-5": "anthropic-messages",
+        "claude-opus-4-7": "anthropic-messages",
+        "claude-sonnet-5": "anthropic-messages",
+        "claude-haiku-4-5": "anthropic-messages"
+      },
+      "admittedModels": [],
+      "excludedTargetModels": [],
+      "exclusionRule": "Exclude any model absent from either the Pi 0.84.2 static provider catalog or the current Almirant target catalog.",
+      "runtimeVerified": false,
+      "admissionEnabled": false,
+      "catalogProvenance": {
+        "providerSource": "node_modules/@earendil-works/pi-ai/dist/providers/anthropic.js",
+        "modelData": "node_modules/@earendil-works/pi-ai/dist/providers/data/anthropic.json",
+        "targetCatalog": "frontend/src/lib/ai-models-catalog.ts"
+      }
+    },
+    {
+      "displayName": "OpenAI API",
+      "aiProvider": "openai",
+      "piProvider": "openai",
+      "authClass": "api_key",
+      "environmentVariable": "OPENAI_API_KEY",
+      "endpoint": "https://api.openai.com/v1",
+      "apis": [
+        "openai-responses"
+      ],
+      "targetCatalogModels": [
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.5",
+        "gpt-5.5-pro",
+        "gpt-5.4",
+        "gpt-5.4-pro",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "gpt-5.3-codex",
+        "gpt-4.1",
+        "gpt-4.1-mini"
+      ],
+      "candidateModels": [
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.5",
+        "gpt-5.5-pro",
+        "gpt-5.4",
+        "gpt-5.4-pro",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "gpt-5.3-codex",
+        "gpt-4.1",
+        "gpt-4.1-mini"
+      ],
+      "candidateModelApis": {
+        "gpt-5.6-sol": "openai-responses",
+        "gpt-5.6-terra": "openai-responses",
+        "gpt-5.6-luna": "openai-responses",
+        "gpt-5.5": "openai-responses",
+        "gpt-5.5-pro": "openai-responses",
+        "gpt-5.4": "openai-responses",
+        "gpt-5.4-pro": "openai-responses",
+        "gpt-5.4-mini": "openai-responses",
+        "gpt-5.4-nano": "openai-responses",
+        "gpt-5.3-codex": "openai-responses",
+        "gpt-4.1": "openai-responses",
+        "gpt-4.1-mini": "openai-responses"
+      },
+      "admittedModels": [],
+      "excludedTargetModels": [],
+      "exclusionRule": "Exclude openai-codex OAuth or subscription access and any model absent from either static catalog.",
+      "runtimeVerified": false,
+      "admissionEnabled": false,
+      "catalogProvenance": {
+        "providerSource": "node_modules/@earendil-works/pi-ai/dist/providers/openai.js",
+        "modelData": "node_modules/@earendil-works/pi-ai/dist/providers/data/openai.json",
+        "targetCatalog": "frontend/src/lib/ai-models-catalog.ts"
+      }
+    },
+    {
+      "displayName": "Google",
+      "aiProvider": "google",
+      "piProvider": "google",
+      "authClass": "api_key",
+      "environmentVariable": "GEMINI_API_KEY",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "apis": [
+        "google-generative-ai"
+      ],
+      "targetCatalogModels": [
+        "gemini-3.1-pro-preview",
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-3-flash-preview",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite"
+      ],
+      "candidateModels": [
+        "gemini-3.1-pro-preview",
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-3-flash-preview",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite"
+      ],
+      "candidateModelApis": {
+        "gemini-3.1-pro-preview": "google-generative-ai",
+        "gemini-3.5-flash": "google-generative-ai",
+        "gemini-3.1-flash-lite": "google-generative-ai",
+        "gemini-3-flash-preview": "google-generative-ai",
+        "gemini-2.5-pro": "google-generative-ai",
+        "gemini-2.5-flash": "google-generative-ai",
+        "gemini-2.5-flash-lite": "google-generative-ai"
+      },
+      "admittedModels": [],
+      "excludedTargetModels": [],
+      "exclusionRule": "Exclude any model absent from either the Pi 0.84.2 static provider catalog or the current Almirant target catalog.",
+      "runtimeVerified": false,
+      "admissionEnabled": false,
+      "catalogProvenance": {
+        "providerSource": "node_modules/@earendil-works/pi-ai/dist/providers/google.js",
+        "modelData": "node_modules/@earendil-works/pi-ai/dist/providers/data/google.json",
+        "targetCatalog": "frontend/src/lib/ai-models-catalog.ts"
+      }
+    },
+    {
+      "displayName": "Z.AI",
+      "aiProvider": "zai",
+      "piProvider": "zai",
+      "authClass": "api_key",
+      "environmentVariable": "ZAI_API_KEY",
+      "endpoint": "https://api.z.ai/api/coding/paas/v4",
+      "apis": [
+        "openai-completions"
+      ],
+      "targetCatalogModels": [
+        "glm-5.3",
+        "glm-5.2",
+        "glm-5.1",
+        "glm-5",
+        "glm-5-turbo",
+        "glm-5v-turbo",
+        "glm-4.7",
+        "glm-4.7-flashx",
+        "glm-4.7-flash",
+        "glm-4.6",
+        "glm-4.5",
+        "glm-4.5-air",
+        "glm-4.6v",
+        "glm-4.6v-flashx",
+        "glm-4.6v-flash",
+        "glm-ocr"
+      ],
+      "candidateModels": [
+        "glm-5.3",
+        "glm-5.2",
+        "glm-5-turbo",
+        "glm-4.7"
+      ],
+      "candidateModelApis": {
+        "glm-5.3": "openai-completions",
+        "glm-5.2": "openai-completions",
+        "glm-5-turbo": "openai-completions",
+        "glm-4.7": "openai-completions"
+      },
+      "admittedModels": [
+        "glm-5.3"
+      ],
+      "excludedTargetModels": [
+        "glm-5.1",
+        "glm-5",
+        "glm-5v-turbo",
+        "glm-4.7-flashx",
+        "glm-4.7-flash",
+        "glm-4.6",
+        "glm-4.5",
+        "glm-4.5-air",
+        "glm-4.6v",
+        "glm-4.6v-flashx",
+        "glm-4.6v-flash",
+        "glm-ocr"
+      ],
+      "exclusionRule": "The listed models are absent from Pi 0.84.2's static zai Coding Plan catalog; general-api-only target rows are not endpoint-compatible with this candidate.",
+      "runtimeVerified": true,
+      "admissionEnabled": true,
+      "catalogProvenance": {
+        "providerSource": "node_modules/@earendil-works/pi-ai/dist/providers/zai.js",
+        "modelData": "node_modules/@earendil-works/pi-ai/dist/providers/data/zai.json",
+        "targetCatalog": "frontend/src/lib/ai-models-catalog.ts"
+      }
+    },
+    {
+      "displayName": "xAI",
+      "aiProvider": "xai",
+      "piProvider": "xai",
+      "authClass": "api_key",
+      "environmentVariable": "XAI_API_KEY",
+      "endpoint": "https://api.x.ai/v1",
+      "apis": [
+        "openai-completions",
+        "openai-responses"
+      ],
+      "targetCatalogModels": [
+        "grok-4.3",
+        "grok-4.20-reasoning",
+        "grok-4.20-multi-agent",
+        "grok-4.20",
+        "grok-build-0.1"
+      ],
+      "candidateModels": [
+        "grok-4.3",
+        "grok-build-0.1"
+      ],
+      "candidateModelApis": {
+        "grok-4.3": "openai-completions",
+        "grok-build-0.1": "openai-completions"
+      },
+      "admittedModels": [],
+      "excludedTargetModels": [
+        "grok-4.20-reasoning",
+        "grok-4.20-multi-agent",
+        "grok-4.20"
+      ],
+      "exclusionRule": "The Grok 4.20 target aliases are absent from Pi 0.84.2's static xai catalog; Pi's grok-4.5 and grok-4.6 rows are excluded because they are absent from the current target catalog.",
+      "runtimeVerified": false,
+      "admissionEnabled": false,
+      "catalogProvenance": {
+        "providerSource": "node_modules/@earendil-works/pi-ai/dist/providers/xai.js",
+        "modelData": "node_modules/@earendil-works/pi-ai/dist/providers/data/xai.json",
+        "targetCatalog": "frontend/src/lib/ai-models-catalog.ts"
+      }
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "mcp",
+      "enabled": false,
+      "rejectionCode": "PI_CAPABILITY_MCP_DISABLED"
+    },
+    {
+      "id": "browser",
+      "enabled": false,
+      "rejectionCode": "PI_CAPABILITY_BROWSER_DISABLED"
+    },
+    {
+      "id": "extensions",
+      "enabled": false,
+      "rejectionCode": "PI_CAPABILITY_EXTENSIONS_DISABLED"
+    },
+    {
+      "id": "sandbox",
+      "enabled": false,
+      "rejectionCode": "PI_CAPABILITY_SANDBOX_DISABLED"
+    },
+    {
+      "id": "permission_enforced",
+      "enabled": false,
+      "rejectionCode": "PI_CAPABILITY_PERMISSION_ENFORCEMENT_DISABLED"
+    },
+    {
+      "id": "read_only_enforced",
+      "enabled": false,
+      "rejectionCode": "PI_CAPABILITY_READ_ONLY_ENFORCEMENT_DISABLED"
+    }
+  ],
+  "customProviders": {
+    "enabled": false,
+    "rejectionCode": "PI_CUSTOM_PROVIDER_DISABLED",
+    "unsafeInputs": [
+      "endpoint",
+      "headers",
+      "environment",
+      "command-resolution"
+    ],
+    "enablementPrerequisites": [
+      "trusted-profile",
+      "redirect-revalidation",
+      "egress-policy",
+      "secret-policy"
+    ]
+  },
+  "persistedSurfaceAudit": [
+    {
+      "surface": "agent_jobs",
+      "auditStatus": "documented",
+      "locations": [
+        "backend/packages/database/src/schema/agent-jobs.ts",
+        "backend/packages/database/src/repositories/agents/agent-job-repository.ts",
+        "services/runner/src/shared/job-helpers.ts"
+      ],
+      "defaults": {
+        "coding_agent": "claude-code",
+        "ai_provider": "anthropic",
+        "model": "claude-opus-4-8"
+      },
+      "nullability": {
+        "provider": "not-null-no-default",
+        "coding_agent": "not-null",
+        "ai_provider": "not-null",
+        "model": "not-null",
+        "config": "not-null"
+      },
+      "duplicateRepresentations": [
+        "coding_agent and config.codingAgent",
+        "model and config.model"
+      ],
+      "precedence": "Current runner precedence conflicts: config.codingAgent wins for coding agent, while top-level model wins for model.",
+      "legacyValues": [
+        "Rows predating dedicated runtime columns may rely on config values and column defaults."
+      ],
+      "currentConflict": "createJob resolves top-level fields without rewriting duplicate JSONB fields, so inconsistent persisted pairs are possible."
+    },
+    {
+      "surface": "loops",
+      "auditStatus": "documented",
+      "locations": [
+        "backend/packages/database/src/schema/loops.ts",
+        "backend/api/src/domains/agents/routes/loops.routes.ts",
+        "backend/api/src/mcp/tools/loops.tools.ts"
+      ],
+      "defaults": {
+        "provider": "claude-code",
+        "coding_agent": "claude-code",
+        "ai_provider": "anthropic",
+        "model": "none"
+      },
+      "nullability": {
+        "provider": "not-null",
+        "coding_agent": "not-null",
+        "ai_provider": "not-null",
+        "model": "nullable",
+        "reasoning_level": "nullable"
+      },
+      "duplicateRepresentations": [],
+      "precedence": "Loop columns are the persisted source and are projected into each iteration job at dispatch.",
+      "legacyValues": [
+        "codex-cli is not representable by the coding_agent enum used by loops."
+      ],
+      "currentConflict": "Loop REST and MCP validation omit Google despite ai_provider enum support, and provider is still derived as a coupled runtime lane."
+    },
+    {
+      "surface": "scheduled_agent_configs",
+      "auditStatus": "documented",
+      "locations": [
+        "backend/packages/database/src/schema/scheduled-agent-configs.ts",
+        "backend/packages/database/src/repositories/agents/scheduled-agent-config-normalization.ts",
+        "backend/packages/shared/src/agents/scheduled-runtime-precedence.ts"
+      ],
+      "defaults": {
+        "coding_agent": "claude-code",
+        "enabled": "false",
+        "target_config": "empty-object"
+      },
+      "nullability": {
+        "provider": "not-null",
+        "coding_agent": "nullable-despite-default",
+        "ai_provider": "nullable",
+        "ai_model": "nullable",
+        "reasoning_level": "nullable"
+      },
+      "duplicateRepresentations": [
+        "Resolved runtime is copied into agent_jobs top-level fields and selected config metadata."
+      ],
+      "precedence": "Fieldwise execution precedence is rule, schedule, work item, project, connection, then defaults.",
+      "legacyValues": [
+        "codex-cli is accepted by the varchar column and normalized to codex on repository reads and writes."
+      ],
+      "currentConflict": "Fieldwise precedence can combine coding agent, AI provider, and model from different sources into a tuple never validated atomically."
+    },
+    {
+      "surface": "work_items",
+      "auditStatus": "documented",
+      "locations": [
+        "backend/packages/database/src/schema/work-items.ts",
+        "backend/packages/shared/src/agents/scheduled-runtime-precedence.ts"
+      ],
+      "defaults": {
+        "coding_agent": "none",
+        "ai_model": "none"
+      },
+      "nullability": {
+        "coding_agent": "nullable",
+        "ai_model": "nullable",
+        "ai_provider": "not-present",
+        "provider": "not-present"
+      },
+      "duplicateRepresentations": [
+        "Work-item fields may override scheduled, project, and connection runtime fields during dispatch."
+      ],
+      "precedence": "Work-item values are a fieldwise middle layer below schedule and above project defaults.",
+      "legacyValues": [
+        "Null means inherit; unknown future enum values cannot be stored before enum expansion."
+      ],
+      "currentConflict": "The surface persists only coding agent and model, so it cannot preserve a complete provider-bound runtime tuple."
+    },
+    {
+      "surface": "system_settings.agent_routing",
+      "auditStatus": "documented",
+      "locations": [
+        "backend/packages/database/src/schema/system-settings.ts",
+        "backend/packages/database/src/repositories/agents/agent-job-repository.ts"
+      ],
+      "defaults": {
+        "agent_routing": "empty-object",
+        "job_fallback_coding_agent": "claude-code",
+        "job_fallback_ai_provider": "anthropic",
+        "job_fallback_model": "claude-opus-4-8"
+      },
+      "nullability": {
+        "agent_routing": "not-null",
+        "entry.codingAgent": "nullable",
+        "entry.aiProvider": "nullable",
+        "entry.model": "nullable",
+        "entry.providerConnectionId": "nullable"
+      },
+      "duplicateRepresentations": [
+        "Routing overrides are copied into agent_jobs columns while providerConnectionId is copied into config JSONB."
+      ],
+      "precedence": "Explicit createJob input wins, then internal-skill routing per field, then hardcoded defaults.",
+      "legacyValues": [
+        "aiProvider remains for rows created before connection-owned provider selection."
+      ],
+      "currentConflict": "The unversioned JSONB map permits partial and internally inconsistent runtime and connection combinations."
+    },
+    {
+      "surface": "agent_native_events",
+      "auditStatus": "documented",
+      "locations": [
+        "backend/packages/database/src/schema/agent-native-events.ts",
+        "backend/packages/database/src/repositories/agents/native-event-repository.ts"
+      ],
+      "defaults": {
+        "source_format": "sse",
+        "received_at": "database-now"
+      },
+      "nullability": {
+        "provider": "nullable",
+        "coding_agent": "nullable",
+        "runtime_session_id": "nullable",
+        "payload": "not-null",
+        "ai_provider": "not-present",
+        "model": "not-present"
+      },
+      "duplicateRepresentations": [
+        "payload may repeat provider, coding agent, model, usage, and terminal data without typed precedence."
+      ],
+      "precedence": "Typed columns should remain envelope provenance; payload is native evidence and must not silently override them.",
+      "legacyValues": [
+        "Historical source formats include sse, opencode-sse, and codex-shaped native event payloads."
+      ],
+      "currentConflict": "The table cannot distinguish requested, resolved, and observed AI provider/model and has no Pi source-format contract yet."
+    }
+  ],
+  "provenance": [
+    {
+      "id": "pi-package-identity",
+      "scope": "pi-package",
+      "path": "package.json",
+      "establishes": "Package version, binary name, and Node engine."
+    },
+    {
+      "id": "pi-overview",
+      "scope": "pi-package",
+      "path": "README.md",
+      "establishes": "RPC mode, no built-in MCP, session flags, resource flags, and offline controls."
+    },
+    {
+      "id": "pi-rpc",
+      "scope": "pi-package",
+      "path": "docs/rpc.md",
+      "establishes": "Commands, responses, event lifecycle, framing, message shapes, and session statistics."
+    },
+    {
+      "id": "pi-json",
+      "scope": "pi-package",
+      "path": "docs/json.md",
+      "establishes": "Delta-only stream events and authoritative final messages."
+    },
+    {
+      "id": "pi-providers",
+      "scope": "pi-package",
+      "path": "docs/providers.md",
+      "establishes": "Credential classes, environment variables, and provider resolution."
+    },
+    {
+      "id": "pi-models",
+      "scope": "pi-package",
+      "path": "docs/models.md",
+      "establishes": "Custom provider inputs, supported APIs, overrides, and unsafe value resolution."
+    },
+    {
+      "id": "pi-custom-provider",
+      "scope": "pi-package",
+      "path": "docs/custom-provider.md",
+      "establishes": "Extension provider registration, OAuth, endpoints, headers, and command resolution."
+    },
+    {
+      "id": "pi-environment",
+      "scope": "pi-package",
+      "path": "docs/environment-variables.md",
+      "establishes": "Offline, telemetry, version-check, config-directory, and session environment behavior."
+    },
+    {
+      "id": "pi-security",
+      "scope": "pi-package",
+      "path": "docs/security.md",
+      "establishes": "Project trust is not a sandbox or permission boundary."
+    },
+    {
+      "id": "pi-containerization",
+      "scope": "pi-package",
+      "path": "docs/containerization.md",
+      "establishes": "Isolation must be supplied by an OS, VM, container, or policy boundary."
+    },
+    {
+      "id": "pi-sessions",
+      "scope": "pi-package",
+      "path": "docs/sessions.md",
+      "establishes": "Session persistence behavior and ephemeral mode."
+    },
+    {
+      "id": "pi-session-format",
+      "scope": "pi-package",
+      "path": "docs/session-format.md",
+      "establishes": "Persisted message usage and session entry semantics."
+    },
+    {
+      "id": "pi-usage",
+      "scope": "pi-package",
+      "path": "docs/usage.md",
+      "establishes": "Operational modes and project resource behavior."
+    },
+    {
+      "id": "pi-compaction",
+      "scope": "pi-package",
+      "path": "docs/compaction.md",
+      "establishes": "Summary usage contributes to whole-session totals."
+    },
+    {
+      "id": "pi-extensions",
+      "scope": "pi-package",
+      "path": "docs/extensions.md",
+      "establishes": "Extensions execute code, can add MCP and permissions, and emit agent_settled."
+    },
+    {
+      "id": "pi-settings",
+      "scope": "pi-package",
+      "path": "docs/settings.md",
+      "establishes": "Telemetry defaults, project settings, packages, tools, and resource discovery."
+    },
+    {
+      "id": "pi-packages",
+      "scope": "pi-package",
+      "path": "docs/packages.md",
+      "establishes": "Package resources can execute with full process permissions."
+    },
+    {
+      "id": "pi-jsonl-source",
+      "scope": "pi-package",
+      "path": "dist/modes/rpc/jsonl.js",
+      "establishes": "Pi splits only on LF, strips optional CR, and accepts partial EOF records."
+    },
+    {
+      "id": "pi-rpc-source",
+      "scope": "pi-package",
+      "path": "dist/modes/rpc/rpc-mode.js",
+      "establishes": "Command response cardinality, abort acknowledgement, emitted events, and process shutdown."
+    },
+    {
+      "id": "pi-usage-declaration",
+      "scope": "pi-ai-package",
+      "path": "dist/types.d.ts",
+      "establishes": "Reasoning is an optional subset of output and totalTokens is present on Usage."
+    },
+    {
+      "id": "pi-provider-data",
+      "scope": "pi-ai-package",
+      "path": "dist/providers/data",
+      "establishes": "Static provider model IDs, APIs, endpoints, and model capabilities for 0.84.2."
+    },
+    {
+      "id": "almirant-target-catalog",
+      "scope": "repository",
+      "path": "frontend/src/lib/ai-models-catalog.ts",
+      "establishes": "Current Almirant target model IDs used for static intersections."
+    },
+    {
+      "id": "almirant-persisted-schemas",
+      "scope": "repository",
+      "path": "backend/packages/database/src/schema",
+      "establishes": "Defaults, nullability, enums, JSONB duplication, and persisted surface gaps."
+    }
+  ]
+}

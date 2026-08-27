@@ -1,29 +1,23 @@
-/**
- * Shared runtime selection resolver for agent provider, coding agent, AI provider, and model.
- *
- * This module is the single source of truth for resolving the 4 runtime dimensions
- * from any combination of legacy and modern input values. All route handlers and
- * WS message routers MUST use `resolveRuntime()` instead of inline normalization.
- *
- * Design: `codingAgent` is the PRIMARY dimension of ownership.
- * `provider` (agent runner) is derived from `codingAgent` when not explicitly set.
- * "zipu" is encapsulated as a LEGACY alias that maps to the "opencode" coding agent.
- */
+import {
+  runtimeCapabilityRegistry,
+  type RuntimeAdmissionRejected,
+  type RuntimeAiProvider,
+  type RuntimeAuthClass,
+  type RuntimeCapabilityId,
+  type RuntimeCodingAgent,
+} from "./runtime-capability-registry";
+import { resolveLegacyRuntimeSelection } from "./legacy-runtime-selection-adapter";
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
-/** Agent runner provider (the infrastructure that executes the job). */
+/** Agent runner provider used by the legacy runtime-selection contract. */
 export type AgentProvider = "claude-code" | "codex" | "zipu" | "grok";
 
-/** The coding agent that actually processes the task. */
+/** Coding agents represented by the legacy runtime-selection contract. */
 export type CodingAgentName = "claude-code" | "codex" | "opencode";
 
-/** The AI provider used for credential / key resolution. */
+/** AI providers represented by the legacy runtime-selection contract. */
 export type AiProviderName = "anthropic" | "openai" | "zai" | "xai";
 
-/** Fully resolved runtime selection -- all 4 dimensions populated. */
+/** Legacy resolved runtime shape retained for existing callers. */
 export interface RuntimeSelection {
   provider: AgentProvider;
   codingAgent: CodingAgentName;
@@ -31,96 +25,109 @@ export interface RuntimeSelection {
   model: string;
 }
 
-/** Input accepted by `resolveRuntime`. All fields are optional. */
+/** Legacy input accepted by `resolveRuntime`. */
 export interface RuntimeSelectionInput {
-  /** Provider hint -- may be an agent provider ("zipu") or AI provider alias ("zai"). */
   provider?: string;
-  /** Explicit coding agent override. When set, takes precedence over provider-based derivation. */
   codingAgent?: string;
-  /** Explicit model override. When set, takes precedence over the provider default. */
   model?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Internal lookup tables
-// ---------------------------------------------------------------------------
+/**
+ * Complete modern input. Every field is explicit: modern resolution never
+ * infers, lowercases, aliases, or defaults any value.
+ */
+export interface RequestedRuntimeSelection {
+  readonly provider: string;
+  readonly codingAgent: string;
+  readonly aiProvider: string;
+  readonly model: string;
+  readonly authClass: string;
+  readonly capabilities: readonly string[];
+}
 
-/** Canonical mapping: provider -> { codingAgent, aiProvider, defaultModel } */
-const PROVIDER_MAP: Record<AgentProvider, {
-  codingAgent: CodingAgentName;
-  aiProvider: AiProviderName;
-  defaultModel: string;
-}> = {
-  "claude-code": { codingAgent: "claude-code", aiProvider: "anthropic", defaultModel: "claude-opus-4-8" },
-  codex:         { codingAgent: "codex",       aiProvider: "openai",    defaultModel: "gpt-5.6-sol" },
-  zipu:          { codingAgent: "opencode",    aiProvider: "zai",       defaultModel: "glm-5.2" },
-  grok:          { codingAgent: "opencode",    aiProvider: "xai",       defaultModel: "grok-4.3" },
-};
+export const RESOLVED_RUNTIME_SELECTION_SCHEMA_VERSION =
+  "resolved-runtime-selection-v1" as const;
 
-/** Aliases that callers may send instead of the canonical provider name. */
-const PROVIDER_ALIASES: Record<string, AgentProvider> = {
-  // AI provider names used as legacy aliases
-  zai:        "zipu",
-  xai:        "grok",
-  openai:     "codex",
-  anthropic:  "claude-code",
-  // Canonical names (identity mapping for uniform lookup)
-  zipu:         "zipu",
-  grok:         "grok",
-  codex:        "codex",
-  "claude-code": "claude-code",
-};
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
+export type RuntimeSelectionProvenance = Readonly<{
+  [Field in keyof RequestedRuntimeSelection]: "explicit";
+}>;
 
 /**
- * Resolve the full runtime selection from an optional input object.
- *
- * Resolution order:
- * 1. Normalize `provider` through the alias table (default: "claude-code").
- * 2. Derive `codingAgent` from the provider unless the caller supplies an explicit override.
- * 3. Derive `aiProvider` from the resolved provider.
- * 4. Derive `model` from the provider default unless the caller supplies an explicit override.
- *
- * @example
- * ```ts
- * resolveRuntime({ provider: "zai" })
- * // => { provider: "zipu", codingAgent: "opencode", aiProvider: "zai", model: "glm-5.2" }
- *
- * resolveRuntime({ provider: "claude-code", model: "claude-sonnet-5" })
- * // => { provider: "claude-code", codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-sonnet-5" }
- *
- * resolveRuntime({})
- * // => { provider: "claude-code", codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-opus-4-8" }
- * ```
+ * Immutable selection persisted or propagated after exact registry admission.
+ * The registry version and projection hash bind the decision to the capability
+ * contract that admitted it.
  */
-export const resolveRuntime = (input?: RuntimeSelectionInput): RuntimeSelection => {
-  const provider: AgentProvider =
-    (input?.provider ? PROVIDER_ALIASES[input.provider] : undefined) ?? "claude-code";
+export interface ResolvedRuntimeSelection {
+  readonly schemaVersion: typeof RESOLVED_RUNTIME_SELECTION_SCHEMA_VERSION;
+  readonly registryVersion: typeof runtimeCapabilityRegistry.version;
+  readonly projectionHash: string;
+  readonly provider: string;
+  readonly codingAgent: RuntimeCodingAgent;
+  readonly aiProvider: RuntimeAiProvider;
+  readonly model: string;
+  readonly authClass: RuntimeAuthClass;
+  readonly capabilities: readonly RuntimeCapabilityId[];
+  readonly provenance: RuntimeSelectionProvenance;
+}
 
-  const defaults = PROVIDER_MAP[provider];
+export interface RuntimeSelectionResolutionAccepted {
+  readonly admitted: true;
+  readonly selection: ResolvedRuntimeSelection;
+}
 
-  const codingAgent: CodingAgentName =
-    isValidCodingAgent(input?.codingAgent) ? input.codingAgent : defaults.codingAgent;
+/** Registry rejections pass through unchanged. */
+export type RuntimeSelectionResolutionResult =
+  | RuntimeSelectionResolutionAccepted
+  | RuntimeAdmissionRejected;
 
-  const model: string = input?.model ?? defaults.defaultModel;
+const EXPLICIT_RUNTIME_SELECTION_PROVENANCE: RuntimeSelectionProvenance = Object.freeze({
+  provider: "explicit",
+  codingAgent: "explicit",
+  aiProvider: "explicit",
+  model: "explicit",
+  authClass: "explicit",
+  capabilities: "explicit",
+});
 
-  return {
-    provider,
-    codingAgent,
-    aiProvider: defaults.aiProvider,
-    model,
-  };
+/**
+ * Admit a complete modern request exactly as supplied and return a deeply
+ * frozen, versioned selection. Infrastructure `provider` is deliberately not
+ * part of tuple admission and remains independent from all runtime dimensions.
+ */
+export const resolveRequestedRuntimeSelection = (
+  request: RequestedRuntimeSelection,
+): RuntimeSelectionResolutionResult => {
+  const admission = runtimeCapabilityRegistry.admit({
+    codingAgent: request.codingAgent,
+    aiProvider: request.aiProvider,
+    model: request.model,
+    authClass: request.authClass,
+    capabilities: request.capabilities,
+  });
+
+  if (!admission.admitted) {
+    return admission;
+  }
+
+  const selection: ResolvedRuntimeSelection = Object.freeze({
+    schemaVersion: RESOLVED_RUNTIME_SELECTION_SCHEMA_VERSION,
+    registryVersion: admission.registryVersion,
+    projectionHash: admission.projectionHash,
+    provider: request.provider,
+    codingAgent: admission.selection.codingAgent,
+    aiProvider: admission.selection.aiProvider,
+    model: admission.selection.model,
+    authClass: admission.selection.authClass,
+    capabilities: Object.freeze([...admission.selection.capabilities]),
+    provenance: EXPLICIT_RUNTIME_SELECTION_PROVENANCE,
+  });
+
+  return Object.freeze({ admitted: true, selection });
 };
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-const VALID_CODING_AGENTS = new Set<string>(["claude-code", "codex", "opencode"]);
-
-function isValidCodingAgent(value: string | undefined | null): value is CodingAgentName {
-  return typeof value === "string" && VALID_CODING_AGENTS.has(value);
-}
+/**
+ * Backwards-compatible resolver for legacy callers. Defaults, inference,
+ * aliases, and lowercasing intentionally live in the named legacy adapter.
+ */
+export const resolveRuntime = (input?: RuntimeSelectionInput): RuntimeSelection =>
+  resolveLegacyRuntimeSelection(input);

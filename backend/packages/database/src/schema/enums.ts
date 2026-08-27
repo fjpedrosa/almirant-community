@@ -205,6 +205,7 @@ export const codingAgentEnum = pgEnum("coding_agent", [
   "codex",
   "claude-code",
   "opencode",
+  "pi",
 ]);
 
 export const agentJobTypeEnum = pgEnum("agent_job_type", [
