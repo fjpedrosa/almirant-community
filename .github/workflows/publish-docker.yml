@@ -62,6 +62,10 @@ jobs:
             context: .
             file: services/runner/docker/Dockerfile.codex
             target: ""
+          - image: almirant-pi-shim
+            context: .
+            file: services/runner/docker/Dockerfile.pi
+            target: ""
           - image: almirant-opencode-shim
             context: .
             file: services/runner/docker/Dockerfile.opencode
@@ -96,6 +100,7 @@ jobs:
 
       - name: Build and push Docker image
         id: push
+        if: matrix.image != 'almirant-pi-shim'
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -115,9 +120,90 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,scope=${{ matrix.image }},mode=max
 
+      # Pi must pass both credential-free lifecycle checks and a deterministic
+      # invalid-auth failure check before any registry tag can be mutated. Load
+      # exactly one amd64 image and push that same local image after the gates.
+      - name: Build pinned Pi image for runtime smoke
+        if: matrix.image == 'almirant-pi-shim'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          target: ${{ matrix.target }}
+          load: true
+          platforms: linux/amd64
+          tags: local/almirant-pi-shim:runtime-smoke
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            ALMIRANT_BUILD_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+
+      - name: Smoke test Pi without credentials
+        if: matrix.image == 'almirant-pi-shim'
+        run: bash services/runner/scripts/pi-image-smoke.sh --image local/almirant-pi-shim:runtime-smoke
+
+      - name: Smoke test Pi expected authentication failure
+        if: matrix.image == 'almirant-pi-shim'
+        run: |
+          set -euo pipefail
+          credential_file=/tmp/almirant-pi-smoke.ci-auth.env
+          trap 'rm -f -- "$credential_file"' EXIT
+          umask 077
+          printf '%s\n' 'ZAI_API_KEY=ALMIRANT_PI_SMOKE_INVALID_AUTH_SENTINEL_4C27B1' > "$credential_file"
+          chmod 0600 "$credential_file"
+          bash services/runner/scripts/pi-image-smoke.sh \
+            --image local/almirant-pi-shim:runtime-smoke \
+            --env-file "$credential_file" \
+            --env ZAI_API_KEY \
+            --expect-auth-failure
+
+      - name: Push the smoke-tested Pi image
+        id: push-pi
+        if: matrix.image == 'almirant-pi-shim'
+        env:
+          PUBLISH_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          local_tag=local/almirant-pi-shim:runtime-smoke
+          published_digest=""
+          published_tags=0
+
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            case "$tag" in
+              */almirant-pi-shim:*) ;;
+              *) echo "::error::Unexpected Pi publication tag" >&2; exit 1 ;;
+            esac
+
+            docker tag "$local_tag" "$tag"
+            push_output="$(docker push "$tag")"
+            digest="$(printf '%s\n' "$push_output" | awk '{ for (i = 1; i < NF; i++) if ($i == "digest:" && $(i + 1) ~ /^sha256:[0-9a-f]{64}$/) print $(i + 1) }' | tail -n 1)"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+              echo "::error::Pi push did not return an immutable digest" >&2
+              exit 1
+            }
+            if [ -n "$published_digest" ] && [ "$published_digest" != "$digest" ]; then
+              echo "::error::Pi tags resolved to different immutable digests" >&2
+              exit 1
+            fi
+            published_digest=$digest
+            published_tags=$((published_tags + 1))
+          done <<< "$PUBLISH_TAGS"
+
+          [ "$published_tags" -gt 0 ] || {
+            echo "::error::No Pi publication tags were produced" >&2
+            exit 1
+          }
+          printf 'digest=%s\n' "$published_digest" >> "$GITHUB_OUTPUT"
+
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v3
         with:
           subject-name: index.docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}
-          subject-digest: ${{ steps.push.outputs.digest }}
+          subject-digest: ${{ matrix.image == 'almirant-pi-shim' && steps.push-pi.outputs.digest || steps.push.outputs.digest }}
           push-to-registry: true
+
+      - name: Drop the local Pi smoke image
+        if: always() && matrix.image == 'almirant-pi-shim'
+        run: docker image rm -f local/almirant-pi-shim:runtime-smoke || true
