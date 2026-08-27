@@ -53,6 +53,8 @@ const nativeEvents = [
     nativeEventType: "thread.message.delta",
     sourceFormat: "sse",
     provider: "codex",
+    aiProvider: null,
+    model: null,
     codingAgent: "codex",
     runtimeSessionId: "runtime-1",
     payload: { event: "thread.message.delta" },
