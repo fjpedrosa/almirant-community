@@ -1,3 +1,8 @@
+import type {
+  ResolvedRuntimeSelection,
+  RuntimeEvidence,
+} from "@almirant/shared";
+
 export type ApiClientConfig = {
   apiBaseUrl: string;
   apiKey: string;
@@ -73,17 +78,42 @@ export type WorkerHeartbeatPayload = {
   };
 };
 
+export const CANONICAL_CODING_AGENTS = [
+  "claude-code",
+  "codex",
+  "opencode",
+  "pi",
+] as const;
+
+export type CanonicalCodingAgent = (typeof CANONICAL_CODING_AGENTS)[number];
+
+export type RuntimeCapabilityIdentityPayload = {
+  readonly schemaVersion: string;
+  readonly version: number;
+  readonly hash: string;
+};
+
 export type ClaimJobsPayload = {
   workerId: string;
   count: number;
   activeJobs?: number;
-  acceptedCodingAgents?: string[];
+  /** Exact subset this runner can execute; Pi is canonical but not required. */
+  acceptedCodingAgents?: readonly CanonicalCodingAgent[];
+  /** Additive generated registry identity understood by capability-aware APIs. */
+  runtimeCapabilityIdentity?: RuntimeCapabilityIdentityPayload;
   /** Explicit mixed-version negotiation for the receipt-based durable protocol. */
-  capabilities?: Array<"durable.v2.receipts">;
+  capabilities?: readonly "durable.v2.receipts"[];
+};
+
+export type ClaimedJobConfig = Record<string, unknown> & {
+  /** Versioned capability-registry decision for modern runner admission. */
+  resolvedRuntimeSelection?: ResolvedRuntimeSelection | null;
 };
 
 export type ClaimedJob = {
   id: string;
+  /** Authoritative worker ownership returned by the atomic claim. */
+  workerId?: string | null;
   workItemId: string | null;
   projectId: string | null;
   boardId: string | null;
@@ -96,7 +126,9 @@ export type ClaimedJob = {
   retryCount: number;
   maxRetries: number;
   availableAt: string | null;
-  config: Record<string, unknown> | null;
+  config: ClaimedJobConfig | null;
+  /** Authoritative modern selection; JSONB remains a mixed-version fallback. */
+  resolvedRuntimeSelection?: ResolvedRuntimeSelection | null;
   /** Durable result from the previous claim, used only through fenced handoffs. */
   result?: Record<string, unknown> | null;
   /** Exact delivery metadata persisted by the previous fenced claim. */
@@ -193,10 +225,17 @@ export type UpdateJobStatusPayload = {
   prUrl?: string;
   prNumber?: number;
   commitSha?: string;
+  /** Versioned terminal usage and separated requested/resolved/observed lanes. */
+  runtimeEvidence?: RuntimeEvidence;
+  /** Compatibility aggregate fields retained during the evidence rollout. */
   cost?: number;
+  costDetail?: Record<string, number>;
   tokensUsed?: number;
   inputTokens?: number;
   outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  reasoningTokens?: number;
   sessionId?: string;
   model?: string;
   /** Producer high-water marks fixed before a same-job release becomes claimable. */
@@ -217,15 +256,72 @@ export type ProviderKeyConnectionDebug = {
   skipReasons?: Array<{ connectionId: string; name: string; reason: string }>;
 };
 
+type ProviderKeySelectionContext = {
+  /** Exact active claim whose persisted job selection authorizes credential access. */
+  jobId: string;
+  /** Dynamic failover exclusions, still evaluated inside the same active claim. */
+  excludeConnectionIds?: readonly string[];
+  /** Persisted admin-pinned connection, verified by the API against the job. */
+  preferredConnectionId?: string;
+};
+
+/**
+ * Provider-key requests always carry worker and claim identity on the wire.
+ * Existing runner callers may omit those two fields only when this client has
+ * already recorded the same job's active claim and can supply them exactly.
+ */
+export type ProviderKeyRequestContext = ProviderKeySelectionContext &
+  (
+    | {
+        workerId: string;
+        claimAttemptId: string;
+        createdByUserId?: never;
+        workspaceId?: never;
+      }
+    | {
+        workerId?: never;
+        claimAttemptId?: never;
+        /** Legacy caller metadata is ignored; claim ownership is authoritative. */
+        createdByUserId?: string;
+        /** Legacy caller metadata is ignored; claim ownership is authoritative. */
+        workspaceId?: string;
+      }
+  );
+
+export type ProviderCredentialAuthClass =
+  | "api_key"
+  | "setup_token"
+  | "provider_oauth"
+  | "subscription";
+
+type ProviderCredentialBundleMetadata = {
+  provider: "anthropic" | "openai" | "google" | "zai" | "xai";
+  connectionId: string;
+  planningModel?: string;
+  implementationModel?: string;
+  validationModel?: string;
+};
+
+export type ProviderCredentialBundle = ProviderCredentialBundleMetadata &
+  (
+    | { authClass: "api_key"; apiKey: string }
+    | {
+        authClass: Exclude<ProviderCredentialAuthClass, "api_key">;
+        apiKey?: never;
+      }
+  );
+
 export type ProviderKeysResponse = {
   anthropicApiKey?: string;
   openaiApiKey?: string;
   googleApiKey?: string;
+  zaiApiKey?: string;
   xaiApiKey?: string;
   anthropicAuthMethod?: "api_key" | "subscription";
   openaiAuthMethod?: "api_key" | "subscription";
   xaiAuthMethod?: "api_key" | "subscription";
   openaiCredentialsJson?: string;
+  credentialBundles?: ProviderCredentialBundle[];
   planningModel?: string;
   implementationModel?: string;
   validationModel?: string;
@@ -595,7 +691,7 @@ export interface ScheduledAgentBacklogDrainProjectRule {
   maxConcurrentJobs?: number | null;
   excludedWorkItemIds?: string[];
   excludeDescendants?: boolean;
-  codingAgent?: "claude-code" | "codex" | "opencode" | null;
+  codingAgent?: "claude-code" | "codex" | "opencode" | "pi" | null;
   aiProvider?: "anthropic" | "openai" | "google" | "zai" | "xai" | null;
   model?: string | null;
   reasoningLevel?: string | null;
@@ -640,7 +736,7 @@ export interface BacklogDrainCandidate {
   parentId: string | null;
   projectId: string;
   boardId: string;
-  codingAgent: "claude-code" | "codex" | "opencode";
+  codingAgent: "claude-code" | "codex" | "opencode" | "pi";
   aiProvider: "anthropic" | "openai" | "google" | "zai" | "xai";
   provider: "claude-code" | "codex" | "zipu" | "grok";
   model: string;
@@ -806,18 +902,9 @@ export type AlmirantWorkerClient = {
     requestOptions?: WorkerClientRequestOptions,
   ) => Promise<PrepareSequenceHandoffResponse>;
   getProviderKeys: (
-    providers?: ProviderKeyProvider[],
-    context?: {
-      jobId?: string;
-      createdByUserId?: string;
-      workspaceId?: string;
-      /**
-       * Admin-pinned connection UUID. When provided, the backend skips the
-       * org's default resolution order and uses this specific connection's
-       * credentials (scoped to the job's org).
-       */
-      preferredConnectionId?: string;
-    }
+    providers: ProviderKeyProvider[] | undefined,
+    context: ProviderKeyRequestContext,
+    requestOptions?: WorkerClientRequestOptions,
   ) => Promise<ProviderKeysResponse>;
   getGithubToken: (repositoryId: string) => Promise<InstallationTokenResponse>;
   getRepoConfig: (projectId: string) => Promise<RepoConfigResponse>;

@@ -343,7 +343,10 @@ export const projectsApi = {
   getAiConfig: (id: string) =>
     request<import("@/domains/projects/domain/types").ProjectAiConfig>(`/projects/${id}/ai-config`),
 
-  updateAiConfig: (id: string, data: Partial<import("@/domains/projects/domain/types").ProjectAiConfig>) =>
+  updateAiConfig: (
+    id: string,
+    data: import("@/domains/projects/domain/types").ProjectDevFlowPatchBody,
+  ) =>
     request<import("@/domains/projects/domain/types").ProjectAiConfig>(`/projects/${id}/ai-config`, {
       method: "PATCH",
       body: JSON.stringify(data),

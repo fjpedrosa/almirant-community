@@ -117,7 +117,7 @@ const loadedCatalog = (): ClaudeMarketplaceCatalogLoadResult => ({
 
 const portableBundle = (): ValidatedAgentPluginBundle => ({
   kind: "portable_skill",
-  providers: ["claude-code", "codex", "opencode"],
+  providers: ["claude-code", "codex", "opencode", "pi"],
   files: [{ path: "SKILL.md", content: new TextEncoder().encode("# Review") }],
   totalBytes: 8,
   skillRoots: [""],
@@ -432,7 +432,7 @@ describe("agent plugin catalog service", () => {
     expect(plugin.checksumSha256).toBe(harness.storageObjects[0]!.checksumSha256);
     expect(plugin.manifest).toMatchObject({
       kind: "portable_skill",
-      providers: ["claude-code", "codex", "opencode"],
+      providers: ["claude-code", "codex", "opencode", "pi"],
       fileCount: 1,
     });
   });

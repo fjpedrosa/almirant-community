@@ -1,4 +1,9 @@
-import type { ClaimedJob, WorkItemDetails } from "@almirant/remote-agent";
+import type {
+  CanonicalCodingAgent,
+  ClaimedJob,
+  WorkItemDetails,
+} from "@almirant/remote-agent";
+import type { ResolvedRuntimeSelection } from "@almirant/shared";
 import { classifyContainerFailure } from "./failure-signal";
 
 export type RunnerContainerVolume = {
@@ -29,9 +34,9 @@ export type RunnerContainerSpec = {
   tty?: boolean;
 };
 
-export type RuntimeType = "opencode" | "claude-shim" | "codex-shim";
+export type RuntimeType = "opencode" | "claude-shim" | "codex-shim" | "pi-shim";
 
-export type PlatformRuntime = "claude-code" | "opencode" | "codex";
+export type PlatformRuntime = "claude-code" | "opencode" | "codex" | "pi";
 
 export type RuntimeInstructionTarget = "CLAUDE.md" | "AGENTS.md";
 
@@ -39,6 +44,8 @@ export type RuntimeImageCatalog = {
   opencodeImage: string;
   claudeShimImage: string;
   codexShimImage: string;
+  /** Optional until Community's later job-executor image wiring phase lands. */
+  piShimImage?: string;
   servePort?: number;
 };
 
@@ -52,7 +59,7 @@ export type RuntimeConfig = {
 };
 
 export type RuntimeExecutor = {
-  codingAgent: string;
+  codingAgent: CanonicalCodingAgent;
   runtimeType: RuntimeType;
   platformRuntime: PlatformRuntime;
   instructionTargets: RuntimeInstructionTarget[];
@@ -61,8 +68,15 @@ export type RuntimeExecutor = {
 };
 
 export type RuntimeExecutorRegistry = {
+  /** Immutable deterministic list derived from the executors in this registry. */
+  readonly acceptedCodingAgents: readonly CanonicalCodingAgent[];
+  /** Modern dispatch validates registry identity and capability admission first. */
+  admitResolvedRuntimeSelection: (
+    selection: ResolvedRuntimeSelection,
+  ) => RuntimeExecutor;
+  /** Legacy provider inference is allowed only when codingAgent is absent. */
   resolve: (params: { provider: string; codingAgent?: string }) => RuntimeExecutor;
-  resolveByRuntimeType: (runtimeType: RuntimeType) => RuntimeExecutor;
+  resolveByRuntimeType: (runtimeType: string) => RuntimeExecutor;
 };
 
 export type ManagedContainerInfo = {

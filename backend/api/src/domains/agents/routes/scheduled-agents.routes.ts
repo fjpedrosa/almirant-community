@@ -10,11 +10,14 @@ import {
   pauseScheduledAgentConfig,
   previewBacklogDrainCandidates,
   listBacklogDrainWorkItems,
+  getScheduledAgentMcpServerIds,
 } from "@almirant/database";
+import type { TargetConfig } from "@almirant/database";
 import { logger } from "@almirant/config";
 import {
   normalizeRunnerCustomMcpServersConfig,
   requiresInternalMcp,
+  runtimeCapabilityProjection as RUNTIME_CAPABILITY_PROJECTION,
 } from "@almirant/shared";
 import { successResponse, errorResponse, notFoundResponse } from "../../../shared/services/response";
 import { getInstanceConfig } from "../../instance/services/instance-config-service";
@@ -25,14 +28,17 @@ import {
   ScheduledAgentConfigSystemManagedError,
 } from "../services/scheduled-agent-access";
 import {
+  asScheduledAgentRuntimeValidationError,
+  assertRuntimeCapabilityIntentAdmissions,
   assertValidScheduledAgentRuntime,
   canonicalizeAiModelForStorage,
-  SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR,
+  ScheduledAgentRuntimeValidationError,
 } from "../services/scheduled-agent-runtime-validation";
 import {
   resolveScheduledAgentEffectiveRuntimes,
 } from "../services/scheduled-agent-effective-model-resolver";
 import { resolveScheduledAgentProjectContext } from "../services/scheduled-agent-project-context";
+import { parseAgentToolingSelection } from "../services/agent-tooling-resolution";
 
 // ---------------------------------------------------------------------------
 // Validation constants
@@ -57,11 +63,16 @@ const VALID_JOB_TYPES = [
 ] as const;
 
 const VALID_PROVIDERS = ["claude-code", "codex", "zipu", "grok"] as const;
-const VALID_AI_PROVIDERS = ["anthropic", "openai", "zai", "xai"] as const;
-const VALID_CODING_AGENTS = ["claude-code", "codex", "opencode", "codex-cli"] as const;
+const VALID_AI_PROVIDERS = RUNTIME_CAPABILITY_PROJECTION.aiProviders;
+// codex-cli is a persisted compatibility alias owned by the named legacy
+// adapter; every modern validator value comes directly from the projection.
+const VALID_CODING_AGENTS = [
+  ...RUNTIME_CAPABILITY_PROJECTION.codingAgents,
+  "codex-cli",
+] as const;
 const VALID_SCHEDULE_TYPES = ["manual", "time_window", "cron", "once"] as const;
-const VALID_BACKLOG_DRAIN_CODING_AGENTS = ["claude-code", "codex", "opencode"] as const;
-const VALID_BACKLOG_DRAIN_AI_PROVIDERS = ["anthropic", "openai", "google", "zai", "xai"] as const;
+const VALID_BACKLOG_DRAIN_CODING_AGENTS = RUNTIME_CAPABILITY_PROJECTION.codingAgents;
+const VALID_BACKLOG_DRAIN_AI_PROVIDERS = RUNTIME_CAPABILITY_PROJECTION.aiProviders;
 
 // ---------------------------------------------------------------------------
 // Elysia body schemas
@@ -244,6 +255,50 @@ const normalizeMcpServersInput = (mcpServers: unknown) => {
     throw new Error(`Invalid MCP server config: ${result.errors.join("; ")}`);
   }
   return result.servers;
+};
+
+const runtimeValidationCode = (
+  error: ScheduledAgentRuntimeValidationError,
+): string | undefined => error.code ?? undefined;
+
+const readNeedsBrowser = (
+  targetConfig: TargetConfig | null | undefined,
+): boolean => {
+  const rawMetadata = targetConfig?.customFilters?.__agent;
+  return (
+    typeof rawMetadata === "object" &&
+    rawMetadata !== null &&
+    !Array.isArray(rawMetadata) &&
+    (rawMetadata as Record<string, unknown>).needsBrowser === true
+  );
+};
+
+const scheduledRuntimeIntentConfig = (input: {
+  targetConfig: TargetConfig;
+  mcpServers: unknown;
+  selectedMcpServerIds: readonly string[];
+  selectedPluginIds: readonly string[];
+}) => ({
+  ...(input.mcpServers &&
+  typeof input.mcpServers === "object" &&
+  Object.keys(input.mcpServers).length > 0
+    ? { mcpServers: input.mcpServers }
+    : {}),
+  selectedMcpServerIds: [...input.selectedMcpServerIds],
+  ...(input.selectedPluginIds.length > 0
+    ? { capabilities: ["extensions"] }
+    : {}),
+  ...(readNeedsBrowser(input.targetConfig) ? { needsBrowser: true } : {}),
+});
+
+const getPersistedSelectedMcpServerIds = async (
+  configId: string,
+  targetConfig: TargetConfig,
+): Promise<string[]> => {
+  const associatedIds = await getScheduledAgentMcpServerIds(configId);
+  return associatedIds.length > 0
+    ? associatedIds
+    : parseAgentToolingSelection(targetConfig).selectedMcpServerIds;
 };
 
 const generateWebhookToken = (): string => randomBytes(32).toString("base64url");
@@ -494,6 +549,7 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
           body.scheduleConfig,
         );
         const normalizedMcpServers = normalizeMcpServersInput(body.mcpServers);
+        const targetConfig: TargetConfig = body.targetConfig ?? {};
         const effectiveProject = await resolveScheduledAgentProjectContext(orgId, body.projectId);
         const effectiveRuntimes = await resolveScheduledAgentEffectiveRuntimes({
           workspaceId: orgId,
@@ -504,17 +560,27 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
           reasoningLevel: body.reasoningLevel,
           jobType: body.jobType,
           projectId: effectiveProject.projectId,
-          targetConfig: body.targetConfig,
+          targetConfig,
         });
-        assertValidScheduledAgentRuntime({
+        const admittedRuntimes = assertValidScheduledAgentRuntime({
           provider: body.provider,
           codingAgent: body.codingAgent,
           aiProvider: body.aiProvider,
           aiModel: body.aiModel,
           reasoningLevel: body.reasoningLevel,
           effectiveRuntimes,
-          targetConfig: body.targetConfig,
+          targetConfig,
         });
+        const toolingSelection = parseAgentToolingSelection(targetConfig);
+        assertRuntimeCapabilityIntentAdmissions(
+          admittedRuntimes,
+          scheduledRuntimeIntentConfig({
+            targetConfig,
+            mcpServers: normalizedMcpServers,
+            selectedMcpServerIds: toolingSelection.selectedMcpServerIds,
+            selectedPluginIds: toolingSelection.selectedPluginIds,
+          }),
+        );
 
         const config = await createScheduledAgentConfig({
           id: isWebhook ? body.id : undefined,
@@ -530,7 +596,7 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
           scheduleConfig: normalizedSchedule.scheduleConfig,
           timezone: body.timezone,
           enabled: normalizedSchedule.enabled ?? body.enabled,
-          targetConfig: body.targetConfig ?? {},
+          targetConfig,
           maxJobsPerRun: body.maxJobsPerRun,
           projectId: body.projectId,
           description: body.description ?? null,
@@ -549,10 +615,11 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
           set.status = 400;
           return errorResponse(error.message);
         }
-        if (error instanceof Error && error.message.startsWith(SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR)) {
-          logger.warn({ error }, "Rejected scheduled agent runtime config");
+        const runtimeError = asScheduledAgentRuntimeValidationError(error);
+        if (runtimeError) {
+          logger.warn({ error: runtimeError }, "Rejected scheduled agent runtime config");
           set.status = 400;
-          return errorResponse(error.message);
+          return errorResponse(runtimeError.message, 400, runtimeValidationCode(runtimeError));
         }
         logger.error({ error }, "Failed to create scheduled agent config");
         return errorResponse(
@@ -591,7 +658,8 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
         const becameEnabled = existing.enabled === false && nextEnabled === true;
         const normalizedMcpServers =
           bodyMcpServers !== undefined ? normalizeMcpServersInput(bodyMcpServers) : undefined;
-        const touchesRuntime =
+        const targetConfig: TargetConfig = body.targetConfig ?? existing.targetConfig;
+        const touchesRuntimeIntent =
           body.provider !== undefined ||
           body.codingAgent !== undefined ||
           body.aiProvider !== undefined ||
@@ -599,9 +667,14 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
           body.reasoningLevel !== undefined ||
           body.jobType !== undefined ||
           body.targetConfig !== undefined ||
+          bodyMcpServers !== undefined ||
           body.projectId !== undefined;
 
-        if (touchesRuntime) {
+        if (touchesRuntimeIntent) {
+          const toolingSelection = parseAgentToolingSelection(targetConfig);
+          const selectedMcpServerIds = body.targetConfig !== undefined
+            ? toolingSelection.selectedMcpServerIds
+            : await getPersistedSelectedMcpServerIds(existing.id, targetConfig);
           const nextProvider = body.provider ?? existing.provider;
           const nextAiProvider = body.aiProvider ?? existing.aiProvider;
           const nextAiModel = body.aiModel ?? existing.aiModel;
@@ -619,21 +692,34 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
             reasoningLevel: body.reasoningLevel ?? existing.reasoningLevel,
             jobType: nextJobType,
             projectId: effectiveProject.projectId,
-            targetConfig: body.targetConfig ?? existing.targetConfig,
+            targetConfig,
           });
-          assertValidScheduledAgentRuntime({
+          const admittedRuntimes = assertValidScheduledAgentRuntime({
             provider: nextProvider,
             codingAgent: body.codingAgent ?? existing.codingAgent,
             aiProvider: nextAiProvider,
             aiModel: nextAiModel,
             reasoningLevel: body.reasoningLevel ?? existing.reasoningLevel,
             effectiveRuntimes,
-            targetConfig: body.targetConfig ?? existing.targetConfig,
+            targetConfig,
           });
+          assertRuntimeCapabilityIntentAdmissions(
+            admittedRuntimes,
+            scheduledRuntimeIntentConfig({
+              targetConfig,
+              mcpServers:
+                bodyMcpServers !== undefined
+                  ? normalizedMcpServers
+                  : existing.mcpServers,
+              selectedMcpServerIds,
+              selectedPluginIds: toolingSelection.selectedPluginIds,
+            }),
+          );
         }
 
         const config = await updateScheduledAgentConfig(params.id, orgId, {
           ...bodyWithoutMcpServers,
+          targetConfig,
           trigger: nextTrigger,
           scheduleType: normalizedSchedule.scheduleType,
           scheduleConfig: normalizedSchedule.scheduleConfig,
@@ -642,8 +728,8 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
           // Re-enabling inside an active time window should not be blocked by the
           // previous run timestamp; the runner will pick it up on the next tick.
           ...(becameEnabled ? { lastRunAt: null } : {}),
-          // Canonicalize the model on write so display-name casing (e.g.
-          // "GLM-5.2") never persists out of sync with the catalog ids. Only
+          // Preserve an explicit model id exactly. Registry admission above rejects
+          // non-canonical casing instead of silently rewriting the request. Only
           // override when the field is actually part of this update.
           ...(body.aiModel !== undefined
             ? { aiModel: canonicalizeAiModelForStorage(body.aiModel) }
@@ -660,10 +746,11 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
           set.status = 400;
           return errorResponse(error.message);
         }
-        if (error instanceof Error && error.message.startsWith(SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR)) {
-          logger.warn({ error }, "Rejected scheduled agent runtime config update");
+        const runtimeError = asScheduledAgentRuntimeValidationError(error);
+        if (runtimeError) {
+          logger.warn({ error: runtimeError }, "Rejected scheduled agent runtime config update");
           set.status = 400;
-          return errorResponse(error.message);
+          return errorResponse(runtimeError.message, 400, runtimeValidationCode(runtimeError));
         }
         logger.error({ error }, "Failed to update scheduled agent config");
         return errorResponse(
@@ -772,6 +859,12 @@ export const scheduledAgentsRoutes = new Elysia({ prefix: "/scheduled-agents" })
 
         return successResponse(job);
       } catch (error) {
+        const runtimeError = asScheduledAgentRuntimeValidationError(error);
+        if (runtimeError) {
+          logger.warn({ error: runtimeError }, "Rejected scheduled agent runtime config on manual trigger");
+          set.status = 400;
+          return errorResponse(runtimeError.message, 400, runtimeValidationCode(runtimeError));
+        }
         logger.error({ error }, "Failed to trigger scheduled agent config");
         return errorResponse(
           error instanceof Error ? error.message : "Failed to trigger scheduled agent config",

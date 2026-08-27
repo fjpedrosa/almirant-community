@@ -62,6 +62,50 @@ test("publisher fails closed instead of downgrading an unknown durable marker", 
   );
 });
 
+test("flattenEvent preserves separated native runtime selection lanes", () => {
+  const fields = flattenEvent({
+    ...makeEvent({ type: "raw" }),
+    _format: "native",
+    nativeEventType: "message_end",
+    sourceFormat: "pi-rpc",
+    provider: "zipu",
+    codingAgent: "pi",
+    aiProvider: "zai",
+    model: "glm-5.3",
+  } as AgentOutputEvent);
+  const fieldMap = new Map<string, string>();
+  for (let index = 0; index < fields.length; index += 2) {
+    fieldMap.set(fields[index]!, fields[index + 1]!);
+  }
+
+  expect(fieldMap.get("provider")).toBe("zipu");
+  expect(fieldMap.get("aiProvider")).toBe("zai");
+  expect(fieldMap.get("model")).toBe("glm-5.3");
+});
+
+test("flattenEvent rejects AI providers in the infrastructure lane and oversized identities", () => {
+  const nativeEvent = {
+    ...makeEvent({ type: "raw" }),
+    _format: "native",
+    nativeEventType: "message_end",
+    sourceFormat: "pi-rpc",
+    provider: "zipu",
+    codingAgent: "pi",
+    aiProvider: "zai",
+    model: "glm-5.3",
+  };
+
+  expect(() =>
+    flattenEvent({ ...nativeEvent, provider: "zai" } as AgentOutputEvent),
+  ).toThrow("provider must be an infrastructure provider");
+  expect(() =>
+    flattenEvent({
+      ...nativeEvent,
+      model: "m".repeat(257),
+    } as AgentOutputEvent),
+  ).toThrow("model");
+});
+
 describeWithRedis("StreamPublisher", () => {
   let redis: Redis;
 

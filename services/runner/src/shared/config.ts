@@ -36,6 +36,7 @@ const envSchema = z.object({
   OPENCODE_IMAGE: z.string().default("almirant-opencode-shim:1.18.4"),
   CLAUDE_SHIM_IMAGE: z.string().default("almirant-claude-shim:2.1.218"),
   CODEX_SHIM_IMAGE: z.string().default("almirant-codex-shim:0.145.0"),
+  PI_SHIM_IMAGE: z.string().default("almirant-pi-shim:0.84.2"),
   OPENCODE_COMMAND: z.string().optional(),
   REPOS_HOST_PATH: z.string().optional(),
   REDIS_URL: optionalUrl,
@@ -122,6 +123,15 @@ export const loadRunnerEnv = (source: Record<string, string | undefined> = proce
   if (!parsed.success) {
     const details = parsed.error.flatten().fieldErrors;
     throw new Error(`Invalid runner environment: ${JSON.stringify(details)}`);
+  }
+
+  if (
+    parsed.data.NODE_ENV === "production" &&
+    !/@sha256:[0-9a-f]{64}$/i.test(parsed.data.PI_SHIM_IMAGE)
+  ) {
+    throw new Error(
+      "Invalid runner environment: PI_SHIM_IMAGE must be an immutable image@sha256 reference in production",
+    );
   }
 
   const hostname = parsed.data.RUNNER_HOSTNAME ?? source.HOSTNAME ?? "almirant-runner";

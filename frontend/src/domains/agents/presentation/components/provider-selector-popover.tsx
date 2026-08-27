@@ -119,6 +119,11 @@ export const ProviderSelectorPopover: React.FC<ProviderSelectorPopoverProps> = (
   const handleModelClick = useCallback(
     (modelId: string) => {
       if (!selectedAgent || !selectedProviderVal) return;
+      const isAdmitted = getModelsForAgentProvider(
+        selectedAgent,
+        selectedProviderVal,
+      ).some((model) => model.id === modelId);
+      if (!isAdmitted) return;
       finishSelection(selectedAgent, selectedProviderVal, modelId);
     },
     [selectedAgent, selectedProviderVal, finishSelection]
@@ -163,8 +168,8 @@ export const ProviderSelectorPopover: React.FC<ProviderSelectorPopoverProps> = (
   }, [selectedAgent]);
 
   const modelsGrouped = useMemo(() => {
-    if (!selectedProviderVal) return {};
-    const models = getModelsForAgentProvider(selectedProviderVal);
+    if (!selectedAgent || !selectedProviderVal) return {};
+    const models = getModelsForAgentProvider(selectedAgent, selectedProviderVal);
     return models.reduce(
       (acc, model) => {
         if (!acc[model.category]) acc[model.category] = [];
@@ -173,7 +178,7 @@ export const ProviderSelectorPopover: React.FC<ProviderSelectorPopoverProps> = (
       },
       {} as Record<string, typeof models>
     );
-  }, [selectedProviderVal]);
+  }, [selectedAgent, selectedProviderVal]);
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>

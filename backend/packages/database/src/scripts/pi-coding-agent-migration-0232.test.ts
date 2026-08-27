@@ -46,19 +46,24 @@ describe("Pi coding-agent migration 0232", () => {
     expect(jobs).toContain(
       'resolvedRuntimeSelection: jsonb("resolved_runtime_selection").$type<ResolvedRuntimeSelection>()',
     );
-    expect(jobs).not.toContain("runtimeEvidence");
+    expect(jobs).toContain(
+      'runtimeEvidence: jsonb("runtime_evidence").$type<RuntimeEvidence>()',
+    );
   });
 
-  test("is the generated successor to 0231", () => {
+  test("is the generated successor to 0231 and predecessor to evidence migration 0233", () => {
     const journal = JSON.parse(read("migrations/meta/_journal.json")) as {
       entries: JournalEntry[];
     };
     const previous = journal.entries.find((entry) => entry.tag === "0231_sturdy_kang");
     const current = journal.entries.find((entry) => entry.tag === "0232_oval_marvex");
+    const later = journal.entries.find((entry) => entry.tag === "0233_simple_terror");
 
     expect(previous).toBeDefined();
-    expect(current).toEqual(journal.entries.at(-1));
     expect(current?.idx).toBe(232);
     expect(current?.when).toBeGreaterThan(previous?.when ?? Number.MAX_SAFE_INTEGER);
+    expect(later).toEqual(journal.entries.at(-1));
+    expect(later?.idx).toBe(233);
+    expect(later?.when).toBeGreaterThan(current?.when ?? Number.MAX_SAFE_INTEGER);
   });
 });

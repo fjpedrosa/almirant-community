@@ -16,6 +16,9 @@
  * when SELF_HOSTED_BOOTSTRAP_TEST_DATABASE_URL is unset.
  */
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import postgres from "postgres";
 import { materializeCurrentSchemaImperativeObjects } from "./current-schema-bootstrap";
 
@@ -27,6 +30,11 @@ const isSafeDedicatedDatabase =
   ["127.0.0.1", "localhost"].includes(parsedDatabaseUrl.hostname) &&
   databaseName.startsWith("almirant_schema_bootstrap_test");
 const integrationTest = isSafeDedicatedDatabase ? test : test.skip;
+
+// The generated journal grows with every migration, so this hash must be bumped
+// whenever drizzle-kit appends an entry.
+const migrationJournal0233Hash =
+  "d41bc50647fbf4cd085341761553b89c6991b72056cc3f4a703bb86e298d9ec9";
 
 interface ImperativeObjectState {
   documentsFunction: boolean;
@@ -306,5 +314,15 @@ describe("materializeCurrentSchemaImperativeObjects (real DB)", () => {
       });
     },
     30_000,
+  );
+});
+
+test("pins generated migration journal bytes through 0233", () => {
+  const contents = readFileSync(
+    resolve(import.meta.dir, "../..", "migrations/meta/_journal.json"),
+    "utf8",
+  );
+  expect(createHash("sha256").update(contents).digest("hex")).toBe(
+    migrationJournal0233Hash,
   );
 });

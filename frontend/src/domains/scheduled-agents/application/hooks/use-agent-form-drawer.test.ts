@@ -3,13 +3,17 @@ import {
   buildAgentToolingSelection,
   buildBuiltinAutomationTargetConfig,
   buildOnceScheduleConfig,
+  mergeAgentBrowserSelectionIntoTargetConfig,
   mergeAgentToolingSelectionIntoTargetConfig,
+  parseAgentBrowserSelection,
   parseAgentToolingSelection,
   resolveOnceRunAtDefault,
   resolveScheduledAgentSubmitJobType,
   resolveScheduledAgentSubmitProjectId,
   resolveScheduledAgentSubmitProvider,
   resolveScheduledAgentSubmitRuntimeFields,
+  resolveScheduledAgentRuntimeAdmission,
+  resolveScheduledAgentRuntimeEditDefaults,
   scheduledAgentFormSchema,
 } from "./use-agent-form-drawer";
 
@@ -82,6 +86,18 @@ describe("scheduledAgentFormSchema", () => {
     expect(result.selectedPluginIds).toEqual([]);
     expect(result.selectedMcpServerIds).toEqual([]);
   });
+
+  it("accepts the authoritative Pi + Z.AI + GLM-5.3 runtime tuple", () => {
+    const result = scheduledAgentFormSchema.safeParse({
+      ...validScheduledAgentFormValues,
+      provider: "zipu",
+      codingAgent: "pi",
+      aiProvider: "zai",
+      aiModel: "glm-5.3",
+    });
+
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("agent tooling selection", () => {
@@ -133,6 +149,32 @@ describe("agent tooling selection", () => {
     expect(parseAgentToolingSelection({ customFilters: { keep: true } })).toEqual({
       selectedPluginIds: [],
       selectedMcpServerIds: [],
+    });
+  });
+
+  it("round-trips browser selection without deleting future adapter metadata", () => {
+    const targetConfig = mergeAgentBrowserSelectionIntoTargetConfig(
+      {
+        customFilters: {
+          keep: true,
+          __agent: {
+            association: "independent",
+            futureCapability: { mode: "strict" },
+            needsBrowser: true,
+          },
+        },
+      },
+      false,
+    );
+
+    expect(parseAgentBrowserSelection(targetConfig)).toBe(false);
+    expect(targetConfig.customFilters).toEqual({
+      keep: true,
+      __agent: {
+        association: "independent",
+        futureCapability: { mode: "strict" },
+        needsBrowser: false,
+      },
     });
   });
 });
@@ -428,6 +470,19 @@ describe("resolveScheduledAgentSubmitProvider", () => {
     ).toBe("codex");
   });
 
+  it("derives the z.ai legacy lane for the admitted Pi selection", () => {
+    expect(
+      resolveScheduledAgentSubmitProvider({
+        agentKind: "automation",
+        automationTargetKind: "builtin",
+        builtinAutomationId: "backlog-drain",
+        provider: "claude-code",
+        codingAgent: "pi",
+        aiProvider: "zai",
+      }),
+    ).toBe("zipu");
+  });
+
   it("routes built-in automation to the xAI-backed provider when Codex uses xAI", () => {
     expect(
       resolveScheduledAgentSubmitProvider({
@@ -588,16 +643,132 @@ describe("resolveOnceRunAtDefault", () => {
   });
 });
 
+describe("scheduled runtime edit preservation", () => {
+  it("preserves raw future and unsupported runtime strings in edit defaults", () => {
+    expect(resolveScheduledAgentRuntimeEditDefaults({
+      provider: "future-lane",
+      codingAgent: "future-agent",
+      aiProvider: "future-provider",
+      aiModel: "Future/Model@1",
+      reasoningLevel: "ULTRA",
+    })).toEqual({
+      provider: "future-lane",
+      codingAgent: "future-agent",
+      aiProvider: "future-provider",
+      aiModel: "Future/Model@1",
+      reasoningLevel: "ULTRA",
+    });
+  });
+
+  it("preserves codex-cli and null/default routing values without normalizing them", () => {
+    expect(resolveScheduledAgentRuntimeEditDefaults({
+      provider: null,
+      codingAgent: "codex-cli",
+      aiProvider: null,
+      aiModel: null,
+      reasoningLevel: null,
+    })).toEqual({
+      provider: null,
+      codingAgent: "codex-cli",
+      aiProvider: null,
+      aiModel: null,
+      reasoningLevel: null,
+    });
+  });
+
+  it("omits untouched persisted runtime fields from edit PATCH data", () => {
+    expect(resolveScheduledAgentSubmitRuntimeFields({
+      provider: "future-lane",
+      codingAgent: "future-agent",
+      aiProvider: "future-provider",
+      aiModel: "Future/Model@1",
+      reasoningLevel: "ULTRA",
+    }, {
+      isEditing: true,
+      dirtyFields: {},
+    })).toEqual({});
+  });
+
+  it("submits the complete runtime tuple after a runtime field changes", () => {
+    expect(resolveScheduledAgentSubmitRuntimeFields({
+      provider: "future-lane",
+      codingAgent: "codex",
+      aiProvider: "openai",
+      aiModel: "gpt-5.5",
+      reasoningLevel: "xhigh",
+    }, {
+      isEditing: true,
+      dirtyFields: { aiModel: true },
+    })).toEqual({
+      provider: "codex",
+      codingAgent: "codex",
+      aiProvider: "openai",
+      aiModel: "gpt-5.5",
+      reasoningLevel: "xhigh",
+    });
+  });
+
+  it("returns projection-derived reasons for invalid Pi routing and capabilities", () => {
+    expect(resolveScheduledAgentRuntimeAdmission({
+      provider: "zipu",
+      codingAgent: "pi",
+      aiProvider: "zai",
+      aiModel: "glm-5.2",
+      reasoningLevel: undefined,
+      needsBrowser: false,
+      selectedPluginIds: [],
+      selectedMcpServerIds: [],
+    })).toMatchObject({
+      admitted: false,
+      code: "RUNTIME_ADMISSION_DISABLED",
+      dimension: "model",
+    });
+
+    expect(resolveScheduledAgentRuntimeAdmission({
+      provider: "zipu",
+      codingAgent: "pi",
+      aiProvider: "zai",
+      aiModel: null,
+      reasoningLevel: undefined,
+      needsBrowser: false,
+      selectedPluginIds: [],
+      selectedMcpServerIds: [],
+    })).toMatchObject({
+      admitted: false,
+      code: "RUNTIME_MODEL_UNSUPPORTED",
+      dimension: "model",
+    });
+
+    expect(resolveScheduledAgentRuntimeAdmission({
+      provider: "zipu",
+      codingAgent: "pi",
+      aiProvider: "zai",
+      aiModel: "glm-5.3",
+      reasoningLevel: undefined,
+      needsBrowser: true,
+      selectedPluginIds: ["11111111-1111-4111-8111-111111111111"],
+      selectedMcpServerIds: ["22222222-2222-4222-8222-222222222222"],
+    })).toMatchObject({
+      admitted: false,
+      code: "PI_CAPABILITY_BROWSER_DISABLED",
+      dimension: "capability",
+      value: "browser",
+    });
+  });
+});
+
 describe("resolveScheduledAgentSubmitRuntimeFields", () => {
   it("persists runtime/model fields for built-in automation processes", () => {
     expect(
       resolveScheduledAgentSubmitRuntimeFields({
+        provider: "codex",
         codingAgent: "codex",
         aiProvider: "openai",
         aiModel: "gpt-5.5",
         reasoningLevel: "xhigh",
       }),
     ).toEqual({
+      provider: "codex",
       codingAgent: "codex",
       aiProvider: "openai",
       aiModel: "gpt-5.5",
@@ -608,12 +779,14 @@ describe("resolveScheduledAgentSubmitRuntimeFields", () => {
   it("keeps runtime/model fields for direct repository agents", () => {
     expect(
       resolveScheduledAgentSubmitRuntimeFields({
+        provider: "codex",
         codingAgent: "codex",
         aiProvider: "openai",
         aiModel: "gpt-5.5",
         reasoningLevel: "xhigh",
       }),
     ).toEqual({
+      provider: "codex",
       codingAgent: "codex",
       aiProvider: "openai",
       aiModel: "gpt-5.5",
@@ -621,15 +794,35 @@ describe("resolveScheduledAgentSubmitRuntimeFields", () => {
     });
   });
 
+  it("persists the admitted Pi + Z.AI + GLM-5.3 tuple", () => {
+    expect(
+      resolveScheduledAgentSubmitRuntimeFields({
+        provider: "zipu",
+        codingAgent: "pi",
+        aiProvider: "zai",
+        aiModel: "glm-5.3",
+        reasoningLevel: undefined,
+      }),
+    ).toEqual({
+      provider: "zipu",
+      codingAgent: "pi",
+      aiProvider: "zai",
+      aiModel: "glm-5.3",
+      reasoningLevel: undefined,
+    });
+  });
+
   it("omits a stale reasoning level when the selected model is Haiku", () => {
     expect(
       resolveScheduledAgentSubmitRuntimeFields({
+        provider: "claude-code",
         codingAgent: "claude-code",
         aiProvider: "anthropic",
         aiModel: "claude-haiku-4-5",
         reasoningLevel: "low",
       }),
     ).toEqual({
+      provider: "claude-code",
       codingAgent: "claude-code",
       aiProvider: "anthropic",
       aiModel: "claude-haiku-4-5",

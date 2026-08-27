@@ -1,7 +1,11 @@
+import type { RuntimeEvidence } from "@almirant/shared";
 import { calculateCostUsd } from "../../billing/quota/services/ai-model-pricing";
 
 export type JobUsageMetricsInput = {
+  runtimeEvidence?: RuntimeEvidence | null;
   model?: string | null;
+  codingAgent?: string | null;
+  isLegacyRuntime?: boolean;
   cost?: number | null;
   tokensUsed?: number | null;
   inputTokens?: number | null;
@@ -14,6 +18,11 @@ export type JobUsageMetrics = {
 };
 
 const PRICING_PROVIDERS = ["anthropic", "openai", "zai", "xai"] as const;
+const LEGACY_ESTIMATION_CODING_AGENTS = new Set([
+  "claude-code",
+  "codex",
+  "opencode",
+]);
 
 const asNumber = (value: unknown): number | undefined => {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
@@ -30,6 +39,17 @@ const normalizeModel = (value: string | null | undefined): string | undefined =>
 export const deriveJobUsageMetrics = (
   input: JobUsageMetricsInput,
 ): JobUsageMetrics => {
+  if (input.runtimeEvidence) {
+    const usage = input.runtimeEvidence.usage;
+    if (usage.status === "unavailable") return {};
+    return {
+      tokensUsed: usage.totalTokens,
+      ...(usage.cost?.totalUsd !== undefined
+        ? { cost: usage.cost.totalUsd }
+        : {}),
+    };
+  }
+
   const model = normalizeModel(input.model);
   const inputTokens = asNumber(input.inputTokens);
   const outputTokens = asNumber(input.outputTokens);
@@ -48,7 +68,16 @@ export const deriveJobUsageMetrics = (
     };
   }
 
-  if (!model || inputTokens === undefined || outputTokens === undefined) {
+  const supportsLegacyEstimation =
+    input.isLegacyRuntime === true &&
+    typeof input.codingAgent === "string" &&
+    LEGACY_ESTIMATION_CODING_AGENTS.has(input.codingAgent);
+  if (
+    !supportsLegacyEstimation ||
+    !model ||
+    inputTokens === undefined ||
+    outputTokens === undefined
+  ) {
     return derivedTokensUsed !== undefined ? { tokensUsed: derivedTokensUsed } : {};
   }
 

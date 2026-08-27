@@ -113,6 +113,12 @@ describe("consumeSseEvents", () => {
           eventLogger: createEventLogger(),
           redactor: createJobSecretRedactor(),
           streamPublisher: createStreamPublisher(published),
+          infrastructureProvider:
+            fixture.runtime === "claude"
+              ? "claude-code"
+              : fixture.runtime === "codex"
+                ? "codex"
+                : undefined,
           threadId: `thread-${fixture.runtime}`,
           webSessionId: `web-${fixture.runtime}`,
           webWorkspaceId: "org-1",
@@ -138,6 +144,158 @@ describe("consumeSseEvents", () => {
       });
     });
   }
+
+  it("conserva uno a uno los envelopes nativos de Claude con el protocolo actual", async () => {
+    const published: unknown[] = [];
+    const sseEvents = [
+      {
+        data: JSON.stringify({
+          type: "message.part.delta",
+          properties: {
+            sessionId: "claude-session",
+            contentType: "text",
+            delta: "Hola ",
+          },
+        }),
+      },
+      {
+        data: JSON.stringify({
+          type: "message.part.delta",
+          properties: {
+            sessionId: "claude-session",
+            contentType: "text",
+            delta: "Claude",
+          },
+        }),
+      },
+      {
+        data: JSON.stringify({
+          type: "session.idle",
+          properties: { sessionId: "claude-session" },
+        }),
+      },
+    ];
+
+    await consumeSseEvents(
+      {
+        workerClient: createWorkerClient(),
+        containerManager: {} as never,
+        config: {},
+      },
+      {
+        sessionManager: createSessionManager(sseEvents),
+        sessionId: "claude-session",
+        jobId: "claude-native-evidence-job",
+        isPlanningJob: false,
+        eventLogger: createEventLogger(),
+        redactor: createJobSecretRedactor(),
+        streamPublisher: createStreamPublisher(published),
+        infrastructureProvider: "claude-code",
+      },
+    );
+
+    const nativeEvents = published
+      .filter((event): event is Record<string, unknown> =>
+        typeof event === "object" && event !== null,
+      )
+      .filter((event) => event._format === "native");
+
+    expect(nativeEvents).toHaveLength(sseEvents.length);
+    expect(nativeEvents.map((event) => ({
+      nativeEventType: event.nativeEventType,
+      payload: event.payload,
+    }))).toEqual(sseEvents.map((event) => {
+      const data = JSON.parse(event.data) as Record<string, unknown>;
+      return {
+        nativeEventType: data.type,
+        payload: { event: null, data },
+      };
+    }));
+  });
+
+  it("mantiene acotados los deltas Pi sin alterar su evidencia agregada", async () => {
+    const published: unknown[] = [];
+
+    await consumeSseEvents(
+      {
+        workerClient: createWorkerClient(),
+        containerManager: {} as never,
+        config: {},
+      },
+      {
+        sessionManager: createSessionManager([
+          {
+            data: JSON.stringify({
+              type: "message.part.delta",
+              properties: {
+                sessionId: "pi-session",
+                contentType: "text",
+                delta: "Hola ",
+              },
+            }),
+          },
+          {
+            data: JSON.stringify({
+              type: "message.part.delta",
+              properties: {
+                sessionId: "pi-session",
+                contentType: "text",
+                delta: "Pi",
+              },
+            }),
+          },
+          {
+            data: JSON.stringify({
+              type: "session.idle",
+              properties: { sessionId: "pi-session" },
+            }),
+          },
+        ]),
+        sessionId: "pi-session",
+        jobId: "pi-native-evidence-job",
+        isPlanningJob: false,
+        eventLogger: createEventLogger(),
+        redactor: createJobSecretRedactor(),
+        streamPublisher: createStreamPublisher(published),
+        infrastructureProvider: "zipu",
+      },
+    );
+
+    const nativeEvents = published
+      .filter((event): event is Record<string, unknown> =>
+        typeof event === "object" && event !== null,
+      )
+      .filter((event) => event._format === "native");
+
+    expect(nativeEvents).toHaveLength(2);
+    expect(nativeEvents[0]).toMatchObject({
+      nativeEventType: "message.part.delta",
+      sourceFormat: "runtime-sse",
+      provider: "zipu",
+      runtimeSessionId: "pi-session",
+      payload: {
+        event: null,
+        data: {
+          type: "message.part.delta",
+          properties: {
+            sessionId: "pi-session",
+            contentType: "text",
+            delta: "Hola Pi",
+          },
+        },
+      },
+    });
+    expect(nativeEvents[1]).toMatchObject({
+      nativeEventType: "session.idle",
+      payload: {
+        event: null,
+        data: {
+          type: "session.idle",
+          properties: { sessionId: "pi-session" },
+        },
+      },
+    });
+  });
 
   it("detiene la sesión y conserva pending failed sin convertirlo en cancelación", async () => {
     const result = await consumeSseEvents(
@@ -563,5 +721,109 @@ describe("consumeSseEvents", () => {
     expect(result.success).toBe(false);
     expect(result.errorMessage).toBe("The 'gpt-5.5' model requires a newer version of Codex.");
     expect(result.summary).toBeUndefined();
+  });
+
+  it("espera el último flush nativo y propaga su fallo", async () => {
+    const publicationStarted = deferred<void>();
+    const publicationFinished = deferred<void>();
+    let consumptionSettled = false;
+    const basePublisher = createStreamPublisher([]);
+    const streamPublisher: StreamPublisher = {
+      ...basePublisher,
+      publishNativeEnvelope: async () => {
+        publicationStarted.resolve();
+        await publicationFinished.promise;
+        return "native-1";
+      },
+    };
+
+    const consumption = consumeSseEvents(
+      {
+        workerClient: createWorkerClient(),
+        containerManager: {} as never,
+        config: {},
+      },
+      {
+        sessionManager: createSessionManager([
+          {
+            data: JSON.stringify({
+              type: "native.event",
+              properties: {
+                nativeEventType: "message_end",
+                sourceFormat: "pi-rpc",
+                payload: { type: "message_end" },
+              },
+            }),
+          },
+        ]),
+        sessionId: "pending-native-flush-session",
+        jobId: "pending-native-flush-job",
+        isPlanningJob: false,
+        eventLogger: createEventLogger(),
+        redactor: createJobSecretRedactor(),
+        streamPublisher,
+      },
+    );
+    void consumption.then(
+      () => { consumptionSettled = true; },
+      () => { consumptionSettled = true; },
+    );
+
+    await publicationStarted.promise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(consumptionSettled).toBe(false);
+
+    publicationFinished.reject(new Error("native persistence failed"));
+    await expect(consumption).rejects.toThrow("native persistence failed");
+  });
+
+  it("rechaza runtimeEvidence malformado sin usar usageSummary como respaldo", async () => {
+    const result = await consumeSseEvents(
+      {
+        workerClient: createWorkerClient(),
+        containerManager: {} as never,
+        config: {},
+      },
+      {
+        sessionManager: createSessionManager([
+          {
+            data: JSON.stringify({
+              type: "session.idle",
+              properties: {
+                runtimeEvidence: {
+                  schemaVersion: "runtime-evidence-v1",
+                  usage: {
+                    status: "reported",
+                    source: "terminal_aggregate",
+                    inputTokens: "not-a-number",
+                    outputTokens: 2,
+                    totalTokens: 3,
+                  },
+                },
+                usageSummary: {
+                  inputTokens: 1,
+                  outputTokens: 2,
+                  totalTokens: 3,
+                  totalCostUsd: 0.1,
+                },
+              },
+            }),
+          },
+        ]),
+        sessionId: "malformed-evidence-session",
+        jobId: "malformed-evidence-job",
+        isPlanningJob: false,
+        eventLogger: createEventLogger(),
+        redactor: createJobSecretRedactor(),
+      },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.errorMessage).toBe(
+      "Runtime evidence rejected: RUNTIME_EVIDENCE_MALFORMED",
+    );
+    expect(result.runtimeEvidence).toBeUndefined();
+    expect(result.tokensUsed).toBeUndefined();
+    expect(result.costUsd).toBeUndefined();
   });
 });

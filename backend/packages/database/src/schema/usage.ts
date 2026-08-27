@@ -6,6 +6,8 @@ import {
   integer,
   bigint,
   varchar,
+  jsonb,
+  numeric,
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -13,6 +15,7 @@ import { usageSessionTypeEnum } from "./enums";
 import { user } from "./auth";
 import { workspace } from "./workspace";
 import { projects } from "./projects";
+import type { RuntimeEvidence } from "@almirant/shared";
 
 // Individual usage events
 export const usageRecords = pgTable(
@@ -29,11 +32,14 @@ export const usageRecords = pgTable(
       onDelete: "set null",
     }),
     jobId: uuid("job_id"), // nullable, references agent_jobs but no FK constraint to keep decoupled
+    idempotencyKey: varchar("idempotency_key", { length: 255 }),
     sessionType: usageSessionTypeEnum("session_type").notNull(),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
     endedAt: timestamp("ended_at", { withTimezone: true }).notNull(),
     durationSeconds: integer("duration_seconds").notNull(),
     tokensUsed: bigint("tokens_used", { mode: "number" }),
+    runtimeEvidence: jsonb("runtime_evidence").$type<RuntimeEvidence>(),
+    providerCostUsd: numeric("provider_cost_usd", { precision: 20, scale: 9 }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -44,6 +50,7 @@ export const usageRecords = pgTable(
     index("usage_records_project_idx").on(table.projectId),
     index("usage_records_session_type_idx").on(table.sessionType),
     index("usage_records_started_at_idx").on(table.startedAt),
+    uniqueIndex("usage_records_idempotency_key_unique_idx").on(table.idempotencyKey),
   ]
 );
 

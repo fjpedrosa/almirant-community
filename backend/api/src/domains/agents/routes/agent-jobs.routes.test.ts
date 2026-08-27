@@ -180,6 +180,123 @@ describe("agentJobsRoutes POST /agent-jobs", () => {
     expect(state.createdJobInput?.model).toBe("claude-opus-4-8");
   });
 
+  it("admits direct Pi / Z.AI / GLM-5.3 with API-key auth and no optional capabilities", async () => {
+    const { agentJobsRoutes } = await import("./agent-jobs.routes");
+    const app = new Elysia().use(withTestOrg).use(agentJobsRoutes);
+
+    const res = await app.handle(
+      makeRequest("/agent-jobs", {
+        workItemId: testWorkItem.id,
+        provider: "zipu",
+        jobType: "validation",
+        codingAgent: "pi",
+        aiProvider: "zai",
+        model: "glm-5.3",
+        config: { repoPath: ".", baseBranch: "main" },
+      }),
+    );
+
+    expect(res.status).toBe(201);
+    expect(state.createdJobInput).toMatchObject({
+      codingAgent: "pi",
+      aiProvider: "zai",
+      model: "glm-5.3",
+      resolvedRuntimeSelection: {
+        authClass: "api_key",
+        capabilities: [],
+      },
+    });
+  });
+
+  it("rejects direct Pi admission when disabled before createJob", async () => {
+    const previous = process.env.PI_CODING_AGENT_ADMISSION_ENABLED;
+    process.env.PI_CODING_AGENT_ADMISSION_ENABLED = "false";
+    try {
+      const { agentJobsRoutes } = await import("./agent-jobs.routes");
+      const app = new Elysia().use(withTestOrg).use(agentJobsRoutes);
+
+      const res = await app.handle(
+        makeRequest("/agent-jobs", {
+          workItemId: testWorkItem.id,
+          provider: "zipu",
+          jobType: "validation",
+          codingAgent: "pi",
+          aiProvider: "zai",
+          model: "glm-5.3",
+          config: { repoPath: ".", baseBranch: "main" },
+        }),
+      );
+      const responseBody = (await res.json()) as { code?: string; error?: string };
+
+      expect(res.status).toBe(400);
+      expect(responseBody.code).toBe("PI_ADMISSION_DISABLED");
+      expect(responseBody.error).toBe(
+        "Invalid scheduled agent runtime: Pi coding-agent admission is disabled by operator policy.",
+      );
+      expect(state.createdJobInput).toBeNull();
+    } finally {
+      if (previous === undefined) {
+        delete process.env.PI_CODING_AGENT_ADMISSION_ENABLED;
+      } else {
+        process.env.PI_CODING_AGENT_ADMISSION_ENABLED = previous;
+      }
+    }
+  });
+
+  it.each([
+    ["direct MCP URL", { mcpServerUrl: "https://mcp.example.com" }, "PI_CAPABILITY_MCP_DISABLED"],
+    ["direct MCP config", { mcpServers: { docs: { url: "https://mcp.example.com" } } }, "PI_CAPABILITY_MCP_DISABLED"],
+    ["selected MCP profile", { selectedMcpServerIds: ["6e9fa58b-3490-4e39-982f-444e5c697e55"] }, "PI_CAPABILITY_MCP_DISABLED"],
+    ["browser", { needsBrowser: true }, "PI_CAPABILITY_BROWSER_DISABLED"],
+    ["read-only workspace", { workspaceIntent: "read-only" }, "PI_CAPABILITY_READ_ONLY_ENFORCEMENT_DISABLED"],
+    ["permission", { permissionMode: "ask" }, "PI_CAPABILITY_PERMISSION_ENFORCEMENT_DISABLED"],
+    ["subscription auth", { authClass: "subscription" }, "PI_AUTH_SUBSCRIPTION_DISABLED"],
+  ])("rejects Pi %s intent before createJob", async (_label, config, code) => {
+    const { agentJobsRoutes } = await import("./agent-jobs.routes");
+    const app = new Elysia().use(withTestOrg).use(agentJobsRoutes);
+
+    const res = await app.handle(
+      makeRequest("/agent-jobs", {
+        workItemId: testWorkItem.id,
+        provider: "zipu",
+        jobType: "validation",
+        codingAgent: "pi",
+        aiProvider: "zai",
+        model: "glm-5.3",
+        config,
+      }),
+    );
+    const responseBody = (await res.json()) as { code?: string; error?: string };
+
+    expect(res.status).toBe(400);
+    expect(responseBody.code).toBe(code);
+    expect(responseBody.error).not.toContain("mcp.example.com");
+    expect(state.createdJobInput).toBeNull();
+  });
+
+  it("rejects a capability-bearing Pi batch atomically before createBatchJobs", async () => {
+    const { agentJobsRoutes } = await import("./agent-jobs.routes");
+    const app = new Elysia().use(withTestOrg).use(agentJobsRoutes);
+
+    const res = await app.handle(
+      makeRequest("/agent-jobs/batch", {
+        workItemIds: [testWorkItem.id],
+        provider: "zipu",
+        codingAgent: "pi",
+        aiProvider: "zai",
+        model: "glm-5.3",
+        config: {
+          selectedMcpServerIds: ["6e9fa58b-3490-4e39-982f-444e5c697e55"],
+        },
+      }),
+    );
+    const responseBody = (await res.json()) as { code?: string };
+
+    expect(res.status).toBe(400);
+    expect(responseBody.code).toBe("PI_CAPABILITY_MCP_DISABLED");
+    expect(state.createdBatchJobInputs).toBeNull();
+  });
+
   it("resolves provider-specific default models instead of an Anthropic hardcode", async () => {
     const { agentJobsRoutes } = await import("./agent-jobs.routes");
     const app = new Elysia().use(withTestOrg).use(agentJobsRoutes);
@@ -212,6 +329,57 @@ describe("agentJobsRoutes POST /agent-jobs", () => {
     expect(res.status).toBe(201);
     expect(state.createdBatchJobInputs).toHaveLength(1);
     expect(state.createdBatchJobInputs?.[0]?.model).toBe("claude-opus-4-8");
+  });
+
+  it.each([
+    ["browser", { needsBrowser: true }, "PI_CAPABILITY_BROWSER_DISABLED"],
+    [
+      "legacy plugin",
+      { selectedPluginIds: ["9c1f6f0e-9b7e-4b8a-8b0e-7f6c2e5a1d33"] },
+      "PI_CAPABILITY_EXTENSIONS_DISABLED",
+    ],
+  ])("re-admits a retry's persisted %s config before createJob", async (_label, config, code) => {
+    state.jobDetailsById["job-retry-pi-capability"] = {
+      job: {
+        id: "job-retry-pi-capability",
+        workItemId: testWorkItem.id,
+        projectId: testWorkItem.projectId,
+        boardId: testWorkItem.boardId,
+        planningSessionId: null,
+        createdByUserId: testUser.id,
+        workspaceId: "org-test-1",
+        jobType: "validation",
+        status: "failed",
+        provider: "zipu",
+        priority: "medium",
+        config,
+        codingAgent: "pi",
+        aiProvider: "zai",
+        model: "glm-5.3",
+        skillName: "validate",
+        prompt: null,
+        promptTemplate: "validate",
+        triggerType: "event",
+        interactive: false,
+      },
+      workItem: null,
+      project: null,
+      board: null,
+      planningSession: null,
+      feedbackItem: null,
+      createdByUser: null,
+    };
+
+    const { agentJobsRoutes } = await import("./agent-jobs.routes");
+    const app = new Elysia().use(withTestOrg).use(agentJobsRoutes);
+    const res = await app.handle(
+      new Request("http://localhost/agent-jobs/job-retry-pi-capability/retry", { method: "POST" }),
+    );
+    const responseBody = (await res.json()) as { code?: string };
+
+    expect(res.status).toBe(400);
+    expect(responseBody.code).toBe(code);
+    expect(state.createdJobInput).toBeNull();
   });
 
   it("falls back to the shared runtime default model when retrying a job without a stored model", async () => {

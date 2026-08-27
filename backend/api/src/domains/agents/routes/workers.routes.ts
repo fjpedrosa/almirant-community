@@ -23,6 +23,7 @@ import {
   updateLegacyClaimedJobStatus,
   requestJobTerminalIntent,
   getJobById,
+  withLiveAgentJobClaim,
   getActiveJobForWorkItem,
   getWorkItemById,
   getDependencies,
@@ -33,6 +34,9 @@ import {
   setWorkItemAiProcessing,
   setWorkItemAiError,
   getLatestActiveAiKeyByProvider,
+  getAiProviderKeyById,
+  getConnectionMetadataById,
+  deriveConnectionAuthClass,
   updateConnectionLastUsedAt,
   decryptCredentials,
   createInteraction,
@@ -61,6 +65,7 @@ import {
   getProjectsWithNightlyValidationEnabled,
   getCommitsByBranchAndRepo,
   createUsageRecord,
+  UsageRecordIdempotencyConflictError,
   getWorkItemsBySession,
   completePlanningSession,
   resetStaleChildWorkItems,
@@ -79,6 +84,7 @@ import {
   insertSessionEventsBatch,
   insertAgentNativeEventsBatch,
   getAgentNativeEventsByJobId,
+  AGENT_NATIVE_EVENT_LIMITS,
   ensureClaimSequenceReservation,
   prepareClaimSequenceHandoff,
   persistFencedAgentJobLogs,
@@ -112,11 +118,12 @@ import type {
   NewAgentNativeEvent,
   NewSessionEvent,
   ScheduledAgentConfigDb,
+  ConnectionAuthClass,
 } from "@almirant/database";
 import { env, logger } from "@almirant/config";
 import { refreshCanonicalSessionProjection } from "../../ideation/planning-sessions/services/canonical-session-projection";
 import { getGithubAppCredentials } from "../../instance/services/github-app-credentials-service";
-import { errorResponse, notFoundResponse, successResponse } from "../../../shared/services/response";
+import { errorResponse, internalErrorResponse, notFoundResponse, successResponse } from "../../../shared/services/response";
 import { downloadBufferFromS3, extractKeyFromUrl, getEditorUploadsBucket, isS3Configured } from "../../../shared/services/s3-service";
 import { resolveLocalAttachmentPath } from "../../../shared/services/local-attachments";
 import { wsConnectionManager } from "../../../shared/ws/ws-connection-manager";
@@ -133,7 +140,14 @@ import {
   resolveRuntime,
   decodeAgentPluginBundleDescriptor,
   createPlanReviewCapabilityRef,
+  resolveClaimCodingAgentAdmission,
+  createRuntimeFailure,
+  safeParseRuntimeEvidence,
+  safeSanitizeRuntimeDiagnostic,
   type AgentRuntimePluginReference,
+  type ResolvedRuntimeSelection,
+  type RuntimeEvidence,
+  type RuntimeFailureCode,
 } from "@almirant/shared";
 import {
   buildDefaultJobResourceEstimate,
@@ -141,7 +155,11 @@ import {
   toJobResourceEstimate,
 } from "../services/resource-forecast";
 import { resolveExpectedWorkItemIdsForCompletion } from "../services/completion-snapshot";
-import { assertValidScheduledAgentRuntime } from "../services/scheduled-agent-runtime-validation";
+import {
+  PI_ADMISSION_DISABLED,
+  assertValidScheduledAgentRuntime,
+  isPiCodingAgentAdmissionEnabled,
+} from "../services/scheduled-agent-runtime-validation";
 import { getScheduledAgentDemand } from "../services/scheduled-agent-demand";
 import { resolveScheduledAgentEffectiveRuntimes } from "../services/scheduled-agent-effective-model-resolver";
 import { applyPlanReviewTerminalJob } from "../../ai/chat/services/plan-review-completion";
@@ -513,6 +531,92 @@ const USAGE_RECORD_AGENT_JOB_STATUSES = new Set<TerminalAgentJobStatus>([
   "cancelled",
 ]);
 
+const exactStringArrayMatch = (
+  left: readonly string[],
+  right: readonly string[],
+): boolean =>
+  left.length === right.length &&
+  left.every((value, index) => value === right[index]);
+
+const runtimeSelectionSnapshotMatches = (
+  snapshot: NonNullable<RuntimeEvidence["requested"]>,
+  selection: {
+    codingAgent: string;
+    aiProvider: string;
+    model: string;
+    authClass?: string;
+    capabilities?: readonly string[];
+  },
+): boolean =>
+  snapshot.codingAgent === selection.codingAgent &&
+  snapshot.aiProvider === selection.aiProvider &&
+  snapshot.model === selection.model &&
+  (snapshot.authClass === undefined || snapshot.authClass === selection.authClass) &&
+  (snapshot.capabilities === undefined ||
+    (selection.capabilities !== undefined &&
+      exactStringArrayMatch(snapshot.capabilities, selection.capabilities)));
+
+const runtimeEvidenceMatchesJobSelection = (
+  evidence: RuntimeEvidence,
+  job: {
+    provider: string;
+    codingAgent: string;
+    aiProvider: string;
+    model: string;
+    resolvedRuntimeSelection?: ResolvedRuntimeSelection | null;
+  },
+): boolean => {
+  if (
+    !evidence.requested ||
+    evidence.infrastructureProvider !== job.provider ||
+    !runtimeSelectionSnapshotMatches(evidence.requested, job)
+  ) {
+    return false;
+  }
+
+  const resolved = job.resolvedRuntimeSelection;
+  if (!resolved) {
+    return (
+      evidence.resolved === undefined &&
+      job.codingAgent !== "pi" &&
+      (evidence.observed === undefined ||
+        runtimeSelectionSnapshotMatches(evidence.observed, job))
+    );
+  }
+
+  const reportedResolved = evidence.resolved;
+  if (
+    !reportedResolved ||
+    resolved.provider !== job.provider ||
+    reportedResolved.schemaVersion !== resolved.schemaVersion ||
+    reportedResolved.registryVersion !== resolved.registryVersion ||
+    reportedResolved.projectionHash !== resolved.projectionHash ||
+    reportedResolved.codingAgent !== resolved.codingAgent ||
+    reportedResolved.aiProvider !== resolved.aiProvider ||
+    reportedResolved.model !== resolved.model ||
+    reportedResolved.authClass !== resolved.authClass ||
+    !exactStringArrayMatch(reportedResolved.capabilities, resolved.capabilities) ||
+    reportedResolved.provenance.provider !== resolved.provenance.provider ||
+    reportedResolved.provenance.codingAgent !== resolved.provenance.codingAgent ||
+    reportedResolved.provenance.aiProvider !== resolved.provenance.aiProvider ||
+    reportedResolved.provenance.model !== resolved.provenance.model ||
+    reportedResolved.provenance.authClass !== resolved.provenance.authClass ||
+    reportedResolved.provenance.capabilities !== resolved.provenance.capabilities
+  ) {
+    return false;
+  }
+
+  if (evidence.observed) {
+    if (!runtimeSelectionSnapshotMatches(evidence.observed, resolved)) {
+      return false;
+    }
+  } else if (resolved.codingAgent === "pi") {
+    return false;
+  }
+
+  return true;
+};
+
 const pickFirstString = (
   record: Record<string, unknown>,
   keys: string[],
@@ -694,6 +798,22 @@ const broadcastStatusChanged = async (
 };
 
 type ResolvableWorkerProvider = "anthropic" | "openai" | "google" | "zai" | "xai";
+type WorkerCredentialAuthClass = "api_key" | "setup_token" | "provider_oauth" | "subscription";
+type WorkerCredentialBundleMetadata = {
+  provider: ResolvableWorkerProvider;
+  connectionId: string;
+  planningModel?: string;
+  implementationModel?: string;
+  validationModel?: string;
+};
+type WorkerCredentialBundle = WorkerCredentialBundleMetadata &
+  (
+    | { authClass: "api_key"; apiKey: string }
+    | {
+        authClass: Exclude<WorkerCredentialAuthClass, "api_key">;
+        apiKey?: never;
+      }
+  );
 
 const normalizeWorkerProvider = (provider: string): ResolvableWorkerProvider | null => {
   const normalized = provider.trim().toLowerCase();
@@ -750,6 +870,128 @@ const resolvePlanReviewConnectionId = async (input: {
   return match?.id ?? null;
 };
 
+const KNOWN_WORKER_CREDENTIAL_AUTH_CLASSES = new Set<WorkerCredentialAuthClass>([
+  "api_key",
+  "setup_token",
+  "provider_oauth",
+  "subscription",
+]);
+
+const isWorkerCredentialAuthClass = (
+  authClass: ConnectionAuthClass,
+): authClass is WorkerCredentialAuthClass =>
+  KNOWN_WORKER_CREDENTIAL_AUTH_CLASSES.has(authClass as WorkerCredentialAuthClass);
+
+const deriveWorkerCredentialAuthClass = (
+  config: unknown,
+  isPi: boolean,
+): ConnectionAuthClass => {
+  const derived = deriveConnectionAuthClass(config);
+  const configuredAuthMethod =
+    config && typeof config === "object" && !Array.isArray(config)
+      ? (config as Record<string, unknown>).authMethod
+      : undefined;
+  return !isPi && derived === "unknown" && typeof configuredAuthMethod !== "string"
+    ? "api_key"
+    : derived;
+};
+
+const runtimeFailureResponse = (
+  error: string,
+  status: number,
+  publicCode: string | undefined,
+  runtimeFailureCode: RuntimeFailureCode,
+) => ({
+  ...errorResponse(error, status, publicCode),
+  runtimeFailure: createRuntimeFailure(runtimeFailureCode),
+});
+
+const piAuthRejectionCode = (authClass: ConnectionAuthClass): string => {
+  switch (authClass) {
+    case "setup_token":
+      return "PI_AUTH_SETUP_TOKEN_UNSUPPORTED";
+    case "provider_oauth":
+      return "PI_AUTH_PROVIDER_OAUTH_UNSUPPORTED";
+    case "subscription":
+      return "PI_AUTH_SUBSCRIPTION_UNSUPPORTED";
+    case "api_key":
+      return "PI_AUTH_API_KEY_INVALID";
+    default:
+      return "PI_AUTH_UNKNOWN_UNSUPPORTED";
+  }
+};
+
+const rejectedAuthClassesFromError = (
+  error: unknown,
+): readonly ConnectionAuthClass[] | null => {
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    (error as { name?: unknown }).name !== "AiKeyAuthClassRejectedError" ||
+    !Array.isArray((error as { rejectedAuthClasses?: unknown }).rejectedAuthClasses)
+  ) {
+    return null;
+  }
+  return (error as { rejectedAuthClasses: ConnectionAuthClass[] })
+    .rejectedAuthClasses;
+};
+
+const PI_ZAI_CODING_PLAN_BASE_URL =
+  "https://api.z.ai/api/coding/paas/v4";
+
+const normalizePiZaiCodingPlanBaseUrl = (
+  configuredBaseUrl: string | undefined,
+): string | null =>
+  configuredBaseUrl === PI_ZAI_CODING_PLAN_BASE_URL ||
+  configuredBaseUrl === `${PI_ZAI_CODING_PLAN_BASE_URL}/`
+    ? PI_ZAI_CODING_PLAN_BASE_URL
+    : null;
+
+const trustedWorkerProviderEndpoint = (
+  provider: ResolvableWorkerProvider,
+  configuredBaseUrl: string | undefined,
+  requireExactPiZaiEndpoint = false,
+): { ok: true; baseUrl?: string } | { ok: false; code: string } => {
+  if (provider === "zai" && requireExactPiZaiEndpoint) {
+    const normalizedBaseUrl = normalizePiZaiCodingPlanBaseUrl(configuredBaseUrl);
+    return normalizedBaseUrl
+      ? { ok: true, baseUrl: normalizedBaseUrl }
+      : { ok: false, code: "ZAI_ENDPOINT_UNTRUSTED" };
+  }
+  if (!configuredBaseUrl || (provider !== "zai" && provider !== "xai")) {
+    return { ok: true };
+  }
+
+  try {
+    const parsed = new URL(configuredBaseUrl);
+    const expectedHost = provider === "zai" ? "api.z.ai" : "api.x.ai";
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.hostname !== expectedHost ||
+      parsed.port ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      return {
+        ok: false,
+        code: provider === "zai"
+          ? "ZAI_ENDPOINT_UNTRUSTED"
+          : "XAI_ENDPOINT_UNTRUSTED",
+      };
+    }
+    return { ok: true, baseUrl: parsed.toString().replace(/\/$/, "") };
+  } catch {
+    return {
+      ok: false,
+      code: provider === "zai"
+        ? "ZAI_ENDPOINT_UNTRUSTED"
+        : "XAI_ENDPOINT_UNTRUSTED",
+    };
+  }
+};
+
 const normalizeJobResultPayload = (
   result: unknown,
 ): Record<string, unknown> | null => {
@@ -763,8 +1005,6 @@ const normalizeJobResultPayload = (
 
 const MAX_LOG_BATCH_SIZE = 1_000;
 
-// Receipts-protocol claim-ownership helpers. Genuinely generic (no
-// Shoutrz/workspace-scope dependency) — ported from cloud verbatim.
 const getCurrentClaimAttemptId = (
   config: AgentJobConfig | null | undefined,
 ): string | null =>
@@ -789,6 +1029,23 @@ const isLegacyUnclaimedSequenceEvent = (
   getCurrentClaimAttemptId(config) === null &&
   event.sequenceProtocolVersion === undefined &&
   event.claimAttemptId === undefined;
+
+type WorkerJobAccess =
+  | {
+      ok: true;
+      existing: NonNullable<Awaited<ReturnType<typeof getJobById>>>;
+    }
+  | { ok: false; status: 404 };
+
+const resolveWorkerJobAccess = async (jobId: string): Promise<WorkerJobAccess> => {
+  const existing = await getJobById(jobId);
+  return existing
+    ? { ok: true, existing }
+    : { ok: false, status: 404 };
+};
+
+const nonEmptyString = (value: unknown): string | null =>
+  typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 
 const resourceEstimateSchema = t.Object({
   estimatedMemoryMb: t.Number(),
@@ -948,371 +1205,783 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   .get(
     "/provider-keys",
     async ({ query, set, workerApiKey }) => {
-      if (!env.ENCRYPTION_KEY) {
-        set.status = 500;
-        return errorResponse("Encryption key not configured. Set ENCRYPTION_KEY env variable.", 500);
+      if (!workerApiKey?.serviceAccountId) {
+        set.status = 403;
+        return errorResponse("Worker service-account credential required", 403);
       }
 
-      const requested = (query.providers ?? "")
-        .split(",")
-        .map((p) => p.trim())
-        .filter(Boolean);
-      const providersToResolve = (
-        requested.length === 0 ? ["anthropic", "openai"] : requested
-      )
-        .map(normalizeWorkerProvider)
-        .filter((p): p is ResolvableWorkerProvider => p !== null);
-      const uniqueProviders = [...new Set(providersToResolve)];
-
-      // Parse excluded connection IDs (comma-separated) for hot-swap on rate limits
-      const excludeConnectionIds = (query.excludeConnectionIds ?? "")
-        .split(",")
-        .map((id) => id.trim())
-        .filter(Boolean);
-
-      // Admin-pinned connection (set via system_settings.agent_routing for
-      // Almirant-internal skills). When supplied, we look it up directly and
-      // use its credentials, bypassing the org's default resolution order.
-       const requestedPreferredConnectionRef = query.preferredConnectionId?.trim() || null;
-
-      // Security: derive workspaceId from the API key, falling back to the
-      // job's org when a jobId is provided.  Shared/dynamic runners may have an
-      // API key that belongs to a different org than the job they claimed —
-      // this is expected in the multi-tenant model where runners are created by
-      // the scaler and can pick up work for any workspace.  The credential
-      // resolution below is scoped to the resolved org, so credentials from one
-      // org are never leaked to a job from another.
-      let createdByUserId = query.createdByUserId?.trim() || null;
-      let workspaceId: string | null = workerApiKey!.workspaceId;
-       const jobId = query.jobId?.trim() || null;
-
-       if (jobId) {
-        const job = await getJobById(jobId);
-        if (!job) {
-          set.status = 404;
-          return notFoundResponse("Agent job");
-        }
-        createdByUserId = createdByUserId ?? job.job.createdByUserId ?? null;
-        // Use the job's org for credential resolution so that shared runners
-        // can serve jobs from any workspace.
-        if (job.job.workspaceId) {
-          workspaceId = job.job.workspaceId;
-         }
-       }
-
-       const job = jobId ? await getJobById(jobId) : null;
-       const jobConfig = job?.job.config && typeof job.job.config === "object" && !Array.isArray(job.job.config)
-         ? job.job.config as unknown as Record<string, unknown>
-         : {};
-       const requiresExactPreferredConnection = jobConfig.planReview !== undefined;
-       if (requiresExactPreferredConnection && !workspaceId) {
-         set.status = 403;
-         return errorResponse("The exact Plan Review connection is not available for this job", 403);
-       }
-       const preferredConnectionId = requiresExactPreferredConnection
-         ? await resolvePlanReviewConnectionId({
-             capabilityRef: requestedPreferredConnectionRef,
-             workspaceId: workspaceId!,
-             userId: createdByUserId,
-           })
-         : requestedPreferredConnectionRef;
-
-       if (requiresExactPreferredConnection && !preferredConnectionId) {
-         set.status = 403;
-         return errorResponse("The exact Plan Review connection is not available for this job", 403);
-       }
-
-       const result: Record<string, unknown> = {};
-       const debugInfo: Record<string, unknown> = {};
-
-      for (const provider of uniqueProviders) {
-        let connection:
-          | Awaited<ReturnType<typeof getLatestActiveAiKeyByProvider>>
-          | null = null;
-        let credentials: Record<string, unknown> | null = null;
-
-        // 0. Admin-pinned connection short-circuit. Scope the lookup to the
-        //    persisted job's organization or requesting user so a forged ID
-        //    cannot cross either authorization boundary.
-        if (preferredConnectionId && workspaceId) {
-          const organizationPinned = await getConnectionById(
-            preferredConnectionId,
-            env.ENCRYPTION_KEY,
-            { scope: "organization", scopeId: workspaceId },
-          );
-          const userPinned = !organizationPinned && createdByUserId
-            ? await getConnectionById(
-                preferredConnectionId,
-                env.ENCRYPTION_KEY,
-                { scope: "user", scopeId: createdByUserId },
-              )
-            : null;
-          const pinned = organizationPinned ?? userPinned;
+      const jobId = query.jobId.trim();
+      const workerId = query.workerId.trim();
+      const claimAttemptId = query.claimAttemptId.trim();
+      const access = await resolveWorkerJobAccess(jobId);
+      if (!access.ok) {
+        set.status = access.status;
+        return notFoundResponse("Agent job");
+      }
+      const job = access.existing;
+      const workspaceId = job.job.workspaceId;
+      if (!workspaceId) {
+        set.status = 404;
+        return notFoundResponse("Agent job");
+      }
+      const isPiJob =
+        job.job.resolvedRuntimeSelection?.codingAgent === "pi" ||
+        job.job.codingAgent === "pi";
+      if (isPiJob && !isPiCodingAgentAdmissionEnabled()) {
+        set.status = 409;
+        return runtimeFailureResponse(
+          "Pi coding-agent admission is disabled by operator policy",
+          409,
+          PI_ADMISSION_DISABLED,
+          "RUNTIME_POLICY_FAILURE",
+        );
+      }
+      const encryptionKey = env.ENCRYPTION_KEY;
+      if (!encryptionKey) {
+        set.status = 500;
+        return errorResponse("Encryption key not configured", 500);
+      }
+      const claimBoundResponse = await withLiveAgentJobClaim(
+        { jobId, workerId, claimAttemptId },
+        async (liveClaim) => {
           if (
-            pinned &&
-            pinned.isActive &&
-            (!requiresExactPreferredConnection || pinned.suspendedAt === null) &&
-            pinned.category === "ai" &&
-            normalizeWorkerProvider(String(pinned.provider)) === provider &&
-            pinned.credentials
+            liveClaim.workspaceId !== workspaceId ||
+            !matchesCurrentClaimAttempt(liveClaim.config, claimAttemptId)
           ) {
-            connection = pinned;
-            credentials = pinned.credentials;
-            logger.info(
-              {
-                provider,
-                workspaceId,
-                connectionId: requiresExactPreferredConnection ? "plan-review-capability" : pinned.id,
-              },
-              "provider-keys: using admin-pinned connection",
-            );
-          } else if (requiresExactPreferredConnection) {
-            set.status = 403;
-            return errorResponse("The exact Plan Review connection is not available for this job", 403);
-          } else {
-            logger.warn(
-              {
-                provider,
-                workspaceId,
-                preferredConnectionId,
-                found: !!pinned,
-                isActive: pinned?.isActive,
-                providerMatches: pinned?.provider === provider,
-              },
-              "provider-keys: preferredConnectionId rejected, falling back to org resolution",
+            set.status = 409;
+            return runtimeFailureResponse(
+              "Worker claim is no longer active",
+              409,
+              "WORKER_CLAIM_CONFLICT",
+              "RUNTIME_POLICY_FAILURE",
             );
           }
-        }
 
-        if (!connection && workspaceId) {
-          // 1. Try orchestration-enabled connections first (preferred path)
-          let resolved = await resolveAiKey({
-            provider,
-            userId: createdByUserId,
-            workspaceId,
-            encryptionKey: env.ENCRYPTION_KEY,
-            forOrchestration: true,
-            excludeConnectionIds: excludeConnectionIds.length > 0 ? excludeConnectionIds : undefined,
-          });
-
-          // 2. If no orchestration-enabled connection, retry with ALL org connections.
-          //    This ensures we never cross org boundaries just because
-          //    orchestrationEnabled is false.
-          if (!resolved) {
-            logger.info(
-              { provider, workspaceId },
-              "No orchestration-enabled connection found, retrying with all org connections",
+          const requested = (query.providers ?? "")
+            .split(",")
+            .map((provider) => provider.trim())
+            .filter(Boolean);
+          const modernSelection = job.job.resolvedRuntimeSelection ?? null;
+          if (requested.length > 5) {
+            set.status = 400;
+            return runtimeFailureResponse(
+              "Too many providers requested",
+              400,
+              "PROVIDER_SELECTION_INVALID",
+              "RUNTIME_POLICY_FAILURE",
             );
-            resolved = await resolveAiKey({
-              provider,
-              userId: createdByUserId,
-              workspaceId,
-              encryptionKey: env.ENCRYPTION_KEY,
-              forOrchestration: false,
-              excludeConnectionIds: excludeConnectionIds.length > 0 ? excludeConnectionIds : undefined,
+          }
+          const requestedProviders = requested.length === 0 && !modernSelection
+            ? ["anthropic", "openai"]
+            : requested;
+          const normalizedProviders = requestedProviders.map(normalizeWorkerProvider);
+          if (normalizedProviders.some((provider) => provider === null)) {
+            set.status = 400;
+            return runtimeFailureResponse(
+              "Provider selection is invalid",
+              400,
+              "PROVIDER_SELECTION_INVALID",
+              "RUNTIME_POLICY_FAILURE",
+            );
+          }
+          const uniqueProviders = [
+            ...new Set(normalizedProviders as ResolvableWorkerProvider[]),
+          ];
+
+          if (modernSelection) {
+            const expectedProvider = normalizeWorkerProvider(
+              modernSelection.aiProvider,
+            );
+            const exactRequestedProvider = requested[0]?.toLowerCase() ?? null;
+            if (
+              requested.length !== 1 ||
+              !expectedProvider ||
+              exactRequestedProvider !== modernSelection.aiProvider ||
+              uniqueProviders.length !== 1 ||
+              uniqueProviders[0] !== expectedProvider ||
+              (modernSelection.codingAgent === "pi" && expectedProvider !== "zai")
+            ) {
+              set.status = 409;
+              return runtimeFailureResponse(
+                "Requested provider does not match the resolved job provider",
+                409,
+                "JOB_PROVIDER_SELECTION_CONFLICT",
+                "RUNTIME_POLICY_FAILURE",
+              );
+            }
+          }
+
+          const isPi = modernSelection?.codingAgent === "pi" || job.job.codingAgent === "pi";
+          const modernAuthClass = modernSelection?.authClass as
+            | ConnectionAuthClass
+            | undefined;
+          if (modernAuthClass && !isWorkerCredentialAuthClass(modernAuthClass)) {
+            set.status = 409;
+            return runtimeFailureResponse(
+              "Resolved job auth class is not supported",
+              409,
+              isPi
+                ? piAuthRejectionCode(modernAuthClass)
+                : "WORKER_AUTH_CLASS_UNSUPPORTED",
+              "RUNTIME_AUTH_FAILURE",
+            );
+          }
+          if (isPi && modernAuthClass && modernAuthClass !== "api_key") {
+            set.status = 409;
+            return runtimeFailureResponse(
+              "Pi supports API-key credentials only",
+              409,
+              piAuthRejectionCode(modernAuthClass),
+              "RUNTIME_AUTH_FAILURE",
+            );
+          }
+          const acceptedAuthClasses: readonly WorkerCredentialAuthClass[] = isPi
+            ? ["api_key"]
+            : modernAuthClass && isWorkerCredentialAuthClass(modernAuthClass)
+              ? [modernAuthClass]
+              : [...KNOWN_WORKER_CREDENTIAL_AUTH_CLASSES];
+          const acceptedAuthClassSet = new Set(acceptedAuthClasses);
+          const rejectAuthClass = (authClass: ConnectionAuthClass) => {
+            set.status = 409;
+            return runtimeFailureResponse(
+              isPi
+                ? "Pi supports API-key credentials only"
+                : "Connection auth class is not supported for this job",
+              409,
+              isPi
+                ? piAuthRejectionCode(authClass)
+                : "WORKER_AUTH_CLASS_UNSUPPORTED",
+              "RUNTIME_AUTH_FAILURE",
+            );
+          };
+
+          const createdByUserId = job.job.createdByUserId ?? null;
+          const requestedPreferredConnectionRef =
+            nonEmptyString(query.preferredConnectionId) ?? null;
+          const jobConfig =
+            job.job.config &&
+            typeof job.job.config === "object" &&
+            !Array.isArray(job.job.config)
+              ? (job.job.config as unknown as Record<string, unknown>)
+              : {};
+          const requiresExactPreferredConnection = jobConfig.planReview !== undefined;
+          const configuredPreferredConnectionId =
+            nonEmptyString(job.job.config?.providerConnectionId) ?? null;
+          const planReviewConnectionId = requiresExactPreferredConnection
+            ? await resolvePlanReviewConnectionId({
+                capabilityRef: requestedPreferredConnectionRef,
+                workspaceId,
+                userId: createdByUserId,
+              })
+            : null;
+          if (requiresExactPreferredConnection && !planReviewConnectionId) {
+            set.status = 403;
+            return errorResponse(
+              "The exact Plan Review connection is not available for this job",
+              403,
+            );
+          }
+          if (
+            requiresExactPreferredConnection &&
+            configuredPreferredConnectionId &&
+            configuredPreferredConnectionId !== planReviewConnectionId
+          ) {
+            set.status = 409;
+            return runtimeFailureResponse(
+              "Preferred connection does not match the persisted job selection",
+              409,
+              "PREFERRED_CONNECTION_BINDING_CONFLICT",
+              "RUNTIME_POLICY_FAILURE",
+            );
+          }
+          if (
+            !requiresExactPreferredConnection &&
+            requestedPreferredConnectionRef !== configuredPreferredConnectionId
+          ) {
+            set.status = 409;
+            return runtimeFailureResponse(
+              "Preferred connection does not match the persisted job selection",
+              409,
+              "PREFERRED_CONNECTION_BINDING_CONFLICT",
+              "RUNTIME_POLICY_FAILURE",
+            );
+          }
+          const persistedPreferredConnectionId = requiresExactPreferredConnection
+            ? planReviewConnectionId
+            : configuredPreferredConnectionId;
+
+          const excludeConnectionIds = [
+            ...new Set(
+              (query.excludeConnectionIds ?? "")
+                .split(",")
+                .map((id) => id.trim())
+                .filter(Boolean),
+            ),
+          ];
+          if (excludeConnectionIds.length > 20) {
+            set.status = 400;
+            return runtimeFailureResponse(
+              "Too many excluded connections",
+              400,
+              "PROVIDER_EXCLUSION_INVALID",
+              "RUNTIME_POLICY_FAILURE",
+            );
+          }
+          if (
+            persistedPreferredConnectionId &&
+            excludeConnectionIds.includes(persistedPreferredConnectionId)
+          ) {
+            set.status = 409;
+            return runtimeFailureResponse(
+              "Preferred and excluded connection selections conflict",
+              409,
+              "PROVIDER_SELECTION_CONFLICT",
+              "RUNTIME_POLICY_FAILURE",
+            );
+          }
+
+          type WorkerConnectionScope = {
+            scope: "organization" | "user";
+            scopeId: string;
+          };
+          const connectionScopes: WorkerConnectionScope[] = [
+            { scope: "organization", scopeId: workspaceId },
+            ...(createdByUserId
+              ? [{ scope: "user" as const, scopeId: createdByUserId }]
+              : []),
+          ];
+          const getConnectionMetadataInJobContext = async (connectionId: string) => {
+            for (const scopeFilter of connectionScopes) {
+              const metadata = await getConnectionMetadataById(
+                connectionId,
+                scopeFilter,
+              );
+              if (metadata) return { metadata, scopeFilter };
+            }
+            return null;
+          };
+
+          const excludedByProvider = new Map<ResolvableWorkerProvider, string[]>();
+          for (const excludedId of excludeConnectionIds) {
+            const scopedMetadata = await getConnectionMetadataInJobContext(excludedId);
+            const metadata = scopedMetadata?.metadata ?? null;
+            const metadataProvider = metadata
+              ? normalizeWorkerProvider(metadata.provider)
+              : null;
+            const inSelectionContext = Boolean(
+              metadata &&
+              scopedMetadata &&
+              metadataProvider &&
+              uniqueProviders.includes(metadataProvider) &&
+              metadata.category === "ai" &&
+              metadata.isActive &&
+              !metadata.suspendedAt &&
+              metadata.scope === scopedMetadata.scopeFilter.scope &&
+              metadata.scopeId === scopedMetadata.scopeFilter.scopeId,
+            );
+            if (!metadata || !metadataProvider || !inSelectionContext) {
+              set.status = 409;
+              return runtimeFailureResponse(
+                "Excluded connection is not valid for this job selection",
+                409,
+                "PROVIDER_EXCLUSION_INVALID",
+                "RUNTIME_POLICY_FAILURE",
+              );
+            }
+            const authClass = deriveWorkerCredentialAuthClass(metadata.config, isPi);
+            if (
+              !isWorkerCredentialAuthClass(authClass) ||
+              !acceptedAuthClassSet.has(authClass)
+            ) {
+              return rejectAuthClass(authClass);
+            }
+            excludedByProvider.set(metadataProvider, [
+              ...(excludedByProvider.get(metadataProvider) ?? []),
+              excludedId,
+            ]);
+            void suspendConnection(
+              excludedId,
+              "Rate limit / quota exhausted mid-session (HTTP 429)",
+            ).then(() => {
+              logger.info(
+                { connectionId: excludedId, provider: metadataProvider },
+                "Suspended rate-limited connection during hot-swap",
+              );
+            }).catch((error) => {
+              logger.warn(
+                { connectionId: excludedId, provider: metadataProvider, error },
+                "Failed to suspend rate-limited connection",
+              );
             });
           }
 
-          // Suspend excluded connections (rate-limited mid-session)
-          if (excludeConnectionIds.length > 0) {
-            for (const excludedId of excludeConnectionIds) {
-              void suspendConnection(
-                excludedId,
-                "Rate limit / quota exhausted mid-session (HTTP 429)",
-              ).then(() => {
-                logger.info(
-                  { connectionId: excludedId, provider },
-                  "Suspended rate-limited connection during hot-swap",
-                );
-              }).catch((err) => {
-                logger.warn(
-                  { connectionId: excludedId, err },
-                  "Failed to suspend rate-limited connection",
-                );
-              });
-            }
-          }
-
-          if (resolved) {
-            connection = resolved.connection;
-            credentials = resolved.credentials;
-
-            if (excludeConnectionIds.length > 0) {
-              logger.info(
-                {
-                  provider,
-                  newConnectionId: resolved.connection.id,
-                  newConnectionName: resolved.connection.name,
-                  excludedConnectionIds: excludeConnectionIds,
-                },
-                "Hot-swap successful: switched to alternative connection after rate limit",
+          let preferredMetadata: Awaited<
+            ReturnType<typeof getConnectionMetadataById>
+          > = null;
+          let preferredScope: WorkerConnectionScope | null = null;
+          let preferredProvider: ResolvableWorkerProvider | null = null;
+          if (persistedPreferredConnectionId) {
+            const scopedMetadata = await getConnectionMetadataInJobContext(
+              persistedPreferredConnectionId,
+            );
+            preferredMetadata = scopedMetadata?.metadata ?? null;
+            preferredScope = scopedMetadata?.scopeFilter ?? null;
+            preferredProvider = preferredMetadata
+              ? normalizeWorkerProvider(preferredMetadata.provider)
+              : null;
+            if (
+              requiresExactPreferredConnection &&
+              (
+                !preferredMetadata ||
+                !preferredScope ||
+                !preferredProvider ||
+                uniqueProviders.length !== 1 ||
+                uniqueProviders[0] !== preferredProvider
+              )
+            ) {
+              set.status = 403;
+              return errorResponse(
+                "The exact Plan Review connection is not available for this job",
+                403,
               );
             }
-          } else if (excludeConnectionIds.length > 0) {
-            logger.error(
-              {
+            if (
+              !preferredMetadata ||
+              !preferredScope ||
+              !preferredProvider ||
+              !uniqueProviders.includes(preferredProvider) ||
+              preferredMetadata.category !== "ai" ||
+              preferredMetadata.scope !== preferredScope.scope ||
+              preferredMetadata.scopeId !== preferredScope.scopeId ||
+              !preferredMetadata.isActive ||
+              preferredMetadata.suspendedAt
+            ) {
+              set.status = 409;
+              return runtimeFailureResponse(
+                "Preferred connection is not valid for this job selection",
+                409,
+                "PREFERRED_CONNECTION_INVALID",
+                "RUNTIME_POLICY_FAILURE",
+              );
+            }
+            const authClass = deriveWorkerCredentialAuthClass(
+              preferredMetadata.config,
+              isPi,
+            );
+            if (
+              !isWorkerCredentialAuthClass(authClass) ||
+              !acceptedAuthClassSet.has(authClass)
+            ) {
+              return rejectAuthClass(authClass);
+            }
+            const preferredConfig = (preferredMetadata.config ?? {}) as Record<
+              string,
+              unknown
+            >;
+            const preferredBaseUrl =
+              typeof preferredConfig.baseUrl === "string" &&
+                preferredConfig.baseUrl.trim().length > 0
+                ? preferredConfig.baseUrl.trim()
+                : undefined;
+            const preferredEndpoint = trustedWorkerProviderEndpoint(
+              preferredProvider,
+              preferredBaseUrl,
+              isPi,
+            );
+            if (!preferredEndpoint.ok) {
+              set.status = 409;
+              return runtimeFailureResponse(
+                "Provider endpoint is not trusted",
+                409,
+                preferredEndpoint.code,
+                "RUNTIME_ENDPOINT_FAILURE",
+              );
+            }
+          }
+
+          const admitted: Array<{
+            provider: ResolvableWorkerProvider;
+            connection: NonNullable<Awaited<ReturnType<typeof getAiProviderKeyById>>>;
+            credentials: Record<string, unknown>;
+            authClass: WorkerCredentialAuthClass;
+            apiKey: string;
+            config: Record<string, unknown>;
+            baseUrl?: string;
+          }> = [];
+
+          for (const provider of uniqueProviders) {
+            let connection: NonNullable<Awaited<ReturnType<typeof getAiProviderKeyById>>> | null = null;
+            let credentials: Record<string, unknown> | null = null;
+
+            if (
+              persistedPreferredConnectionId &&
+              preferredMetadata &&
+              preferredScope &&
+              preferredProvider === provider
+            ) {
+              const fullConnection = requiresExactPreferredConnection
+                ? await getConnectionById(
+                    persistedPreferredConnectionId,
+                    encryptionKey,
+                    preferredScope,
+                  )
+                : await getAiProviderKeyById(
+                    persistedPreferredConnectionId,
+                    preferredScope,
+                  );
+              if (!fullConnection) {
+                set.status = 409;
+                return runtimeFailureResponse(
+                  "Preferred connection is no longer active",
+                  409,
+                  "PREFERRED_CONNECTION_INVALID",
+                  "RUNTIME_POLICY_FAILURE",
+                );
+              }
+              const fullConnectionProvider = normalizeWorkerProvider(
+                fullConnection.provider,
+              );
+              if (
+                fullConnection.id !== persistedPreferredConnectionId ||
+                fullConnectionProvider !== provider ||
+                fullConnection.category !== "ai" ||
+                fullConnection.scope !== preferredScope.scope ||
+                fullConnection.scopeId !== preferredScope.scopeId ||
+                !fullConnection.isActive ||
+                fullConnection.suspendedAt
+              ) {
+                set.status = 409;
+                return runtimeFailureResponse(
+                  "Preferred connection is no longer valid",
+                  409,
+                  "PREFERRED_CONNECTION_INVALID",
+                  "RUNTIME_POLICY_FAILURE",
+                );
+              }
+              const fullConnectionAuthClass = deriveWorkerCredentialAuthClass(
+                fullConnection.config,
+                isPi,
+              );
+              if (
+                !isWorkerCredentialAuthClass(fullConnectionAuthClass) ||
+                !acceptedAuthClassSet.has(fullConnectionAuthClass)
+              ) {
+                return rejectAuthClass(fullConnectionAuthClass);
+              }
+              const fullConnectionConfig = (fullConnection.config ?? {}) as Record<
+                string,
+                unknown
+              >;
+              const fullConnectionBaseUrl =
+                typeof fullConnectionConfig.baseUrl === "string" &&
+                  fullConnectionConfig.baseUrl.trim().length > 0
+                  ? fullConnectionConfig.baseUrl.trim()
+                  : undefined;
+              const fullConnectionEndpoint = trustedWorkerProviderEndpoint(
                 provider,
-                workspaceId,
-                excludedConnectionIds: excludeConnectionIds,
+                fullConnectionBaseUrl,
+                isPi,
+              );
+              if (!fullConnectionEndpoint.ok) {
+                set.status = 409;
+                return runtimeFailureResponse(
+                  "Provider endpoint is not trusted",
+                  409,
+                  fullConnectionEndpoint.code,
+                  "RUNTIME_ENDPOINT_FAILURE",
+                );
+              }
+              if (requiresExactPreferredConnection) {
+                const decryptedCredentials = "credentials" in fullConnection
+                  ? fullConnection.credentials
+                  : undefined;
+                credentials =
+                  decryptedCredentials &&
+                  typeof decryptedCredentials === "object" &&
+                  !Array.isArray(decryptedCredentials)
+                    ? (decryptedCredentials as Record<string, unknown>)
+                    : null;
+              } else {
+                try {
+                  credentials = await refreshConnectionCredentialsIfNeeded(
+                    fullConnection,
+                    encryptionKey,
+                  );
+                } catch {
+                  logger.warn(
+                    { jobId, provider, connectionId: fullConnection.id },
+                    "provider-keys: preferred credential refresh failed",
+                  );
+                  set.status = 409;
+                  return runtimeFailureResponse(
+                    "Provider credential is unavailable",
+                    409,
+                    "PROVIDER_CREDENTIAL_UNAVAILABLE",
+                    "RUNTIME_AUTH_FAILURE",
+                  );
+                }
+              }
+              if (!credentials) {
+                set.status = requiresExactPreferredConnection ? 403 : 409;
+                return requiresExactPreferredConnection
+                  ? errorResponse(
+                      "The exact Plan Review connection is not available for this job",
+                      403,
+                    )
+                  : runtimeFailureResponse(
+                      "Provider credential is unavailable",
+                      409,
+                      "PROVIDER_CREDENTIAL_UNAVAILABLE",
+                      "RUNTIME_AUTH_FAILURE",
+                    );
+              }
+              connection = fullConnection;
+            } else {
+              let authRejections: readonly ConnectionAuthClass[] = [];
+              for (const forOrchestration of [true, false] as const) {
+                try {
+                  const resolved = await resolveAiKey({
+                    provider,
+                    userId: createdByUserId,
+                    workspaceId,
+                    encryptionKey,
+                    forOrchestration,
+                    excludeConnectionIds: excludedByProvider.get(provider),
+                    acceptedAuthClasses,
+                  });
+                  if (resolved) {
+                    connection = resolved.connection;
+                    credentials = resolved.credentials;
+                    break;
+                  }
+                } catch (error) {
+                  const rejected = rejectedAuthClassesFromError(error);
+                  if (rejected) {
+                    authRejections = [...authRejections, ...rejected];
+                    continue;
+                  }
+                  set.status = 500;
+                  return internalErrorResponse(
+                    error,
+                    { jobId, provider },
+                    "Provider credential resolution failed",
+                  );
+                }
+              }
+              if (!connection || !credentials) {
+                if (authRejections.length > 0) {
+                  return rejectAuthClass(authRejections[0] ?? "unknown");
+                }
+                if (modernSelection) {
+                  set.status = 409;
+                  return runtimeFailureResponse(
+                    "Provider credential is unavailable",
+                    409,
+                    "PROVIDER_CREDENTIAL_UNAVAILABLE",
+                    "RUNTIME_AUTH_FAILURE",
+                  );
+                }
+                continue;
+              }
+            }
+
+            const authClass = deriveWorkerCredentialAuthClass(connection.config, isPi);
+            if (
+              !isWorkerCredentialAuthClass(authClass) ||
+              !acceptedAuthClassSet.has(authClass)
+            ) {
+              return rejectAuthClass(authClass);
+            }
+
+            const apiKey = typeof credentials.apiKey === "string"
+              ? credentials.apiKey
+              : typeof credentials.api_key === "string"
+                ? credentials.api_key
+                : undefined;
+            if (!apiKey) {
+              if (modernSelection) {
+                set.status = 409;
+                return runtimeFailureResponse(
+                  "Provider credential is unavailable",
+                  409,
+                  "PROVIDER_CREDENTIAL_UNAVAILABLE",
+                  "RUNTIME_AUTH_FAILURE",
+                );
+              }
+              continue;
+            }
+
+            const config = (connection.config ?? {}) as Record<string, unknown>;
+            const configuredBaseUrl =
+              typeof config.baseUrl === "string" && config.baseUrl.trim().length > 0
+                ? config.baseUrl.trim()
+                : typeof credentials.baseUrl === "string" && credentials.baseUrl.trim().length > 0
+                  ? credentials.baseUrl.trim()
+                  : undefined;
+            const endpoint = trustedWorkerProviderEndpoint(
+              provider,
+              configuredBaseUrl,
+              isPi,
+            );
+            if (!endpoint.ok) {
+              set.status = 409;
+              return runtimeFailureResponse(
+                "Provider endpoint is not trusted",
+                409,
+                endpoint.code,
+                "RUNTIME_ENDPOINT_FAILURE",
+              );
+            }
+
+            admitted.push({
+              provider,
+              connection,
+              credentials,
+              authClass,
+              apiKey,
+              config,
+              ...(endpoint.baseUrl ? { baseUrl: endpoint.baseUrl } : {}),
+            });
+          }
+
+          const credentialBundles: WorkerCredentialBundle[] = [];
+          const result: Record<string, unknown> = { credentialBundles };
+          const debugInfo: Record<string, unknown> = {};
+          for (const admittedCredential of admitted) {
+            const {
+              provider,
+              connection,
+              credentials,
+              authClass,
+              apiKey,
+              config,
+              baseUrl,
+            } = admittedCredential;
+            const resolvedAuthMethod: "api_key" | "subscription" =
+              authClass === "api_key" ? "api_key" : "subscription";
+
+            if (provider === "anthropic") {
+              result.anthropicApiKey = apiKey;
+              result.anthropicAuthMethod = resolvedAuthMethod;
+            } else if (provider === "google") {
+              result.googleApiKey = apiKey;
+              result.openaiApiKey = apiKey;
+              result.openaiAuthMethod = resolvedAuthMethod;
+            } else if (provider === "zai") {
+              result.zaiApiKey = apiKey;
+              result.openaiApiKey = apiKey;
+              result.openaiAuthMethod = resolvedAuthMethod;
+            } else if (provider === "xai") {
+              result.xaiApiKey = apiKey;
+              result.xaiAuthMethod = resolvedAuthMethod;
+            } else {
+              result.openaiApiKey = apiKey;
+              result.openaiAuthMethod = resolvedAuthMethod;
+            }
+
+            if (provider === "openai" && resolvedAuthMethod === "subscription") {
+              const cleanCredentials = Object.fromEntries(
+                Object.entries(credentials).filter(([key]) => key !== "authMethod"),
+              );
+              result.openaiCredentialsJson = JSON.stringify(cleanCredentials);
+            }
+
+            const planningModel = nonEmptyString(config.planningModel) ?? undefined;
+            const implementationModel =
+              nonEmptyString(config.implementationModel) ?? undefined;
+            const validationModel = nonEmptyString(config.validationModel) ?? undefined;
+            const planningReasoningBudget =
+              nonEmptyString(config.planningReasoningBudget) ?? undefined;
+            const implementationReasoningBudget =
+              nonEmptyString(config.implementationReasoningBudget) ?? undefined;
+            const validationReasoningBudget =
+              nonEmptyString(config.validationReasoningBudget) ?? undefined;
+            if (baseUrl) result.baseUrl = baseUrl;
+            if (planningModel) result.planningModel = planningModel;
+            if (implementationModel) result.implementationModel = implementationModel;
+            if (validationModel) result.validationModel = validationModel;
+            if (planningReasoningBudget) {
+              result.planningReasoningBudget = planningReasoningBudget;
+            }
+            if (implementationReasoningBudget) {
+              result.implementationReasoningBudget = implementationReasoningBudget;
+            }
+            if (validationReasoningBudget) {
+              result.validationReasoningBudget = validationReasoningBudget;
+            }
+
+            const publicConnectionId = requiresExactPreferredConnection
+              ? "plan-review-capability"
+              : connection.id;
+            const bundleMetadata: WorkerCredentialBundleMetadata = {
+              provider,
+              connectionId: publicConnectionId,
+              ...(planningModel ? { planningModel } : {}),
+              ...(implementationModel ? { implementationModel } : {}),
+              ...(validationModel ? { validationModel } : {}),
+            };
+            credentialBundles.push(
+              authClass === "api_key"
+                ? { ...bundleMetadata, authClass, apiKey }
+                : { ...bundleMetadata, authClass },
+            );
+
+            debugInfo[provider] = {
+              connectionId: publicConnectionId,
+              connectionName: connection.name ?? "unnamed",
+              provider,
+              authMethod: resolvedAuthMethod,
+              tokenExpiresAt: connection.tokenExpiresAt
+                ? new Date(connection.tokenExpiresAt).toISOString()
+                : null,
+              scope: connection.scope,
+            };
+            logger.info(
+              {
+                jobId,
+                provider,
+                connectionId: publicConnectionId,
+                connectionName: connection.name,
+                authMethod: resolvedAuthMethod,
+                tokenExpiresAt: connection.tokenExpiresAt
+                  ? new Date(connection.tokenExpiresAt).toISOString()
+                  : null,
               },
-              "Hot-swap failed: no alternative connection available after rate limit. All connections exhausted.",
+              "provider-keys: resolved claim-bound connection",
             );
+            const scopeFilter =
+              connection.scope === "organization" || connection.scope === "user"
+                ? { scope: connection.scope, scopeId: connection.scopeId }
+                : undefined;
+            void updateConnectionLastUsedAt(connection.id, scopeFilter);
           }
 
-          // HARD STOP: if we have a workspaceId but still no connection,
-          // do NOT fall through to the global lookup. That would use another
-          // org's credentials — a critical isolation violation.
-          if (!connection || !credentials) {
-            logger.error(
-              { provider, workspaceId },
-              "No usable connection found for workspace — refusing cross-org fallback",
-            );
-            continue;
-          }
-        }
+          result._debug = debugInfo;
+          return successResponse(result);
+        },
+      );
 
-        // Global fallback: only when there is NO workspaceId (legacy/system jobs)
-        if (!connection || !credentials) {
-          const fallbackProvider = provider;
-          const row = await getLatestActiveAiKeyByProvider(fallbackProvider);
-          if (!row) continue;
-          connection = row;
-          try {
-            credentials = await refreshConnectionCredentialsIfNeeded(
-              row,
-              env.ENCRYPTION_KEY,
-            );
-          } catch (error) {
-            continue;
-          }
-        }
-
-        // Handle both camelCase (apiKey) and underscore (api_key) for codex auth.json compat
-        const apiKey = typeof credentials.apiKey === "string"
-          ? credentials.apiKey
-          : typeof credentials.api_key === "string"
-            ? (credentials.api_key as string)
-            : undefined;
-        if (!apiKey) continue;
-
-        if (provider === "anthropic") {
-          result.anthropicApiKey = apiKey;
-        } else if (provider === "xai") {
-          result.xaiApiKey = apiKey;
-        } else {
-          result.openaiApiKey = apiKey;
-        }
-
-        const config = (connection.config ?? {}) as Record<string, unknown>;
-        const rawAuthMethod = typeof config.authMethod === "string" ? config.authMethod : undefined;
-        const resolvedAuthMethod: "api_key" | "subscription" =
-          rawAuthMethod === "oauth" || rawAuthMethod === "setup_token" || rawAuthMethod === "subscription"
-            ? "subscription"
-            : "api_key";
-
-        if (provider === "anthropic") {
-          result.anthropicAuthMethod = resolvedAuthMethod;
-        } else if (provider === "xai") {
-          result.xaiAuthMethod = resolvedAuthMethod;
-        } else {
-          result.openaiAuthMethod = resolvedAuthMethod;
-        }
-
-        // For openai subscription, include the full credentials JSON
-        // (needed by the runner to write ~/.codex/auth.json)
-        if (provider === "openai" && resolvedAuthMethod === "subscription") {
-          const cleanCredentials = Object.fromEntries(
-            Object.entries(credentials).filter(([k]) => k !== "authMethod"),
-          );
-          result.openaiCredentialsJson = JSON.stringify(cleanCredentials);
-        }
-        const planningModel =
-          typeof config.planningModel === "string" && config.planningModel.trim().length > 0
-            ? config.planningModel.trim()
-            : undefined;
-        const implementationModel =
-          typeof config.implementationModel === "string" && config.implementationModel.trim().length > 0
-            ? config.implementationModel.trim()
-            : undefined;
-        const validationModel =
-          typeof config.validationModel === "string" && config.validationModel.trim().length > 0
-            ? config.validationModel.trim()
-            : undefined;
-        const planningReasoningBudget =
-          typeof config.planningReasoningBudget === "string" && config.planningReasoningBudget.trim().length > 0
-            ? config.planningReasoningBudget.trim()
-            : undefined;
-        const implementationReasoningBudget =
-          typeof config.implementationReasoningBudget === "string" && config.implementationReasoningBudget.trim().length > 0
-            ? config.implementationReasoningBudget.trim()
-            : undefined;
-        const validationReasoningBudget =
-          typeof config.validationReasoningBudget === "string" && config.validationReasoningBudget.trim().length > 0
-            ? config.validationReasoningBudget.trim()
-            : undefined;
-        const baseUrlFromConfig =
-          typeof config.baseUrl === "string" && config.baseUrl.trim().length > 0
-            ? config.baseUrl.trim()
-            : undefined;
-        const baseUrlFromCreds =
-          typeof credentials.baseUrl === "string" && credentials.baseUrl.trim().length > 0
-            ? credentials.baseUrl.trim()
-            : undefined;
-
-        if (planningModel) result.planningModel = planningModel;
-        if (implementationModel) result.implementationModel = implementationModel;
-        if (validationModel) result.validationModel = validationModel;
-        if (planningReasoningBudget) result.planningReasoningBudget = planningReasoningBudget;
-        if (implementationReasoningBudget) result.implementationReasoningBudget = implementationReasoningBudget;
-        if (validationReasoningBudget) result.validationReasoningBudget = validationReasoningBudget;
-        if (baseUrlFromConfig ?? baseUrlFromCreds) {
-          result.baseUrl = baseUrlFromConfig ?? baseUrlFromCreds;
-        }
-
-        const debugConnectionId = requiresExactPreferredConnection
-          ? "plan-review-capability"
-          : connection.id;
-
-        debugInfo[provider] = {
-          connectionId: debugConnectionId,
-          connectionName: connection.name ?? "unnamed",
-          provider,
-          authMethod: resolvedAuthMethod,
-          tokenExpiresAt: connection.tokenExpiresAt
-            ? new Date(connection.tokenExpiresAt).toISOString()
-            : null,
-          scope: connection.scope,
-        };
-
-        logger.info(
-          {
-            jobId: query.jobId,
-            provider,
-            connectionId: debugConnectionId,
-            connectionName: connection.name,
-            authMethod: resolvedAuthMethod,
-            tokenExpiresAt: connection.tokenExpiresAt
-              ? new Date(connection.tokenExpiresAt).toISOString()
-              : null,
-          },
-          "provider-keys: resolved connection for job",
+      if (claimBoundResponse === null) {
+        set.status = 409;
+        return runtimeFailureResponse(
+          "Worker claim is no longer active",
+          409,
+          "WORKER_CLAIM_CONFLICT",
+          "RUNTIME_POLICY_FAILURE",
         );
-
-        void updateConnectionLastUsedAt(connection.id);
       }
-
-      result._debug = debugInfo;
-      return successResponse(result);
+      return claimBoundResponse;
     },
     {
       query: t.Object({
         providers: t.Optional(t.String()),
-        jobId: t.Optional(t.String()),
-        createdByUserId: t.Optional(t.String()),
+        jobId: t.String({ minLength: 1 }),
+        workerId: t.String({ minLength: 1, maxLength: 255 }),
+        claimAttemptId: t.String({ minLength: 1, maxLength: 100 }),
         excludeConnectionIds: t.Optional(t.String()),
         preferredConnectionId: t.Optional(t.String()),
       }),
-    }
+    },
   )
 
   // POST /workers/heartbeat
@@ -1506,15 +2175,38 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   // first).
   .post(
     "/jobs/claim",
-    async ({ body }) => {
+    async ({ body, set }) => {
       await updateHeartbeat(body.workerId, {
         activeJobs: body.activeJobs ?? undefined,
       });
 
+      const codingAgentAdmission = resolveClaimCodingAgentAdmission({
+        acceptedCodingAgents: body.acceptedCodingAgents,
+        runtimeCapabilityIdentity: body.runtimeCapabilityIdentity,
+      });
+      if (!codingAgentAdmission.admitted) {
+        set.status = 409;
+        return runtimeFailureResponse(
+          `${codingAgentAdmission.code}: deploy a runner with the current runtime capability projection identity before advertising Pi`,
+          409,
+          codingAgentAdmission.code,
+          "RUNTIME_POLICY_FAILURE",
+        );
+      }
+
+      const effectiveCodingAgents = isPiCodingAgentAdmissionEnabled()
+        ? codingAgentAdmission.effectiveCodingAgents
+        : codingAgentAdmission.effectiveCodingAgents.filter(
+            (codingAgent) => codingAgent !== "pi",
+          );
+      if (effectiveCodingAgents.length === 0) {
+        return successResponse([]);
+      }
+
       const jobs = await claimJobs(
         body.workerId,
         body.count,
-        body.acceptedCodingAgents,
+        effectiveCodingAgents,
         {
           durableSequenceReceipts:
             env.DURABLE_SEQUENCE_RECEIPTS_ENABLED === "true" &&
@@ -1529,6 +2221,13 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         count: t.Number(),
         activeJobs: t.Optional(t.Number()),
         acceptedCodingAgents: t.Optional(t.Array(t.String())),
+        runtimeCapabilityIdentity: t.Optional(
+          t.Object({
+            schemaVersion: t.Optional(t.String()),
+            version: t.Optional(t.Number()),
+            hash: t.Optional(t.String()),
+          }),
+        ),
         capabilities: t.Optional(
           t.Array(t.Literal("durable.v2.receipts"), {
             maxItems: 1,
@@ -2306,6 +3005,30 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         return notFoundResponse("Agent job");
       }
 
+      let runtimeEvidence: RuntimeEvidence | undefined;
+      if (body.runtimeEvidence !== undefined) {
+        const parsedEvidence = safeParseRuntimeEvidence(body.runtimeEvidence);
+        if (!parsedEvidence.success) {
+          set.status = 400;
+          return runtimeFailureResponse(
+            "Runtime evidence is invalid",
+            400,
+            "RUNTIME_EVIDENCE_INVALID",
+            "RUNTIME_USAGE_INTEGRITY_FAILURE",
+          );
+        }
+        if (!runtimeEvidenceMatchesJobSelection(parsedEvidence.data, existing.job)) {
+          set.status = 400;
+          return runtimeFailureResponse(
+            "Runtime evidence does not match the job runtime selection",
+            400,
+            "RUNTIME_EVIDENCE_SELECTION_MISMATCH",
+            "RUNTIME_POLICY_FAILURE",
+          );
+        }
+        runtimeEvidence = parsedEvidence.data;
+      }
+
       const now = new Date();
       const status = body.status;
       const releasesWorkerResources = status === "queued" || status === "paused";
@@ -2345,7 +3068,10 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
       }
 
       const usageMetrics = deriveJobUsageMetrics({
+        runtimeEvidence,
         model: body.model ?? existing.job.model ?? null,
+        codingAgent: existing.job.codingAgent,
+        isLegacyRuntime: !existing.job.resolvedRuntimeSelection,
         cost: body.cost,
         tokensUsed: body.tokensUsed,
         inputTokens: body.inputTokens,
@@ -2431,9 +3157,12 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         commitSha: body.commitSha ?? existing.job.commitSha ?? null,
         cost: usageMetrics.cost,
         tokensUsed: usageMetrics.tokensUsed,
+        runtimeEvidence,
         sessionId: body.sessionId ?? undefined,
         config: usesClaimOwnership ? undefined : updatedConfig,
-        model: body.model ?? undefined,
+        model: existing.job.resolvedRuntimeSelection
+          ? undefined
+          : body.model ?? undefined,
         startedAt:
           status === "running"
             ? now
@@ -2515,10 +3244,80 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         return errorResponse("Job claim is no longer active", 409);
       }
 
+      const isWorkItemJob = existing.job.jobType !== "planning";
+      const repairTerminalUsageLedger = async () => {
+        if (
+          !isWorkItemJob ||
+          !isTerminalAgentJobStatus(updated.status) ||
+          !USAGE_RECORD_AGENT_JOB_STATUSES.has(updated.status) ||
+          !updated.workItemId
+        ) return;
+
+        const usageOrgId = existing.job.workspaceId ??
+          (await resolveOrgIdFromWorkItem(updated.workItemId));
+        if (!usageOrgId) return;
+        const endedAtValue = updated.completedAt ?? updated.failedAt;
+        if (!endedAtValue) throw new Error("Terminal usage invariant is missing an end timestamp");
+        const endedAt = endedAtValue instanceof Date ? endedAtValue : new Date(endedAtValue);
+        const startedAtValue = updated.startedAt ?? existing.job.startedAt ?? endedAt;
+        const startedAt = startedAtValue instanceof Date ? startedAtValue : new Date(startedAtValue);
+        const durationSeconds = typeof updated.durationMs === "number" && Number.isFinite(updated.durationMs)
+          ? Math.max(0, Math.round(updated.durationMs / 1_000))
+          : Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 1_000));
+        const sessionTypes = {
+          implementation: "implement",
+          validation: "validate",
+          planning: "planning",
+          review: "review",
+        } as const;
+        const sessionType = existing.job.jobType && existing.job.jobType in sessionTypes
+          ? sessionTypes[existing.job.jobType as keyof typeof sessionTypes]
+          : "chat";
+        const ledgerEvidence = updated.runtimeEvidence ?? null;
+        const ledgerMetrics = deriveJobUsageMetrics({
+          runtimeEvidence: ledgerEvidence,
+          tokensUsed: updated.tokensUsed ?? usageMetrics.tokensUsed,
+          codingAgent: existing.job.codingAgent,
+          isLegacyRuntime: !existing.job.resolvedRuntimeSelection,
+        });
+        await createUsageRecord({
+          workspaceId: usageOrgId,
+          projectId: (existing.job.config?.projectId as string | undefined) ?? existing.job.projectId ?? null,
+          jobId: updated.id,
+          idempotencyKey: `agent-job:${updated.id}:terminal:v1`,
+          userId: existing.job.createdByUserId ?? null,
+          sessionType,
+          startedAt,
+          endedAt,
+          durationSeconds,
+          tokensUsed: ledgerMetrics.tokensUsed ?? null,
+          runtimeEvidence: ledgerEvidence,
+        });
+      };
+      const repairTerminalUsageLedgerSafely = async () => {
+        try {
+          await repairTerminalUsageLedger();
+          return null;
+        } catch (error) {
+          if (error instanceof UsageRecordIdempotencyConflictError) {
+            set.status = 409;
+            return runtimeFailureResponse(
+              "Terminal usage record conflicts with persisted job evidence",
+              409,
+              "USAGE_RECORD_INTEGRITY_CONFLICT",
+              "RUNTIME_USAGE_INTEGRITY_FAILURE",
+            );
+          }
+          throw error;
+        }
+      };
+
       if (
         "claimStatusOutcome" in updated &&
         updated.claimStatusOutcome === "idempotent-replay"
       ) {
+        const usageIntegrityFailure = await repairTerminalUsageLedgerSafely();
+        if (usageIntegrityFailure) return usageIntegrityFailure;
         const { claimStatusOutcome: _claimStatusOutcome, ...publicUpdated } = updated;
         return successResponse(publicUpdated);
       }
@@ -2543,8 +3342,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         }
       }
 
-      // Planning jobs do not have associated work items -- skip work item side-effects
-      const isWorkItemJob = existing.job.jobType !== "planning";
+      // Planning jobs do not have associated work items -- skip work item side-effects.
 
       // Check if this completion represents a multi-turn response boundary (session stays active).
       const resultPayload =
@@ -2725,45 +3523,8 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         }
       }
 
-      // Best-effort: create usage record for every terminal work-item job.
-      // Billing/usage must reflect consumed runtime tokens even when the work
-      // finished incomplete or failed after the provider already charged us.
-      if (isWorkItemJob && isTerminalAgentJobStatus(status) && USAGE_RECORD_AGENT_JOB_STATUSES.has(status) && updated.workItemId) {
-        try {
-          const usageOrgId = await resolveOrgIdFromWorkItem(updated.workItemId);
-          if (usageOrgId) {
-            const jobTypeToSessionType: Record<string, string> = {
-              implementation: "implement",
-              validation: "validate",
-              planning: "planning",
-              review: "review",
-            };
-            const sessionType = existing.job.jobType
-              ? jobTypeToSessionType[existing.job.jobType] ?? "chat"
-              : "chat";
-            const startedAt = updated.startedAt ?? new Date();
-            const endedAt = updated.completedAt ?? updated.failedAt ?? new Date();
-            const durationSeconds = body.durationMs
-              ? Math.round(body.durationMs / 1000)
-              : Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 1000));
-            const jobConfig = existing.job.config;
-
-            await createUsageRecord({
-              workspaceId: usageOrgId,
-              projectId: (jobConfig?.projectId as string | undefined) ?? existing.job.projectId ?? null,
-              jobId: updated.id,
-              userId: existing.job.createdByUserId ?? null,
-              sessionType: sessionType as "implement" | "validate" | "planning" | "review" | "chat",
-              startedAt,
-              endedAt,
-              durationSeconds,
-              tokensUsed: usageMetrics.tokensUsed ?? null,
-            });
-          }
-        } catch {
-          // Ignore: usage tracking should not fail the status update
-        }
-      }
+      const usageIntegrityFailure = await repairTerminalUsageLedgerSafely();
+      if (usageIntegrityFailure) return usageIntegrityFailure;
 
       // Best-effort: auto-link commits when job completes with a branch name
       if (
@@ -2857,10 +3618,14 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         prUrl: t.Optional(t.String()),
         prNumber: t.Optional(t.Number()),
         commitSha: t.Optional(t.String()),
+        runtimeEvidence: t.Optional(t.Unknown()),
         cost: t.Optional(t.Number()),
         tokensUsed: t.Optional(t.Number()),
         inputTokens: t.Optional(t.Number()),
         outputTokens: t.Optional(t.Number()),
+        cacheReadTokens: t.Optional(t.Number()),
+        cacheCreationTokens: t.Optional(t.Number()),
+        reasoningTokens: t.Optional(t.Number()),
         sessionId: t.Optional(t.String()),
         model: t.Optional(t.String()),
         sequenceHighWater: t.Optional(
@@ -4228,6 +4993,14 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         return errorResponse("Job claim is no longer active", 409);
       }
 
+      for (const event of body.events) {
+        if (event.occurredAt === undefined) continue;
+        if (Number.isNaN(new Date(event.occurredAt).getTime())) {
+          set.status = 400;
+          return errorResponse("Session event occurredAt must be a valid ISO date string");
+        }
+      }
+
       const events = body.events.map((e) => ({
         agentJobId: params.id,
         planningSessionId: existing.job.planningSessionId ?? undefined,
@@ -4236,6 +5009,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         kind: e.kind,
         payload: e.payload as Record<string, unknown>,
         provider: e.provider ?? null,
+        occurredAt: e.occurredAt ? new Date(e.occurredAt) : null,
       }));
 
       let inserted: number;
@@ -4281,6 +5055,7 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
             kind: t.String(),
             payload: t.Any(),
             provider: t.Optional(t.String()),
+            occurredAt: t.Optional(t.String()),
           })
         ),
       }),
@@ -4363,18 +5138,50 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
   )
 
   // POST /workers/agent-jobs/:id/native-events — batch persist native runtime events (API key auth)
-  //
-  // Ported from cloud without the workerApiKey workspace-scope check (see the
-  // "sequence-reservations" endpoint comment above). Same fully-durable/
-  // fully-legacy batch fencing as the session-events endpoint above.
   .post(
     "/agent-jobs/:id/native-events",
     async ({ params, body, set }) => {
+      if (body.events.length > AGENT_NATIVE_EVENT_LIMITS.maxBatchSize) {
+        set.status = 400;
+        return errorResponse(
+          "Native event batch is too large",
+          400,
+          "NATIVE_EVENT_BATCH_TOO_LARGE",
+        );
+      }
+
+      const sanitizedPayloads: unknown[] = [];
+      const emittedAtValues: Array<Date | null> = [];
+      for (const event of body.events) {
+        const sanitized = safeSanitizeRuntimeDiagnostic(event.payload);
+        if (!sanitized.success) {
+          set.status = 400;
+          return errorResponse(
+            "Native event payload is invalid",
+            400,
+            sanitized.error.code,
+          );
+        }
+        sanitizedPayloads.push(sanitized.data);
+
+        const emittedAt = event.emittedAt ? new Date(event.emittedAt) : null;
+        if (emittedAt && Number.isNaN(emittedAt.getTime())) {
+          set.status = 400;
+          return errorResponse(
+            "Native event emittedAt is invalid",
+            400,
+            "NATIVE_EVENT_EMITTED_AT_INVALID",
+          );
+        }
+        emittedAtValues.push(emittedAt);
+      }
+
       const existing = await getJobById(params.id);
       if (!existing) {
         set.status = 404;
         return notFoundResponse("Agent job");
       }
+
 
       const hasDurableFields = body.events.some(
         (event) =>
@@ -4395,7 +5202,33 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         return errorResponse("Job claim is no longer active", 409);
       }
 
-      const events = body.events.map((e) => ({
+      for (const event of body.events) {
+        const provider = event.provider ?? existing.job.provider ?? null;
+        const codingAgent = event.codingAgent ?? existing.job.codingAgent ?? null;
+        const aiProvider = event.aiProvider ?? existing.job.aiProvider ?? null;
+        const model = event.model ?? existing.job.model ?? null;
+        const suppliedTupleMatchesJob =
+          (event.provider === undefined || event.provider === existing.job.provider) &&
+          (event.codingAgent === undefined ||
+            event.codingAgent === existing.job.codingAgent) &&
+          (event.aiProvider === undefined ||
+            event.aiProvider === existing.job.aiProvider) &&
+          (event.model === undefined || event.model === existing.job.model);
+        if (
+          !suppliedTupleMatchesJob ||
+          (codingAgent === "pi" &&
+            (provider !== "zipu" || aiProvider !== "zai" || model !== "glm-5.3"))
+        ) {
+          set.status = 400;
+          return errorResponse(
+            "Native event runtime selection is inconsistent",
+            400,
+            "NATIVE_EVENT_RUNTIME_SELECTION_INVALID",
+          );
+        }
+      }
+
+      const events = body.events.map((e, index) => ({
         agentJobId: params.id,
         planningSessionId: existing.job.planningSessionId ?? undefined,
         sequenceNum: e.sequenceNum,
@@ -4403,9 +5236,11 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
         sourceFormat: e.sourceFormat,
         provider: (e.provider ?? existing.job.provider ?? null) as NewAgentNativeEvent["provider"],
         codingAgent: (e.codingAgent ?? existing.job.codingAgent ?? null) as NewAgentNativeEvent["codingAgent"],
+        aiProvider: (e.aiProvider ?? existing.job.aiProvider ?? null) as NewAgentNativeEvent["aiProvider"],
+        model: e.model ?? existing.job.model ?? null,
         runtimeSessionId: e.runtimeSessionId ?? null,
-        payload: e.payload as Record<string, unknown>,
-        emittedAt: e.emittedAt ? new Date(e.emittedAt) : null,
+        payload: sanitizedPayloads[index] as Record<string, unknown>,
+        emittedAt: emittedAtValues[index] ?? null,
       }));
 
       let inserted: number;
@@ -4437,13 +5272,53 @@ export const workersRoutes = new Elysia({ prefix: "/workers" })
             claimAttemptId: t.Optional(
               t.String({ minLength: 1, maxLength: 100 }),
             ),
-            nativeEventType: t.String(),
-            sourceFormat: t.String(),
-            payload: t.Any(),
-            provider: t.Optional(t.String()),
-            codingAgent: t.Optional(t.String()),
-            runtimeSessionId: t.Optional(t.String()),
-            emittedAt: t.Optional(t.String()),
+            nativeEventType: t.String({
+              minLength: 1,
+              maxLength: AGENT_NATIVE_EVENT_LIMITS.nativeEventType,
+            }),
+            sourceFormat: t.String({
+              minLength: 1,
+              maxLength: AGENT_NATIVE_EVENT_LIMITS.sourceFormat,
+            }),
+            payload: t.Unknown(),
+            provider: t.Optional(
+              t.Union([
+                t.Literal("claude-code"),
+                t.Literal("codex"),
+                t.Literal("zipu"),
+                t.Literal("grok"),
+              ]),
+            ),
+            codingAgent: t.Optional(
+              t.Union([
+                t.Literal("claude-code"),
+                t.Literal("codex"),
+                t.Literal("opencode"),
+                t.Literal("pi"),
+              ]),
+            ),
+            aiProvider: t.Optional(
+              t.Union([
+                t.Literal("anthropic"),
+                t.Literal("openai"),
+                t.Literal("google"),
+                t.Literal("zai"),
+                t.Literal("xai"),
+              ]),
+            ),
+            model: t.Optional(
+              t.String({
+                minLength: 1,
+                maxLength: AGENT_NATIVE_EVENT_LIMITS.model,
+              }),
+            ),
+            runtimeSessionId: t.Optional(
+              t.String({
+                minLength: 1,
+                maxLength: AGENT_NATIVE_EVENT_LIMITS.runtimeSessionId,
+              }),
+            ),
+            emittedAt: t.Optional(t.String({ minLength: 1, maxLength: 64 })),
           })
         ),
       }),

@@ -73,25 +73,58 @@ export const normalizeDevFlowAutomationOverride = (
 export const serializeDevFlowAutomationOverride = (
   override: ProjectDevFlowAutomationOverride,
 ): DevFlowAutomationOverridePatchWire => {
-  const normalizedOverride = normalizeDevFlowAutomationOverride(override);
   const wire: DevFlowAutomationOverridePatchWire = {};
 
-  if (normalizedOverride.enabled !== null) wire.enabled = normalizedOverride.enabled;
-  if (normalizedOverride.codingAgent !== null) wire.codingAgent = normalizedOverride.codingAgent;
-  if (normalizedOverride.aiProvider !== null) wire.aiProvider = normalizedOverride.aiProvider;
-  if (normalizedOverride.model !== null) wire.model = normalizedOverride.model;
-  if (normalizedOverride.reasoningLevel !== null) wire.reasoningLevel = normalizedOverride.reasoningLevel;
-  if (normalizedOverride.maxConcurrentJobs !== null) wire.maxConcurrentJobs = normalizedOverride.maxConcurrentJobs;
+  if (override.enabled !== null) wire.enabled = override.enabled;
+  if (override.codingAgent !== null) wire.codingAgent = override.codingAgent;
+  if (override.aiProvider !== null) wire.aiProvider = override.aiProvider;
+  if (override.model !== null) wire.model = override.model;
+  if (override.reasoningLevel !== null) wire.reasoningLevel = override.reasoningLevel;
+  if (override.maxConcurrentJobs !== null) wire.maxConcurrentJobs = override.maxConcurrentJobs;
 
   wire.schedule =
-    normalizedOverride.schedule === null
+    override.schedule === null
       ? null
       : {
-          expression: normalizedOverride.schedule.expression,
-          ...(normalizedOverride.schedule.timezone !== null
-            ? { timezone: normalizedOverride.schedule.timezone }
-            : {}),
+          expression: override.schedule.expression,
+          timezone: override.schedule.timezone,
         };
+
+  return wire;
+};
+
+/**
+ * Builds one omission-aware automation entry. Raw persisted runtime values are
+ * never normalized while reading; only fields whose draft differs from the
+ * server value are emitted. Explicit null clears an override back to inherit.
+ */
+export const buildDevFlowAutomationOverrideDirtyPatch = (
+  draft: ProjectDevFlowAutomationOverride,
+  server: ProjectDevFlowAutomationOverride,
+): DevFlowAutomationOverridePatchWire => {
+  const wire: DevFlowAutomationOverridePatchWire = {};
+
+  if (draft.enabled !== server.enabled) wire.enabled = draft.enabled;
+  if (draft.codingAgent !== server.codingAgent) wire.codingAgent = draft.codingAgent;
+  if (draft.aiProvider !== server.aiProvider) wire.aiProvider = draft.aiProvider;
+  if (draft.model !== server.model) wire.model = draft.model;
+  if (draft.reasoningLevel !== server.reasoningLevel) wire.reasoningLevel = draft.reasoningLevel;
+  if (draft.maxConcurrentJobs !== server.maxConcurrentJobs) {
+    wire.maxConcurrentJobs = draft.maxConcurrentJobs;
+  }
+  if (
+    (draft.schedule === null) !== (server.schedule === null) ||
+    (draft.schedule !== null && server.schedule !== null &&
+      (draft.schedule.expression !== server.schedule.expression ||
+        draft.schedule.timezone !== server.schedule.timezone))
+  ) {
+    wire.schedule = draft.schedule === null
+      ? null
+      : {
+          expression: draft.schedule.expression,
+          timezone: draft.schedule.timezone,
+        };
+  }
 
   return wire;
 };
@@ -130,10 +163,7 @@ export const overridesByAutomationIdFromStatuses = (
   Object.fromEntries(
     automations.map((automation) => [
       automation.automationId,
-      normalizeDevFlowAutomationOverride(
-        automation.overrides ?? EMPTY_DEV_FLOW_AUTOMATION_OVERRIDE,
-        automation.effective,
-      ),
+      automation.overrides ?? EMPTY_DEV_FLOW_AUTOMATION_OVERRIDE,
     ]),
   );
 

@@ -50,7 +50,10 @@ describe("stream-io", () => {
       claimAttemptId: "attempt-1",
       nativeEventType: "message.part.updated",
       sourceFormat: "opencode-sse",
+      provider: "zipu",
       codingAgent: "opencode",
+      aiProvider: "zai",
+      model: "glm-5.3",
       runtimeSessionId: "ses-native",
       emittedAt: "2026-04-29T21:35:13.000Z",
       payload: { type: "message.part.updated", part: { type: "tool" } },
@@ -65,6 +68,31 @@ describe("stream-io", () => {
     }
 
     expect(result.envelope).toEqual(nativeEnvelope);
+  });
+
+  it("no añade campos runtime-selection a productores nativos existentes", () => {
+    const existingEnvelope: NativeEventEnvelope = {
+      jobId: "job-existing",
+      sessionId: "session-existing",
+      workspaceId: "org-existing",
+      threadId: "thread-existing",
+      timestamp: 1_710_000_000_002,
+      sequenceNumber: 9,
+      nativeEventType: "message.part.updated",
+      sourceFormat: "opencode-sse",
+      provider: "zipu",
+      codingAgent: "opencode",
+      runtimeSessionId: "ses-existing",
+      emittedAt: "2026-04-29T21:35:14.000Z",
+      payload: { type: "message.part.updated" },
+    };
+
+    const streamEvent = createNativeStreamEvent(existingEnvelope);
+    const result = readStreamEvent(streamEvent);
+
+    expect(Object.hasOwn(streamEvent, "aiProvider")).toBe(false);
+    expect(Object.hasOwn(streamEvent, "model")).toBe(false);
+    expect(result).toEqual({ format: "native", envelope: existingEnvelope });
   });
 
   it("mantiene compatibilidad con eventos legacy", () => {
