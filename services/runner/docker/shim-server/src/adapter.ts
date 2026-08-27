@@ -22,10 +22,12 @@ export type NativeEventListener = (event: NativeRuntimeEvent) => void;
 export interface RuntimeAdapter {
   createSession(input: SessionCreateInput): Promise<SessionCreateResponse>;
   sendPrompt(sessionId: string, request: PromptRequest): Promise<void>;
+  abortSession?(sessionId: string): Promise<boolean>;
   onEvent(listener: RuntimeEventListener): () => void;
   onCanonicalEvent?(listener: CanonicalEventListener): () => void;
   onNativeEvent?(listener: NativeEventListener): () => void;
   listSessions?(): Promise<SessionCreateResponse[]>;
   getSession?(sessionId: string): Promise<SessionCreateResponse | null>;
   deleteSession?(sessionId: string): Promise<boolean>;
+  close?(): Promise<void>;
 }

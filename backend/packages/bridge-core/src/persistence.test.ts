@@ -92,6 +92,101 @@ describe("durable canonical persistence", () => {
     ).toBe(false);
   });
 
+  it("preserves separated native runtime selection fields in the API body", async () => {
+    let body: { events?: NativeEventPayload[] } = {};
+    const client = createBridgeApiClient({
+      baseUrl: "https://bridge.invalid",
+      apiKey: "test",
+      log: () => undefined,
+      fetch: async (_url, init) => {
+        body = JSON.parse(String(init?.body ?? "{}")) as {
+          events?: NativeEventPayload[];
+        };
+        return Response.json({ success: true });
+      },
+    });
+    const event: NativeEventPayload = {
+      sequenceNum: 9,
+      nativeEventType: "message_end",
+      sourceFormat: "pi-rpc",
+      provider: "zipu",
+      codingAgent: "pi",
+      aiProvider: "zai",
+      model: "glm-5.3",
+      payload: { type: "message_end" },
+    };
+
+    await client.persistNativeEvents("job-pi", [event]);
+
+    expect(body.events).toEqual([event]);
+    expect(body.events?.[0]?.provider).toBe("zipu");
+    expect(body.events?.[0]?.aiProvider).toBe("zai");
+    expect(body.events?.[0]?.model).toBe("glm-5.3");
+  });
+
+  it("leaves existing native API payloads unchanged when new fields are absent", async () => {
+    let rawBody = "";
+    const client = createBridgeApiClient({
+      baseUrl: "https://bridge.invalid",
+      apiKey: "test",
+      log: () => undefined,
+      fetch: async (_url, init) => {
+        rawBody = String(init?.body ?? "");
+        return Response.json({ success: true });
+      },
+    });
+    const event: NativeEventPayload = {
+      sequenceNum: 10,
+      nativeEventType: "message.part.updated",
+      sourceFormat: "opencode-sse",
+      provider: "zipu",
+      codingAgent: "opencode",
+      runtimeSessionId: "runtime-existing",
+      payload: { type: "message.part.updated" },
+    };
+
+    await client.persistNativeEvents("job-existing", [event]);
+
+    expect(rawBody).toBe(JSON.stringify({ events: [event] }));
+    expect(rawBody).not.toContain("aiProvider");
+    expect(rawBody).not.toContain("model");
+  });
+
+  it("rejects invalid or oversized native runtime identity fields before transport", async () => {
+    let fetchCalls = 0;
+    const client = createBridgeApiClient({
+      baseUrl: "https://bridge.invalid",
+      apiKey: "test",
+      log: () => undefined,
+      fetch: async () => {
+        fetchCalls += 1;
+        return Response.json({ success: true });
+      },
+    });
+    const event: NativeEventPayload = {
+      sequenceNum: 11,
+      nativeEventType: "message_end",
+      sourceFormat: "pi-rpc",
+      provider: "zipu",
+      codingAgent: "pi",
+      aiProvider: "zai",
+      model: "glm-5.3",
+      payload: { type: "message_end" },
+    };
+
+    await expect(
+      client.persistNativeEvents("job-oversized", [
+        { ...event, aiProvider: "z".repeat(257) },
+      ]),
+    ).rejects.toThrow("aiProvider");
+    await expect(
+      client.persistNativeEvents("job-invalid-lane", [
+        { ...event, provider: "zai" } as unknown as NativeEventPayload,
+      ]),
+    ).rejects.toThrow("provider must be an infrastructure provider");
+    expect(fetchCalls).toBe(0);
+  });
+
   it("returns the validated inserted count from the session-events API", async () => {
     const client = createBridgeApiClient({
       baseUrl: "https://bridge.invalid",
@@ -173,6 +268,71 @@ describe("durable canonical persistence", () => {
         sequenceProtocolVersion: "durable.v2",
         claimAttemptId: "attempt-1",
       }),
+    ]);
+  });
+
+  it("threads the producer's occurredAt through the durable session-event payload", async () => {
+    const persisted: SessionEventPayload[] = [];
+    const apiClient: BridgeApiClient = {
+      checkCredential: async () => undefined,
+      updateJobStatus: async () => undefined,
+      persistSessionEvents: async (_jobId, events) => {
+        persisted.push(...events);
+        return { inserted: events.length };
+      },
+      persistNativeEvents: async () => undefined,
+    };
+    const strategy = createApiPersistenceStrategy({
+      apiClient,
+      log: () => undefined,
+      persistSessionEvents: true,
+    });
+
+    await strategy.persistCanonicalEvent(
+      { kind: "job.completed", summary: "done" },
+      {
+        jobId: "job-occurred-at",
+        sequenceNumber: 7,
+        sequenceProtocolVersion: "durable.v2",
+        claimAttemptId: "attempt-1",
+        occurredAt: "2026-08-08T10:00:00.000Z",
+      },
+    );
+
+    expect(persisted).toEqual([
+      expect.objectContaining({ occurredAt: "2026-08-08T10:00:00.000Z" }),
+    ]);
+  });
+
+  it("threads the producer's occurredAt through the legacy batched session-event payload", async () => {
+    const persisted: SessionEventPayload[] = [];
+    const apiClient: BridgeApiClient = {
+      checkCredential: async () => undefined,
+      updateJobStatus: async () => undefined,
+      persistSessionEvents: async (_jobId, events) => {
+        persisted.push(...events);
+        return { inserted: events.length };
+      },
+      persistNativeEvents: async () => undefined,
+    };
+    const strategy = createApiPersistenceStrategy({
+      apiClient,
+      log: () => undefined,
+      persistSessionEvents: true,
+    });
+
+    await strategy.persistCanonicalEvent(
+      { kind: "agent.text", content: "legacy" },
+      {
+        jobId: "legacy-job-occurred-at",
+        sequenceNumber: 9,
+        occurredAt: "2026-08-08T11:00:00.000Z",
+      },
+    );
+    await strategy.flushJob("legacy-job-occurred-at");
+
+    expect(persisted).toEqual([
+      expect.objectContaining({ occurredAt: "2026-08-08T11:00:00.000Z" }),
     ]);
   });
 

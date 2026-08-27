@@ -3,7 +3,16 @@ import { agentJobs, agentJobClaimSequenceReceipts, workItems, projects, boards, 
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, isNotNull, lte, or, sql, notInArray, count } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { AgentJobConfig, AgentJobPendingTerminalIntent } from "../../schema/agent-jobs";
-import { getSkillMemoryMb, type ResourceEstimate } from "@almirant/shared";
+import {
+  deriveRuntimeCapabilityIntent,
+  getSkillMemoryMb,
+  LEGACY_CLAIMABLE_CODING_AGENTS,
+  resolveRequestedRuntimeSelection,
+  RuntimeCapabilityIntentError,
+  type ResolvedRuntimeSelection,
+  type ResourceEstimate,
+  type RuntimeEvidence,
+} from "@almirant/shared";
 import { logger, getCurrentTraceId } from "@almirant/config";
 import { resolvePersistedJobTemplateFields } from "./job-template-resolution";
 import { INTERNAL_SKILL_KEYS, type AgentRoutingEntry } from "../../schema/system-settings";
@@ -142,6 +151,7 @@ export type CreateAgentJobInput = {
   codingAgent?: CodingAgent;
   aiProvider?: AiProvider;
   model?: string;
+  resolvedRuntimeSelection?: ResolvedRuntimeSelection | null;
   skillName?: string;
   // New model fields (prompt + trigger)
   prompt?: string | null;
@@ -154,6 +164,102 @@ export interface CreateJobOptions {
   /** Join an existing transaction for durable plan-review admission. */
   executor?: Pick<Database, "insert">;
 }
+
+const RUNTIME_SELECTION_KEYS = [
+  "schemaVersion",
+  "registryVersion",
+  "projectionHash",
+  "provider",
+  "codingAgent",
+  "aiProvider",
+  "model",
+  "authClass",
+  "capabilities",
+  "provenance",
+] as const;
+const RUNTIME_SELECTION_PROVENANCE_KEYS = [
+  "provider",
+  "codingAgent",
+  "aiProvider",
+  "model",
+  "authClass",
+  "capabilities",
+] as const;
+
+const hasExactOwnKeys = (
+  value: object,
+  expectedKeys: readonly string[],
+): boolean => {
+  const keys = Object.keys(value);
+  return (
+    keys.length === expectedKeys.length &&
+    expectedKeys.every((key) => Object.prototype.hasOwnProperty.call(value, key))
+  );
+};
+
+const exactRuntimeStringArrayMatch = (
+  left: readonly string[] | null | undefined,
+  right: readonly string[],
+): boolean =>
+  Array.isArray(left) &&
+  left.length === right.length &&
+  left.every((value, index) => value === right[index]);
+
+const resolvePersistedRuntimeSelection = (input: {
+  provider: string;
+  codingAgent: string;
+  aiProvider: string;
+  model: string;
+  config: unknown;
+  provided?: ResolvedRuntimeSelection | null;
+}): ResolvedRuntimeSelection => {
+  const intentResult = deriveRuntimeCapabilityIntent(input.config);
+  if (!intentResult.ok) {
+    throw new RuntimeCapabilityIntentError(intentResult.code, intentResult.field);
+  }
+
+  const resolution = resolveRequestedRuntimeSelection({
+    provider: input.provider,
+    codingAgent: input.codingAgent,
+    aiProvider: input.aiProvider,
+    model: input.model,
+    authClass:
+      intentResult.intent.authClass ?? input.provided?.authClass ?? "api_key",
+    capabilities: intentResult.intent.capabilities,
+  });
+  if (!resolution.admitted) {
+    throw new Error(
+      `Invalid agent job runtime: ${resolution.code} (${input.codingAgent}/${input.aiProvider}/${input.model})`,
+    );
+  }
+
+  if (!input.provided) return resolution.selection;
+  const provided = input.provided;
+  const expected = resolution.selection;
+  const providedProvenance = provided.provenance;
+  if (
+    !hasExactOwnKeys(provided, RUNTIME_SELECTION_KEYS) ||
+    !providedProvenance ||
+    !hasExactOwnKeys(providedProvenance, RUNTIME_SELECTION_PROVENANCE_KEYS) ||
+    provided.schemaVersion !== expected.schemaVersion ||
+    provided.registryVersion !== expected.registryVersion ||
+    provided.projectionHash !== expected.projectionHash ||
+    provided.provider !== expected.provider ||
+    provided.codingAgent !== expected.codingAgent ||
+    provided.aiProvider !== expected.aiProvider ||
+    provided.model !== expected.model ||
+    provided.authClass !== expected.authClass ||
+    !exactRuntimeStringArrayMatch(provided.capabilities, expected.capabilities) ||
+    RUNTIME_SELECTION_PROVENANCE_KEYS.some(
+      (field) => providedProvenance[field] !== expected.provenance[field],
+    )
+  ) {
+    throw new Error(
+      "Invalid agent job runtime: provided resolved selection does not exactly match the current registry, persisted columns, and derived intent",
+    );
+  }
+  return provided;
+};
 
 export type AgentJobWithRelations = {
   job: typeof agentJobs.$inferSelect;
@@ -265,6 +371,22 @@ export const createJob = async (
     },
   );
 
+  const codingAgent =
+    input.codingAgent ??
+    ((routingOverride?.codingAgent ?? "claude-code") as CodingAgent);
+  const aiProvider =
+    input.aiProvider ??
+    ((routingOverride?.aiProvider ?? "anthropic") as AiProvider);
+  const model = input.model ?? routingOverride?.model ?? "claude-opus-4-8";
+  const resolvedRuntimeSelection = resolvePersistedRuntimeSelection({
+    provider: input.provider,
+    codingAgent,
+    aiProvider,
+    model,
+    config: configWithOverrides,
+    provided: input.resolvedRuntimeSelection,
+  });
+
   const jobValues = {
     ...(input.id ? { id: input.id } : {}),
     projectId: input.projectId ?? null,
@@ -292,13 +414,10 @@ export const createJob = async (
         ? { completedAt: new Date() }
         : {}),
     config: configWithOverrides,
-    codingAgent:
-      input.codingAgent ??
-      ((routingOverride?.codingAgent ?? "claude-code") as CodingAgent),
-    aiProvider:
-      input.aiProvider ??
-      ((routingOverride?.aiProvider ?? "anthropic") as AiProvider),
-    model: input.model ?? routingOverride?.model ?? "claude-opus-4-8",
+    codingAgent,
+    aiProvider,
+    model,
+    resolvedRuntimeSelection,
   };
 
   let created: typeof agentJobs.$inferSelect | undefined;
@@ -329,6 +448,13 @@ export const createBatchJobs = async (
       } = resolvePersistedJobTemplateFields(j);
       const jt = j.jobType ?? "implementation";
       const routingOverride = await resolveInternalSkillRouting(resolvedSkillName);
+      const codingAgent =
+        j.codingAgent ??
+        ((routingOverride?.codingAgent ?? "claude-code") as CodingAgent);
+      const aiProvider =
+        j.aiProvider ??
+        ((routingOverride?.aiProvider ?? "anthropic") as AiProvider);
+      const model = j.model ?? routingOverride?.model ?? "claude-opus-4-8";
       const configWithOverrides: AgentJobConfig = ensureResourceEstimate(
         {
           ...j.config,
@@ -343,6 +469,14 @@ export const createBatchJobs = async (
           resolvedPromptTemplate,
         },
       );
+      const resolvedRuntimeSelection = resolvePersistedRuntimeSelection({
+        provider: j.provider,
+        codingAgent,
+        aiProvider,
+        model,
+        config: configWithOverrides,
+        provided: j.resolvedRuntimeSelection,
+      });
       return {
         projectId: j.projectId ?? null,
         workItemId: j.workItemId ?? null,
@@ -360,13 +494,10 @@ export const createBatchJobs = async (
         priority: j.priority ?? "medium",
         status: "queued" as const,
         config: configWithOverrides,
-        codingAgent:
-          j.codingAgent ??
-          ((routingOverride?.codingAgent ?? "claude-code") as CodingAgent),
-        aiProvider:
-          j.aiProvider ??
-          ((routingOverride?.aiProvider ?? "anthropic") as AiProvider),
-        model: j.model ?? routingOverride?.model ?? "claude-opus-4-8",
+        codingAgent,
+        aiProvider,
+        model,
+        resolvedRuntimeSelection,
       };
     }),
   );
@@ -634,6 +765,7 @@ export type UpdateJobStatusData = {
   sessionId?: string | null;
   config?: AgentJobConfig;
   model?: string | null;
+  runtimeEvidence?: RuntimeEvidence | null;
   cumulativeDurationMs?: number | null;
 };
 
@@ -665,6 +797,7 @@ const buildJobStatusPatch = (
   sessionId: data?.sessionId,
   config: data?.config,
   model: data?.model ?? undefined,
+  runtimeEvidence: data?.runtimeEvidence,
   updatedAt: new Date(),
 });
 
@@ -790,6 +923,79 @@ export type ClaimOwnership = Readonly<{
   workerId: string;
   claimAttemptId: string;
 }>;
+
+export type LiveAgentJobClaim = Readonly<{
+  id: string;
+  status: "running";
+  workspaceId: string | null;
+  workerId: string;
+  config: AgentJobConfig;
+}>;
+
+type LiveAgentJobClaimDatabase = Pick<typeof db, "transaction">;
+
+/** Hold the exact active claim under row lock while reading claim-bound data. */
+export const withLiveAgentJobClaimWith = async <T>(
+  database: LiveAgentJobClaimDatabase,
+  ownership: Readonly<{
+    jobId: string;
+    workerId: string;
+    claimAttemptId: string;
+  }>,
+  operation: (job: LiveAgentJobClaim) => Promise<T>,
+): Promise<T | null> => {
+  const jobId = ownership.jobId.trim();
+  const workerId = ownership.workerId.trim();
+  const claimAttemptId = ownership.claimAttemptId.trim();
+  if (!jobId || !workerId || !claimAttemptId) return null;
+
+  const claimPredicate = and(
+    eq(agentJobClaimSequenceReceipts.jobId, jobId),
+    eq(agentJobClaimSequenceReceipts.claimAttemptId, claimAttemptId),
+    eq(agentJobClaimSequenceReceipts.workerId, workerId),
+    eq(agentJobClaimSequenceReceipts.state, "active"),
+    eq(agentJobs.id, jobId),
+    eq(agentJobs.status, "running"),
+    eq(agentJobs.workerId, workerId),
+    sql`${agentJobs.config} ->> 'claimAttemptId' = ${claimAttemptId}`,
+  );
+
+  return database.transaction(async (tx) => {
+    const [locked] = await tx
+      .select({
+        id: agentJobs.id,
+        status: agentJobs.status,
+        workspaceId: agentJobs.workspaceId,
+        workerId: agentJobs.workerId,
+        config: agentJobs.config,
+      })
+      .from(agentJobClaimSequenceReceipts)
+      .innerJoin(agentJobs, eq(agentJobs.id, agentJobClaimSequenceReceipts.jobId))
+      .where(claimPredicate)
+      .for("update")
+      .limit(1);
+    if (!locked || locked.status !== "running" || locked.workerId !== workerId) return null;
+
+    const result = await operation({ ...locked, status: "running", workerId });
+
+    const [stillAuthorized] = await tx
+      .select({ id: agentJobs.id })
+      .from(agentJobClaimSequenceReceipts)
+      .innerJoin(agentJobs, eq(agentJobs.id, agentJobClaimSequenceReceipts.jobId))
+      .where(claimPredicate)
+      .limit(1);
+    return stillAuthorized ? result : null;
+  });
+};
+
+export const withLiveAgentJobClaim = <T>(
+  ownership: Readonly<{
+    jobId: string;
+    workerId: string;
+    claimAttemptId: string;
+  }>,
+  operation: (job: LiveAgentJobClaim) => Promise<T>,
+): Promise<T | null> => withLiveAgentJobClaimWith(db, ownership, operation);
 
 export type ClaimReleaseConfig = Readonly<{
   previousJobId?: string;
@@ -1414,7 +1620,7 @@ export type ClaimJobsProtocol = Readonly<{
 export const claimJobs = async (
   workerId: string,
   count: number,
-  acceptedCodingAgents?: string[],
+  acceptedCodingAgents?: readonly string[],
   protocol?: ClaimJobsProtocol
 ): Promise<ClaimedJobRow[]> => {
   const safeCount = Math.max(0, Math.min(count, 50));
@@ -1453,13 +1659,18 @@ export const claimJobs = async (
 
     const actualCount = Math.min(safeCount, available);
 
-    // Build optional coding_agent filter. When acceptedCodingAgents is provided
-    // and non-empty, only pick jobs whose coding_agent matches one of the values.
-    // When absent/empty, no filter is applied (backward-compatible).
+    // Every claim is fenced by an effective coding-agent set. Direct legacy
+    // callers that predate runner advertisement retain only the legacy three;
+    // an explicitly empty effective set must fail closed rather than widen.
+    const effectiveCodingAgents =
+      acceptedCodingAgents ?? LEGACY_CLAIMABLE_CODING_AGENTS;
     const codingAgentFilter =
-      acceptedCodingAgents && acceptedCodingAgents.length > 0
-        ? sql`AND coding_agent = ANY(ARRAY[${sql.join(acceptedCodingAgents.map(a => sql`${a}`), sql`, `)}]::coding_agent[])`
-        : sql``;
+      effectiveCodingAgents.length > 0
+        ? sql`AND aj.coding_agent::text = ANY(ARRAY[${sql.join(
+            effectiveCodingAgents.map((codingAgent) => sql`${codingAgent}`),
+            sql`, `,
+          )}]::text[])`
+        : sql`AND FALSE`;
 
     // Receipts rollout gate: while `durableSequenceReceipts` is off, exclude
     // jobs that already opted into the durable protocol (explicit requirement,

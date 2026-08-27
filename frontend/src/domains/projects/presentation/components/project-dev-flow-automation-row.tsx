@@ -17,16 +17,23 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { getModelsForProvider } from "@/lib/ai-models-catalog";
 import { getReasoningEffortOptions } from "@/lib/ai-model-reasoning";
 import { formatDevFlowEffectiveSummary } from "../../domain/dev-flow-automation-overrides";
+import {
+  getProjectRuntimeModels,
+  getRetainedProjectRuntimeFields,
+  resolveProjectRuntimeAdmission,
+} from "../../domain/project-runtime-selection";
 import { parseMaxConcurrentJobsInput } from "../../domain/dev-flow";
-import type {
-  DevFlowAutomationRowProps,
-  ProjectImplementationAiProvider,
-  ProjectImplementationCodingAgent,
-} from "../../domain/types";
-import { useAiProviderOptions, useCodingAgentOptions } from "./project-dev-flow-runtime-options";
+import type { DevFlowAutomationRowProps } from "../../domain/types";
+import {
+  ProjectRuntimeRejectionNotice,
+  RetainedRuntimeNotice,
+  RetainedRuntimeSelectItem,
+  retainedRuntimeSelectValue,
+  useAiProviderOptions,
+  useCodingAgentOptions,
+} from "./project-dev-flow-runtime-options";
 import { ProjectDevFlowScheduleEditor } from "./project-dev-flow-schedule-editor";
 
 const VERDICT_TINT: Record<"would-dispatch" | "blocked", string> = {
@@ -68,22 +75,32 @@ export const DevFlowAutomationRow: React.FC<DevFlowAutomationRowProps> = ({
   onAdopt,
 }) => {
   const t = useTranslations("projects.devFlow.automationRow");
-  const codingAgentOptions = useCodingAgentOptions();
-  const aiProviderOptions = useAiProviderOptions();
+  const tRuntime = useTranslations("projects.runtimeSelection");
   const [expanded, setExpanded] = useState(false);
   const [isConfirmingAdopt, setIsConfirmingAdopt] = useState(false);
 
   const { override, effective, diagnosis } = row;
 
-  const resolvedCodingAgent = (override.codingAgent ?? effective.codingAgent) as ProjectImplementationCodingAgent;
-  const resolvedAiProvider = (override.aiProvider ?? effective.aiProvider) as ProjectImplementationAiProvider;
+  const resolvedCodingAgent = override.codingAgent ?? effective.codingAgent;
+  const resolvedAiProvider = override.aiProvider ?? effective.aiProvider;
   const resolvedModel = override.model ?? effective.model;
-  const modelOptions = getModelsForProvider(resolvedAiProvider, "agent-runtime");
-  const reasoningOptions = getReasoningEffortOptions({
+  const selection = {
     codingAgent: resolvedCodingAgent,
     aiProvider: resolvedAiProvider,
     model: resolvedModel,
-  });
+    reasoningLevel: override.reasoningLevel ?? effective.reasoningLevel,
+  };
+  const codingAgentOptions = useCodingAgentOptions(row.automationId);
+  const aiProviderOptions = useAiProviderOptions(row.automationId, resolvedCodingAgent);
+  const modelOptions = getProjectRuntimeModels(
+    row.automationId,
+    resolvedCodingAgent,
+    resolvedAiProvider,
+  );
+  const reasoningOptions = getReasoningEffortOptions(selection);
+  const retainedFields = getRetainedProjectRuntimeFields(row.automationId, selection);
+  const retainedByField = new Map(retainedFields.map((field) => [field.field, field.value]));
+  const admission = resolveProjectRuntimeAdmission(row.automationId, selection);
 
   const enabledChecked = override.enabled ?? row.enabled;
 
@@ -253,7 +270,9 @@ export const DevFlowAutomationRow: React.FC<DevFlowAutomationRowProps> = ({
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">{t("fields.codingAgent")}</Label>
               <Select
-                value={override.codingAgent ?? ""}
+                value={override.codingAgent !== null && retainedByField.has("codingAgent")
+                  ? retainedRuntimeSelectValue("codingAgent", override.codingAgent)
+                  : override.codingAgent ?? ""}
                 onValueChange={(value) => onFieldChange(row.automationId, "codingAgent", value)}
                 disabled={row.isSaving}
               >
@@ -261,6 +280,9 @@ export const DevFlowAutomationRow: React.FC<DevFlowAutomationRowProps> = ({
                   <SelectValue placeholder={inheritedPlaceholder(effective.codingAgent)} />
                 </SelectTrigger>
                 <SelectContent>
+                  {override.codingAgent !== null && retainedByField.has("codingAgent") && (
+                    <RetainedRuntimeSelectItem field="codingAgent" value={override.codingAgent} />
+                  )}
                   {codingAgentOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       <div className="flex items-center gap-2">{option.icon}{option.label}</div>
@@ -273,14 +295,19 @@ export const DevFlowAutomationRow: React.FC<DevFlowAutomationRowProps> = ({
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">{t("fields.aiProvider")}</Label>
               <Select
-                value={override.aiProvider ?? ""}
+                value={override.aiProvider !== null && retainedByField.has("aiProvider")
+                  ? retainedRuntimeSelectValue("aiProvider", override.aiProvider)
+                  : override.aiProvider ?? ""}
                 onValueChange={(value) => onFieldChange(row.automationId, "aiProvider", value)}
-                disabled={row.isSaving}
+                disabled={row.isSaving || aiProviderOptions.length === 0}
               >
                 <SelectTrigger className="h-9" aria-label={t("fields.aiProvider")}>
                   <SelectValue placeholder={inheritedPlaceholder(effective.aiProvider)} />
                 </SelectTrigger>
                 <SelectContent>
+                  {override.aiProvider !== null && retainedByField.has("aiProvider") && (
+                    <RetainedRuntimeSelectItem field="aiProvider" value={override.aiProvider} />
+                  )}
                   {aiProviderOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       <div className="flex items-center gap-2">{option.icon}{option.label}</div>
@@ -293,18 +320,21 @@ export const DevFlowAutomationRow: React.FC<DevFlowAutomationRowProps> = ({
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">{t("fields.model")}</Label>
               <Select
-                value={override.model ?? ""}
+                value={override.model !== null && retainedByField.has("model")
+                  ? retainedRuntimeSelectValue("model", override.model)
+                  : override.model ?? ""}
                 onValueChange={(value) => onFieldChange(row.automationId, "model", value)}
-                disabled={row.isSaving}
+                disabled={row.isSaving || modelOptions.length === 0}
               >
                 <SelectTrigger className="h-9" aria-label={t("fields.model")}>
                   <SelectValue placeholder={inheritedPlaceholder(effective.model)} />
                 </SelectTrigger>
                 <SelectContent>
+                  {override.model !== null && retainedByField.has("model") && (
+                    <RetainedRuntimeSelectItem field="model" value={override.model} />
+                  )}
                   {modelOptions.map((model) => (
-                    <SelectItem key={model.id} value={model.id}>
-                      {model.displayName}
-                    </SelectItem>
+                    <SelectItem key={model.id} value={model.id}>{model.displayName}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -313,7 +343,9 @@ export const DevFlowAutomationRow: React.FC<DevFlowAutomationRowProps> = ({
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">{t("fields.reasoningEffort")}</Label>
               <Select
-                value={override.reasoningLevel ?? "__default__"}
+                value={override.reasoningLevel !== null && retainedByField.has("reasoningLevel")
+                  ? retainedRuntimeSelectValue("reasoningLevel", override.reasoningLevel)
+                  : override.reasoningLevel ?? "__default__"}
                 onValueChange={(value) =>
                   onFieldChange(row.automationId, "reasoningLevel", value === "__default__" ? null : value)
                 }
@@ -323,11 +355,12 @@ export const DevFlowAutomationRow: React.FC<DevFlowAutomationRowProps> = ({
                   <SelectValue placeholder={inheritedPlaceholder(effective.reasoningLevel)} />
                 </SelectTrigger>
                 <SelectContent>
+                  {override.reasoningLevel !== null && retainedByField.has("reasoningLevel") && (
+                    <RetainedRuntimeSelectItem field="reasoningLevel" value={override.reasoningLevel} />
+                  )}
                   <SelectItem value="__default__">{inheritedPlaceholder(effective.reasoningLevel)}</SelectItem>
                   {reasoningOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -345,13 +378,23 @@ export const DevFlowAutomationRow: React.FC<DevFlowAutomationRowProps> = ({
                 className="h-9"
                 placeholder={inheritedConcurrencyPlaceholder(effective.maxConcurrentJobs)}
                 value={override.maxConcurrentJobs ?? ""}
-                onChange={(e) =>
-                  onFieldChange(row.automationId, "maxConcurrentJobs", parseMaxConcurrentJobsInput(e.target.value))
+                onChange={(event) =>
+                  onFieldChange(row.automationId, "maxConcurrentJobs", parseMaxConcurrentJobsInput(event.target.value))
                 }
                 disabled={row.isSaving}
               />
             </div>
           </div>
+
+          {retainedFields.map((field) => (
+            <RetainedRuntimeNotice key={field.field} field={field.field} value={field.value} />
+          ))}
+          {!admission.admitted && selection.codingAgent && selection.aiProvider && selection.model && (
+            <ProjectRuntimeRejectionNotice code={admission.code} />
+          )}
+          {row.automationId === "dod-review" && (
+            <p className="text-xs text-muted-foreground">{tRuntime("piReadOnlyUnavailable")}</p>
+          )}
 
           <ProjectDevFlowScheduleEditor
             automationName={row.name}

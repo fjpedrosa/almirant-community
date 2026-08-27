@@ -1,8 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import {
+  buildResolvedModelStatusFields,
+  buildUsagePayloadFields,
+  resolvePlatformInjectionRuntime,
   resolveTeardownFailureEvent,
   shouldPrepareParentRuntime,
 } from "./job-executor";
+import { createRuntimeExecutorRegistry } from "./runtime-executors/registry";
 import { classifyContainerFailure } from "./shared/failure-signal";
 
 describe("native Plan Review parent runtime preparation", () => {
@@ -11,6 +15,110 @@ describe("native Plan Review parent runtime preparation", () => {
     expect(shouldPrepareParentRuntime({ jobType: "review", planReviewStatus: "skipped_unavailable" })).toBe(true);
     expect(shouldPrepareParentRuntime({ jobType: "implementation", planReviewStatus: "ready" })).toBe(true);
     expect(shouldPrepareParentRuntime({ jobType: "review" })).toBe(true);
+  });
+
+  it("maps Pi to the compatible AGENTS.md platform injection layout", () => {
+    expect(resolvePlatformInjectionRuntime("pi")).toBe("opencode");
+    expect(resolvePlatformInjectionRuntime("claude-code")).toBe("claude-code");
+    expect(resolvePlatformInjectionRuntime("codex")).toBe("codex");
+  });
+
+  it("keeps Pi in the image catalog without selecting it for an OpenCode child", () => {
+    const runtimeConfig = createRuntimeExecutorRegistry()
+      .resolve({ provider: "openai", codingAgent: "opencode" })
+      .resolveRuntimeConfig({
+        opencodeImage: "opencode:test",
+        claudeShimImage: "claude:test",
+        codexShimImage: "codex:test",
+        piShimImage: "pi:test",
+      });
+
+    expect(runtimeConfig.type).toBe("opencode");
+    expect(runtimeConfig.image).toBe("opencode:test");
+    expect(runtimeConfig.image).not.toBe("pi:test");
+  });
+});
+
+describe("runtime evidence status payloads", () => {
+  it("does not overwrite a modern requested model with its resolved model", () => {
+    expect(buildResolvedModelStatusFields({
+      model: "glm-5.3-requested",
+      resolvedRuntimeSelection: {
+        schemaVersion: "resolved-runtime-selection-v1",
+        registryVersion: 1,
+        projectionHash: "sha256:test",
+        provider: "zipu",
+        codingAgent: "pi",
+        aiProvider: "zai",
+        model: "glm-5.3",
+        authClass: "api_key",
+        capabilities: [],
+        provenance: {
+          provider: "explicit",
+          codingAgent: "explicit",
+          aiProvider: "explicit",
+          model: "explicit",
+          authClass: "explicit",
+          capabilities: "explicit",
+        },
+      },
+    } as never, "glm-5.3")).toEqual({});
+  });
+
+  it("preserves legacy resolved-model updates", () => {
+    expect(buildResolvedModelStatusFields({ model: "legacy-request" } as never, "legacy-resolved"))
+      .toEqual({ model: "legacy-resolved" });
+  });
+
+  it("copies exact reported aggregates and ignores stale compatibility fields", () => {
+    const runtimeEvidence = {
+      schemaVersion: "runtime-evidence-v1",
+      usage: {
+        status: "reported",
+        source: "terminal_aggregate",
+        inputTokens: 20,
+        outputTokens: 8,
+        cacheReadTokens: 3,
+        cacheWriteTokens: 2,
+        reasoningTokens: 1,
+        totalTokens: 30,
+        cost: {
+          totalUsd: 3,
+          detail: { input: 1.25, output: 1.75, total: 3 },
+        },
+      },
+    } as const;
+
+    expect(buildUsagePayloadFields({
+      runtimeEvidence,
+      tokensUsed: 999,
+      inputTokens: 999,
+      outputTokens: 999,
+      costUsd: 999,
+    })).toEqual({
+      runtimeEvidence,
+      tokensUsed: 30,
+      inputTokens: 20,
+      outputTokens: 8,
+      cacheReadTokens: 3,
+      cacheCreationTokens: 2,
+      reasoningTokens: 1,
+      cost: 3,
+      costDetail: { input: 1.25, output: 1.75, total: 3 },
+    });
+  });
+
+  it("persists explicit unavailable without zero-filled compatibility aggregates", () => {
+    const runtimeEvidence = {
+      schemaVersion: "runtime-evidence-v1",
+      usage: { status: "unavailable", reason: "not_reported" },
+    } as const;
+
+    expect(buildUsagePayloadFields({
+      runtimeEvidence,
+      tokensUsed: 999,
+      costUsd: 999,
+    })).toEqual({ runtimeEvidence });
   });
 });
 

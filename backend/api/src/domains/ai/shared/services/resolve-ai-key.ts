@@ -3,9 +3,13 @@ import {
   findActiveConnections,
   getOrgSettings,
   decryptCredentials,
+  deriveConnectionAuthClass,
   mapAiProviderToConnectionProvider,
 } from "@almirant/database";
-import type { ProviderConnection } from "@almirant/database";
+import type {
+  ConnectionAuthClass,
+  ProviderConnection,
+} from "@almirant/database";
 import { refreshOAuthCredentials } from "../../../connections/services/oauth/token-refresh";
 import { createAccountOrchestrator } from "./account-orchestrator";
 import type { OrchestrationStrategy } from "./account-orchestrator";
@@ -26,6 +30,8 @@ interface ResolveAiKeyParams {
   forOrchestration?: boolean;
   /** Connection IDs to exclude from resolution (e.g. rate-limited connections). */
   excludeConnectionIds?: string[];
+  /** Auth classes admitted by the calling runtime before any credential operation. */
+  acceptedAuthClasses?: readonly Exclude<ConnectionAuthClass, "unknown">[];
 }
 
 interface SkipReason {
@@ -41,6 +47,17 @@ interface ResolvedAiKey {
 }
 
 type ConnectionScope = "user" | "organization";
+type KnownConnectionAuthClass = Exclude<ConnectionAuthClass, "unknown">;
+
+export class AiKeyAuthClassRejectedError extends Error {
+  readonly rejectedAuthClasses: readonly ConnectionAuthClass[];
+
+  constructor(rejectedAuthClasses: readonly ConnectionAuthClass[]) {
+    super("No connection matched the accepted credential auth classes");
+    this.name = "AiKeyAuthClassRejectedError";
+    this.rejectedAuthClasses = [...new Set(rejectedAuthClasses)];
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Policy -> search order mapping
@@ -81,8 +98,21 @@ export const refreshConnectionCredentialsIfNeeded = async (
 export const resolveAiKey = async (
   params: ResolveAiKeyParams,
 ): Promise<ResolvedAiKey | null> => {
-  const { provider, userId, workspaceId, encryptionKey, forOrchestration, excludeConnectionIds } = params;
+  const {
+    provider,
+    userId,
+    workspaceId,
+    encryptionKey,
+    forOrchestration,
+    excludeConnectionIds,
+    acceptedAuthClasses,
+  } = params;
   const skipReasons: SkipReason[] = [];
+  const rejectedAuthClasses = new Set<ConnectionAuthClass>();
+  const acceptedAuthClassSet = acceptedAuthClasses === undefined
+    ? null
+    : new Set<KnownConnectionAuthClass>(acceptedAuthClasses);
+  let foundAuthAdmittedConnection = false;
 
   // 1. Get the org's AI key policy (defaults to "user_preferred" if no row)
   const orgSettings = await getOrgSettings(workspaceId);
@@ -115,29 +145,43 @@ export const resolveAiKey = async (
       scopeId,
     );
 
-    // When resolving for orchestration, only consider connections that opted in
+    // Metadata-only eligibility filters are safe before auth admission.
     const afterOrchFilter = forOrchestration
       ? allConnections.filter((c) => c.orchestrationEnabled)
       : allConnections;
 
-    // Exclude connections that have been rate-limited / exhausted mid-session
+    // Exclude connections that have been rate-limited / exhausted mid-session.
     const excludeSet = excludeConnectionIds && excludeConnectionIds.length > 0
       ? new Set(excludeConnectionIds)
       : null;
-    const connections = excludeSet
+    const eligibleConnections = excludeSet
       ? afterOrchFilter.filter((c) => !excludeSet.has(c.id))
       : afterOrchFilter;
 
-    if (excludeSet && afterOrchFilter.length > connections.length) {
+    if (excludeSet && afterOrchFilter.length > eligibleConnections.length) {
       logger.info(
         {
           provider: connectionProvider,
           scope,
-          excludedCount: afterOrchFilter.length - connections.length,
-          excludeConnectionIds,
+          excludedCount: afterOrchFilter.length - eligibleConnections.length,
         },
         "Excluded rate-limited connections from resolution",
       );
+    }
+
+    // Supplying accepted classes activates strict admission. Classification uses
+    // public config metadata and must precede orchestration, refresh, credential
+    // decryption, and every connection mutation. Without the option, preserve the
+    // legacy behavior that attempts connections even when auth metadata is absent.
+    let connections = eligibleConnections;
+    if (acceptedAuthClassSet !== null) {
+      connections = eligibleConnections.filter((connection) => {
+        const authClass = deriveConnectionAuthClass(connection.config);
+        const admitted = authClass !== "unknown" && acceptedAuthClassSet.has(authClass);
+        if (!admitted) rejectedAuthClasses.add(authClass);
+        return admitted;
+      });
+      foundAuthAdmittedConnection ||= connections.length > 0;
     }
 
     if (connections.length === 0) {
@@ -278,6 +322,14 @@ export const resolveAiKey = async (
       },
       `All ${connections.length} connection(s) failed for scope "${scope}" — moving to next scope`,
     );
+  }
+
+  if (
+    acceptedAuthClassSet !== null &&
+    rejectedAuthClasses.size > 0 &&
+    !foundAuthAdmittedConnection
+  ) {
+    throw new AiKeyAuthClassRejectedError([...rejectedAuthClasses]);
   }
 
   logger.error(
