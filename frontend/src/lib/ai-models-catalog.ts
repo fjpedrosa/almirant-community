@@ -157,8 +157,15 @@ const GOOGLE_MODELS: ModelDefinition[] = [
 
 // Z.AI models. `accessChannels` distinguishes the models available through the
 // Coding Plan agent endpoint from models that require the general Z.AI API.
-// GLM-5.2 is the Coding Plan flagship and default.
+// GLM-5.3 is the Coding Plan flagship and default; keep it first because
+// selectors use catalog order for their default.
 const OPENAI_COMPATIBLE_MODELS: ModelDefinition[] = [
+  {
+    id: "glm-5.3",
+    displayName: "GLM-5.3",
+    category: "best",
+    accessChannels: ["agent-runtime"],
+  },
   {
     id: "glm-5.2",
     displayName: "GLM-5.2",
