@@ -1,13 +1,22 @@
 import {
   buildOpenCodeConfig,
+  ConflictError,
   type AlmirantWorkerClient,
   type ClaimedJob,
   type OpenCodeMcpServer,
+  type ProviderKeysResponse,
+  type WorkerClientRequestOptions,
 } from "@almirant/remote-agent";
 import type { RuntimeConfig } from "../shared/types";
-import { createRuntimeExecutorRegistry } from "../runtime-executors/registry";
+import {
+  createRuntimeExecutorRegistry,
+  RuntimeExecutorResolutionError,
+} from "../runtime-executors/registry";
 import { requiresInternalMcp } from "../shared/internal-skills";
-import { normalizeRunnerCustomMcpServersConfig } from "@almirant/shared";
+import {
+  normalizeRunnerCustomMcpServersConfig,
+  type ResolvedRuntimeSelection,
+} from "@almirant/shared";
 import {
   applyClaudeAnthropicCompatibleEnv,
   applyClaudeTeamingEnv,
@@ -38,6 +47,7 @@ type ConfigInjectorInput = {
   /** Almirant API base URL (e.g. https://api.almirant.ai). Used to construct MCP URL dynamically. */
   apiBaseUrl?: string;
   model?: string;
+  requestOptions?: WorkerClientRequestOptions;
   /**
    * Optional callback to request a scoped session token for the agent container.
    * When provided, the MCP config uses this short-lived token instead of the
@@ -67,6 +77,7 @@ type RuntimeImageConfig = {
   opencodeImage: string;
   claudeShimImage: string;
   codexShimImage: string;
+  piShimImage?: string;
   servePort?: number;
 };
 
@@ -84,6 +95,14 @@ export type CloneCredentialOutcome =
   | { status: "unavailable"; reason: string }
   | { status: "not_needed" };
 
+export type ProviderKeyResolvedMetadata = {
+  keyEnvName: string;
+  authClass: "api_key" | "subscription";
+  codingAgent: string;
+  runtimeType: RuntimeConfig["type"];
+  provider: string;
+};
+
 export type InjectedEnvResult = {
   env: Record<string, string>;
   openCodeConfig: ReturnType<typeof buildOpenCodeConfig>;
@@ -91,6 +110,8 @@ export type InjectedEnvResult = {
   resolvedModel: string;
   /** Non-secret metadata about the resolved provider key, for logging. */
   keyDebug?: Record<string, unknown>;
+  /** Allowlisted categorical metadata for provider-resolution observability. */
+  providerKeyMetadata: ProviderKeyResolvedMetadata;
   /** Outcome of resolving the git clone credential. */
   cloneCredential?: CloneCredentialOutcome;
 };
@@ -256,10 +277,118 @@ const resolveProviderKey = (provider: string): string => {
   return provider.trim().toLowerCase();
 };
 
-const providerToApiKeyEnv = (provider: string): string | undefined => {
+const resolvePiApiKeyBundle = (
+  keys: ProviderKeysResponse,
+  aiProvider: string,
+): string => {
+  const bundles = keys.credentialBundles ?? [];
+  if (bundles.length !== 1 || bundles[0]?.provider !== aiProvider) {
+    throw new RuntimeExecutorResolutionError(
+      "RUNTIME_AUTH_CLASS_UNSUPPORTED",
+      `Pi requires exactly one provider-bound credential bundle for ${aiProvider}`,
+    );
+  }
+
+  const bundle = bundles[0];
+  if (bundle.authClass !== "api_key") {
+    const rejectionCode = bundle.authClass === "setup_token"
+      ? "PI_AUTH_SETUP_TOKEN_DISABLED"
+      : bundle.authClass === "subscription"
+        ? "PI_AUTH_SUBSCRIPTION_DISABLED"
+        : "PI_AUTH_PROVIDER_OAUTH_DISABLED";
+    throw new RuntimeExecutorResolutionError(
+      rejectionCode,
+      `Pi requires an API-key credential bundle for ${aiProvider}`,
+    );
+  }
+
+  const apiKey = asString(bundle.apiKey);
+  if (!apiKey) {
+    throw new RuntimeExecutorResolutionError(
+      "RUNTIME_AUTH_CLASS_UNSUPPORTED",
+      `Pi API-key credential bundle for ${aiProvider} is empty`,
+    );
+  }
+  return apiKey;
+};
+
+const isMcpArtifactEnvName = (name: string): boolean =>
+  name.toUpperCase().includes("MCP");
+
+const assertNoPiMcpMaterialization = (
+  jobConfig: Record<string, unknown>,
+): void => {
+  const hasMcpConfigField = Object.keys(jobConfig).some(
+    (name) => name.toLowerCase().includes("mcp"),
+  );
+  const jobEnv = extractStringEnv(jobConfig.env);
+  const hasMcpEnvironment = Object.keys(jobEnv).some(isMcpArtifactEnvName);
+  if (hasMcpConfigField || hasMcpEnvironment) {
+    throw new RuntimeExecutorResolutionError(
+      "PI_CAPABILITY_MCP_DISABLED",
+      "Pi runtime does not permit MCP materialization",
+    );
+  }
+};
+
+const normalizePiControlName = (name: string): string =>
+  name.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
+const PI_CUSTOM_PROVIDER_CONFIG_FIELDS = new Set([
+  "apibaseurl",
+  "apiendpoint",
+  "baseurl",
+  "customheaders",
+  "customorigin",
+  "customprofile",
+  "customprovider",
+  "customproviderprofile",
+  "endpoint",
+  "endpointurl",
+  "headers",
+  "origin",
+  "profile",
+  "providerendpoint",
+  "providerheaders",
+  "providerorigin",
+  "providerprofile",
+]);
+
+const isPiCustomProviderEnvironmentName = (name: string): boolean => {
+  const normalized = name.trim().toUpperCase();
+  return (
+    normalized.endsWith("_BASE_URL") ||
+    normalized.endsWith("_API_BASE") ||
+    normalized.endsWith("_ENDPOINT") ||
+    normalized.endsWith("_ORIGIN") ||
+    normalized.endsWith("_PROFILE")
+  );
+};
+
+const assertNoPiCustomProviderMaterialization = (
+  jobConfig: Record<string, unknown>,
+): void => {
+  const hasCustomConfigField = Object.keys(jobConfig).some((name) =>
+    PI_CUSTOM_PROVIDER_CONFIG_FIELDS.has(normalizePiControlName(name))
+  );
+  const jobEnv = extractStringEnv(jobConfig.env);
+  const hasCustomEnvironment = Object.keys(jobEnv).some(
+    isPiCustomProviderEnvironmentName,
+  );
+  if (hasCustomConfigField || hasCustomEnvironment) {
+    throw new RuntimeExecutorResolutionError(
+      "PI_CUSTOM_PROVIDER_DISABLED",
+      "Pi runtime does not permit custom provider materialization",
+    );
+  }
+};
+
+const providerToApiKeyEnv = (provider: string): string => {
   switch (provider) {
     case "anthropic":
       return "ANTHROPIC_API_KEY";
+    case "google":
+      return "GEMINI_API_KEY";
     case "zai":
     case "zai-coding-plan":
       return "ZAI_API_KEY";
@@ -270,13 +399,16 @@ const providerToApiKeyEnv = (provider: string): string | undefined => {
     case "openai-compatible":
       return "OPENAI_API_KEY";
     default:
-      return "OPENAI_API_KEY";
+      throw new RuntimeExecutorResolutionError(
+        "RUNTIME_AI_PROVIDER_UNSUPPORTED",
+        `No credential environment mapping for ${provider}`,
+      );
   }
 };
 
 const providerToKeyProvider = (
-  provider: string
-): "anthropic" | "openai" | "openai-compatible" | "zai" | "xai" | "google" => {
+  provider: string,
+): "anthropic" | "openai" | "google" | "openai-compatible" | "zai" | "xai" => {
   switch (resolveProviderKey(provider)) {
     case "anthropic":
     case "claude-code":
@@ -284,6 +416,8 @@ const providerToKeyProvider = (
     case "openai":
     case "codex":
       return "openai";
+    case "google":
+      return "google";
     case "zipu":
     case "zai":
       return "zai";
@@ -292,10 +426,11 @@ const providerToKeyProvider = (
       return "xai";
     case "openai-compatible":
       return "openai-compatible";
-    case "google":
-      return "google";
     default:
-      return "openai";
+      throw new RuntimeExecutorResolutionError(
+        "RUNTIME_AI_PROVIDER_UNSUPPORTED",
+        `No provider-key lookup mapping for ${provider}`,
+      );
   }
 };
 
@@ -318,7 +453,10 @@ const providerToOpenCodeProvider = (provider: string): string => {
     case "google":
       return "openai-compatible";
     default:
-      return "openai";
+      throw new RuntimeExecutorResolutionError(
+        "RUNTIME_AI_PROVIDER_UNSUPPORTED",
+        `No client provider mapping for ${provider}`,
+      );
   }
 };
 
@@ -399,6 +537,20 @@ export const resolveRuntimeConfig = (
 export const buildInjectedEnv = async (
   input: ConfigInjectorInput
 ): Promise<InjectedEnvResult> => {
+  const claimJobId = asString(input.job.id)?.trim();
+  const claimWorkerId = asString(input.job.workerId)?.trim();
+  const claimAttemptId = asString(input.job.claimAttemptId)?.trim();
+  if (
+    input.job.status !== "running" ||
+    !claimJobId ||
+    !claimWorkerId ||
+    !claimAttemptId
+  ) {
+    throw new ConflictError(
+      "Provider key request requires active claim ownership",
+    );
+  }
+
   const safeConsole = input.safeConsole ?? console;
   const jobConfig = asObject(input.job.config) ?? {};
   const deliveryGitIdentity = resolveDeliveryGitIdentity(jobConfig);
@@ -406,24 +558,74 @@ export const buildInjectedEnv = async (
   const requestedProvider = String(input.job.provider || "codex");
   const explicitAiProvider =
     asString(input.job.aiProvider) ?? asString(jobConfig.aiProvider);
-  const provider =
-    providerFromAiProvider(explicitAiProvider) ?? requestedProvider;
+  const persistedRuntimeSelection = (
+    input.job.resolvedRuntimeSelection ?? jobConfig.resolvedRuntimeSelection
+  ) as ResolvedRuntimeSelection | null | undefined;
+  const jobCodingAgent = resolveJobCodingAgent(input.job);
+
+  // Modern claims are admitted against their exact persisted tuple before any
+  // provider-key mapping or credential lookup. Legacy claims preserve their
+  // historical provider/coding-agent resolution, but unknown explicit values
+  // now fail closed instead of silently selecting OpenAI.
+  let provider: string;
+  let selectedAiProvider: string;
+  let selectedCodingAgent: string;
+  let selectedModel: string | undefined = undefined;
+  let actualRuntimeExecutor: ReturnType<typeof runtimeExecutorRegistry.resolve>;
+  if (persistedRuntimeSelection != null) {
+    actualRuntimeExecutor = runtimeExecutorRegistry.admitResolvedRuntimeSelection(
+      persistedRuntimeSelection,
+    );
+    provider = persistedRuntimeSelection.aiProvider;
+    selectedAiProvider = persistedRuntimeSelection.aiProvider;
+    selectedCodingAgent = persistedRuntimeSelection.codingAgent;
+    selectedModel = persistedRuntimeSelection.model;
+  } else {
+    const normalizedExplicitProvider = explicitAiProvider === undefined
+      ? undefined
+      : providerFromAiProvider(explicitAiProvider);
+    if (explicitAiProvider !== undefined && normalizedExplicitProvider === undefined) {
+      throw new RuntimeExecutorResolutionError(
+        "RUNTIME_AI_PROVIDER_UNSUPPORTED",
+        `Unsupported explicit AI provider: ${explicitAiProvider}`,
+      );
+    }
+    provider = normalizedExplicitProvider ?? requestedProvider;
+    actualRuntimeExecutor = runtimeExecutorRegistry.resolve({
+      provider,
+      codingAgent: jobCodingAgent,
+    });
+    selectedCodingAgent = jobCodingAgent ?? actualRuntimeExecutor.codingAgent;
+    selectedAiProvider = (() => {
+      switch (resolveProviderKey(provider)) {
+        case "anthropic":
+        case "claude-code":
+          return "anthropic";
+        case "openai":
+        case "codex":
+          return "openai";
+        case "zipu":
+        case "zai":
+          return "zai";
+        case "grok":
+        case "xai":
+          return "xai";
+        case "google":
+          return "google";
+        default:
+          return provider;
+      }
+    })();
+  }
+
+  const actualRuntimeType = actualRuntimeExecutor.runtimeType;
+  const isPiRuntime = actualRuntimeType === "pi-shim";
+  if (isPiRuntime) {
+    assertNoPiMcpMaterialization(jobConfig);
+    assertNoPiCustomProviderMaterialization(jobConfig);
+  }
   const keyProviderName = providerToKeyProvider(provider);
   const openCodeProviderName = providerToOpenCodeProvider(provider);
-
-  // Determine actual runtime type: explicit codingAgent takes precedence over
-  // provider-based defaults (e.g. codingAgent="opencode" + provider="zipu"
-  // → actual runtime is opencode, NOT claude-shim). Legacy jobs may carry this
-  // in config.codingAgent; modern jobs carry it in the top-level codingAgent
-  // column, so both sources must be honored.
-  const jobCodingAgent = resolveJobCodingAgent(input.job);
-  const providerRuntimeExecutor = runtimeExecutorRegistry.resolve({ provider });
-  const actualRuntimeExecutor = runtimeExecutorRegistry.resolve({
-    provider,
-    codingAgent: jobCodingAgent,
-  });
-  const runtimeType = providerRuntimeExecutor.runtimeType;
-  const actualRuntimeType = actualRuntimeExecutor.runtimeType;
   const isReadOnlyWorkspace = jobConfig.workspaceIntent === "read-only";
   const isReadOnlyVisualJudge =
     jobConfig.siteBuildStage === "visual_judge" && isReadOnlyWorkspace;
@@ -446,28 +648,32 @@ export const buildInjectedEnv = async (
   // skills via system_settings.agent_routing. When present, the backend
   // skips the org's default resolution and uses that connection's credentials.
   const pinnedConnectionId =
-    typeof (input.job.config as Record<string, unknown>)?.providerConnectionId === "string"
-      ? ((input.job.config as Record<string, unknown>).providerConnectionId as string)
+    typeof jobConfig.providerConnectionId === "string"
+      ? jobConfig.providerConnectionId
       : undefined;
 
   const keys = await input.workerClient.getProviderKeys([keyProviderName], {
-    jobId: input.job.id,
-    createdByUserId: input.job.createdByUserId ?? undefined,
-    workspaceId: input.job.workspaceId ?? undefined,
+    jobId: claimJobId,
+    workerId: claimWorkerId,
+    claimAttemptId,
     preferredConnectionId: pinnedConnectionId,
-  });
+  }, input.requestOptions);
   const baseKeyEnvName = resolveClaudeInjectedKeyEnvName({
     runtimeType: actualRuntimeType,
     keyProviderName,
-    defaultEnvName:
-      providerToApiKeyEnv(openCodeProviderName) ?? "OPENAI_API_KEY",
+    defaultEnvName: providerToApiKeyEnv(keyProviderName),
   });
-  const baseKeyValue =
-    baseKeyEnvName === "ANTHROPIC_API_KEY"
+  const baseKeyValue = isPiRuntime
+    ? resolvePiApiKeyBundle(keys, selectedAiProvider)
+    : baseKeyEnvName === "ANTHROPIC_API_KEY"
       ? keys.anthropicApiKey
-      : baseKeyEnvName === "XAI_API_KEY"
-        ? keys.xaiApiKey
-        : keys.openaiApiKey;
+      : baseKeyEnvName === "GEMINI_API_KEY"
+        ? keys.googleApiKey
+        : baseKeyEnvName === "ZAI_API_KEY"
+          ? keys.zaiApiKey ?? keys.openaiApiKey
+          : baseKeyEnvName === "XAI_API_KEY"
+            ? keys.xaiApiKey
+            : keys.openaiApiKey;
 
   if (!baseKeyValue) {
     throw new Error(`Missing provider key for ${keyProviderName}`);
@@ -523,6 +729,7 @@ export const buildInjectedEnv = async (
       ? (keys.validationModel || keys.implementationModel)  // fallback if not configured
       : keys.implementationModel;
   const resolvedModel =
+    selectedModel ??
     input.model ??
     configuredModel ??
     defaultModelForProvider(openCodeProviderName);
@@ -622,7 +829,7 @@ export const buildInjectedEnv = async (
   // visual_judge consumes server-provisioned evidence files directly. It has
   // no reason to receive an MCP token or server, even read-only: keeping the
   // set empty makes --strict-mcp-config a meaningful, auditable boundary.
-  if (!isReadOnlyVisualJudge && input.apiBaseUrl && input.job.workspaceId) {
+  if (!isPiRuntime && !isReadOnlyVisualJudge && input.apiBaseUrl && input.job.workspaceId) {
     // Replace localhost with host.docker.internal for container access.
     // Inside Docker containers, localhost refers to the container itself,
     // not the host machine where the API server is running.
@@ -686,7 +893,7 @@ export const buildInjectedEnv = async (
     }
   }
 
-  if (!isReadOnlyVisualJudge) {
+  if (!isPiRuntime && !isReadOnlyVisualJudge) {
     // Context7 is available to normal jobs. Read-only visual judges receive only
     // the scoped Almirant MCP mount so no third-party or stateful tool can widen
     // their capability set.
@@ -700,6 +907,7 @@ export const buildInjectedEnv = async (
   // Playwright MCP server for browser-capable jobs. A job-level flag enables
   // it even when the runner process is not globally configured for browsers.
   if (
+    !isPiRuntime &&
     !isReadOnlyVisualJudge &&
     (process.env.ENABLE_BROWSER === "true" || jobNeedsBrowser)
   ) {
@@ -713,7 +921,7 @@ export const buildInjectedEnv = async (
 
   // Sequential Thinking for structured reasoning
   // Use bun instead of node for lower memory footprint (~35 MB vs ~69 MB per server)
-  if (!isReadOnlyVisualJudge) {
+  if (!isPiRuntime && !isReadOnlyVisualJudge) {
     mcpServers["sequential-thinking"] = {
       type: "local",
       command: "bun",
@@ -738,7 +946,7 @@ export const buildInjectedEnv = async (
     };
   }
 
-  if (!isReadOnlyVisualJudge) {
+  if (!isPiRuntime && !isReadOnlyVisualJudge) {
     if (customMcpServersResult.errors.length > 0) {
       if ((selectedMcpServerIds?.length ?? 0) > 0) {
         throw new Error(
@@ -774,6 +982,7 @@ export const buildInjectedEnv = async (
 
   const authenticatedMcpServers = Object.entries(mcpServers).filter(([_, s]) => 'headers' in s && s.headers?.Authorization);
   if (
+    !isPiRuntime &&
     !isReadOnlyVisualJudge &&
     authenticatedMcpServers.length === 0 &&
     input.apiBaseUrl &&
@@ -798,30 +1007,11 @@ export const buildInjectedEnv = async (
     reasoningBudget,
   });
 
-  // Map the raw job provider to the normalized AI provider name used in MCP
-  // calls (aiProvider param). This lets skills read ALMIRANT_PROVIDER instead
-  // of guessing from the runtime (which is wrong when zipu runs via claude-shim).
-  const normalizedAiProvider = (() => {
-    switch (resolveProviderKey(provider)) {
-      case "anthropic":
-      case "claude-code":
-        return "anthropic";
-      case "openai":
-      case "codex":
-        return "openai";
-      case "zipu":
-      case "zai":
-        return "zai";
-      case "grok":
-      case "xai":
-        return "xai";
-      default:
-        return provider;
-    }
-  })();
-
   const jobEnv = extractStringEnv(jobConfig.env);
-  for (const [name, value] of Object.entries(jobEnv)) {
+  // Pi gets no caller-authored environment at all. The selected credential and
+  // runtime tuple below are reconstructed from the admitted claim instead.
+  const runtimeJobEnv = isPiRuntime ? {} : jobEnv;
+  for (const [name, value] of Object.entries(runtimeJobEnv)) {
     if (
       /(?:^|[_-])(?:api[_-]?key|auth|authorization|credential|password|passphrase|secret|token)(?:$|[_-])/i.test(
         name,
@@ -835,11 +1025,17 @@ export const buildInjectedEnv = async (
     // Job-specific env is intentionally applied first. Runner-controlled
     // credentials, provider, locale, repository and MCP values below must
     // remain authoritative if a custom env key collides.
-    ...jobEnv,
+    ...runtimeJobEnv,
     [keyEnvName]: keyValue,
-    ALMIRANT_PROVIDER: normalizedAiProvider,
-    ALMIRANT_CODING_AGENT: jobCodingAgent ?? actualRuntimeExecutor.codingAgent,
+    ALMIRANT_PROVIDER: selectedAiProvider,
+    ALMIRANT_CODING_AGENT: selectedCodingAgent,
   };
+
+  if (isPiRuntime) {
+    env.PI_PROVIDER = selectedAiProvider;
+    env.PI_MODEL = resolvedModel;
+    if (reasoningBudget) env.PI_THINKING_LEVEL = reasoningBudget;
+  }
 
   if (isReadOnlyVisualJudge) {
     env.ALMIRANT_CLAUDE_TOOL_POLICY = "read-only";
@@ -847,7 +1043,7 @@ export const buildInjectedEnv = async (
     env.CLAUDE_CONFIG_DIR = "/tmp/almirant-visual-judge-claude";
   }
 
-  if (jobNeedsBrowser) {
+  if (!isPiRuntime && jobNeedsBrowser) {
     env.ENABLE_BROWSER = "true";
   }
 
@@ -893,7 +1089,7 @@ export const buildInjectedEnv = async (
     }
   }
 
-  if (reasoningBudget) {
+  if (reasoningBudget && !isPiRuntime) {
     env.REASONING_BUDGET = reasoningBudget;
   }
 
@@ -969,9 +1165,27 @@ export const buildInjectedEnv = async (
     ...safeProviderDebug,
     keyEnvName,
     authMethod: isAnthropicSubscription ? "subscription" : isCodexSubscription ? "codex_subscription" : "api_key",
-    codingAgent: jobCodingAgent ?? actualRuntimeExecutor.codingAgent,
+    codingAgent: selectedCodingAgent,
     runtimeType: actualRuntimeType,
   };
 
-  return { env, openCodeConfig, resolvedModel, keyDebug, cloneCredential };
+  const providerKeyMetadata: ProviderKeyResolvedMetadata = {
+    keyEnvName,
+    authClass:
+      isAnthropicSubscription || isCodexSubscription
+        ? "subscription"
+        : "api_key",
+    codingAgent: selectedCodingAgent,
+    runtimeType: actualRuntimeType,
+    provider: selectedAiProvider,
+  };
+
+  return {
+    env,
+    openCodeConfig,
+    resolvedModel,
+    keyDebug,
+    providerKeyMetadata,
+    cloneCredential,
+  };
 };
