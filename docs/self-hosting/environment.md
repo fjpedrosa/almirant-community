@@ -80,6 +80,7 @@ These are the variables that matter for the self-hosted Docker stacks.
 | `ALMIRANT_PROJECT_ID` | none | Required UUID when the backend boots with `NODE_ENV=production` |
 | `ENCRYPTION_KEY` | none | 64-char hex secret used for encrypted connection credentials and scoped session tokens |
 | `MCP_INTERNAL_ENABLED` | `false` | Keeps `/mcp/internal` disabled by default in production |
+| `PI_CODING_AGENT_ADMISSION_ENABLED` | `true` | Pi admission switch. Set explicitly to `false` during rollout or rollback; active Pi jobs continue while the runner drains. |
 | `ALMIRANT_API_KEY` | empty | Optional infrastructure/runner key for embedded automation on the same host |
 
 ## Runner / agent services
@@ -95,6 +96,19 @@ These are the variables that matter for the self-hosted Docker stacks.
 | `OPENCODE_IMAGE` | `almirant-opencode-shim:1.18.4` | Local image name for OpenCode jobs |
 | `CLAUDE_SHIM_IMAGE` | `almirant-claude-shim:2.1.218` | Local image name for Claude jobs |
 | `CODEX_SHIM_IMAGE` | `almirant-codex-shim:0.145.0` | Local image name for Codex jobs |
+| `PI_SHIM_IMAGE` | `almirant-pi-shim:0.84.2` (local only) | Pi image. Production Compose requires `DOCKERHUB_USERNAME/almirant-pi-shim@sha256:<digest>`. |
+
+## Pi runtime controls and image
+
+Pi admits only `pi/zai/glm-5.3/api_key`, with no optional capabilities. OpenAI subscription access is disabled. `provider=zipu` remains the infrastructure lane while `aiProvider=zai` selects the exact `https://api.z.ai/api/coding/paas/v4` endpoint.
+
+Enter the Z.AI API key through **Settings → Integrations**, never through a deployment variable or terminal command. For production, set `PI_SHIM_IMAGE` to the immutable Docker Hub manifest emitted by the X64 `publish-docker.yml` workflow:
+
+```text
+PI_SHIM_IMAGE=DOCKERHUB_USERNAME/almirant-pi-shim@sha256:<digest>
+```
+
+A local Docker `sha256:` image ID is not a registry manifest digest. See the [Pi operator runbook](../operations/pi-coding-agent.md) for publication, terminal/usage authority, sanitized diagnosis, rollout, and rollback.
 
 > **Upgrade/build headroom**: frontend image builds can consume several GB of
 > memory independently from active agent containers. For 16-32 GB VPS hosts,
