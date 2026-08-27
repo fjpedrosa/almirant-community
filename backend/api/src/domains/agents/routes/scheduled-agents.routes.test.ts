@@ -481,7 +481,7 @@ describe("scheduledAgentsRoutes POST /scheduled-agents", () => {
 
     expect(response.status).toBe(400);
     const body = (await response.json()) as { error?: string };
-    expect(body.error).toMatch(/glm-5v-turbo.*not available through the Z\.AI Coding Plan/i);
+    expect(body.error).toMatch(/glm-5v-turbo.*RUNTIME_MODEL_UNSUPPORTED/i);
     expect(state.createdConfigInput).toBeNull();
   });
 
@@ -557,7 +557,7 @@ describe("scheduledAgentsRoutes POST /scheduled-agents", () => {
 
     expect(response.status).toBe(400);
     const body = (await response.json()) as { error?: string };
-    expect(body.error).toMatch(/glm-5v-turbo.*not available through the Z\.AI Coding Plan/i);
+    expect(body.error).toMatch(/glm-5v-turbo.*RUNTIME_MODEL_UNSUPPORTED/i);
     expect(state.createdConfigInput).toBeNull();
   });
 
@@ -1231,7 +1231,7 @@ describe("scheduledAgentsRoutes POST /scheduled-agents/:id/trigger", () => {
     const cases = [
       {
         config: { implementationModel: "glm-5v-turbo" },
-        error: /not available through the Z\.AI Coding Plan/i,
+        error: /glm-5v-turbo.*RUNTIME_MODEL_UNSUPPORTED/i,
       },
       {
         config: { implementationModel: "totally-not-a-model" },
