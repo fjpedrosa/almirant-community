@@ -1,6 +1,4 @@
-const LEGACY_SCHEDULED_CODING_AGENT_ALIASES: Record<string, string> = {
-  "codex-cli": "codex",
-};
+import { normalizeLegacyCodingAgentAlias } from "@almirant/shared";
 
 export const normalizeScheduledCodingAgent = (
   codingAgent: string | null | undefined,
@@ -9,7 +7,7 @@ export const normalizeScheduledCodingAgent = (
     return codingAgent;
   }
 
-  return LEGACY_SCHEDULED_CODING_AGENT_ALIASES[codingAgent] ?? codingAgent;
+  return normalizeLegacyCodingAgentAlias(codingAgent);
 };
 
 export const normalizeScheduledAgentConfig = <T extends { codingAgent: string | null }>(

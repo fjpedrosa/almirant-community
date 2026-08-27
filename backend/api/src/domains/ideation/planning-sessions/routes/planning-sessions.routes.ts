@@ -653,7 +653,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
 
         // Use the original session's agent config (from last job), falling back to defaults
         const resumeProvider = (lastJob?.provider ?? "claude-code") as "claude-code" | "codex" | "zipu" | "grok";
-        const resumeCodingAgent = (lastJob?.codingAgent ?? "claude-code") as "claude-code" | "codex" | "opencode";
+        const resumeCodingAgent = (lastJob?.codingAgent ?? "claude-code") as "claude-code" | "codex" | "opencode" | "pi";
         const resumeAiProvider = (lastJob?.aiProvider ?? "anthropic") as "anthropic" | "openai" | "google" | "zai" | "xai";
         const resumeModel = lastJob?.model ?? resolveRuntime({ provider: resumeProvider }).model;
         const lastJobDetail = lastJob ? await getJobById(lastJob.id) : null;

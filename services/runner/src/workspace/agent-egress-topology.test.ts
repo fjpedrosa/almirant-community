@@ -93,4 +93,33 @@ describe("production agent egress topology", () => {
     expect(squidConfig).toContain("http_access deny blocked_destinations");
     expect(squidConfig).toContain("http_access allow allowed_domains\nhttp_access deny all");
   });
+
+  it("allows only the exact trusted Z.AI host while preserving xAI host policy", () => {
+    const allowedDomainLines = squidConfig
+      .split("\n")
+      .filter((line) => line.startsWith("acl allowed_domains dstdomain "));
+    expect(allowedDomainLines.filter((line) => line.includes("z.ai"))).toEqual([
+      "acl allowed_domains dstdomain api.z.ai",
+    ]);
+    expect(allowedDomainLines).toContain("acl allowed_domains dstdomain .x.ai");
+    expect(allowedDomainLines).not.toContain("acl allowed_domains dstdomain .ai");
+    expect(allowedDomainLines).not.toContain("acl allowed_domains dstdomain .z.ai");
+  });
+
+  it.each([
+    ["metadata IPv4", "acl blocked_destinations dst 169.254.0.0/16"],
+    ["IPv4 loopback", "acl blocked_destinations dst 127.0.0.0/8"],
+    ["RFC1918 10/8", "acl blocked_destinations dst 10.0.0.0/8"],
+    ["RFC1918 172.16/12", "acl blocked_destinations dst 172.16.0.0/12"],
+    ["RFC1918 192.168/16", "acl blocked_destinations dst 192.168.0.0/16"],
+    ["IPv6 loopback", "acl blocked_destinations dst ::1/128"],
+    ["IPv6 link-local", "acl blocked_destinations dst fe80::/10"],
+  ] as const)("blocks direct %s destinations before hostname allowlisting", (_label, acl) => {
+    expect(squidConfig).toContain(acl);
+    expect(squidConfig.indexOf("http_access deny blocked_destinations")).toBeLessThan(
+      squidConfig.indexOf("http_access allow allowed_domains"),
+    );
+    expect(squidConfig).toContain("http_access deny to_localhost");
+    expect(squidConfig).toContain("http_access deny to_linklocal");
+  });
 });

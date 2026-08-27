@@ -1,9 +1,15 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 import { showToast } from "@/domains/shared/presentation/utils/show-toast";
 import { projectsApi } from "@/lib/api/client";
+import {
+  getDefaultProjectModel,
+  getDefaultProjectRuntimeSelection,
+  getProjectRuntimeCodingAgents,
+  type ProjectRuntimeSelection,
+} from "../../domain/project-runtime-selection";
 import type {
   AiConfigProvider,
   ProjectAgentDefaults,
@@ -13,33 +19,64 @@ import type {
 } from "../../domain/types";
 import { projectKeys } from "./use-projects";
 
+type ImplementationRuntime = {
+  codingAgent: string | null;
+  aiProvider: string | null;
+  model: string | null;
+  reasoningLevel: string | null;
+};
+
+type ProjectAiConfigPatch = {
+  defaultProvider?: AiConfigProvider | null;
+  agentDefaults?: {
+    implementation?: ProjectAgentDefaults["implementation"];
+  };
+};
+
+const toImplementationRuntime = (
+  value: ProjectAgentDefaults["implementation"],
+): ImplementationRuntime => ({
+  codingAgent: value?.codingAgent ?? null,
+  aiProvider: value?.aiProvider ?? null,
+  model: value?.model ?? null,
+  reasoningLevel: value?.reasoningLevel ?? null,
+});
+
+const implementationRuntimeEqual = (
+  a: ImplementationRuntime,
+  b: ImplementationRuntime,
+): boolean =>
+  a.codingAgent === b.codingAgent &&
+  a.aiProvider === b.aiProvider &&
+  a.model === b.model &&
+  a.reasoningLevel === b.reasoningLevel;
+
+const withProvider = (
+  codingAgent: ProjectImplementationCodingAgent,
+  aiProvider: ProjectImplementationAiProvider,
+): ImplementationRuntime => ({
+  codingAgent,
+  aiProvider,
+  model: getDefaultProjectModel("implementation", codingAgent, aiProvider),
+  reasoningLevel: null,
+});
+
 const providerToImplementationDefaults = (
-  provider: AiConfigProvider | null,
-): NonNullable<ProjectAgentDefaults["implementation"]> => {
-  if (provider === "codex") return { codingAgent: "codex", aiProvider: "openai", model: "gpt-5.6-sol", reasoningLevel: null };
-  if (provider === "zipu") return { codingAgent: "opencode", aiProvider: "zai", model: "glm-5.2", reasoningLevel: null };
-  if (provider === "grok") return { codingAgent: "opencode", aiProvider: "xai", model: "grok-4.3", reasoningLevel: null };
-  return { codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-opus-5", reasoningLevel: null };
+  provider: string | null,
+): ImplementationRuntime => {
+  if (provider === "codex") {
+    return toImplementationRuntime(
+      getDefaultProjectRuntimeSelection("implementation", "codex"),
+    );
+  }
+  if (provider === "zipu") return withProvider("opencode", "zai");
+  if (provider === "grok") return withProvider("opencode", "xai");
+  return toImplementationRuntime(
+    getDefaultProjectRuntimeSelection("implementation", "claude-code"),
+  );
 };
 
-const defaultModelForAiProvider = (aiProvider: ProjectImplementationAiProvider): string => {
-  if (aiProvider === "openai") return "gpt-5.6-sol";
-  if (aiProvider === "zai") return "glm-5.2";
-  if (aiProvider === "xai") return "grok-4.3";
-  return "claude-opus-5";
-};
-
-/**
- * Shared read-only query for GET /projects/:id/ai-config (review fixes
- * #1+#2, issue #235). Extracted so the dev-flow hooks (`useProjectDevFlow`,
- * `useDevFlowAutomationOverrides`) can read `defaultProvider`/
- * `agentDefaults.implementation` — data GET /dev-flow doesn't carry — WITHOUT
- * inventing a new endpoint. Because it's called with the SAME query key as
- * this hook, React Query dedupes the fetch across every hook instance
- * mounted under the same QueryClient (they all are, in
- * project-settings-container.tsx), so mounting the dev-flow card alongside
- * the AI config card never doubles the request.
- */
+/** Shared read-only query; every project settings hook uses the same cache key. */
 export const useProjectAiConfigQuery = (projectId: string) =>
   useQuery({
     queryKey: projectKeys.aiConfig(projectId),
@@ -49,7 +86,6 @@ export const useProjectAiConfigQuery = (projectId: string) =>
 
 export const useProjectAiConfig = (projectId: string) => {
   const queryClient = useQueryClient();
-
   const {
     data: serverConfig,
     isLoading,
@@ -57,31 +93,37 @@ export const useProjectAiConfig = (projectId: string) => {
   } = useProjectAiConfigQuery(projectId);
 
   const [localProvider, setLocalProvider] = useState<AiConfigProvider | null | undefined>(undefined);
-  const [localAgentDefaults, setLocalAgentDefaults] = useState<ProjectAgentDefaults | undefined>(undefined);
+  const [localImplementation, setLocalImplementation] = useState<ImplementationRuntime | undefined>(undefined);
 
-  const currentProvider = localProvider !== undefined ? localProvider : (serverConfig?.defaultProvider ?? null);
-  const currentAgentDefaults = localAgentDefaults ?? serverConfig?.agentDefaults ?? {};
-  const currentImplementationDefaults = currentAgentDefaults.implementation ?? providerToImplementationDefaults(currentProvider);
+  const serverProvider = serverConfig?.defaultProvider ?? null;
+  const currentProvider = localProvider !== undefined ? localProvider : serverProvider;
+  const hasPersistedImplementation = serverConfig !== undefined &&
+    Object.prototype.hasOwnProperty.call(serverConfig.agentDefaults ?? {}, "implementation");
+  const baseImplementation = hasPersistedImplementation
+    ? toImplementationRuntime(serverConfig?.agentDefaults?.implementation)
+    : providerToImplementationDefaults(currentProvider);
+  const currentImplementationDefaults = localImplementation ?? baseImplementation;
 
-  const hasChanges = useMemo(() => {
-    if (!serverConfig) return false;
-    const providerChanged = localProvider !== undefined && localProvider !== serverConfig.defaultProvider;
-    const defaultsChanged = localAgentDefaults !== undefined && JSON.stringify(localAgentDefaults) !== JSON.stringify(serverConfig.agentDefaults ?? {});
-    return providerChanged || defaultsChanged;
-  }, [localAgentDefaults, localProvider, serverConfig]);
+  const providerChanged = localProvider !== undefined && localProvider !== serverProvider;
+  const implementationChanged = localImplementation !== undefined &&
+    !implementationRuntimeEqual(localImplementation, baseImplementation);
+  const hasChanges = useMemo(
+    () => providerChanged || implementationChanged,
+    [implementationChanged, providerChanged],
+  );
 
   const mutation = useMutation({
-    mutationFn: (data: Partial<ProjectAiConfig>) => projectsApi.updateAiConfig(projectId, data),
+    mutationFn: (data: ProjectAiConfigPatch) => projectsApi.updateAiConfig(projectId, data),
     onSuccess: () => {
       setLocalProvider(undefined);
-      setLocalAgentDefaults(undefined);
+      setLocalImplementation(undefined);
       queryClient.invalidateQueries({ queryKey: projectKeys.aiConfig(projectId) });
       queryClient.invalidateQueries({ queryKey: projectKeys.detail(projectId) });
       showToast.success("AI configuration updated");
     },
     onError: (error) => {
       showToast.error(
-        error instanceof Error ? error.message : "Failed to save AI configuration"
+        error instanceof Error ? error.message : "Failed to save AI configuration",
       );
     },
   });
@@ -93,68 +135,77 @@ export const useProjectAiConfig = (projectId: string) => {
         ? mutation.error.message
         : null;
 
+  // The legacy runner is an independent path. Changing it must never rewrite a
+  // retained implementation tuple.
   const handleChange = useCallback((value: AiConfigProvider | null) => {
     setLocalProvider(value);
-    setLocalAgentDefaults((current) => ({
-      ...(current ?? serverConfig?.agentDefaults ?? {}),
-      implementation: providerToImplementationDefaults(value),
-    }));
-  }, [serverConfig?.agentDefaults]);
+  }, []);
 
-  const handleImplementationDefaultChange = useCallback((patch: Partial<NonNullable<ProjectAgentDefaults["implementation"]>>) => {
-    setLocalAgentDefaults((current) => {
-      const base = current ?? serverConfig?.agentDefaults ?? {};
-      return {
-        ...base,
-        implementation: {
-          ...(base.implementation ?? providerToImplementationDefaults(currentProvider)),
-          ...patch,
-        },
-      };
-    });
-  }, [currentProvider, serverConfig?.agentDefaults]);
+  const handleCodingAgentChange = useCallback(
+    (codingAgent: ProjectImplementationCodingAgent) => {
+      setLocalImplementation(
+        toImplementationRuntime(
+          getDefaultProjectRuntimeSelection("implementation", codingAgent),
+        ),
+      );
+    },
+    [],
+  );
 
-  const handleCodingAgentChange = useCallback((codingAgent: ProjectImplementationCodingAgent) => {
-    if (codingAgent === "codex") {
-      handleImplementationDefaultChange({ codingAgent, aiProvider: "openai", model: "gpt-5.6-sol", reasoningLevel: null });
-    } else if (codingAgent === "opencode") {
-      handleImplementationDefaultChange({ codingAgent, aiProvider: "zai", model: "glm-5.2", reasoningLevel: null });
-    } else {
-      handleImplementationDefaultChange({ codingAgent, aiProvider: "anthropic", model: "claude-opus-5", reasoningLevel: null });
-    }
-  }, [handleImplementationDefaultChange]);
+  const handleAiProviderChange = useCallback(
+    (aiProvider: ProjectImplementationAiProvider) => {
+      const codingAgent = currentImplementationDefaults.codingAgent;
+      if (!getProjectRuntimeCodingAgents("implementation").some(
+        (candidate) => candidate === codingAgent,
+      )) return;
+      setLocalImplementation(
+        withProvider(codingAgent as ProjectImplementationCodingAgent, aiProvider),
+      );
+    },
+    [currentImplementationDefaults.codingAgent],
+  );
 
-  const handleAiProviderChange = useCallback((aiProvider: ProjectImplementationAiProvider) => {
-    handleImplementationDefaultChange({
-      aiProvider,
-      model: defaultModelForAiProvider(aiProvider),
-      reasoningLevel: null,
-    });
-  }, [handleImplementationDefaultChange]);
+  const handleModelChange = useCallback(
+    (model: string | null) => {
+      setLocalImplementation({
+        ...currentImplementationDefaults,
+        model,
+        reasoningLevel: null,
+      });
+    },
+    [currentImplementationDefaults],
+  );
 
-  const handleModelChange = useCallback((model: string | null) => {
-    handleImplementationDefaultChange({ model, reasoningLevel: null });
-  }, [handleImplementationDefaultChange]);
-
-  const handleReasoningLevelChange = useCallback((reasoningLevel: string | null) => {
-    handleImplementationDefaultChange({ reasoningLevel });
-  }, [handleImplementationDefaultChange]);
+  const handleReasoningLevelChange = useCallback(
+    (reasoningLevel: string | null) => {
+      setLocalImplementation({ ...currentImplementationDefaults, reasoningLevel });
+    },
+    [currentImplementationDefaults],
+  );
 
   const handleSave = useCallback(() => {
-    mutation.mutate({
-      defaultProvider: currentProvider,
-      agentDefaults: currentAgentDefaults,
-    });
-  }, [currentAgentDefaults, currentProvider, mutation]);
+    const patch: ProjectAiConfigPatch = {};
+    if (providerChanged) patch.defaultProvider = currentProvider as AiConfigProvider | null;
+    if (implementationChanged) {
+      patch.agentDefaults = { implementation: currentImplementationDefaults };
+    }
+    if (Object.keys(patch).length > 0) mutation.mutate(patch);
+  }, [
+    currentImplementationDefaults,
+    currentProvider,
+    implementationChanged,
+    mutation,
+    providerChanged,
+  ]);
 
   const handleDiscard = useCallback(() => {
     setLocalProvider(undefined);
-    setLocalAgentDefaults(undefined);
+    setLocalImplementation(undefined);
   }, []);
 
   return {
     defaultProvider: currentProvider,
-    implementationDefaults: currentImplementationDefaults,
+    implementationDefaults: currentImplementationDefaults as ProjectRuntimeSelection,
     isLoading,
     isSaving: mutation.isPending,
     hasChanges,

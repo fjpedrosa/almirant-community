@@ -61,6 +61,10 @@ import {
   isDiscordBridgeConfigured,
 } from "../../integrations/discord/services/discord-thread";
 import { refreshCanonicalSessionProjection } from "../../ideation/planning-sessions/services/canonical-session-projection";
+import {
+  assertRuntimeCapabilityIntentAdmission,
+  ScheduledAgentRuntimeValidationError,
+} from "../services/scheduled-agent-runtime-validation";
 
 const broadcastStatusChanged = (orgId: string, args: {
   jobId: string;
@@ -96,6 +100,49 @@ const getTrimmedString = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+};
+
+const normalizeSelectedIds = (selectedIds: unknown): string[] => {
+  if (!Array.isArray(selectedIds)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const id of selectedIds) {
+    if (typeof id !== "string") continue;
+    const trimmed = id.trim();
+    if (!/^[0-9a-fA-F-]{36}$/.test(trimmed) || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
+};
+
+type RuntimeIntentAgentJobConfig = AgentJobConfig & {
+  capabilities?: string[];
+  selectedPluginIds?: unknown[];
+  agentPlugins?: unknown[];
+};
+
+/**
+ * Jobs created before extension-aware admission may have plugin materialization
+ * without the matching explicit capability. Repair that intent before retrying
+ * so legacy persisted Pi jobs cannot bypass the current extension policy.
+ */
+const withExtensionCapabilityIntent = (
+  config: RuntimeIntentAgentJobConfig,
+): RuntimeIntentAgentJobConfig => {
+  if (
+    (config.selectedPluginIds?.length ?? 0) === 0 &&
+    (config.agentPlugins?.length ?? 0) === 0
+  ) {
+    return config;
+  }
+  const capabilities = Array.isArray(config.capabilities)
+    ? config.capabilities.filter(
+        (capability): capability is string => typeof capability === "string",
+      )
+    : [];
+  if (capabilities.includes("extensions")) return config;
+  return { ...config, capabilities: [...capabilities, "extensions"] };
 };
 
 const parseCsvFilterParam = <T extends string>(
@@ -305,6 +352,41 @@ const agentWorkspaceSchema = t.Union([
   }, { additionalProperties: false }),
 ]);
 
+const directMcpServerSchema = t.Object(
+  {
+    type: t.Optional(t.Literal("remote")),
+    url: t.String({ minLength: 1, maxLength: 2048 }),
+    enabled: t.Optional(t.Boolean()),
+    oauth: t.Optional(t.Literal(false)),
+  },
+  { additionalProperties: false },
+);
+
+const directRuntimeIntentSchemaProperties = {
+  authClass: t.Optional(t.String()),
+  runtimeAuthClass: t.Optional(t.String()),
+  capabilities: t.Optional(t.Array(t.String())),
+  mcpServerUrl: t.Optional(t.String()),
+  mcpServers: t.Optional(t.Record(t.String(), directMcpServerSchema)),
+  selectedMcpServerIds: t.Optional(t.Array(t.String({ format: "uuid" }))),
+  workspaceIntent: t.Optional(t.Union([
+    t.Literal("read-only"),
+    t.Literal("write"),
+  ])),
+  requiresEnforcedReadOnlyRuntime: t.Optional(t.Boolean()),
+  readOnlyEnforced: t.Optional(t.Boolean()),
+  requiresReadOnlyEnforcement: t.Optional(t.Boolean()),
+  permissionEnforced: t.Optional(t.Boolean()),
+  requiresPermissionEnforcement: t.Optional(t.Boolean()),
+  requiresEnforcedPermissions: t.Optional(t.Boolean()),
+  permissionMode: t.Optional(t.String()),
+  needsBrowser: t.Optional(t.Boolean()),
+} as const;
+
+const runtimeAdmissionErrorResponse = (
+  error: ScheduledAgentRuntimeValidationError,
+) => errorResponse(error.message, 400, error.code ?? undefined);
+
 const buildRequiredImplementationResourceEstimate = async (
   workspaceId: string,
   workItemId: string,
@@ -431,18 +513,63 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
           "This skill is reserved for internal system flows and cannot be invoked via the public API"
         );
       }
-      const configWithSkill: AgentJobConfig = inferredSkillName
-        ? { ...configWithWorkItem, skillName: inferredSkillName }
-        : configWithWorkItem;
-      // Create Discord thread via discord-bridge so the user sees it right away.
-      // The bridge handles thread creation + initial message. The runner reuses the threadId.
+      const normalizedDirectMcpServerIds =
+        body.config?.selectedMcpServerIds === undefined
+          ? undefined
+          : normalizeSelectedIds(body.config.selectedMcpServerIds);
+      const configWithSkill: AgentJobConfig = {
+        ...(inferredSkillName
+          ? { ...configWithWorkItem, skillName: inferredSkillName }
+          : configWithWorkItem),
+        ...(normalizedDirectMcpServerIds !== undefined
+          ? { selectedMcpServerIds: normalizedDirectMcpServerIds }
+          : {}),
+      };
+      const userLocale = (ctx as { user?: { locale?: string } }).user?.locale ?? 'es';
+      const directCodingAgent =
+        (body.codingAgent as CodingAgent | undefined) ??
+        configWithSkill.codingAgent ??
+        resolveRuntime({ provider: body.provider }).codingAgent as CodingAgent;
+      const directAiProvider =
+        (body.aiProvider as AiProvider | undefined) ??
+        resolveRuntime({ provider: body.provider }).aiProvider as AiProvider;
+      const directModel =
+        body.model ??
+        configWithSkill.model ??
+        resolveRuntime({ provider: body.provider }).model;
+      const admissionConfig: AgentJobConfig = {
+        ...configWithSkill,
+        source: "api",
+        locale: userLocale,
+        ...(userId ? { requestedByUserId: userId } : {}),
+        ...(body.codingAgent ? { codingAgent: body.codingAgent } : {}),
+        ...(body.model ? { model: body.model } : {}),
+      };
+      let resolvedRuntimeSelection;
+      try {
+        resolvedRuntimeSelection = assertRuntimeCapabilityIntentAdmission({
+          provider: body.provider,
+          codingAgent: directCodingAgent,
+          aiProvider: directAiProvider,
+          model: directModel,
+          config: admissionConfig,
+        });
+      } catch (error) {
+        if (error instanceof ScheduledAgentRuntimeValidationError) {
+          set.status = 400;
+          return runtimeAdmissionErrorResponse(error);
+        }
+        throw error;
+      }
+
+      // Generated thread/resource metadata cannot add runtime capabilities. Run
+      // admission before either side effect, then append those neutral fields.
       let discordThreadId: string | null = null;
       if (isDiscordBridgeConfigured()) {
         const humanId = workItem?.taskId ?? workItemId ?? "job";
         discordThreadId = await createDiscordThread({ jobType, taskId: humanId });
       }
 
-      const userLocale = (ctx as { user?: { locale?: string } }).user?.locale ?? 'es';
       let resourceEstimate = configWithSkill.resourceEstimate;
       if (!resourceEstimate && workItemId && jobType === "implementation") {
         try {
@@ -471,14 +598,9 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
       });
 
       const jobConfig: AgentJobConfig = {
-        ...configWithSkill,
+        ...admissionConfig,
         ...(resourceEstimate ? { resourceEstimate } : {}),
-        source: "api",
-        locale: userLocale,
-        ...(userId ? { requestedByUserId: userId } : {}),
         ...(discordThreadId ? { threadId: discordThreadId } : {}),
-        ...(body.codingAgent ? { codingAgent: body.codingAgent } : {}),
-        ...(body.model ? { model: body.model } : {}),
       };
 
       const job = await createJob({
@@ -492,9 +614,10 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         provider: body.provider,
         priority: body.priority ?? "medium",
         config: jobConfig,
-        codingAgent: (body.codingAgent as CodingAgent | undefined) ?? jobConfig.codingAgent ?? "claude-code",
-        aiProvider: (body.aiProvider as AiProvider | undefined) ?? resolveRuntime({ provider: body.provider }).aiProvider as AiProvider,
-        model: body.model ?? jobConfig.model ?? resolveRuntime({ provider: body.provider }).model,
+        codingAgent: directCodingAgent,
+        aiProvider: directAiProvider,
+        model: directModel,
+        resolvedRuntimeSelection,
         ...(jobConfig.skillName ? { skillName: jobConfig.skillName } : {}),
         // New model fields
         prompt: jobConfig.prompt ?? null,
@@ -548,6 +671,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
           t.Literal("claude-code"),
           t.Literal("codex"),
           t.Literal("opencode"),
+          t.Literal("pi"),
         ])),
         aiProvider: t.Optional(t.String()),
         model: t.Optional(t.String()),
@@ -557,12 +681,11 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
             repoPath: t.Optional(t.String()),
             baseBranch: t.Optional(t.String()),
             workspace: t.Optional(agentWorkspaceSchema),
-            mcpServerUrl: t.Optional(t.String()),
             projectId: t.Optional(t.String()),
             skillName: t.Optional(t.String()),
             source: t.Optional(t.String()),
-            needsBrowser: t.Optional(t.Boolean()),
             resourceEstimate: t.Optional(resourceEstimateSchema),
+            ...directRuntimeIntentSchemaProperties,
           })
         ),
       }),
@@ -713,7 +836,18 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
       );
 
       const batchJobType = body.jobType ?? "implementation";
-      const batchBaseConfig = { repoPath: ".", baseBranch: "main", ...body.config } as AgentJobConfig;
+      const normalizedBatchMcpServerIds =
+        body.config?.selectedMcpServerIds === undefined
+          ? undefined
+          : normalizeSelectedIds(body.config.selectedMcpServerIds);
+      const batchBaseConfig = {
+        repoPath: ".",
+        baseBranch: "main",
+        ...body.config,
+        ...(normalizedBatchMcpServerIds !== undefined
+          ? { selectedMcpServerIds: normalizedBatchMcpServerIds }
+          : {}),
+      } as AgentJobConfig;
       const batchJobConfig: AgentJobConfig = {
         ...batchBaseConfig,
         source: "api",
@@ -734,6 +868,33 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
       const batchConfigWithSkill: AgentJobConfig = batchInferredSkillName
         ? { ...batchJobConfig, skillName: batchInferredSkillName }
         : batchJobConfig;
+      const batchCodingAgent =
+        (body.codingAgent as CodingAgent | undefined) ??
+        batchConfigWithSkill.codingAgent ??
+        resolveRuntime({ provider: body.provider }).codingAgent as CodingAgent;
+      const batchAiProvider =
+        (body.aiProvider as AiProvider | undefined) ??
+        resolveRuntime({ provider: body.provider }).aiProvider as AiProvider;
+      const batchModel =
+        body.model ??
+        batchConfigWithSkill.model ??
+        resolveRuntime({ provider: body.provider }).model;
+      let batchResolvedRuntimeSelection;
+      try {
+        batchResolvedRuntimeSelection = assertRuntimeCapabilityIntentAdmission({
+          provider: body.provider,
+          codingAgent: batchCodingAgent,
+          aiProvider: batchAiProvider,
+          model: batchModel,
+          config: batchConfigWithSkill,
+        });
+      } catch (error) {
+        if (error instanceof ScheduledAgentRuntimeValidationError) {
+          set.status = 400;
+          return runtimeAdmissionErrorResponse(error);
+        }
+        throw error;
+      }
 
       const batchResourceEstimateByWorkItemId = new Map<
         string,
@@ -811,9 +972,10 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
               ...(repoInfo ? { repoUrl: repoInfo.repoUrl, repositoryId: repoInfo.repositoryId } : {}),
               ...(r.projectId ? { projectId: r.projectId } : {}),
             },
-            codingAgent: (body.codingAgent as CodingAgent | undefined) ?? batchConfigWithSkill.codingAgent ?? "claude-code",
-            aiProvider: (body.aiProvider as AiProvider | undefined) ?? resolveRuntime({ provider: body.provider }).aiProvider as AiProvider,
-            model: body.model ?? batchConfigWithSkill.model ?? resolveRuntime({ provider: body.provider }).model,
+            codingAgent: batchCodingAgent,
+            aiProvider: batchAiProvider,
+            model: batchModel,
+            resolvedRuntimeSelection: batchResolvedRuntimeSelection,
             ...(batchConfigWithSkill.skillName ? { skillName: batchConfigWithSkill.skillName } : {}),
             // New model fields
             promptTemplate: batchInferredSkillName ?? null,
@@ -848,6 +1010,7 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
           t.Literal("claude-code"),
           t.Literal("codex"),
           t.Literal("opencode"),
+          t.Literal("pi"),
         ])),
         aiProvider: t.Optional(t.String()),
         model: t.Optional(t.String()),
@@ -857,11 +1020,10 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
             repoPath: t.Optional(t.String()),
             baseBranch: t.Optional(t.String()),
             workspace: t.Optional(agentWorkspaceSchema),
-            mcpServerUrl: t.Optional(t.String()),
             projectId: t.Optional(t.String()),
             skillName: t.Optional(t.String()),
             resourceEstimate: t.Optional(resourceEstimateSchema),
-            needsBrowser: t.Optional(t.Boolean()),
+            ...directRuntimeIntentSchemaProperties,
           })
         ),
       }),
@@ -1590,7 +1752,35 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         }
       }
 
-      // Create a fresh Discord thread for the retry via discord-bridge
+      // Strip generated thread metadata before re-admitting the persisted intent.
+      const persistedRetryConfig: AgentJobConfig = {
+        ...(existing.job.config ?? {}),
+      };
+      Reflect.deleteProperty(persistedRetryConfig, "threadId");
+      const retryBaseConfig = withExtensionCapabilityIntent(persistedRetryConfig);
+      const retryCodingAgent = existing.job.codingAgent ?? "claude-code";
+      const retryAiProvider = existing.job.aiProvider ?? "anthropic";
+      const retryModel =
+        existing.job.model ??
+        resolveRuntime({ provider: existing.job.provider }).model;
+      let retryResolvedRuntimeSelection;
+      try {
+        retryResolvedRuntimeSelection = assertRuntimeCapabilityIntentAdmission({
+          provider: existing.job.provider,
+          codingAgent: retryCodingAgent,
+          aiProvider: retryAiProvider,
+          model: retryModel,
+          config: retryBaseConfig,
+        });
+      } catch (error) {
+        if (error instanceof ScheduledAgentRuntimeValidationError) {
+          set.status = 400;
+          return runtimeAdmissionErrorResponse(error);
+        }
+        throw error;
+      }
+
+      // Admission precedes the retry's Discord/resource side effects.
       let retryThreadId: string | null = null;
       if (isDiscordBridgeConfigured()) {
         const humanId = existing.job.config?.taskId ?? existing.workItem?.taskId ?? "job";
@@ -1601,8 +1791,6 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         });
       }
 
-      // Strip old threadId from config and replace with new one
-      const { threadId: _oldThreadId, ...retryBaseConfig } = existing.job.config ?? {} as AgentJobConfig;
       const retryUserLocale = (ctx as { user?: { locale?: string } }).user?.locale
         ?? (typeof retryBaseConfig.locale === 'string' ? retryBaseConfig.locale : 'es');
       const retryConfig: AgentJobConfig = {
@@ -1657,9 +1845,10 @@ export const agentJobsRoutes = new Elysia({ prefix: "/agent-jobs" })
         provider: existing.job.provider,
         priority: existing.job.priority,
         config: retryConfig,
-        codingAgent: existing.job.codingAgent ?? "claude-code",
-        aiProvider: existing.job.aiProvider ?? "anthropic",
-        model: existing.job.model ?? resolveRuntime({ provider: existing.job.provider }).model,
+        codingAgent: retryCodingAgent,
+        aiProvider: retryAiProvider,
+        model: retryModel,
+        resolvedRuntimeSelection: retryResolvedRuntimeSelection,
         ...(retrySkillName ? { skillName: retrySkillName } : {}),
         prompt: existing.job.prompt ?? null,
         promptTemplate: retryPromptTemplate,

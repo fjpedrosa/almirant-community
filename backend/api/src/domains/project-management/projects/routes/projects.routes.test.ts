@@ -1412,8 +1412,214 @@ describe("Dev Flow", () => {
   const emptyAiConfig = { defaultProvider: null, agentDefaults: {} };
 
   describe("PATCH /projects/:id/ai-config", () => {
+    it("omits agentDefaults on a defaultProvider-only edit and retains unsupported persisted JSON", async () => {
+      const persisted = {
+        defaultProvider: "future-runner",
+        agentDefaults: {
+          futureTopLevel: { keep: true },
+          implementation: {
+            codingAgent: "codex-cli",
+            aiProvider: "future-provider",
+            model: "future-model",
+            futureNested: { keep: true },
+          },
+        },
+      };
+      let updateCall!: unknown[] | null;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => persisted,
+          updateProjectAiConfig: async (...args: unknown[]) => {
+            updateCall = args;
+            return { ...persisted, defaultProvider: "codex" };
+          },
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json({ defaultProvider: "codex" }, "PATCH")
+        )
+      );
+
+      expect(res.status).toBe(200);
+      expect(updateCall).toEqual([testProject.id, "codex", undefined]);
+      expect(await res.json()).toMatchObject({
+        data: { agentDefaults: persisted.agentDefaults },
+      });
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("merges supplied implementation paths while preserving unknown top-level and nested JSON", async () => {
+      const persisted = {
+        defaultProvider: "future-runner",
+        agentDefaults: {
+          futureTopLevel: { keep: true },
+          implementation: {
+            codingAgent: "pi",
+            aiProvider: "zai",
+            model: "glm-5.3",
+            reasoningLevel: "high",
+            futureNested: { keep: true },
+          },
+        },
+      };
+      let persistedAgentDefaults: unknown;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => persisted,
+          updateProjectAiConfig: async (
+            _projectId: string,
+            defaultProvider: string | null,
+            agentDefaults: unknown,
+          ) => {
+            persistedAgentDefaults = agentDefaults;
+            return { defaultProvider, agentDefaults };
+          },
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json({ agentDefaults: { implementation: { reasoningLevel: null } } }, "PATCH")
+        )
+      );
+
+      expect(res.status).toBe(200);
+      expect(persistedAgentDefaults).toEqual({
+        futureTopLevel: { keep: true },
+        implementation: {
+          codingAgent: "pi",
+          aiProvider: "zai",
+          model: "glm-5.3",
+          reasoningLevel: null,
+          futureNested: { keep: true },
+        },
+      });
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("accepts the exact Pi / Z.AI / GLM-5.3 implementation tuple", async () => {
+      let updateCall!: unknown[] | null;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          updateProjectAiConfig: async (...args: unknown[]) => {
+            updateCall = args;
+            return { defaultProvider: null, agentDefaults: args[2] };
+          },
+        })
+      );
+
+      const implementation = {
+        codingAgent: "pi",
+        aiProvider: "zai",
+        model: "glm-5.3",
+        reasoningLevel: null,
+      };
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json({ agentDefaults: { implementation } }, "PATCH")
+        )
+      );
+
+      expect(res.status).toBe(200);
+      expect(updateCall).toEqual([
+        testProject.id,
+        null,
+        { implementation },
+      ]);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("rejects incomplete and non-admitted changed implementation tuples before persistence", async () => {
+      let updateCalled = false;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          updateProjectAiConfig: async () => {
+            updateCalled = true;
+            return emptyAiConfig;
+          },
+        })
+      );
+
+      const app = await makeApp();
+      const invalidImplementations = [
+        { codingAgent: "pi" },
+        { codingAgent: "pi", aiProvider: "anthropic", model: "claude-opus-5" },
+        { codingAgent: "pi", aiProvider: "zai", model: "glm-5.2" },
+      ];
+
+      for (const implementation of invalidImplementations) {
+        const res = await app.handle(
+          req(
+            `/projects/${testProject.id}/ai-config`,
+            json({ agentDefaults: { implementation } }, "PATCH")
+          )
+        );
+        expect(res.status).toBe(400);
+      }
+      expect(updateCalled).toBe(false);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("treats implementation: null as an explicit reset without validating the retained tuple", async () => {
+      const persisted = {
+        defaultProvider: null,
+        agentDefaults: {
+          futureTopLevel: { keep: true },
+          implementation: {
+            codingAgent: "future-agent",
+            aiProvider: "future-provider",
+            model: "future-model",
+          },
+        },
+      };
+      let persistedAgentDefaults: unknown;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => persisted,
+          updateProjectAiConfig: async (
+            _projectId: string,
+            defaultProvider: string | null,
+            agentDefaults: unknown,
+          ) => {
+            persistedAgentDefaults = agentDefaults;
+            return { defaultProvider, agentDefaults };
+          },
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json({ agentDefaults: { implementation: null } }, "PATCH")
+        )
+      );
+
+      expect(res.status).toBe(200);
+      expect(persistedAgentDefaults).toEqual({
+        futureTopLevel: { keep: true },
+        implementation: null,
+      });
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
     it("leaves the response unchanged (no devFlowProvisioning key) when devFlow is not part of the payload", async () => {
-      let updateCall: unknown[] | null = null;
+      let updateCall!: unknown[] | null;
       mock.module("@almirant/database", () =>
         createDatabaseMocks({
           getProjectAiConfig: async () => emptyAiConfig,
@@ -1485,6 +1691,346 @@ describe("Dev Flow", () => {
       expect(createCalls.every((call) => call.projectId === testProject.id)).toBe(true);
       expect(body.data.devFlowProvisioning.automations).toHaveLength(4);
       expect(body.data.devFlowProvisioning.skippedExistingUserAgents).toEqual([]);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("accepts exact Pi overrides for backlog drain, DoD remediation, and release integration", async () => {
+      const createCalls: Array<Record<string, unknown>> = [];
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          updateProjectAiConfig: async (
+            _projectId: string,
+            defaultProvider: string | null,
+            agentDefaults: unknown,
+          ) => ({ defaultProvider, agentDefaults }),
+          listScheduledAgentConfigsByWorkspace: async () => [],
+          createScheduledAgentConfig: async (input: Record<string, unknown>) => {
+            createCalls.push(input);
+            return {
+              id: `cfg-system-${input.builtinAutomationId}`,
+              enabled: input.enabled,
+              lastRunAt: null,
+              managedBy: input.managedBy,
+              builtinAutomationId: input.builtinAutomationId,
+            };
+          },
+        })
+      );
+
+      const piRuntime = { codingAgent: "pi", aiProvider: "zai", model: "glm-5.3" };
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json({
+            agentDefaults: {
+              devFlow: {
+                enabled: true,
+                codingAgent: "claude-code",
+                aiProvider: "anthropic",
+                model: "claude-opus-5",
+                automations: {
+                  "backlog-drain": piRuntime,
+                  "dod-remediation": piRuntime,
+                  "release-integration": piRuntime,
+                },
+              },
+            },
+          }, "PATCH")
+        )
+      );
+
+      expect(res.status).toBe(200);
+      expect(
+        createCalls
+          .filter((call) => call.codingAgent === "pi")
+          .map((call) => call.builtinAutomationId)
+          .sort(),
+      ).toEqual(["backlog-drain", "dod-remediation", "release-integration"]);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("rejects an exact Pi card default with a typed DoD-review capability code before persistence or provisioning", async () => {
+      let updateCalled = false;
+      let provisioningRepositoryCalled = false;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          updateProjectAiConfig: async () => {
+            updateCalled = true;
+            return emptyAiConfig;
+          },
+          listScheduledAgentConfigsByWorkspace: async () => {
+            provisioningRepositoryCalled = true;
+            return [];
+          },
+          createScheduledAgentConfig: async () => {
+            provisioningRepositoryCalled = true;
+            throw new Error("should not be called");
+          },
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json({
+            agentDefaults: {
+              devFlow: {
+                enabled: true,
+                codingAgent: "pi",
+                aiProvider: "zai",
+                model: "glm-5.3",
+                automations: {
+                  "dod-review": {
+                    codingAgent: "claude-code",
+                    aiProvider: "anthropic",
+                    model: "claude-opus-5",
+                  },
+                },
+              },
+            },
+          }, "PATCH")
+        )
+      );
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({
+        code: "PI_CAPABILITY_READ_ONLY_ENFORCEMENT_DISABLED",
+        error: expect.stringContaining("dod-review"),
+      });
+      expect(updateCalled).toBe(false);
+      expect(provisioningRepositoryCalled).toBe(false);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("rejects an exact Pi DoD-review override with the typed capability code before persistence or provisioning", async () => {
+      let updateCalled = false;
+      let provisioningRepositoryCalled = false;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => emptyAiConfig,
+          updateProjectAiConfig: async () => {
+            updateCalled = true;
+            return emptyAiConfig;
+          },
+          listScheduledAgentConfigsByWorkspace: async () => {
+            provisioningRepositoryCalled = true;
+            return [];
+          },
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json({
+            agentDefaults: {
+              devFlow: {
+                enabled: true,
+                codingAgent: "claude-code",
+                aiProvider: "anthropic",
+                model: "claude-opus-5",
+                automations: {
+                  "dod-review": { codingAgent: "pi", aiProvider: "zai", model: "glm-5.3" },
+                },
+              },
+            },
+          }, "PATCH")
+        )
+      );
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({
+        code: "PI_CAPABILITY_READ_ONLY_ENFORCEMENT_DISABLED",
+        error: expect.stringContaining("dod-review"),
+      });
+      expect(updateCalled).toBe(false);
+      expect(provisioningRepositoryCalled).toBe(false);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("catches a card coding-agent change that makes inherited DoD review require disabled Pi read-only enforcement", async () => {
+      const persisted = {
+        defaultProvider: null,
+        agentDefaults: {
+          devFlow: {
+            enabled: true,
+            codingAgent: "claude-code",
+            aiProvider: "zai",
+            model: "glm-5.3",
+          },
+        },
+      };
+      let updateCalled = false;
+      let provisioningRepositoryCalled = false;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => persisted,
+          updateProjectAiConfig: async () => {
+            updateCalled = true;
+            return persisted;
+          },
+          listScheduledAgentConfigsByWorkspace: async () => {
+            provisioningRepositoryCalled = true;
+            return [];
+          },
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json({ agentDefaults: { devFlow: { codingAgent: "pi" } } }, "PATCH")
+        )
+      );
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({
+        code: "PI_CAPABILITY_READ_ONLY_ENFORCEMENT_DISABLED",
+        error: expect.stringContaining("dod-review"),
+      });
+      expect(updateCalled).toBe(false);
+      expect(provisioningRepositoryCalled).toBe(false);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("keeps an unchanged unsupported DoD-review tuple readable during a backlog-only effective edit", async () => {
+      const dodReview = { codingAgent: "pi", aiProvider: "zai", model: "glm-5.3" };
+      const persisted = {
+        defaultProvider: null,
+        agentDefaults: {
+          devFlow: {
+            enabled: true,
+            codingAgent: "claude-code",
+            aiProvider: "anthropic",
+            model: "claude-opus-5",
+            automations: { "dod-review": dodReview },
+          },
+        },
+      };
+      const createCalls: Array<Record<string, unknown>> = [];
+      let persistedAgentDefaults: unknown;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => persisted,
+          updateProjectAiConfig: async (
+            _projectId: string,
+            defaultProvider: string | null,
+            agentDefaults: unknown,
+          ) => {
+            persistedAgentDefaults = agentDefaults;
+            return { defaultProvider, agentDefaults };
+          },
+          listScheduledAgentConfigsByWorkspace: async () => [],
+          createScheduledAgentConfig: async (input: Record<string, unknown>) => {
+            createCalls.push(input);
+            return {
+              id: `cfg-system-${input.builtinAutomationId}`,
+              enabled: input.enabled,
+              lastRunAt: null,
+              managedBy: input.managedBy,
+              builtinAutomationId: input.builtinAutomationId,
+            };
+          },
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json({
+            agentDefaults: {
+              devFlow: {
+                automations: {
+                  "backlog-drain": { schedule: { expression: "0 * * * *" } },
+                },
+              },
+            },
+          }, "PATCH")
+        )
+      );
+
+      expect(res.status).toBe(200);
+      expect(persistedAgentDefaults).toMatchObject({
+        devFlow: { automations: { "dod-review": dodReview } },
+      });
+      expect(createCalls.map((call) => call.builtinAutomationId)).toEqual(["backlog-drain"]);
+
+      mock.module("@almirant/database", () => createDatabaseMocks());
+    });
+
+    it("preserves unknown dev-flow JSON while merging and provisioning a changed known card path", async () => {
+      const persisted = {
+        defaultProvider: null,
+        agentDefaults: {
+          devFlow: {
+            enabled: true,
+            codingAgent: "claude-code",
+            aiProvider: "anthropic",
+            model: "claude-opus-5",
+            futureNested: { keep: true },
+            automations: {
+              "backlog-drain": {
+                model: "claude-opus-4-8",
+                futureOverride: { keep: true },
+              },
+              "future-automation": { future: true },
+            },
+          },
+        },
+      };
+      let persistedAgentDefaults: unknown;
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getProjectAiConfig: async () => persisted,
+          updateProjectAiConfig: async (
+            _projectId: string,
+            defaultProvider: string | null,
+            agentDefaults: unknown,
+          ) => {
+            persistedAgentDefaults = agentDefaults;
+            return { defaultProvider, agentDefaults };
+          },
+          listScheduledAgentConfigsByWorkspace: async () => [],
+          createScheduledAgentConfig: async (input: Record<string, unknown>) => ({
+            id: `cfg-system-${input.builtinAutomationId}`,
+            enabled: input.enabled,
+            lastRunAt: null,
+            managedBy: input.managedBy,
+            builtinAutomationId: input.builtinAutomationId,
+          }),
+        })
+      );
+
+      const app = await makeApp();
+      const res = await app.handle(
+        req(
+          `/projects/${testProject.id}/ai-config`,
+          json({ agentDefaults: { devFlow: { reasoningLevel: "high" } } }, "PATCH")
+        )
+      );
+
+      expect(res.status).toBe(200);
+      expect(persistedAgentDefaults).toMatchObject({
+        devFlow: {
+          futureNested: { keep: true },
+          automations: {
+            "backlog-drain": { futureOverride: { keep: true } },
+            "future-automation": { future: true },
+          },
+        },
+      });
 
       mock.module("@almirant/database", () => createDatabaseMocks());
     });
@@ -1931,43 +2477,31 @@ describe("Dev Flow", () => {
   });
 
   // ─────────────────────────────────────────────────────
-  // Client wire-contract regression (review fixes #1+#2): the schema requires
-  // `defaultProvider` (Nullable, NOT Optional) and `devFlow.enabled`
-  // (Boolean, NOT Optional) — see the PROJECT_AGENT_DEFAULTS_SCHEMA /
-  // body schema above. Before the fix, the frontend's devFlowApi.updateConfig
-  // / updateAutomationOverrides (frontend/src/lib/api/client.ts) sent
-  // `{ agentDefaults: { devFlow } }` without `defaultProvider` at all —
-  // TypeBox validation rejected every request with a 400, so devFlow saves
-  // never worked. The fix is entirely on the frontend (use-project-dev-flow.ts
-  // / use-dev-flow-automation-overrides.ts now build the COMPLETE body,
-  // mirroring use-project-ai-config.ts's pattern) — this backend schema is
-  // intentionally left as-is (relaxing it would let a half-formed devFlow
-  // silently wipe `implementation`/other scalars via the wholesale JSONB
-  // replace in updateProjectAiConfig). These tests pin BOTH halves of that
-  // contract: the old incomplete shape must keep 400ing, and the new
-  // complete shape the fixed client sends must 200 AND round-trip
-  // `implementation`/devFlow scalars intact through a devFlow.automations
-  // save (the exact scenario Fix 1+2 was about — a wholesale JSONB replace
-  // must not drop data the caller didn't touch).
+  // Omission-aware wire contract. Existing complete dev-flow callers remain
+  // accepted, while omitted sibling paths resolve from persisted state.
   // ─────────────────────────────────────────────────────
   describe("PATCH /projects/:id/ai-config — client.ts wire-contract regression (review fixes #1+#2)", () => {
-    it("still rejects the OLD incomplete payload shape (missing defaultProvider) — pinning why the fix had to be client-side, not a schema relaxation", async () => {
-      let updateCalled = false;
+    it("accepts a devFlow-only patch and preserves the omitted defaultProvider", async () => {
+      let updateCall!: unknown[] | null;
       mock.module("@almirant/database", () =>
         createDatabaseMocks({
           getProjectAiConfig: async () => emptyAiConfig,
-          updateProjectAiConfig: async () => {
-            updateCalled = true;
-            return emptyAiConfig;
+          updateProjectAiConfig: async (...args: unknown[]) => {
+            updateCall = args;
+            return { defaultProvider: args[1], agentDefaults: args[2] };
           },
+          listScheduledAgentConfigsByWorkspace: async () => [],
+          createScheduledAgentConfig: async (input: Record<string, unknown>) => ({
+            id: `cfg-system-${input.builtinAutomationId}`,
+            enabled: input.enabled,
+            lastRunAt: null,
+            managedBy: input.managedBy,
+            builtinAutomationId: input.builtinAutomationId,
+          }),
         })
       );
 
       const app = await makeApp();
-      // This is EXACTLY the shape the pre-fix devFlowApi.updateConfig sent:
-      // `{ agentDefaults: { devFlow } }`, no `defaultProvider` key at all —
-      // `defaultProvider` is `t.Nullable(t.String())`, NOT `t.Optional`, so
-      // TypeBox rejects the request before the handler ever runs.
       const res = await app.handle(
         req(
           `/projects/${testProject.id}/ai-config`,
@@ -1975,14 +2509,12 @@ describe("Dev Flow", () => {
         )
       );
 
-      // `makeApp()` here wires only `projectsRoutes` (see the top of this
-      // file), not the global `errorMiddleware` from src/index.ts that maps
-      // Elysia's VALIDATION code to 400 in production — so this isolated
-      // harness surfaces Elysia's raw default (422) for a schema failure
-      // instead. Either way the request is REJECTED and NOTHING is
-      // persisted, which is the actual contract being pinned here.
-      expect(res.status).toBe(422);
-      expect(updateCalled).toBe(false);
+      expect(res.status).toBe(200);
+      expect(updateCall).toEqual([
+        testProject.id,
+        null,
+        { devFlow: { enabled: true, codingAgent: "claude-code" } },
+      ]);
 
       mock.module("@almirant/database", () => createDatabaseMocks());
     });

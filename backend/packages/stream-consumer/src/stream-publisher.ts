@@ -1,5 +1,6 @@
 import Redis from "ioredis";
 import {
+  assertValidNativeEventMetadata,
   assertValidSequenceProtocolMetadata,
   type CanonicalEventEnvelope,
   type NativeEventEnvelope,
@@ -80,8 +81,11 @@ export const flattenEvent = (event: AgentOutputEvent): string[] => {
   addField("messageId", event.messageId);
   addField("emoji", event.emoji);
 
-  // Support canonical event envelope fields (_format, event)
+  // Support canonical and native envelope fields.
   const extra = event as Record<string, unknown>;
+  if (extra._format === "native") {
+    assertValidNativeEventMetadata(extra);
+  }
   if (typeof extra._format === "string") {
     addField("_format", extra._format);
   }
@@ -105,6 +109,12 @@ export const flattenEvent = (event: AgentOutputEvent): string[] => {
   }
   if (typeof extra.codingAgent === "string") {
     addField("codingAgent", extra.codingAgent);
+  }
+  if (typeof extra.aiProvider === "string") {
+    addField("aiProvider", extra.aiProvider);
+  }
+  if (typeof extra.model === "string") {
+    addField("model", extra.model);
   }
   if (typeof extra.runtimeSessionId === "string") {
     addField("runtimeSessionId", extra.runtimeSessionId);

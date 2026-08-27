@@ -35,6 +35,7 @@ const state = {
   configs: [] as FakeConfig[],
   createCalls: [] as Array<Record<string, unknown>>,
   updateCalls: [] as Array<{ id: string; workspaceId: string; input: Record<string, unknown> }>,
+  listCalls: 0,
   deleteCalls: [] as string[],
   createThrowOnceForAutomationId: null as string | null,
   nextId: 1,
@@ -44,6 +45,7 @@ const resetState = () => {
   state.configs = [];
   state.createCalls = [];
   state.updateCalls = [];
+  state.listCalls = 0;
   state.deleteCalls = [];
   state.createThrowOnceForAutomationId = null;
   state.nextId = 1;
@@ -54,6 +56,7 @@ const dbMocks = createDatabaseMocks({
     workspaceId: string,
     filters?: { projectId?: string },
   ) => {
+    state.listCalls += 1;
     return state.configs.filter(
       (config) =>
         config.workspaceId === workspaceId &&
@@ -167,6 +170,78 @@ describe("dev-flow-provisioning", () => {
       expect(automation.enabled).toBe(true);
       expect(automation.managedBy).toBe("system");
     }
+  });
+
+  it("accepts exact Pi overrides for the three write-capable automations", async () => {
+    await provisionDevFlowForProject({
+      workspaceId: WORKSPACE_ID,
+      projectId: PROJECT_ID,
+      devFlow: {
+        enabled: true,
+        codingAgent: "claude-code",
+        aiProvider: "anthropic",
+        model: "claude-opus-5",
+        automations: {
+          "backlog-drain": { codingAgent: "pi", aiProvider: "zai", model: "glm-5.3" },
+          "dod-remediation": { codingAgent: "pi", aiProvider: "zai", model: "glm-5.3" },
+          "release-integration": { codingAgent: "pi", aiProvider: "zai", model: "glm-5.3" },
+        },
+      },
+    });
+
+    const piCalls = state.createCalls.filter((call) => call.codingAgent === "pi");
+    expect(piCalls.map((call) => call.builtinAutomationId).sort()).toEqual([
+      "backlog-drain",
+      "dod-remediation",
+      "release-integration",
+    ]);
+    expect(piCalls.every((call) => call.aiProvider === "zai" && call.aiModel === "glm-5.3")).toBe(true);
+  });
+
+  it("rejects an exact Pi card default because it feeds DoD review before repository access", async () => {
+    let caught: unknown;
+    try {
+      await provisionDevFlowForProject({
+        workspaceId: WORKSPACE_ID,
+        projectId: PROJECT_ID,
+        devFlow: { enabled: true, codingAgent: "pi", aiProvider: "zai", model: "glm-5.3" },
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toMatchObject({ code: "PI_CAPABILITY_READ_ONLY_ENFORCEMENT_DISABLED" });
+    expect((caught as Error).message).toContain("dod-review");
+    expect(state.listCalls).toBe(0);
+    expect(state.createCalls).toHaveLength(0);
+    expect(state.updateCalls).toHaveLength(0);
+  });
+
+  it("rejects an exact Pi DoD-review override before repository access", async () => {
+    let caught: unknown;
+    try {
+      await provisionDevFlowForProject({
+        workspaceId: WORKSPACE_ID,
+        projectId: PROJECT_ID,
+        devFlow: {
+          enabled: true,
+          codingAgent: "claude-code",
+          aiProvider: "anthropic",
+          model: "claude-opus-5",
+          automations: {
+            "dod-review": { codingAgent: "pi", aiProvider: "zai", model: "glm-5.3" },
+          },
+        },
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toMatchObject({ code: "PI_CAPABILITY_READ_ONLY_ENFORCEMENT_DISABLED" });
+    expect((caught as Error).message).toContain("dod-review");
+    expect(state.listCalls).toBe(0);
+    expect(state.createCalls).toHaveLength(0);
+    expect(state.updateCalls).toHaveLength(0);
   });
 
   it("stamps each automation's own targetConfig mode key with enabled:true, distinct from the row-level enabled flag", async () => {

@@ -307,6 +307,188 @@ describe("buildContainerSpec", () => {
     expect(spec.env.OPENCODE_CONFIG_JSON).toBe("");
   });
 
+  it("builds the exact sterile Pi environment from runner-owned values", () => {
+    const spec = buildContainerSpec({
+      job: createJob({ provider: "pi", codingAgent: "pi" }),
+      workItem: null,
+      runtimeConfig: {
+        type: "pi-shim",
+        image: "almirant-pi-shim:test",
+        envVars: {
+          SHIM_SERVER_HOST: "0.0.0.0",
+          SHIM_SERVER_PORT: "4096",
+          PATH: "/usr/local/bin:/usr/bin:/bin",
+          SSL_CERT_FILE: "/etc/ssl/certs/ca-certificates.crt",
+          SSL_CERT_DIR: "/etc/ssl/certs",
+          NODE_EXTRA_CA_CERTS: "/etc/ssl/certs/runner-proxy-ca.pem",
+          HOME: "/hostile/runtime-home",
+          NODE_OPTIONS: "--require=/hostile/runtime-preload.cjs",
+          OPENAI_API_KEY: "hostile-runtime-openai-key",
+          AWS_SECRET_ACCESS_KEY: "hostile-runtime-aws-secret",
+        },
+      },
+      injectedEnv: {
+        ZAI_API_KEY: "zai-selected-key",
+        PI_PROVIDER: "zai",
+        PI_MODEL: "glm-5.3",
+        PI_THINKING_LEVEL: "high",
+        ALMIRANT_PROVIDER: "zai",
+        ALMIRANT_CODING_AGENT: "pi",
+        REASONING_BUDGET: "hostile-duplicate-thinking",
+        PROVIDER_SECRET: "hostile-provider-secret",
+        OPENAI_API_KEY: "hostile-openai-key",
+        AWS_ACCESS_KEY_ID: "hostile-aws-key",
+        GITHUB_TOKEN: "hostile-github-token",
+        __GIT_CLONE_TOKEN: "hostile-clone-token",
+        HOME: "/hostile/job-home",
+        NODE_OPTIONS: "--import=/hostile/job-preload.mjs",
+        NODE_TLS_REJECT_UNAUTHORIZED: "0",
+      },
+      openCodeConfig: { mcp: {} } as never,
+      workspaceMountMode: "bind",
+      reposHostPath: "/repos",
+      egressProxyUrl: "http://egress-proxy:3128",
+    });
+
+    expect(Object.keys(spec.env).sort()).toEqual([
+      "HOME",
+      "HTTPS_PROXY",
+      "HTTP_PROXY",
+      "NODE_EXTRA_CA_CERTS",
+      "NO_PROXY",
+      "PATH",
+      "PI_CODING_AGENT_DIR",
+      "PI_MODEL",
+      "PI_OFFLINE",
+      "PI_PROVIDER",
+      "PI_SKIP_VERSION_CHECK",
+      "PI_TELEMETRY",
+      "PI_THINKING_LEVEL",
+      "SHIM_SERVER_HOST",
+      "SHIM_SERVER_PORT",
+      "SSL_CERT_DIR",
+      "SSL_CERT_FILE",
+      "TEMP",
+      "TMP",
+      "TMPDIR",
+      "WORKSPACE_REPO_PATH",
+      "ZAI_API_KEY",
+      "http_proxy",
+      "https_proxy",
+      "no_proxy",
+    ]);
+    expect(spec.env).toMatchObject({
+      HOME: "/home/opencode",
+      PATH: "/usr/local/bin:/usr/bin:/bin",
+      TMPDIR: "/tmp",
+      TMP: "/tmp",
+      TEMP: "/tmp",
+      SHIM_SERVER_HOST: "0.0.0.0",
+      SHIM_SERVER_PORT: "4096",
+      WORKSPACE_REPO_PATH: "/workspace/repo",
+      PI_CODING_AGENT_DIR: "/tmp/almirant-pi-agent",
+      PI_PROVIDER: "zai",
+      PI_MODEL: "glm-5.3",
+      PI_THINKING_LEVEL: "high",
+      PI_OFFLINE: "1",
+      PI_TELEMETRY: "0",
+      PI_SKIP_VERSION_CHECK: "1",
+      ZAI_API_KEY: "zai-selected-key",
+      HTTP_PROXY: "http://egress-proxy:3128",
+      HTTPS_PROXY: "http://egress-proxy:3128",
+      NO_PROXY: "127.0.0.1,localhost,::1",
+      SSL_CERT_FILE: "/etc/ssl/certs/ca-certificates.crt",
+      SSL_CERT_DIR: "/etc/ssl/certs",
+      NODE_EXTRA_CA_CERTS: "/etc/ssl/certs/runner-proxy-ca.pem",
+    });
+    expect(spec.user).toBe("1001:1001");
+    expect(spec.networkMode).toBe("none");
+    expect(spec.readOnlyRootFs).toBe(true);
+    expect(spec.capDrop).toEqual(["ALL"]);
+    expect(spec.securityOpt).toEqual(["no-new-privileges:true"]);
+  });
+
+  it("rejects every Pi MCP artifact before returning a container spec", () => {
+    const baseParams = {
+      job: createJob({ provider: "pi", codingAgent: "pi" }),
+      workItem: null,
+      runtimeConfig: {
+        type: "pi-shim" as const,
+        image: "almirant-pi-shim:test",
+        envVars: { SHIM_SERVER_HOST: "0.0.0.0", SHIM_SERVER_PORT: "4096" },
+      },
+      injectedEnv: {
+        ZAI_API_KEY: "zai-selected-key",
+        PI_PROVIDER: "zai",
+        PI_MODEL: "glm-5.3",
+      },
+      openCodeConfig: { mcp: {} } as never,
+      workspaceMountMode: "bind" as const,
+      reposHostPath: "/repos",
+    };
+    const attempts = [
+      {
+        ...baseParams,
+        openCodeConfig: {
+          mcp: {
+            context7: {
+              type: "remote",
+              url: "https://mcp.context7.com/mcp",
+              enabled: true,
+            },
+          },
+        } as never,
+      },
+      {
+        ...baseParams,
+        injectedEnv: { ...baseParams.injectedEnv, MCP_CONFIG_JSON: "{}" },
+      },
+      {
+        ...baseParams,
+        runtimeConfig: {
+          ...baseParams.runtimeConfig,
+          envVars: {
+            ...baseParams.runtimeConfig.envVars,
+            MCP_TOKEN_PRIVATE_DOCS: "must-not-reach-pi",
+          },
+        },
+      },
+    ];
+
+    for (const attempt of attempts) {
+      expect(() => buildContainerSpec(attempt)).toThrow(
+        "Pi runtime does not permit MCP materialization",
+      );
+    }
+  });
+
+  it("fails closed for non-canonical Pi provider and credential values", () => {
+    const build = (injectedEnv: Record<string, string>) => buildContainerSpec({
+      job: createJob({ provider: "pi", codingAgent: "pi" }),
+      workItem: null,
+      runtimeConfig: {
+        type: "pi-shim",
+        image: "almirant-pi-shim:test",
+        envVars: {},
+      },
+      injectedEnv,
+      openCodeConfig: { mcp: {} } as never,
+      workspaceMountMode: "bind",
+      reposHostPath: "/repos",
+    });
+
+    expect(() => build({
+      ZAI_API_KEY: "key",
+      PI_PROVIDER: "openai",
+      PI_MODEL: "glm-5.3",
+    })).toThrow("admitted Z.AI provider");
+    expect(() => build({
+      ZAI_API_KEY: " key ",
+      PI_PROVIDER: "zai",
+      PI_MODEL: "glm-5.3",
+    })).toThrow("exact runner-owned ZAI_API_KEY");
+  });
+
   it("injects no MCP servers into a read-only visual judge container", () => {
     const spec = buildContainerSpec({
       job: createJob({

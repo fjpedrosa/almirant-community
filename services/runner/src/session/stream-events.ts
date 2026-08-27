@@ -128,10 +128,62 @@ const nextLegacyOutputSequence = (): number => {
 
 const MAX_PERSISTED_SEQUENCE = 2_147_483_647;
 const DEFAULT_PUBLISH_ATTEMPTS = 3;
+const DEFAULT_PUBLISH_ATTEMPT_TIMEOUT_MS = 30_000;
+const DEFAULT_CLOSE_TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_PENDING_EVENTS = 256;
+const DEFAULT_MAX_PENDING_BYTES = 8 * 1024 * 1024;
 const RESERVATION_RENEWAL_RATIO = 0.75;
+const streamUtf8Encoder = new TextEncoder();
+
+export type StreamPublishCapacityResource = "pending_events" | "pending_bytes";
+
+/** Safe capacity failure; event content is never copied into its message. */
+export class StreamPublishCapacityError extends Error {
+  readonly code = "STREAM_PUBLISH_CAPACITY_EXCEEDED" as const;
+
+  constructor(
+    readonly resource: StreamPublishCapacityResource,
+    readonly limit: number,
+    readonly observed: number,
+  ) {
+    super(`stream publish capacity exceeded: ${resource}`);
+    this.name = "StreamPublishCapacityError";
+  }
+}
+
+/** Safe bounded-operation failure for publish retries and shutdown. */
+export class StreamPublishTimeoutError extends Error {
+  readonly code = "STREAM_PUBLISH_TIMEOUT" as const;
+
+  constructor(
+    readonly operation: "publish" | "reservation" | "close",
+    readonly timeoutMs: number,
+  ) {
+    super(`stream ${operation} timed out within its bounded interval`);
+    this.name = "StreamPublishTimeoutError";
+  }
+}
 
 const asError = (value: unknown): Error =>
   value instanceof Error ? value : new Error(String(value));
+
+const positiveInteger = (value: number | undefined, fallback: number): number => {
+  if (value === undefined) return fallback;
+  if (!Number.isFinite(value) || value < 1) {
+    throw new RangeError("stream publisher limits must be positive finite numbers");
+  }
+  return Math.floor(value);
+};
+
+const serializedStreamBytes = (value: unknown, limit: number): number => {
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) return 0;
+    return streamUtf8Encoder.encode(serialized).byteLength;
+  } catch {
+    throw new StreamPublishCapacityError("pending_bytes", limit, limit + 1);
+  }
+};
 
 const throwIfStreamAborted = (signal?: AbortSignal): void => {
   if (signal?.aborted) {
@@ -158,6 +210,59 @@ const raceWithStreamAbort = async <T>(
   try {
     return await Promise.race([pending, aborted]);
   } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+};
+
+const runBoundedStreamOperation = async <T>(
+  operation: (requestOptions: StreamPublisherOperationOptions) => Promise<T>,
+  requestOptions: StreamPublisherOperationOptions | undefined,
+  configuredTimeoutMs: number,
+  operationName: "publish" | "reservation" | "close",
+): Promise<T> => {
+  throwIfStreamAborted(requestOptions?.signal);
+  const requestedTimeoutMs = requestOptions?.timeoutMs;
+  const timeoutMs =
+    typeof requestedTimeoutMs === "number" &&
+    Number.isFinite(requestedTimeoutMs) &&
+    requestedTimeoutMs > 0
+      ? Math.min(configuredTimeoutMs, Math.floor(requestedTimeoutMs))
+      : configuredTimeoutMs;
+  const localController = requestOptions?.signal ? undefined : new AbortController();
+  const signal = requestOptions?.signal ?? localController!.signal;
+  const boundedOptions: StreamPublisherOperationOptions = {
+    ...requestOptions,
+    signal,
+    timeoutMs,
+  };
+
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => {
+      reject(signal.reason ?? new Error("stream publication aborted"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_resolve, reject) => {
+    timeoutHandle = setTimeout(() => {
+      const error = new StreamPublishTimeoutError(operationName, timeoutMs);
+      localController?.abort(error);
+      reject(error);
+    }, timeoutMs);
+  });
+
+  let pending: Promise<T>;
+  try {
+    pending = operation(boundedOptions);
+  } catch (error) {
+    pending = Promise.reject(error);
+  }
+  pending.catch(() => undefined);
+  try {
+    return await Promise.race([pending, aborted, timedOut]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
     if (onAbort) signal.removeEventListener("abort", onAbort);
   }
 };
@@ -225,19 +330,74 @@ export const createSequencedStreamPublisher = (
   underlying: StreamPublisher,
   options: {
     maxPublishAttempts?: number;
+    publishAttemptTimeoutMs?: number;
+    closeTimeoutMs?: number;
+    maxPendingEvents?: number;
+    maxPendingBytes?: number;
     operationOptions?: () => StreamPublisherOperationOptions | undefined;
   } = {},
 ): StreamPublisher => {
   const state = streamSequenceStorage.getStore();
-  const maxPublishAttempts = Math.max(
-    1,
-    options.maxPublishAttempts ?? DEFAULT_PUBLISH_ATTEMPTS,
+  const maxPublishAttempts = positiveInteger(
+    options.maxPublishAttempts,
+    DEFAULT_PUBLISH_ATTEMPTS,
   );
+  const publishAttemptTimeoutMs = positiveInteger(
+    options.publishAttemptTimeoutMs,
+    DEFAULT_PUBLISH_ATTEMPT_TIMEOUT_MS,
+  );
+  const closeTimeoutMs = positiveInteger(
+    options.closeTimeoutMs,
+    DEFAULT_CLOSE_TIMEOUT_MS,
+  );
+  const maxPendingEvents = positiveInteger(
+    options.maxPendingEvents,
+    DEFAULT_MAX_PENDING_EVENTS,
+  );
+  const maxPendingBytes = positiveInteger(
+    options.maxPendingBytes,
+    DEFAULT_MAX_PENDING_BYTES,
+  );
+  let pendingEvents = 0;
+  let pendingBytes = 0;
   let frozen = false;
   let localFatalError: Error | undefined;
   let legacyCanonicalTail = Promise.resolve();
   let legacyNativeTail = Promise.resolve();
   let closeInFlight: Promise<void> | null = null;
+
+  const rejectAndLatch = (error: unknown): Promise<never> => {
+    const latched = latchStreamFatal(state, error);
+    localFatalError ??= latched;
+    return Promise.reject(latched);
+  };
+
+  const reservePending = (value: unknown): (() => void) => {
+    const eventBytes = serializedStreamBytes(value, maxPendingBytes);
+    if (pendingEvents + 1 > maxPendingEvents) {
+      throw new StreamPublishCapacityError(
+        "pending_events",
+        maxPendingEvents,
+        pendingEvents + 1,
+      );
+    }
+    if (pendingBytes + eventBytes > maxPendingBytes) {
+      throw new StreamPublishCapacityError(
+        "pending_bytes",
+        maxPendingBytes,
+        pendingBytes + eventBytes,
+      );
+    }
+    pendingEvents += 1;
+    pendingBytes += eventBytes;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      pendingEvents -= 1;
+      pendingBytes -= eventBytes;
+    };
+  };
 
   const enqueueDurable = <T extends CanonicalEventEnvelope | NativeEventEnvelope>(
     channelName: "sessionEvents" | "nativeEvents",
@@ -259,6 +419,21 @@ export const createSequencedStreamPublisher = (
         ? state.canonical
         : state.native
       : undefined;
+    const claimAttemptId = state?.claimAttemptId;
+    let releasePending: () => void;
+    try {
+      releasePending = reservePending({
+        ...value,
+        ...(claimAttemptId
+          ? {
+              sequenceProtocolVersion: DURABLE_SEQUENCE_PROTOCOL_VERSION,
+              claimAttemptId,
+            }
+          : {}),
+      });
+    } catch (error) {
+      return rejectAndLatch(error);
+    }
     const previousTail = channel
       ? channel.tail
       : channelName === "sessionEvents"
@@ -274,16 +449,21 @@ export const createSequencedStreamPublisher = (
           explicitRequestOptions ?? options.operationOptions?.();
         throwIfStreamAborted(requestOptions?.signal);
         if (state && channel) {
-          await ensureSequenceCapacity(
-            state,
-            channelName,
-            channel,
-            sequence,
+          await runBoundedStreamOperation(
+            (boundedOptions) =>
+              ensureSequenceCapacity(
+                state,
+                channelName,
+                channel,
+                sequence,
+                boundedOptions,
+              ),
             requestOptions,
+            publishAttemptTimeoutMs,
+            "reservation",
           );
         }
 
-        const claimAttemptId = state?.claimAttemptId;
         const durableValue = {
           ...value,
           sequenceNumber: sequence,
@@ -299,9 +479,11 @@ export const createSequencedStreamPublisher = (
         for (let attempt = 1; attempt <= maxPublishAttempts; attempt += 1) {
           throwIfStreamAborted(requestOptions?.signal);
           try {
-            const entryId = await raceWithStreamAbort(
-              () => publish(durableValue, requestOptions),
-              requestOptions?.signal,
+            const entryId = await runBoundedStreamOperation(
+              (boundedOptions) => publish(durableValue, boundedOptions),
+              requestOptions,
+              publishAttemptTimeoutMs,
+              "publish",
             );
             throwIfStreamAborted(requestOptions?.signal);
             if (channel) {
@@ -322,7 +504,10 @@ export const createSequencedStreamPublisher = (
       }
     });
 
-    const settledTail = task.then(() => undefined, () => undefined);
+    const settledTail = task.then(
+      () => releasePending(),
+      () => releasePending(),
+    );
     if (channel) channel.tail = settledTail;
     else if (channelName === "sessionEvents") legacyCanonicalTail = settledTail;
     else legacyNativeTail = settledTail;
@@ -339,12 +524,18 @@ export const createSequencedStreamPublisher = (
     }
     if (fatal) return Promise.reject(fatal);
 
-    const previousTail = state?.canonical.tail ?? legacyCanonicalTail;
     const {
       sequenceProtocolVersion: _untrustedSequenceProtocolVersion,
       claimAttemptId: _untrustedClaimAttemptId,
       ...legacyEvent
     } = event;
+    let releasePending: () => void;
+    try {
+      releasePending = reservePending(legacyEvent);
+    } catch (error) {
+      return rejectAndLatch(error);
+    }
+    const previousTail = state?.canonical.tail ?? legacyCanonicalTail;
 
     const task = previousTail.then(async (): Promise<string> => {
       const priorFatal = state?.fatalError ?? localFatalError;
@@ -357,9 +548,11 @@ export const createSequencedStreamPublisher = (
         for (let attempt = 1; attempt <= maxPublishAttempts; attempt += 1) {
           throwIfStreamAborted(requestOptions?.signal);
           try {
-            const entryId = await raceWithStreamAbort(
-              () => underlying.publish(legacyEvent, requestOptions),
-              requestOptions?.signal,
+            const entryId = await runBoundedStreamOperation(
+              (boundedOptions) => underlying.publish(legacyEvent, boundedOptions),
+              requestOptions,
+              publishAttemptTimeoutMs,
+              "publish",
             );
             throwIfStreamAborted(requestOptions?.signal);
             return entryId;
@@ -376,7 +569,10 @@ export const createSequencedStreamPublisher = (
       }
     });
 
-    const settledTail = task.then(() => undefined, () => undefined);
+    const settledTail = task.then(
+      () => releasePending(),
+      () => releasePending(),
+    );
     if (state) state.canonical.tail = settledTail;
     else legacyCanonicalTail = settledTail;
     return task;
@@ -396,8 +592,10 @@ export const createSequencedStreamPublisher = (
         ? [state.canonical.tail, state.native.tail]
         : [legacyCanonicalTail, legacyNativeTail];
       let underlyingClose: Promise<void> | undefined;
-      const triggerUnderlyingClose = (): Promise<void> => {
-        underlyingClose ??= underlying.close(requestOptions);
+      const triggerUnderlyingClose = (
+        closeOptions: StreamPublisherOperationOptions | undefined = requestOptions,
+      ): Promise<void> => {
+        underlyingClose ??= underlying.close(closeOptions);
         return underlyingClose;
       };
       let onAbort: (() => void) | undefined;
@@ -412,13 +610,17 @@ export const createSequencedStreamPublisher = (
 
       let closeError: Error | undefined;
       try {
-        await raceWithStreamAbort(
-          () => Promise.all(tails),
-          requestOptions?.signal,
+        await runBoundedStreamOperation(
+          () => Promise.all(tails).then(() => undefined),
+          requestOptions,
+          closeTimeoutMs,
+          "close",
         );
-        await raceWithStreamAbort(
-          triggerUnderlyingClose,
-          requestOptions?.signal,
+        await runBoundedStreamOperation(
+          (boundedOptions) => triggerUnderlyingClose(boundedOptions),
+          requestOptions,
+          closeTimeoutMs,
+          "close",
         );
       } catch (error) {
         closeError = asError(error);

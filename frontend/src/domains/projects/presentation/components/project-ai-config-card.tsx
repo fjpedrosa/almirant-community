@@ -1,34 +1,34 @@
+"use client";
+
 import { Bot } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { useTranslations } from "next-intl";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { AnthropicIcon } from "@/components/icons/anthropic-icon";
 import { ClaudeIcon } from "@/components/icons/claude-icon";
 import { CodexIcon } from "@/components/icons/codex-icon";
 import { OpenCodeIcon } from "@/components/icons/opencode-icon";
-import { OpenAIIcon } from "@/components/icons/openai-icon";
 import { XAIIcon } from "@/components/icons/xai-icon";
-import { ZAIIcon } from "@/components/icons/zai-icon";
-import { getModelsForProvider } from "@/lib/ai-models-catalog";
 import { getReasoningEffortOptions } from "@/lib/ai-model-reasoning";
+import {
+  getProjectRuntimeModels,
+  getRetainedProjectRuntimeFields,
+  resolveProjectRuntimeAdmission,
+} from "../../domain/project-runtime-selection";
 import type {
   AiConfigProvider,
   ProjectImplementationAiProvider,
   ProjectImplementationCodingAgent,
 } from "../../domain/types";
+import {
+  ProjectRuntimeRejectionNotice,
+  RetainedRuntimeNotice,
+  RetainedRuntimeSelectItem,
+  retainedRuntimeSelectValue,
+  useAiProviderOptions,
+  useCodingAgentOptions,
+} from "./project-dev-flow-runtime-options";
 
 const PROVIDER_OPTIONS: Array<{
   value: AiConfigProvider | "none";
@@ -42,24 +42,11 @@ const PROVIDER_OPTIONS: Array<{
   { value: "grok", label: "OpenCode / xAI", icon: <XAIIcon className="h-4 w-4" /> },
 ];
 
-const CODING_AGENT_OPTIONS: Array<{ value: ProjectImplementationCodingAgent; label: string; icon: React.ReactNode }> = [
-  { value: "claude-code", label: "Claude Code", icon: <ClaudeIcon className="h-4 w-4" /> },
-  { value: "codex", label: "Codex", icon: <CodexIcon className="h-4 w-4" /> },
-  { value: "opencode", label: "OpenCode", icon: <OpenCodeIcon className="h-4 w-4" /> },
-];
-
-const AI_PROVIDER_OPTIONS: Array<{ value: ProjectImplementationAiProvider; label: string; icon: React.ReactNode }> = [
-  { value: "anthropic", label: "Anthropic", icon: <AnthropicIcon className="h-4 w-4" /> },
-  { value: "openai", label: "OpenAI", icon: <OpenAIIcon className="h-4 w-4" /> },
-  { value: "zai", label: "z.ai", icon: <ZAIIcon className="h-4 w-4" /> },
-  { value: "xai", label: "xAI", icon: <XAIIcon className="h-4 w-4" /> },
-];
-
 interface ProjectAiConfigCardProps {
-  defaultProvider: AiConfigProvider | null;
+  defaultProvider: string | null;
   implementationDefaults: {
-    codingAgent?: ProjectImplementationCodingAgent | null;
-    aiProvider?: ProjectImplementationAiProvider | null;
+    codingAgent?: string | null;
+    aiProvider?: string | null;
     model?: string | null;
     reasoningLevel?: string | null;
   };
@@ -89,14 +76,39 @@ export const ProjectAiConfigCard: React.FC<ProjectAiConfigCardProps> = ({
   onSave,
   onDiscard,
 }) => {
-  const aiProvider = implementationDefaults.aiProvider ?? "anthropic";
-  const codingAgent = implementationDefaults.codingAgent ?? "claude-code";
-  const modelOptions = getModelsForProvider(aiProvider, "agent-runtime");
-  const reasoningOptions = getReasoningEffortOptions({
-    codingAgent,
-    aiProvider,
+  const tRuntime = useTranslations("projects.runtimeSelection");
+  const selection = {
+    codingAgent: implementationDefaults.codingAgent,
+    aiProvider: implementationDefaults.aiProvider,
     model: implementationDefaults.model,
-  });
+    reasoningLevel: implementationDefaults.reasoningLevel,
+  };
+  const codingAgentOptions = useCodingAgentOptions("implementation");
+  const aiProviderOptions = useAiProviderOptions("implementation", selection.codingAgent);
+  const modelOptions = getProjectRuntimeModels(
+    "implementation",
+    selection.codingAgent,
+    selection.aiProvider,
+  );
+  const reasoningOptions = getReasoningEffortOptions(selection);
+  const retainedFields = getRetainedProjectRuntimeFields("implementation", selection);
+  const retainedByField = new Map(retainedFields.map((field) => [field.field, field.value]));
+  const admission = resolveProjectRuntimeAdmission("implementation", selection);
+  const hasRetainedLegacyProvider = defaultProvider !== null &&
+    !PROVIDER_OPTIONS.some((option) => option.value === defaultProvider);
+
+  const codingAgentValue = retainedByField.has("codingAgent")
+    ? retainedRuntimeSelectValue("codingAgent", selection.codingAgent)
+    : selection.codingAgent ?? "";
+  const aiProviderValue = retainedByField.has("aiProvider")
+    ? retainedRuntimeSelectValue("aiProvider", selection.aiProvider)
+    : selection.aiProvider ?? "";
+  const modelValue = retainedByField.has("model")
+    ? retainedRuntimeSelectValue("model", selection.model)
+    : selection.model ?? "";
+  const reasoningValue = retainedByField.has("reasoningLevel")
+    ? retainedRuntimeSelectValue("reasoningLevel", selection.reasoningLevel)
+    : selection.reasoningLevel ?? "__default__";
 
   return (
     <Card>
@@ -108,18 +120,18 @@ export const ProjectAiConfigCard: React.FC<ProjectAiConfigCardProps> = ({
       </CardHeader>
 
       <CardContent className="space-y-4 pt-0">
-        {errorMessage && (
-          <p className="text-sm text-destructive">{errorMessage}</p>
-        )}
+        {errorMessage && <p className="text-sm text-destructive">{errorMessage}</p>}
 
         <div className="space-y-1.5">
           <Label htmlFor="ai-default-provider" className="text-xs text-muted-foreground">
             Legacy default runner
           </Label>
           <Select
-            value={defaultProvider ?? "none"}
+            value={hasRetainedLegacyProvider
+              ? retainedRuntimeSelectValue("legacyRunner", defaultProvider)
+              : defaultProvider ?? "none"}
             onValueChange={(value) =>
-              onChange(value === "none" ? null : (value as AiConfigProvider))
+              onChange(value === "none" ? null : value as AiConfigProvider)
             }
             disabled={isSaving}
           >
@@ -127,19 +139,22 @@ export const ProjectAiConfigCard: React.FC<ProjectAiConfigCardProps> = ({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              {hasRetainedLegacyProvider && (
+                <RetainedRuntimeSelectItem field="legacyRunner" value={defaultProvider} />
+              )}
               {PROVIDER_OPTIONS.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
-                  <div className="flex items-center gap-2">
-                    {option.icon}
-                    {option.label}
-                  </div>
+                  <div className="flex items-center gap-2">{option.icon}{option.label}</div>
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          {hasRetainedLegacyProvider && (
+            <RetainedRuntimeNotice field="legacyRunner" value={defaultProvider} />
+          )}
         </div>
 
-        <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
+        <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
           <div>
             <p className="text-sm font-medium">Default implementation runtime</p>
             <p className="text-xs text-muted-foreground">
@@ -151,15 +166,18 @@ export const ProjectAiConfigCard: React.FC<ProjectAiConfigCardProps> = ({
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Coding agent</Label>
               <Select
-                value={codingAgent}
+                value={codingAgentValue}
                 onValueChange={(value) => onCodingAgentChange(value as ProjectImplementationCodingAgent)}
                 disabled={isSaving}
               >
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-9" aria-label="Coding agent">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {CODING_AGENT_OPTIONS.map((option) => (
+                  {retainedByField.has("codingAgent") && (
+                    <RetainedRuntimeSelectItem field="codingAgent" value={selection.codingAgent} />
+                  )}
+                  {codingAgentOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       <div className="flex items-center gap-2">{option.icon}{option.label}</div>
                     </SelectItem>
@@ -171,15 +189,18 @@ export const ProjectAiConfigCard: React.FC<ProjectAiConfigCardProps> = ({
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">AI provider</Label>
               <Select
-                value={aiProvider}
+                value={aiProviderValue}
                 onValueChange={(value) => onAiProviderChange(value as ProjectImplementationAiProvider)}
-                disabled={isSaving}
+                disabled={isSaving || aiProviderOptions.length === 0}
               >
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-9" aria-label="AI provider">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {AI_PROVIDER_OPTIONS.map((option) => (
+                  {retainedByField.has("aiProvider") && (
+                    <RetainedRuntimeSelectItem field="aiProvider" value={selection.aiProvider} />
+                  )}
+                  {aiProviderOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       <div className="flex items-center gap-2">{option.icon}{option.label}</div>
                     </SelectItem>
@@ -191,18 +212,19 @@ export const ProjectAiConfigCard: React.FC<ProjectAiConfigCardProps> = ({
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Model</Label>
               <Select
-                value={implementationDefaults.model ?? ""}
+                value={modelValue}
                 onValueChange={(value) => onModelChange(value || null)}
-                disabled={isSaving}
+                disabled={isSaving || modelOptions.length === 0}
               >
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-9" aria-label="Model">
                   <SelectValue placeholder="Select model" />
                 </SelectTrigger>
                 <SelectContent>
+                  {retainedByField.has("model") && (
+                    <RetainedRuntimeSelectItem field="model" value={selection.model} />
+                  )}
                   {modelOptions.map((model) => (
-                    <SelectItem key={model.id} value={model.id}>
-                      {model.displayName}
-                    </SelectItem>
+                    <SelectItem key={model.id} value={model.id}>{model.displayName}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -211,39 +233,44 @@ export const ProjectAiConfigCard: React.FC<ProjectAiConfigCardProps> = ({
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Reasoning effort</Label>
               <Select
-                value={implementationDefaults.reasoningLevel ?? "__default__"}
+                value={reasoningValue}
                 onValueChange={(value) => onReasoningLevelChange(value === "__default__" ? null : value)}
                 disabled={isSaving || reasoningOptions.length === 0}
               >
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-9" aria-label="Reasoning effort">
                   <SelectValue placeholder="Default" />
                 </SelectTrigger>
                 <SelectContent>
+                  {retainedByField.has("reasoningLevel") && (
+                    <RetainedRuntimeSelectItem field="reasoningLevel" value={selection.reasoningLevel} />
+                  )}
                   <SelectItem value="__default__">Default runtime behavior</SelectItem>
                   {reasoningOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
           </div>
+
+          {retainedFields.map((field) => (
+            <RetainedRuntimeNotice key={field.field} field={field.field} value={field.value} />
+          ))}
+          {!admission.admitted && selection.codingAgent && selection.aiProvider && selection.model && (
+            <ProjectRuntimeRejectionNotice code={admission.code} />
+          )}
+          {selection.codingAgent === "pi" && admission.admitted && (
+            <p className="text-xs text-muted-foreground">{tRuntime("piExactTuple")}</p>
+          )}
         </div>
 
-        {isSaving && (
-          <p className="text-xs text-muted-foreground">Saving...</p>
-        )}
+        {isSaving && <p className="text-xs text-muted-foreground">Saving...</p>}
       </CardContent>
 
       {hasChanges && (
         <CardFooter className="flex justify-end gap-2 border-t pt-4">
-          <Button variant="outline" size="sm" onClick={onDiscard} disabled={isSaving}>
-            Discard
-          </Button>
-          <Button size="sm" onClick={onSave} disabled={isSaving}>
-            Save Changes
-          </Button>
+          <Button variant="outline" size="sm" onClick={onDiscard} disabled={isSaving}>Discard</Button>
+          <Button size="sm" onClick={onSave} disabled={isSaving}>Save Changes</Button>
         </CardFooter>
       )}
     </Card>

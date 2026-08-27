@@ -16,7 +16,7 @@ mock.module("../../../shared/services/archive-blob-store", () => ({ putArchiveBl
 
 const { uploadAgentJobNativeEventsArchivePages } = await import("./agent-job-archive-storage");
 
-const event = (sequenceNum: number) => ({ id: `event-${sequenceNum}`, agentJobId: "job-1", planningSessionId: null, sequenceNum, nativeEventType: "message", sourceFormat: "sse", provider: null, aiProvider: null, model: null, codingAgent: null, runtimeSessionId: null, payload: { text: "hello" }, emittedAt: null, receivedAt: new Date("2026-01-01T00:00:00Z"), createdAt: new Date("2026-01-01T00:00:00Z") }) as AgentNativeEventDb;
+const event = (sequenceNum: number) => ({ id: `event-${sequenceNum}`, agentJobId: "job-1", planningSessionId: null, sequenceNum, nativeEventType: "message", sourceFormat: "sse", provider: null, codingAgent: null, aiProvider: null, model: null, runtimeSessionId: null, payload: { text: "hello" }, emittedAt: null, receivedAt: new Date("2026-01-01T00:00:00Z"), createdAt: new Date("2026-01-01T00:00:00Z") }) as AgentNativeEventDb;
 
 describe("agent job native archive storage", () => {
   test("serializes pages without retaining the complete history", async () => {

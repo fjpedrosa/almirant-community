@@ -322,6 +322,79 @@ describe("connectionsRoutes OAuth callback", () => {
     ).toBe(true);
   });
 
+  it("nulls caller-supplied API-key identifiers before persistence and public output", async () => {
+    const fakeApiKey =
+      "FAKE_FULL_API_KEY_PREFIX_sensitive_value_FAKE_FULL_API_KEY_SUFFIX";
+    const fakePrefix = `${fakeApiKey.slice(0, 7)}...`;
+    const fakeSuffix = `...${fakeApiKey.slice(-7)}`;
+    const craftedIdentifier = `${fakePrefix}${fakeSuffix}`;
+    const { Elysia } = await import("elysia");
+    const { connectionsRoutes } = await import("./connections.routes");
+    const app = new Elysia().use(withTestOrg).use(connectionsRoutes);
+
+    const res = await app.handle(
+      new Request(
+        "http://localhost/connections",
+        json({
+          provider: "zai",
+          category: "ai",
+          scope: "organization",
+          name: "Z.AI API key",
+          accountIdentifier: craftedIdentifier,
+          credentials: { apiKey: fakeApiKey },
+          config: {
+            authMethod: "api_key",
+            baseUrl: "https://api.z.ai/api/coding/paas/v4",
+          },
+        }),
+      ),
+    );
+    const responseBody = await res.json() as {
+      data?: { accountIdentifier?: string | null };
+    };
+
+    expect(res.status).toBe(201);
+    expect(state.createConnectionCalls).toHaveLength(1);
+    const persistedCall = state.createConnectionCalls[0]!;
+    expect(persistedCall.accountIdentifier).toBeNull();
+    expect(persistedCall.credentials).toEqual({ apiKey: fakeApiKey });
+    expect(responseBody.data?.accountIdentifier).toBeNull();
+
+    const publicBoundary = JSON.stringify({
+      persistedMetadata: { ...persistedCall, credentials: "[encrypted]" },
+      response: responseBody,
+    });
+    for (const forbidden of [fakeApiKey, fakePrefix, fakeSuffix]) {
+      expect(publicBoundary).not.toContain(forbidden);
+    }
+  });
+
+  it("preserves a non-secret identifier for an explicitly non-API-key flow", async () => {
+    const { Elysia } = await import("elysia");
+    const { connectionsRoutes } = await import("./connections.routes");
+    const app = new Elysia().use(withTestOrg).use(connectionsRoutes);
+
+    const res = await app.handle(
+      new Request(
+        "http://localhost/connections",
+        json({
+          provider: "anthropic",
+          category: "ai",
+          scope: "organization",
+          name: "Managed OAuth account",
+          accountIdentifier: "account@example.test",
+          credentials: { oauthAccessToken: "fake-oauth-token" },
+          config: { authMethod: "oauth" },
+        }),
+      ),
+    );
+
+    expect(res.status).toBe(201);
+    expect(state.createConnectionCalls[0]?.accountIdentifier).toBe(
+      "account@example.test",
+    );
+  });
+
   it("canonicalizes entitled Z.AI Coding Plan models before persistence", async () => {
     const { Elysia } = await import("elysia");
     const { connectionsRoutes } = await import("./connections.routes");

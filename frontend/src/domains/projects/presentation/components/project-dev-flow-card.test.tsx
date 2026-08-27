@@ -294,4 +294,34 @@ describe("ProjectDevFlowCard", () => {
     expect(screen.getByText(/verdictBlocked/)).toBeInTheDocument();
     expect(screen.getByText(/workspace quota exhausted/i)).toBeInTheDocument();
   });
+
+  test("explains why Pi is unavailable for the read-only dev-flow default", () => {
+    render(<ProjectDevFlowCard {...baseProps} />);
+
+    expect(screen.getByText("piReadOnlyUnavailable")).toBeInTheDocument();
+  });
+
+  test("renders retained notices for raw future card defaults", () => {
+    const { container } = render(
+      <ProjectDevFlowCard
+        {...baseProps}
+        settings={{
+          ...baseProps.settings,
+          codingAgent: "future-agent",
+          aiProvider: "future-provider",
+          model: "future-model",
+          reasoningLevel: "future-effort",
+        }}
+      />,
+    );
+
+    const retainedNotices = [...container.querySelectorAll("p")]
+      .filter((element) => element.textContent?.includes("retainedValue"));
+    const noticeText = retainedNotices.map((element) => element.textContent).join(" ");
+    expect(retainedNotices).toHaveLength(4);
+    expect(noticeText).toContain("future-agent");
+    expect(noticeText).toContain("future-provider");
+    expect(noticeText).toContain("future-model");
+    expect(noticeText).toContain("future-effort");
+  });
 });

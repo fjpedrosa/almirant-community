@@ -202,6 +202,76 @@ describe("scheduledAgentsRoutes POST /scheduled-agents", () => {
     state.orgPrimaryRepositoryOverride = null;
   });
 
+  it("admits a no-capability Pi scheduled config and rejects normalized MCP/browser intent before insert", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+    const baseBody = {
+      name: "Pi agent",
+      jobType: "scheduled",
+      provider: "zipu",
+      codingAgent: "pi",
+      aiProvider: "zai",
+      aiModel: "glm-5.3",
+      scheduleType: "manual",
+      enabled: false,
+    };
+
+    const accepted = await app.handle(makeRequest(baseBody));
+    expect(accepted.status).toBe(201);
+    expect(state.createdConfigInput).toMatchObject({
+      codingAgent: "pi",
+      aiProvider: "zai",
+      aiModel: "glm-5.3",
+    });
+
+    for (const [targetConfig, code] of [
+      [{ customFilters: { __agentTooling: { selectedMcpServerIds: ["6e9fa58b-3490-4e39-982f-444e5c697e55"] } } }, "PI_CAPABILITY_MCP_DISABLED"],
+      [{ customFilters: { __agentTooling: { selectedPluginIds: ["9c1f6f0e-9b7e-4b8a-8b0e-7f6c2e5a1d33"] } } }, "PI_CAPABILITY_EXTENSIONS_DISABLED"],
+      [{ customFilters: { __agent: { needsBrowser: true } } }, "PI_CAPABILITY_BROWSER_DISABLED"],
+    ] as const) {
+      state.createdConfigInput = null;
+      const rejected = await app.handle(makeRequest({ ...baseBody, targetConfig }));
+      const body = (await rejected.json()) as { code?: string };
+      expect(rejected.status).toBe(400);
+      expect(body.code).toBe(code);
+      expect(state.createdConfigInput).toBeNull();
+    }
+  });
+
+  it("rejects a Pi scheduled config when admission is disabled before insert", async () => {
+    const previous = process.env.PI_CODING_AGENT_ADMISSION_ENABLED;
+    process.env.PI_CODING_AGENT_ADMISSION_ENABLED = "false";
+    try {
+      const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+      const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+
+      const response = await app.handle(makeRequest({
+        name: "Disabled Pi agent",
+        jobType: "scheduled",
+        provider: "zipu",
+        codingAgent: "pi",
+        aiProvider: "zai",
+        aiModel: "glm-5.3",
+        scheduleType: "manual",
+        enabled: false,
+      }));
+      const body = (await response.json()) as { code?: string; error?: string };
+
+      expect(response.status).toBe(400);
+      expect(body.code).toBe("PI_ADMISSION_DISABLED");
+      expect(body.error).toBe(
+        "Invalid scheduled agent runtime: Pi coding-agent admission is disabled by operator policy.",
+      );
+      expect(state.createdConfigInput).toBeNull();
+    } finally {
+      if (previous === undefined) {
+        delete process.env.PI_CODING_AGENT_ADMISSION_ENABLED;
+      } else {
+        process.env.PI_CODING_AGENT_ADMISSION_ENABLED = previous;
+      }
+    }
+  });
+
   it("rechaza un agente cuyo prompt invoca una skill interna", async () => {
     const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
     const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
@@ -394,13 +464,13 @@ describe("scheduledAgentsRoutes POST /scheduled-agents", () => {
     });
   });
 
-  it("rechaza runtime incompatible al crear agentes por API/MCP", async () => {
+  it("permite un tuple moderno coherente aunque el provider legacy difiera", async () => {
     const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
     const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
 
     const response = await app.handle(
       makeRequest({
-        name: "DoD remediation mal configurado",
+        name: "DoD remediation con routing legacy",
         projectId: testProject.id,
         jobType: "implementation",
         provider: "codex",
@@ -418,11 +488,14 @@ describe("scheduledAgentsRoutes POST /scheduled-agents", () => {
       }),
     );
 
-    expect(response.status).toBe(400);
-    const body = (await response.json()) as { success: boolean; error?: string };
-    expect(body.success).toBe(false);
-    expect(body.error).toMatch(/aiProvider 'zai' requires provider 'zipu'/);
-    expect(state.createdConfigInput).toBeNull();
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ success: true });
+    expect(state.createdConfigInput).toMatchObject({
+      provider: "codex",
+      codingAgent: "opencode",
+      aiProvider: "zai",
+      aiModel: "glm-5.1",
+    });
   });
 
   it("rechaza combinaciones provider/codingAgent incompatibles al crear", async () => {
@@ -481,7 +554,7 @@ describe("scheduledAgentsRoutes POST /scheduled-agents", () => {
 
     expect(response.status).toBe(400);
     const body = (await response.json()) as { error?: string };
-    expect(body.error).toMatch(/glm-5v-turbo.*RUNTIME_MODEL_UNSUPPORTED/i);
+    expect(body.error).toMatch(/glm-5v-turbo.*not available through the Z\.AI Coding Plan/i);
     expect(state.createdConfigInput).toBeNull();
   });
 
@@ -557,7 +630,7 @@ describe("scheduledAgentsRoutes POST /scheduled-agents", () => {
 
     expect(response.status).toBe(400);
     const body = (await response.json()) as { error?: string };
-    expect(body.error).toMatch(/glm-5v-turbo.*RUNTIME_MODEL_UNSUPPORTED/i);
+    expect(body.error).toMatch(/glm-5v-turbo.*not available through the Z\.AI Coding Plan/i);
     expect(state.createdConfigInput).toBeNull();
   });
 
@@ -779,6 +852,43 @@ describe("scheduledAgentsRoutes PATCH /scheduled-agents/:id", () => {
         enabled: true,
         lastRunAt: null,
       });
+    } finally {
+      state.scheduledConfigOverride = null;
+    }
+  });
+
+  it("rejects a Pi update with selected MCP intent before update persistence", async () => {
+    const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
+    const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+    state.scheduledConfigOverride = {
+      ...scheduledConfig,
+      provider: "zipu",
+      codingAgent: "pi",
+      aiProvider: "zai",
+      aiModel: "glm-5.3",
+    };
+
+    try {
+      const response = await app.handle(
+        new Request(`http://localhost/scheduled-agents/${scheduledConfig.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            targetConfig: {
+              customFilters: {
+                __agentTooling: {
+                  selectedMcpServerIds: ["6e9fa58b-3490-4e39-982f-444e5c697e55"],
+                },
+              },
+            },
+          }),
+        }),
+      );
+      const body = (await response.json()) as { code?: string };
+
+      expect(response.status).toBe(400);
+      expect(body.code).toBe("PI_CAPABILITY_MCP_DISABLED");
+      expect(state.updatedConfigInput).toBeNull();
     } finally {
       state.scheduledConfigOverride = null;
     }
@@ -1231,11 +1341,11 @@ describe("scheduledAgentsRoutes POST /scheduled-agents/:id/trigger", () => {
     const cases = [
       {
         config: { implementationModel: "glm-5v-turbo" },
-        error: /glm-5v-turbo.*RUNTIME_MODEL_UNSUPPORTED/i,
+        error: /not available through the Z\.AI Coding Plan/i,
       },
       {
         config: { implementationModel: "totally-not-a-model" },
-        error: /unknown|unsupported/i,
+        error: /unknown|unsupported|not available/i,
       },
       {
         config: {

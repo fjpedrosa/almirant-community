@@ -1,5 +1,13 @@
+import {
+  getRuntimeCapabilityTuples,
+  runtimeCapabilityProjection,
+  type AIProvider,
+  type CodingAgent,
+} from "@/domains/agents/domain/coding-agent-compatibility";
 import { getModelsForProvider } from "@/lib/ai-models-catalog";
 import { getReasoningEffortOptions } from "@/lib/ai-model-reasoning";
+
+export type { AIProvider, CodingAgent };
 
 // Enums / literals
 export type ScheduleType = "manual" | "time_window" | "cron" | "once";
@@ -19,8 +27,6 @@ export type AgentJobType =
 export type AgentProvider = "claude-code" | "codex" | "zipu" | "grok";
 
 // Multi-provider types
-export type CodingAgent = "claude-code" | "codex" | "opencode";
-export type AIProvider = "anthropic" | "openai" | "zai" | "xai";
 export type ReasoningLevel = "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "enabled" | "disabled";
 
 export const normalizeScheduledCodingAgent = (
@@ -30,15 +36,26 @@ export const normalizeScheduledCodingAgent = (
     return codingAgent;
   }
 
+  // Historical persisted alias only. It is never present in generated options.
   if (codingAgent === "codex-cli") {
     return "codex";
   }
 
-  if (codingAgent === "claude-code" || codingAgent === "codex" || codingAgent === "opencode") {
-    return codingAgent;
+  return runtimeCapabilityProjection.codingAgents.find(
+    (candidate) => candidate === codingAgent,
+  );
+};
+
+export const normalizeScheduledAiProvider = (
+  aiProvider: string | null | undefined,
+): AIProvider | null | undefined => {
+  if (aiProvider == null) {
+    return aiProvider;
   }
 
-  return undefined;
+  return runtimeCapabilityProjection.aiProviders.find(
+    (candidate) => candidate === aiProvider,
+  );
 };
 
 // Agent classification (frontend-only — derived from persisted config)
@@ -373,7 +390,7 @@ export interface ScheduledAgentConfig {
   description: string | null;
   prompt: string | null;
   jobType: AgentJobType;
-  provider: AgentProvider;
+  provider: string | null;
   codingAgent: string | null;
   aiProvider: string | null;
   aiModel: string | null;
@@ -582,47 +599,87 @@ export const DAY_OF_WEEK_OPTIONS: { value: number; label: string }[] = [
   { value: 6, label: "Saturday" },
 ];
 
-// Cascading AI options
-export const CODING_AGENT_OPTIONS: { value: CodingAgent; label: string }[] = [
-  { value: "claude-code", label: "Claude Code" },
-  { value: "codex", label: "Codex CLI" },
-  { value: "opencode", label: "OpenCode" },
-];
+// Cascading AI options. Labels and display order remain UI metadata; every
+// compatibility decision is filtered from generated admitted tuples.
+const CODING_AGENT_LABELS: Record<CodingAgent, string> = {
+  "claude-code": "Claude Code",
+  "codex": "Codex CLI",
+  "opencode": "OpenCode",
+  "pi": "Pi",
+};
 
-export const AI_PROVIDER_OPTIONS: { value: AIProvider; label: string }[] = [
-  { value: "anthropic", label: "Anthropic" },
-  { value: "openai", label: "OpenAI" },
-  { value: "zai", label: "z.ai" },
-  { value: "xai", label: "xAI" },
-];
+export const CODING_AGENT_OPTIONS: { value: CodingAgent; label: string }[] =
+  runtimeCapabilityProjection.codingAgents.flatMap((codingAgent) =>
+    getRuntimeCapabilityTuples({ codingAgent, admissionEnabled: true }).length > 0
+      ? [{ value: codingAgent, label: CODING_AGENT_LABELS[codingAgent] }]
+      : []
+  );
+
+const AI_PROVIDER_LABELS: Record<AIProvider, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  zai: "z.ai",
+  xai: "xAI",
+  google: "Google",
+};
+
+const SCHEDULED_AI_PROVIDER_DISPLAY_ORDER = [
+  "anthropic",
+  "openai",
+  "zai",
+  "xai",
+  "google",
+] as const satisfies readonly AIProvider[];
+
+export const AI_PROVIDER_OPTIONS: { value: AIProvider; label: string }[] =
+  SCHEDULED_AI_PROVIDER_DISPLAY_ORDER.flatMap((aiProvider) =>
+    getRuntimeCapabilityTuples({ aiProvider, admissionEnabled: true }).length > 0
+      ? [{ value: aiProvider, label: AI_PROVIDER_LABELS[aiProvider] }]
+      : []
+  );
 
 export const getScheduledReasoningLevelOptions = (input: {
-  codingAgent?: CodingAgent;
-  aiProvider?: AIProvider;
+  codingAgent?: string;
+  aiProvider?: string;
   model?: string;
 }) => getReasoningEffortOptions(input);
 
-// Maps coding agent → available AI providers
-export const PROVIDERS_BY_CODING_AGENT: Record<CodingAgent, AIProvider[]> = {
-  "claude-code": ["anthropic", "zai"],
-  "codex": ["openai"],
-  "opencode": ["openai", "zai", "xai"],
-};
-
 export const getAiProvidersForScheduledRuntime = (
-  _agentProvider: AgentProvider | undefined,
-  codingAgent: CodingAgent | undefined,
+  _agentProvider: string | null | undefined,
+  codingAgent: string | null | undefined,
 ): AIProvider[] => {
   if (!codingAgent) return [];
-  return PROVIDERS_BY_CODING_AGENT[codingAgent] ?? [];
+
+  const admittedProviders = new Set<string>(
+    getRuntimeCapabilityTuples({ codingAgent, admissionEnabled: true }).map(
+      (tuple) => tuple.aiProvider,
+    ),
+  );
+  return AI_PROVIDER_OPTIONS.flatMap((option) =>
+    admittedProviders.has(option.value) ? [option.value] : []
+  );
 };
 
-// Maps AI provider → available models from the central catalog.
-export const MODELS_BY_PROVIDER: Record<AIProvider, { value: string; label: string }[]> = {
-  anthropic: getModelsForProvider("anthropic", "agent-runtime").map((m) => ({ value: m.id, label: m.displayName })),
-  openai: getModelsForProvider("openai", "agent-runtime").map((m) => ({ value: m.id, label: m.displayName })),
-  zai: getModelsForProvider("zai", "agent-runtime").map((m) => ({ value: m.id, label: m.displayName })),
-  xai: getModelsForProvider("xai", "agent-runtime").map((m) => ({ value: m.id, label: m.displayName })),
+/** Admitted models for an exact runtime pair, retaining central catalog order. */
+export const getModelsForScheduledRuntime = (
+  codingAgent: string | null | undefined,
+  aiProvider: string | null | undefined,
+): { value: string; label: string }[] => {
+  if (!codingAgent || !aiProvider) return [];
+
+  const admittedModelIds = new Set<string>(
+    getRuntimeCapabilityTuples({
+      codingAgent,
+      aiProvider,
+      admissionEnabled: true,
+    }).map((tuple) => tuple.model),
+  );
+
+  return getModelsForProvider(aiProvider, "agent-runtime").flatMap((model) =>
+    admittedModelIds.has(model.id)
+      ? [{ value: model.id, label: model.displayName }]
+      : []
+  );
 };
 
 // Timezone options with UTC offset labels

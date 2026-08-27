@@ -32,14 +32,6 @@ const asRecord = (input: unknown): Record<string, unknown> =>
     ? input as Record<string, unknown>
     : {};
 
-const codingAgentForProvider = (provider: string | null | undefined): string | null => {
-  const value = provider?.trim().toLowerCase();
-  if (value === "codex") return "codex";
-  if (value === "zipu" || value === "grok") return "opencode";
-  if (value === "claude-code") return "claude-code";
-  return null;
-};
-
 const projectRules = (targetConfig: unknown): Array<ScheduledRuntimeSource & { projectId: string }> => {
   const target = asRecord(targetConfig);
   for (const key of ["backlogDrain", "dodRemediation"] as const) {
@@ -81,14 +73,12 @@ const dedupe = (runtimes: ResolvedScheduledRuntime[]): ResolvedScheduledRuntime[
 export const resolveScheduledAgentEffectiveRuntimes = async (
   input: ScheduledAgentRuntimeResolutionInput,
 ): Promise<ResolvedScheduledRuntime[]> => {
-  const aiProvider = resolveScheduledAgentAiProvider(input);
-  if (!aiProvider) return [];
-
+  const connectionLookupAiProvider = resolveScheduledAgentAiProvider(input);
   const explicitModel = normalizeScheduledAgentModel(input.aiModel);
   const schedule: ScheduledRuntimeSource = {
     provider: input.provider,
-    codingAgent: input.codingAgent ?? codingAgentForProvider(input.provider),
-    aiProvider,
+    codingAgent: input.codingAgent,
+    aiProvider: input.aiProvider,
     model: explicitModel,
     reasoningLevel: input.reasoningLevel,
   };
@@ -96,12 +86,12 @@ export const resolveScheduledAgentEffectiveRuntimes = async (
   const connections = explicitModel
     ? []
     : await findActiveConnections(
-        mapAiProviderToConnectionProvider(aiProvider),
+        mapAiProviderToConnectionProvider(connectionLookupAiProvider),
         "organization",
         input.workspaceId,
       );
   const connectionRuntimes = collectScheduledAgentConnectionRuntimes({
-    aiProvider,
+    aiProvider: connectionLookupAiProvider,
     jobType: input.jobType,
     connections,
   });
@@ -136,7 +126,10 @@ export const resolveScheduledAgentEffectiveRuntimes = async (
   }));
 
   const connectionSources: Array<ScheduledRuntimeSource | undefined> = connectionRuntimes.length > 0
-    ? connectionRuntimes.map((runtime) => ({ ...runtime, aiProvider }))
+    ? connectionRuntimes.map((runtime) => ({
+        ...runtime,
+        aiProvider: connectionLookupAiProvider,
+      }))
     : explicitModel || backlogStyle
       ? [undefined]
       : [];

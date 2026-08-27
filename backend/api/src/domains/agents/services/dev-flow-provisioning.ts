@@ -62,12 +62,17 @@ import {
   type BuiltinAutomationId,
   type BuiltinAutomationTargetConfigKey,
 } from "@almirant/shared";
+import {
+  assertValidScheduledAgentRuntime,
+  SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR,
+  ScheduledAgentRuntimeValidationError,
+} from "./scheduled-agent-runtime-validation";
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
-export type DevFlowCodingAgent = "claude-code" | "codex" | "opencode";
+export type DevFlowCodingAgent = "claude-code" | "codex" | "opencode" | "pi";
 export type DevFlowAiProvider = "anthropic" | "openai" | "google" | "zai" | "xai";
 
 /** A per-automation schedule override — see `DevFlowAutomationOverrideInput`. */
@@ -112,6 +117,12 @@ export interface ProvisionDevFlowInput {
   actorUserId?: string | null;
   /** Project timezone if known; falls back to DEFAULT_TIMEZONE. */
   timezone?: string | null;
+  /**
+   * Omission-aware route writes may update only the automations whose effective
+   * provisioning config changed. Alternative callers omit this to provision all
+   * four; every selected automation is admitted before any repository call.
+   */
+  automationIds?: readonly BuiltinAutomationId[];
 }
 
 /** The raw override as persisted, normalized so every field is present
@@ -211,6 +222,70 @@ const resolveEffectiveEnabled = (
   devFlow: DevFlowRuntimeInput | null | undefined,
   override: DevFlowAutomationOverrideInput | null,
 ): boolean => Boolean(devFlow?.enabled) && (override?.enabled ?? true);
+
+/** The complete effective config that one provisioning row would receive. */
+export const resolveEffectiveDevFlowAutomation = (
+  devFlow: DevFlowRuntimeInput | null | undefined,
+  automationId: BuiltinAutomationId,
+  timezone = DEFAULT_TIMEZONE,
+): DevFlowAutomationEffectiveView & { enabled: boolean } => {
+  const override = resolveAutomationOverride(devFlow, automationId);
+  return {
+    enabled: resolveEffectiveEnabled(devFlow, override),
+    ...resolveEffectiveRuntime(devFlow, override),
+    schedule: resolveEffectiveSchedule(override, timezone),
+  };
+};
+
+const DEV_FLOW_READ_ONLY_CAPABILITIES = ["read_only_enforced"] as const;
+const DEV_FLOW_WRITE_CAPABILITIES = [] as const;
+
+/**
+ * Repeat authoritative runtime-registry admission for each automation using the
+ * capability required by that automation. DoD review is read-only; the three
+ * write-capable automations request no optional capability. The typed registry
+ * rejection code is retained for route responses and alternative callers.
+ */
+export const assertValidDevFlowAutomationRuntime = (
+  devFlow: DevFlowRuntimeInput,
+  automationId: BuiltinAutomationId,
+): void => {
+  const runtime = resolveEffectiveDevFlowAutomation(devFlow, automationId);
+  try {
+    assertValidScheduledAgentRuntime({
+      codingAgent: runtime.codingAgent,
+      aiProvider: runtime.aiProvider,
+      aiModel: runtime.model,
+      reasoningLevel: runtime.reasoningLevel,
+      authClass: "api_key",
+      capabilities: automationId === "dod-review"
+        ? DEV_FLOW_READ_ONLY_CAPABILITIES
+        : DEV_FLOW_WRITE_CAPABILITIES,
+    });
+  } catch (error) {
+    if (error instanceof ScheduledAgentRuntimeValidationError) {
+      const detail = error.message.startsWith(`${SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR}: `)
+        ? error.message.slice(SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR.length + 2)
+        : error.message;
+      throw new ScheduledAgentRuntimeValidationError(
+        `${detail} (automation: ${automationId})`,
+        error.code,
+      );
+    }
+    throw error;
+  }
+};
+
+export const assertValidDevFlowRuntime = (
+  devFlow: DevFlowRuntimeInput,
+  automationIds: readonly BuiltinAutomationId[] = BUILTIN_AUTOMATIONS.map(
+    (automation) => automation.id,
+  ),
+): void => {
+  for (const automationId of new Set(automationIds)) {
+    assertValidDevFlowAutomationRuntime(devFlow, automationId);
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Project-scope detection (shared by conflict detection and status lookup)
@@ -461,22 +536,20 @@ const inferProvider = (
 const buildRuntimePatch = (
   automation: BuiltinAutomationDefinition,
   devFlow: DevFlowRuntimeInput,
-  override: DevFlowAutomationOverrideInput | null,
   timezone: string,
   options?: { forceEnabled?: boolean },
 ) => {
-  const runtime = resolveEffectiveRuntime(devFlow, override);
-  const schedule = resolveEffectiveSchedule(override, timezone);
+  const runtime = resolveEffectiveDevFlowAutomation(devFlow, automation.id, timezone);
   return {
     codingAgent: runtime.codingAgent,
     aiProvider: runtime.aiProvider,
     aiModel: runtime.model,
     reasoningLevel: runtime.reasoningLevel,
-    enabled: options?.forceEnabled ? true : resolveEffectiveEnabled(devFlow, override),
+    enabled: options?.forceEnabled ? true : runtime.enabled,
     targetConfig: buildAutomationTargetConfig(automation, runtime.maxConcurrentJobs),
     scheduleType: "cron" as const,
-    scheduleConfig: { expression: schedule.expression },
-    timezone: schedule.timezone,
+    scheduleConfig: { expression: runtime.schedule.expression },
+    timezone: runtime.schedule.timezone,
   };
 };
 
@@ -486,12 +559,11 @@ const upsertSystemAutomationConfig = async (params: {
   timezone: string;
   devFlow: DevFlowRuntimeInput;
   automation: BuiltinAutomationDefinition;
-  override: DevFlowAutomationOverrideInput | null;
   existing: ScheduledAgentConfigDb | undefined;
   forceEnabled?: boolean;
 }): Promise<ScheduledAgentConfigDb> => {
-  const { workspaceId, projectId, timezone, devFlow, automation, override, existing, forceEnabled } = params;
-  const runtimePatch = buildRuntimePatch(automation, devFlow, override, timezone, { forceEnabled });
+  const { workspaceId, projectId, timezone, devFlow, automation, existing, forceEnabled } = params;
+  const runtimePatch = buildRuntimePatch(automation, devFlow, timezone, { forceEnabled });
 
   if (existing) {
     const updated = await updateScheduledAgentConfig(existing.id, workspaceId, runtimePatch);
@@ -542,6 +614,14 @@ export const provisionDevFlowForProject = async (
   input: ProvisionDevFlowInput,
 ): Promise<DevFlowStatusResult> => {
   const timezone = input.timezone?.trim() || DEFAULT_TIMEZONE;
+  const selectedAutomationIds = new Set(
+    input.automationIds ?? BUILTIN_AUTOMATIONS.map((automation) => automation.id),
+  );
+
+  // Fail closed before even read-only repository access, and therefore before
+  // any create/update side effect, so direct service callers cannot bypass the
+  // route's capability policy.
+  assertValidDevFlowRuntime(input.devFlow, [...selectedAutomationIds]);
 
   const [existingProjectConfigs, conflicts] = await Promise.all([
     listScheduledAgentConfigsByWorkspace(input.workspaceId, { projectId: input.projectId }),
@@ -554,6 +634,18 @@ export const provisionDevFlowForProject = async (
   // Stable catalog order (not dispatchPrecedence) for deterministic,
   // reproducible provisioning ordering across repeated calls.
   for (const automation of BUILTIN_AUTOMATIONS) {
+    const existingSystemConfig = findSystemConfig(existingProjectConfigs, automation.id);
+    if (!selectedAutomationIds.has(automation.id)) {
+      automations.push(buildStatus(
+        automation,
+        existingSystemConfig,
+        conflictedAutomationIds.has(automation.id),
+        input.devFlow,
+        timezone,
+      ));
+      continue;
+    }
+
     if (conflictedAutomationIds.has(automation.id)) {
       // Fix 2 (review): a conflict can arrive AFTER this automation's
       // system-managed row was already successfully provisioned (e.g. the
@@ -566,7 +658,6 @@ export const provisionDevFlowForProject = async (
       // exists. Force the row off (minimal update — skip entirely if it is
       // already disabled) and report its REAL post-disable state instead of
       // pretending the automation was never provisioned.
-      const existingSystemConfig = findSystemConfig(existingProjectConfigs, automation.id);
       if (existingSystemConfig?.enabled) {
         const disabled = await updateScheduledAgentConfig(existingSystemConfig.id, input.workspaceId, {
           enabled: false,
@@ -584,8 +675,7 @@ export const provisionDevFlowForProject = async (
       timezone,
       devFlow: input.devFlow,
       automation,
-      override: resolveAutomationOverride(input.devFlow, automation.id),
-      existing: findSystemConfig(existingProjectConfigs, automation.id),
+      existing: existingSystemConfig,
     });
 
     automations.push(buildStatus(automation, saved, false, input.devFlow, timezone));
@@ -667,6 +757,10 @@ export const adoptDevFlowAutomation = async (
   const automation = BUILTIN_AUTOMATIONS_BY_ID[input.automationId];
   const timezone = input.timezone?.trim() || DEFAULT_TIMEZONE;
 
+  // Adoption mutates both the user-owned conflict and the system row, so admit
+  // its effective runtime before either repository read or write.
+  assertValidDevFlowRuntime(input.devFlow, [input.automationId]);
+
   // Fetch once, workspace-wide: both to find the conflicts (the SAME pure
   // detection logic GET /dev-flow and provisioning use, via
   // detectConflictsFromConfigs directly) AND to have each full config row
@@ -701,14 +795,12 @@ export const adoptDevFlowAutomation = async (
   const existingProjectConfigs = await listScheduledAgentConfigsByWorkspace(input.workspaceId, {
     projectId: input.projectId,
   });
-  const override = resolveAutomationOverride(input.devFlow, input.automationId);
   const saved = await upsertSystemAutomationConfig({
     workspaceId: input.workspaceId,
     projectId: input.projectId,
     timezone,
     devFlow: input.devFlow,
     automation,
-    override,
     existing: findSystemConfig(existingProjectConfigs, input.automationId),
     forceEnabled: true,
   });

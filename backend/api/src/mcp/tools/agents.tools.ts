@@ -1,15 +1,23 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
+  runtimeCapabilityProjection as RUNTIME_CAPABILITY_PROJECTION,
+} from "@almirant/shared";
+import {
   listScheduledAgentConfigsByWorkspace,
   getScheduledAgentConfigById,
   createScheduledAgentConfig,
   updateScheduledAgentConfig,
   deleteScheduledAgentConfig,
 } from "@almirant/database";
+import type { TargetConfig } from "@almirant/database";
 import { assertOrgScope, getProjectIdFromExtra, getUserIdFromExtra } from "../setup";
 import { executeScheduledAgentConfig } from "../../domains/agents/services/execute-scheduled-agent-config";
-import { assertValidScheduledAgentRuntime } from "../../domains/agents/services/scheduled-agent-runtime-validation";
+import {
+  assertRuntimeCapabilityIntentAdmissions,
+  assertValidScheduledAgentRuntime,
+  buildRuntimeControls,
+} from "../../domains/agents/services/scheduled-agent-runtime-validation";
 import {
   resolveScheduledAgentEffectiveRuntimes,
 } from "../../domains/agents/services/scheduled-agent-effective-model-resolver";
@@ -17,12 +25,13 @@ import {
   canAccessScheduledAgent,
   assertScheduledAgentConfigIsUserManaged,
 } from "../../domains/agents/services/scheduled-agent-access";
+import { parseAgentToolingSelection } from "../../domains/agents/services/agent-tooling-resolution";
 
 const TRIGGER_VALUES = ["scheduled", "webhook"] as const;
 const SCHEDULE_TYPE_VALUES = ["manual", "time_window", "cron", "once"] as const;
 const PROVIDER_VALUES = ["claude-code", "codex", "zipu", "grok"] as const;
-const CODING_AGENT_VALUES = ["claude-code", "codex", "opencode"] as const;
-const AI_PROVIDER_VALUES = ["anthropic", "openai", "zai", "xai"] as const;
+const CODING_AGENT_VALUES = RUNTIME_CAPABILITY_PROJECTION.codingAgents;
+const AI_PROVIDER_VALUES = RUNTIME_CAPABILITY_PROJECTION.aiProviders;
 const JOB_TYPE_VALUES = [
   "implementation",
   "planning",
@@ -59,7 +68,7 @@ const backlogDrainProjectRuleSchema = z.object({
   excludedWorkItemIds: z.array(z.string()).optional(),
   excludeDescendants: z.boolean().optional(),
   codingAgent: z.enum(CODING_AGENT_VALUES).nullable().optional(),
-  aiProvider: z.enum(["anthropic", "openai", "google", "zai", "xai"]).nullable().optional(),
+  aiProvider: z.enum(AI_PROVIDER_VALUES).nullable().optional(),
   model: z.string().nullable().optional(),
   reasoningLevel: z.string().nullable().optional(),
 }).strict();
@@ -189,7 +198,81 @@ const buildAgentInput = (
   };
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const readNeedsBrowser = (
+  targetConfig: TargetConfig | null | undefined,
+): boolean => {
+  const rawMetadata = targetConfig?.customFilters?.__agent;
+  return isRecord(rawMetadata) && rawMetadata.needsBrowser === true;
+};
+
+const applyNeedsBrowserToTargetConfig = (
+  targetConfig: TargetConfig | null | undefined,
+  needsBrowser: boolean | undefined,
+): TargetConfig | undefined => {
+  if (needsBrowser === undefined) return targetConfig ?? undefined;
+
+  const currentTarget = targetConfig ?? {};
+  const currentCustomFilters = isRecord(currentTarget.customFilters)
+    ? currentTarget.customFilters
+    : {};
+  const currentAgentMetadata = isRecord(currentCustomFilters.__agent)
+    ? currentCustomFilters.__agent
+    : {};
+
+  return {
+    ...currentTarget,
+    customFilters: {
+      ...currentCustomFilters,
+      __agent: {
+        ...currentAgentMetadata,
+        needsBrowser,
+      },
+    },
+  };
+};
+
+const mcpAgentRuntimeIntentConfig = (
+  targetConfig: TargetConfig | null | undefined,
+) => {
+  const toolingSelection = parseAgentToolingSelection(targetConfig);
+  return {
+    selectedMcpServerIds: toolingSelection.selectedMcpServerIds,
+    ...(toolingSelection.selectedPluginIds.length > 0
+      ? { capabilities: ["extensions"] }
+      : {}),
+    ...(readNeedsBrowser(targetConfig) ? { needsBrowser: true } : {}),
+  };
+};
+
 export const registerAgentsTools = (server: McpServer) => {
+  // -------------------------------------------------------
+  // get_runtime_capabilities
+  // -------------------------------------------------------
+  server.tool(
+    "get_runtime_capabilities",
+    "Return the canonical runtime capability projection, including its schema/version/hash identity. Read-only and contains no credentials or provider secrets.",
+    {},
+    async (_params, extra) => {
+      const orgResult = assertOrgScope(extra);
+      if (typeof orgResult !== "string") return orgResult;
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              ...RUNTIME_CAPABILITY_PROJECTION,
+              runtimeControls: buildRuntimeControls(),
+            }, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
   // -------------------------------------------------------
   // list_agents
   // -------------------------------------------------------
@@ -292,6 +375,7 @@ export const registerAgentsTools = (server: McpServer) => {
       maxJobsPerRun: z.number().int().min(1).max(100).optional(),
       scheduleType: z.enum(SCHEDULE_TYPE_VALUES).optional(),
       scheduleConfig: scheduleConfigSchema.nullable().optional(),
+      needsBrowser: z.boolean().optional().describe("Mounts Playwright MCP / Chromium in the runner for this agent's jobs."),
     },
     async (params, extra) => {
       try {
@@ -306,6 +390,10 @@ export const registerAgentsTools = (server: McpServer) => {
           };
         }
 
+        const targetConfigWithBrowserFlag = applyNeedsBrowserToTargetConfig(
+          params.targetConfig,
+          params.needsBrowser,
+        );
         const triggerInput = buildAgentInput(params);
         const effectiveRuntimes = await resolveScheduledAgentEffectiveRuntimes({
           workspaceId,
@@ -316,17 +404,21 @@ export const registerAgentsTools = (server: McpServer) => {
           reasoningLevel: params.reasoningLevel,
           jobType: params.jobType,
           projectId: params.projectId,
-          targetConfig: params.targetConfig,
+          targetConfig: targetConfigWithBrowserFlag,
         });
-        assertValidScheduledAgentRuntime({
+        const admittedRuntimes = assertValidScheduledAgentRuntime({
           provider: params.provider,
           codingAgent: params.codingAgent,
           aiProvider: params.aiProvider,
           aiModel: params.aiModel,
           reasoningLevel: params.reasoningLevel,
           effectiveRuntimes,
-          targetConfig: params.targetConfig,
+          targetConfig: targetConfigWithBrowserFlag,
         });
+        assertRuntimeCapabilityIntentAdmissions(
+          admittedRuntimes,
+          mcpAgentRuntimeIntentConfig(targetConfigWithBrowserFlag),
+        );
 
         const agent = await createScheduledAgentConfig({
           workspaceId,
@@ -347,7 +439,7 @@ export const registerAgentsTools = (server: McpServer) => {
           scheduleConfig: triggerInput.scheduleConfig,
           timezone: params.timezone,
           enabled: ("enabled" in triggerInput ? triggerInput.enabled : params.enabled) ?? false,
-          targetConfig: params.targetConfig ?? {},
+          targetConfig: targetConfigWithBrowserFlag ?? {},
           maxJobsPerRun: params.maxJobsPerRun ?? 10,
         });
 
@@ -394,6 +486,7 @@ export const registerAgentsTools = (server: McpServer) => {
       maxJobsPerRun: z.number().int().min(1).max(100).optional(),
       scheduleType: z.enum(SCHEDULE_TYPE_VALUES).optional(),
       scheduleConfig: scheduleConfigSchema.nullable().optional(),
+      needsBrowser: z.boolean().optional().describe("Mounts Playwright MCP / Chromium in the runner for this agent's jobs."),
     },
     async (params, extra) => {
       try {
@@ -401,7 +494,7 @@ export const registerAgentsTools = (server: McpServer) => {
         if (typeof orgResult !== "string") return orgResult;
         const workspaceId = orgResult;
 
-        const { id, ...rest } = params;
+        const { id, needsBrowser, targetConfig, ...rest } = params;
         const existing = await getScheduledAgentConfigById(id, workspaceId);
         if (
           !existing ||
@@ -436,20 +529,36 @@ export const registerAgentsTools = (server: McpServer) => {
               },
             )
           : undefined;
-        const touchesRuntime =
+        // Merge browser intent before runtime admission so partial updates
+        // validate the exact target metadata that will be persisted.
+        const targetConfigWithBrowserFlag =
+          needsBrowser !== undefined
+            ? applyNeedsBrowserToTargetConfig(
+                targetConfig ?? existing.targetConfig,
+                needsBrowser,
+              )
+            : targetConfig;
+        const effectiveTargetConfig =
+          targetConfigWithBrowserFlag ?? existing.targetConfig;
+        const touchesRuntimeIntent =
           rest.provider !== undefined ||
           rest.codingAgent !== undefined ||
           rest.aiProvider !== undefined ||
           rest.aiModel !== undefined ||
           rest.reasoningLevel !== undefined ||
           rest.jobType !== undefined ||
-          rest.targetConfig !== undefined;
+          rest.projectId !== undefined ||
+          targetConfig !== undefined ||
+          needsBrowser !== undefined;
 
-        if (touchesRuntime) {
+        if (touchesRuntimeIntent) {
           const nextProvider = rest.provider ?? existing.provider;
           const nextAiProvider = rest.aiProvider ?? existing.aiProvider;
           const nextAiModel = rest.aiModel ?? existing.aiModel;
           const nextJobType = rest.jobType ?? existing.jobType;
+          const nextProjectId = rest.projectId !== undefined
+            ? rest.projectId
+            : existing.projectId;
           const effectiveRuntimes = await resolveScheduledAgentEffectiveRuntimes({
             workspaceId,
             provider: nextProvider,
@@ -458,22 +567,29 @@ export const registerAgentsTools = (server: McpServer) => {
             aiModel: nextAiModel,
             reasoningLevel: rest.reasoningLevel ?? existing.reasoningLevel,
             jobType: nextJobType,
-            projectId: rest.projectId ?? existing.projectId,
-            targetConfig: rest.targetConfig ?? existing.targetConfig,
+            projectId: nextProjectId,
+            targetConfig: effectiveTargetConfig,
           });
-          assertValidScheduledAgentRuntime({
+          const admittedRuntimes = assertValidScheduledAgentRuntime({
             provider: nextProvider,
             codingAgent: rest.codingAgent ?? existing.codingAgent,
             aiProvider: nextAiProvider,
             aiModel: nextAiModel,
             reasoningLevel: rest.reasoningLevel ?? existing.reasoningLevel,
             effectiveRuntimes,
-            targetConfig: rest.targetConfig ?? existing.targetConfig,
+            targetConfig: effectiveTargetConfig,
           });
+          assertRuntimeCapabilityIntentAdmissions(
+            admittedRuntimes,
+            mcpAgentRuntimeIntentConfig(effectiveTargetConfig),
+          );
         }
 
         const updated = await updateScheduledAgentConfig(id, workspaceId, {
           ...rest,
+          ...(targetConfigWithBrowserFlag !== undefined
+            ? { targetConfig: targetConfigWithBrowserFlag }
+            : {}),
           // Ownership is derived from the persisted config, never tool input.
           ownerUserId: existing.ownerUserId,
           ...(scheduleUpdate ?? {}),

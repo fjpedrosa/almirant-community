@@ -6,7 +6,11 @@ import type {
   DefinitionOfDoneReviewCandidate,
   ScheduledAgentConfig,
 } from "@almirant/remote-agent";
-import { isCronDue, isTimeWindowActive } from "@almirant/shared";
+import {
+  isCronDue,
+  isTimeWindowActive,
+  runtimeCapabilityProjection,
+} from "@almirant/shared";
 import type { ContainerCleanupResult } from "../workspace/container-manager";
 import type { ContainerDriver } from "../workspace/container-driver";
 import type { JobExecutor } from "../job-executor";
@@ -22,6 +26,7 @@ import {
   type RunnerMemorySnapshot,
 } from "./runner-memory";
 import { resolveQuotaAvailableAt } from "../shared/quota-pause";
+import { createRuntimeExecutorRegistry } from "../runtime-executors/registry";
 
 type RunnerOrchestratorConfig = {
   workerId: string;
@@ -82,6 +87,13 @@ const resolveScheduledWorkItemSkillName = (jobType: string): string => {
 
 const DEFAULT_DOD_REVIEW_MIN_AGE_MINUTES = 15;
 const DEFAULT_PROJECT_OPEN_TICKET_LIMIT = 1;
+
+const runtimeExecutorRegistry = createRuntimeExecutorRegistry();
+const runtimeCapabilityIdentity = Object.freeze({
+  schemaVersion: runtimeCapabilityProjection.schemaVersion,
+  version: runtimeCapabilityProjection.version,
+  hash: runtimeCapabilityProjection.hash,
+});
 
 type ProjectConcurrencyRule = {
   projectId: string;
@@ -490,6 +502,8 @@ export class RunnerOrchestrator {
           workerId: this.config.workerId,
           count: claimCount,
           activeJobs: this.activeJobs.size,
+          acceptedCodingAgents: runtimeExecutorRegistry.acceptedCodingAgents,
+          runtimeCapabilityIdentity,
         });
       } catch (error) {
         console.error("runner claim failed:", error);

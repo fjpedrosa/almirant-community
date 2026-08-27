@@ -71,13 +71,16 @@ import {
   provisionDevFlowForProject,
   getDevFlowStatus,
   adoptDevFlowAutomation,
+  assertValidDevFlowRuntime,
   parsePersistedDevFlow,
+  resolveEffectiveDevFlowAutomation,
   DevFlowAutomationNotConflictedError,
   type DevFlowRuntimeInput,
 } from "../../../agents/services/dev-flow-provisioning";
 import {
   assertValidScheduledAgentRuntime,
   SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR,
+  ScheduledAgentRuntimeValidationError,
 } from "../../../agents/services/scheduled-agent-runtime-validation";
 import { assertValidDevFlowCronExpression } from "../../../agents/services/dev-flow-cron-validation";
 import { attachProjectRepository, RepositoryUrlValidationError } from "../services/project-repository-service";
@@ -106,7 +109,12 @@ export const classifyRepositoryAttachError = (cause: unknown) => {
   }
   return { status: 500 as const, message: "Could not attach repository", log: true };
 };
-const PROJECT_CODING_AGENT_SCHEMA = t.Union([t.Literal("claude-code"), t.Literal("codex"), t.Literal("opencode")]);
+const PROJECT_CODING_AGENT_SCHEMA = t.Union([
+  t.Literal("claude-code"),
+  t.Literal("codex"),
+  t.Literal("opencode"),
+  t.Literal("pi"),
+]);
 const PROJECT_AI_PROVIDER_SCHEMA = t.Union([t.Literal("anthropic"), t.Literal("openai"), t.Literal("google"), t.Literal("zai"), t.Literal("xai")]);
 // Dev-flow per-automation schedule override (issue #235). Kept loose on
 // purpose — `expression` is checked against the real cron parser
@@ -150,7 +158,7 @@ const PROJECT_AGENT_DEFAULTS_SCHEMA = t.Object(
     // Dev-flow (issue #230, per-automation config issue #235): see
     // dev-flow-provisioning.ts.
     devFlow: t.Optional(t.Nullable(t.Object({
-      enabled: t.Boolean(),
+      enabled: t.Optional(t.Boolean()),
       codingAgent: t.Optional(t.Nullable(PROJECT_CODING_AGENT_SCHEMA)),
       aiProvider: t.Optional(t.Nullable(PROJECT_AI_PROVIDER_SCHEMA)),
       model: t.Optional(t.Nullable(t.String())),
@@ -161,6 +169,139 @@ const PROJECT_AGENT_DEFAULTS_SCHEMA = t.Object(
   },
   { additionalProperties: false },
 );
+
+type JsonRecord = Record<string, unknown>;
+
+const asJsonRecord = (value: unknown): JsonRecord | null =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as JsonRecord
+    : null;
+
+const hasOwn = (value: object, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(value, key);
+
+const mergeKnownObjectPaths = (
+  current: unknown,
+  patch: JsonRecord,
+  knownKeys: readonly string[],
+): JsonRecord => {
+  const merged = { ...(asJsonRecord(current) ?? {}) };
+  for (const key of knownKeys) {
+    if (hasOwn(patch, key)) merged[key] = patch[key];
+  }
+  return merged;
+};
+
+const IMPLEMENTATION_RUNTIME_KEYS = [
+  "codingAgent",
+  "aiProvider",
+  "model",
+  "reasoningLevel",
+] as const;
+
+const DEV_FLOW_SCALAR_KEYS = [
+  "enabled",
+  "codingAgent",
+  "aiProvider",
+  "model",
+  "reasoningLevel",
+  "maxConcurrentJobs",
+] as const;
+
+const DEV_FLOW_AUTOMATION_OVERRIDE_KEYS = [
+  "enabled",
+  "codingAgent",
+  "aiProvider",
+  "model",
+  "reasoningLevel",
+  "maxConcurrentJobs",
+  "schedule",
+] as const;
+
+const mergeDevFlowAutomations = (
+  current: unknown,
+  patch: JsonRecord,
+): JsonRecord => {
+  const currentAutomations = asJsonRecord(current) ?? {};
+  // The automations object is itself patch-shaped: omitting one known
+  // automation leaves its persisted override untouched. Unknown future ids are
+  // retained too, while newly supplied unknown ids are rejected by the handler.
+  const merged: JsonRecord = { ...currentAutomations };
+
+  for (const [automationId, value] of Object.entries(patch)) {
+    const patchOverride = asJsonRecord(value) ?? {};
+    const currentOverride = asJsonRecord(currentAutomations[automationId]) ?? {};
+    const nextOverride: JsonRecord = {};
+
+    // Known omitted override fields intentionally mean inherit/clear. Preserve
+    // only unknown future fields before applying the complete known entry.
+    for (const [key, currentValue] of Object.entries(currentOverride)) {
+      if (!DEV_FLOW_AUTOMATION_OVERRIDE_KEYS.some((known) => known === key)) {
+        nextOverride[key] = currentValue;
+      }
+    }
+    for (const key of DEV_FLOW_AUTOMATION_OVERRIDE_KEYS) {
+      if (!hasOwn(patchOverride, key)) continue;
+      if (key === "schedule") {
+        const schedulePatch = asJsonRecord(patchOverride.schedule);
+        nextOverride.schedule = schedulePatch
+          ? mergeKnownObjectPaths(
+              currentOverride.schedule,
+              schedulePatch,
+              ["expression", "timezone"],
+            )
+          : patchOverride.schedule;
+      } else {
+        nextOverride[key] = patchOverride[key];
+      }
+    }
+    merged[automationId] = nextOverride;
+  }
+
+  return merged;
+};
+
+const mergeProjectAgentDefaultsPatch = (
+  current: unknown,
+  patch: JsonRecord,
+): JsonRecord => {
+  const currentDefaults = asJsonRecord(current) ?? {};
+  const merged: JsonRecord = { ...currentDefaults };
+
+  if (hasOwn(patch, "implementation")) {
+    const implementationPatch = asJsonRecord(patch.implementation);
+    merged.implementation = implementationPatch
+      ? mergeKnownObjectPaths(
+          currentDefaults.implementation,
+          implementationPatch,
+          IMPLEMENTATION_RUNTIME_KEYS,
+        )
+      : patch.implementation;
+  }
+
+  if (hasOwn(patch, "devFlow")) {
+    const devFlowPatch = asJsonRecord(patch.devFlow);
+    if (!devFlowPatch) {
+      merged.devFlow = patch.devFlow;
+    } else {
+      const currentDevFlow = asJsonRecord(currentDefaults.devFlow);
+      const nextDevFlow = mergeKnownObjectPaths(
+        currentDevFlow,
+        devFlowPatch,
+        DEV_FLOW_SCALAR_KEYS,
+      );
+      if (hasOwn(devFlowPatch, "automations")) {
+        nextDevFlow.automations = mergeDevFlowAutomations(
+          currentDevFlow?.automations,
+          asJsonRecord(devFlowPatch.automations) ?? {},
+        );
+      }
+      merged.devFlow = nextDevFlow;
+    }
+  }
+
+  return merged;
+};
 
 const getErrorMessage = (error: unknown): string => {
   if (!error) {
@@ -1332,19 +1473,86 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
       set.status = 404;
       return notFoundResponse("Project");
     }
-    if (body.defaultProvider !== null && !["claude-code", "codex", "zipu", "grok"].includes(body.defaultProvider)) {
+
+    const currentConfig = await getProjectAiConfig(params.id);
+    const defaultProviderWasSupplied = hasOwn(body, "defaultProvider");
+    if (
+      defaultProviderWasSupplied &&
+      body.defaultProvider !== null &&
+      !["claude-code", "codex", "zipu", "grok"].includes(body.defaultProvider as string)
+    ) {
       set.status = 400;
       return errorResponse("Invalid provider. Must be one of: claude-code, codex, zipu, grok", 400);
     }
-    const devFlow = body.agentDefaults?.devFlow as DevFlowRuntimeInput | null | undefined;
-    if (devFlow) {
-      // Per-automation config (issue #235): validate automation KEYS against
-      // the catalog first (unknown keys are a client bug, not a runtime
-      // coherence problem) — before touching the cron parser or the runtime
-      // validator, so a single unknown-key typo doesn't get masked by some
-      // other automation's cron/runtime error instead.
-      const automationOverrides = devFlow.automations ?? {};
-      const unknownAutomationIds = Object.keys(automationOverrides).filter(
+
+    const agentDefaultsPatch = asJsonRecord(body.agentDefaults);
+    const mergedAgentDefaults = agentDefaultsPatch
+      ? mergeProjectAgentDefaultsPatch(currentConfig.agentDefaults, agentDefaultsPatch)
+      : currentConfig.agentDefaults;
+
+    const implementationPatch = agentDefaultsPatch && hasOwn(agentDefaultsPatch, "implementation")
+      ? asJsonRecord(agentDefaultsPatch.implementation)
+      : null;
+    const implementationRuntimeChanged = implementationPatch !== null &&
+      IMPLEMENTATION_RUNTIME_KEYS.some((key) => hasOwn(implementationPatch, key));
+
+    // Persisted unknown/unsupported tuples are read-open. Admission runs only
+    // for a changed implementation tuple, which must become complete first.
+    if (implementationRuntimeChanged) {
+      const implementation = asJsonRecord(
+        asJsonRecord(mergedAgentDefaults)?.implementation,
+      );
+      const codingAgent = implementation?.codingAgent;
+      const aiProvider = implementation?.aiProvider;
+      const model = implementation?.model;
+      if (
+        typeof codingAgent !== "string" || codingAgent.length === 0 ||
+        typeof aiProvider !== "string" || aiProvider.length === 0 ||
+        typeof model !== "string" || model.length === 0
+      ) {
+        set.status = 400;
+        return errorResponse(
+          `${SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR}: project implementation runtime must include codingAgent, aiProvider, and model.`,
+          400,
+        );
+      }
+
+      try {
+        assertValidScheduledAgentRuntime({
+          codingAgent,
+          aiProvider,
+          aiModel: model,
+          reasoningLevel: typeof implementation?.reasoningLevel === "string"
+            ? implementation.reasoningLevel
+            : null,
+          authClass: "api_key",
+          capabilities: [],
+        });
+      } catch (error) {
+        if (error instanceof ScheduledAgentRuntimeValidationError) {
+          set.status = 400;
+          return errorResponse(error.message, 400, error.code ?? undefined);
+        }
+        throw error;
+      }
+    }
+
+    const devFlowWasSupplied = agentDefaultsPatch !== null &&
+      hasOwn(agentDefaultsPatch, "devFlow");
+    const devFlowPatch = devFlowWasSupplied
+      ? asJsonRecord(agentDefaultsPatch.devFlow)
+      : null;
+    const currentDevFlow = parsePersistedDevFlow(currentConfig.agentDefaults);
+    const devFlow = devFlowWasSupplied && agentDefaultsPatch.devFlow !== null
+      ? parsePersistedDevFlow(mergedAgentDefaults) as DevFlowRuntimeInput | null
+      : null;
+    let changedDevFlowAutomationIds = [] as Array<(typeof BUILTIN_AUTOMATIONS)[number]["id"]>;
+
+    if (devFlowPatch && devFlow) {
+      // Validate only automation ids supplied by this write. Future persisted
+      // ids survive the merge and do not break an unrelated known-path edit.
+      const suppliedAutomationOverrides = asJsonRecord(devFlowPatch.automations) ?? {};
+      const unknownAutomationIds = Object.keys(suppliedAutomationOverrides).filter(
         (key) => !isBuiltinAutomationId(key),
       );
       if (unknownAutomationIds.length > 0) {
@@ -1354,69 +1562,100 @@ export const projectsRoutes = new Elysia({ prefix: "/projects" })
         );
       }
 
-      // Cron parser check per automation's schedule override (real parser —
-      // croner's `Cron`, same one the dispatcher uses at evaluation time via
-      // schedule-evaluation.ts's isCronDue — so a config that passes this
-      // check is guaranteed evaluable later).
-      for (const automation of BUILTIN_AUTOMATIONS) {
-        const schedule = automationOverrides[automation.id]?.schedule;
+      // Omission-aware admission: compare the persisted and merged EFFECTIVE
+      // provisioning configs, then validate only automations this patch would
+      // actually rewrite. A card-level runtime edit therefore includes DoD
+      // review whenever it inherits the changed value, while a fully overriding
+      // untouched automation remains read-open.
+      changedDevFlowAutomationIds = BUILTIN_AUTOMATIONS.flatMap((automation) => {
+        const currentEffective = resolveEffectiveDevFlowAutomation(
+          currentDevFlow,
+          automation.id,
+        );
+        const nextEffective = resolveEffectiveDevFlowAutomation(devFlow, automation.id);
+        return JSON.stringify(currentEffective) === JSON.stringify(nextEffective)
+          ? []
+          : [automation.id];
+      });
+
+      const currentCardRuntime = {
+        codingAgent: currentDevFlow?.codingAgent ?? null,
+        aiProvider: currentDevFlow?.aiProvider ?? null,
+        model: currentDevFlow?.model ?? null,
+        reasoningLevel: currentDevFlow?.reasoningLevel ?? null,
+      };
+      const nextCardRuntime = {
+        codingAgent: devFlow.codingAgent ?? null,
+        aiProvider: devFlow.aiProvider ?? null,
+        model: devFlow.model ?? null,
+        reasoningLevel: devFlow.reasoningLevel ?? null,
+      };
+      const cardRuntimeChanged = JSON.stringify(currentCardRuntime) !== JSON.stringify(nextCardRuntime);
+
+      const automationOverrides = devFlow.automations ?? {};
+      for (const automationId of changedDevFlowAutomationIds) {
+        const schedule = automationOverrides[automationId]?.schedule;
         if (!schedule) continue;
         try {
           assertValidDevFlowCronExpression(schedule.expression, schedule.timezone);
         } catch (error) {
           set.status = 400;
           const message = error instanceof Error ? error.message : String(error);
-          return errorResponse(`${message} (automation: ${automation.id})`);
+          return errorResponse(`${message} (automation: ${automationId})`);
         }
       }
 
-      // Runtime coherence per automation's EFFECTIVE runtime (override >
-      // card default) — reuses the same provider/codingAgent/model/
-      // reasoningLevel coherence check scheduled-agent configs already
-      // enforce (see scheduled-agent-runtime-validation.ts). Every field is
-      // optional; omitted fields fall through to the normal
-      // scheduled-runtime precedence at dispatch time, so this only rejects
-      // an EXPLICIT incoherent combination, never an empty one. Looping over
-      // all 4 (rather than validating the card-level devFlow once) covers
-      // both "the card default itself is incoherent" (no automation
-      // overrides anything) and "only one automation's override is
-      // incoherent" (the card default alone is fine).
-      for (const automation of BUILTIN_AUTOMATIONS) {
-        const override = automationOverrides[automation.id];
-        try {
-          assertValidScheduledAgentRuntime({
-            codingAgent: override?.codingAgent ?? devFlow.codingAgent,
-            aiProvider: override?.aiProvider ?? devFlow.aiProvider,
-            aiModel: override?.model ?? devFlow.model,
-            reasoningLevel: override?.reasoningLevel ?? devFlow.reasoningLevel,
-          });
-        } catch (error) {
-          if (error instanceof Error && error.message.startsWith(SCHEDULED_AGENT_RUNTIME_VALIDATION_ERROR)) {
-            set.status = 400;
-            return errorResponse(`${error.message} (automation: ${automation.id})`);
-          }
-          throw error;
+      try {
+        // The card default is itself a DoD-review source, even when today's
+        // override happens to mask it. Admit a changed card tuple with the
+        // read-only capability before validating changed effective automations.
+        if (cardRuntimeChanged) {
+          assertValidDevFlowRuntime(
+            { ...devFlow, automations: undefined },
+            ["dod-review"],
+          );
         }
+        assertValidDevFlowRuntime(devFlow, changedDevFlowAutomationIds);
+      } catch (error) {
+        if (error instanceof ScheduledAgentRuntimeValidationError) {
+          set.status = 400;
+          return errorResponse(error.message, 400, error.code ?? undefined);
+        }
+        throw error;
       }
     }
 
-    const updated = await updateProjectAiConfig(params.id, body.defaultProvider, body.agentDefaults);
+    const nextDefaultProvider = defaultProviderWasSupplied
+      ? body.defaultProvider as string | null
+      : currentConfig.defaultProvider;
+    const updated = await updateProjectAiConfig(
+      params.id,
+      nextDefaultProvider,
+      agentDefaultsPatch ? mergedAgentDefaults : undefined,
+    );
 
     if (!devFlow) {
       return successResponse(updated);
     }
 
-    const devFlowProvisioning = await provisionDevFlowForProject({
-      workspaceId: orgId,
-      projectId: params.id,
-      devFlow,
-      actorUserId: user?.id ?? null,
-    });
+    const devFlowProvisioning = changedDevFlowAutomationIds.length > 0
+      ? await provisionDevFlowForProject({
+          workspaceId: orgId,
+          projectId: params.id,
+          devFlow,
+          actorUserId: user?.id ?? null,
+          automationIds: changedDevFlowAutomationIds,
+        })
+      : await getDevFlowStatus({
+          workspaceId: orgId,
+          projectId: params.id,
+          devFlow,
+        });
     return successResponse({ ...updated, devFlowProvisioning });
   }, {
     params: t.Object({ id: t.String() }),
     body: t.Object({
-      defaultProvider: t.Nullable(t.String()),
+      defaultProvider: t.Optional(t.Nullable(t.String())),
       agentDefaults: t.Optional(PROJECT_AGENT_DEFAULTS_SCHEMA),
     }),
   })
