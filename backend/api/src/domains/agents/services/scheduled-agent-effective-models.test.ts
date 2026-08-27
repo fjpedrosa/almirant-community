@@ -18,6 +18,14 @@ describe("collectScheduledAgentEffectiveModels", () => {
     })).toEqual(["glm-5.2", "glm-5v-turbo"]);
   });
 
+  it("keeps explicit connection model ids exact for later registry admission", () => {
+    expect(collectScheduledAgentEffectiveModels({
+      aiProvider: "zai",
+      jobType: "implementation",
+      connections: [connection({ implementationModel: "GLM-5.2" })],
+    })).toEqual(["GLM-5.2"]);
+  });
+
   it("uses the same stage fallback order as the runner", () => {
     const connections = [connection({
       planningModel: "claude-opus-4-7",
