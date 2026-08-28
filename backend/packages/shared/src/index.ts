@@ -29,3 +29,9 @@ export * from "./agent-plugin-bundle";
 export * from "./extensions";
 export * from "./execution-boundary";
 export * from "./agents/plan-review";
+
+// Public Plan V1 surface; canonical JSON primitives remain module-internal.
+export { canonicalizePlanV1, parsePlanV1 } from "./delivery-lifecycle/plan";
+export type { CanonicalPlanV1, FeatureV1, PlanV1, WorkUnitSize, WorkUnitV1 } from "./delivery-lifecycle/plan";
+export { DURATION_CALIBRATION_POLICY_V1, DURATION_CALIBRATION_POLICY_VERSION } from "./delivery-lifecycle/duration-calibration-policy";
+export type { DurationV1 } from "./delivery-lifecycle/duration-calibration-policy";

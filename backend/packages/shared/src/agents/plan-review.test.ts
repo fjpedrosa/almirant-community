@@ -7,6 +7,7 @@ import {
   hashPlanReviewContent,
   normalizePlanReviewSnapshotForRunner,
   planReviewJobSnapshotSchema,
+  planReviewJobSnapshotV3Schema,
   planReviewPolicySchema,
   sanitizePlanReviewJobResult,
   validatePlanReviewOutput,
@@ -94,8 +95,36 @@ describe("v2 plan-review contract", () => {
     const second = canonicalizePlanReviewPlan({ ...plan, items: [...plan.items].reverse().reverse() });
 
     expect(first.content).toBe(second.content);
-    expect(first.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(first.sha256).toBe("586673f28d869256264855d15d2ff807e778f696e80d1a4d441394209180343f");
     expect(first.revisionId).toBe("original");
+  });
+
+  it("accepts a canonical Plan V1 only through a V3 snapshot", () => {
+    const nativePlan = {
+      version: 1, kind: "plan", title: "Native plan",
+      target: { projectId: "project-1", boardId: "board-1" },
+      features: [{
+        kind: "feature", tempId: "feature-1", title: "Native feature",
+        workUnits: [{
+          kind: "work_unit", tempId: "wu-1", title: "Native unit", priority: "medium",
+          work_unit_size: "S", acceptance: ["Ships safely."], dependencies: [],
+        }],
+      }],
+      workUnits: [],
+    };
+    const content = canonicalJson(nativePlan);
+    const snapshot = planReviewJobSnapshotV3Schema.parse({
+      ...readySnapshot,
+      version: 3,
+      originalPlan: { revisionId: "original", content, sha256: hashPlanReviewContent(content) },
+    });
+
+    expect(snapshot.version).toBe(3);
+    expect(JSON.parse(snapshot.originalPlan.content).features[0].workUnits[0].kind).toBe("work_unit");
+    expect(() => planReviewJobSnapshotV3Schema.parse({
+      ...snapshot,
+      originalPlan: { ...snapshot.originalPlan, sha256: "0".repeat(64) },
+    })).toThrow();
   });
 
   it("rejects duplicate tempIds before persistence", () => {

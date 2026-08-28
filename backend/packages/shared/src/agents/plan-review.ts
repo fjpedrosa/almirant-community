@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { canonicalizePlanV1, type PlanV1 } from "../delivery-lifecycle/plan";
 import { normalizeAgentModel } from "./model-capabilities";
 
 export type PlanReviewProvider = "anthropic" | "openai" | "google" | "zai" | "xai";
@@ -110,10 +111,13 @@ export interface PlanReviewJobSnapshotV2 {
   resolution: PlanReviewResolution;
 }
 
+export type PlanReviewJobSnapshotV3 = Omit<PlanReviewJobSnapshotV2, "version"> & { version: 3 };
+export type PlanReviewJobSnapshot = PlanReviewJobSnapshotV2 | PlanReviewJobSnapshotV3;
+
 /** Persisted legacy shape. It is accepted only so old jobs can be skipped safely. */
 export type PlanReviewLegacyJobConfig = { version: 1; enabled?: boolean } & Record<string, unknown>;
 
-export type PlanReviewJobConfig = PlanReviewJobSnapshotV2 | PlanReviewLegacyJobConfig;
+export type PlanReviewJobConfig = PlanReviewJobSnapshot | PlanReviewLegacyJobConfig;
 
 export interface PlanReviewCapabilityCandidate {
   /** Server-issued opaque connection selector. */
@@ -415,6 +419,33 @@ export const planReviewJobSnapshotSchema = z.object({
   }
 });
 
+export const planReviewJobSnapshotV3Schema = z.object({
+  version: z.literal(3),
+  intent: z.literal("plan-review"),
+  reviewJobId: identifier,
+  enabled: z.literal(true),
+  originalPlan: frozenPlanSchema,
+  requestedCriticCount: z.union([z.literal(2), z.literal(3), z.literal(4)]),
+  maxRevisions: z.literal(1),
+  synthesizer: synthesizerSnapshotSchema.nullable(),
+  critics: z.array(criticSnapshotSchema).max(4),
+  resolution: resolutionSchema,
+}).strict().superRefine((snapshot, context) => {
+  const compatibleV2 = planReviewJobSnapshotSchema.safeParse({ ...snapshot, version: 2 });
+  if (!compatibleV2.success) {
+    context.addIssue({ code: "custom", message: "V3 requires the established Plan Review authority envelope." });
+    return;
+  }
+  try {
+    const canonical = canonicalizePlanV1(JSON.parse(snapshot.originalPlan.content));
+    if (canonical.content !== snapshot.originalPlan.content || canonical.sha256 !== snapshot.originalPlan.sha256) {
+      throw new Error("digest mismatch");
+    }
+  } catch {
+    context.addIssue({ code: "custom", path: ["originalPlan"], message: "V3 requires a canonical Plan V1 digest." });
+  }
+});
+
 const findingSchema = z.object({
   findingId: identifier,
   criticRef: z.string().regex(/^prc1\.[A-Za-z0-9_-]{43}$/),
@@ -472,14 +503,20 @@ const planReviewOutputSchema = z.object({
 export const hashPlanReviewContent = (content: string): string =>
   createHash("sha256").update(content, "utf8").digest("hex");
 
-export const canonicalizePlanReviewPlan = (plan: PlanReviewStructuredPlan): PlanReviewFrozenPlan => {
-  const parsed = structuredPlanSchema.parse(plan);
-  const content = canonicalJson(parsed);
-  if (containsSensitivePlanContent(content)) {
+export function canonicalizePlanReviewPlan(plan: PlanReviewStructuredPlan): PlanReviewFrozenPlan;
+export function canonicalizePlanReviewPlan(plan: PlanV1): PlanReviewFrozenPlan;
+export function canonicalizePlanReviewPlan(plan: PlanReviewStructuredPlan | PlanV1): PlanReviewFrozenPlan {
+  const canonical = "version" in plan && plan.version === 1
+    ? canonicalizePlanV1(plan)
+    : (() => {
+        const content = canonicalJson(structuredPlanSchema.parse(plan));
+        return { content, sha256: hashPlanReviewContent(content) };
+      })();
+  if (containsSensitivePlanContent(canonical.content)) {
     throw new Error("Plan contains sensitive or connection material.");
   }
-  return { revisionId: "original", content, sha256: hashPlanReviewContent(content) };
-};
+  return { revisionId: "original", ...canonical };
+}
 
 /** Opaque audit handle only. Authorization is completed server-side before persistence. */
 export const createPlanReviewOpaqueReference = (input: {
@@ -744,7 +781,7 @@ export const validatePlanReviewCriticOutput = (
 };
 
 export const buildPlanReviewSynthesisInput = (
-  snapshot: PlanReviewJobSnapshotV2,
+  snapshot: PlanReviewJobSnapshot,
   criticOutputs: PlanReviewCriticOutput[],
 ): string => {
   const input = {
