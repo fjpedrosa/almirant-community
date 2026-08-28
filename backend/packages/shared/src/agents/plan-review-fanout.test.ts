@@ -3,11 +3,11 @@ import {
   buildPlanReviewSynthesisInput,
   canonicalizePlanReviewPlan,
   createPlanReviewCapabilityRef,
-  createPlanReviewOpaqueReference,
   resolvePlanReviewCritics,
   resolvePlanReviewSynthesizer,
   validatePlanReviewCriticOutput,
   planReviewJobSnapshotSchema,
+  planReviewJobSnapshotV3Schema,
 } from "./plan-review";
 
 const originalPlan = canonicalizePlanReviewPlan({
@@ -176,6 +176,28 @@ describe("native Plan Review authority contract", () => {
         degradation: { status: "none", reason: "ready" },
       },
     }).critics).toHaveLength(2);
+  });
+
+  it("carries canonical Feature and Work Unit evidence through V3 synthesis", () => {
+    const nativePlan: Parameters<typeof canonicalizePlanReviewPlan>[0] = {
+      version: 1, kind: "plan", title: "Native plan",
+      target: { projectId: "project-1", boardId: "board-1" }, features: [],
+      workUnits: [{
+        kind: "work_unit", tempId: "wu-1", title: "Unit", priority: "high",
+        work_unit_size: "L", acceptance: ["Done."], dependencies: [],
+      }],
+    };
+    const snapshot = planReviewJobSnapshotV3Schema.parse({
+      version: 3, intent: "plan-review", reviewJobId: "review-v3", enabled: true,
+      originalPlan: canonicalizePlanReviewPlan(nativePlan), requestedCriticCount: 2, maxRevisions: 1,
+      synthesizer: { connectionRef: capabilityRef("synth", "zai"), provider: "zai", model: "glm-5.3", runtime: "opencode" },
+      critics: resolvePlanReviewCritics({ workspaceId: "workspace-1", userId: "user-1", reviewJobId: "review-v3", requestedCriticCount: 2, candidates }).critics,
+      resolution: { status: "ready", degradation: { status: "none", reason: "ready" } },
+    });
+    const input = buildPlanReviewSynthesisInput(snapshot, []);
+
+    expect(input).toContain("\\\"kind\\\":\\\"work_unit\\\"");
+    expect(input).not.toContain("estimatedPoints");
   });
 
   it("binds critic output to its server-assigned correlation and lens", () => {
