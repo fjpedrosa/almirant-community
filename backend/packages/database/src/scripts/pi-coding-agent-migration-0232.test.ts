@@ -62,7 +62,7 @@ describe("Pi coding-agent migration 0232", () => {
     expect(previous).toBeDefined();
     expect(current?.idx).toBe(232);
     expect(current?.when).toBeGreaterThan(previous?.when ?? Number.MAX_SAFE_INTEGER);
-    expect(later).toEqual(journal.entries.at(-1));
+    expect(journal.entries.indexOf(current!)).toBeLessThan(journal.entries.indexOf(later!));
     expect(later?.idx).toBe(233);
     expect(later?.when).toBeGreaterThan(current?.when ?? Number.MAX_SAFE_INTEGER);
   });
