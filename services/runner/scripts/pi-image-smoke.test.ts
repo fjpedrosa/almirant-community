@@ -18,6 +18,23 @@ const fakeCredential = "FAKE_ZAI_API_KEY_FOR_PI_SMOKE_CONTRACT_81B37A";
 const defaultSentinel =
   "ALMIRANT_PI_SMOKE_FAKE_KEY_SENTINEL_NOT_A_CREDENTIAL_7F31C2";
 const rawDiagnostic = "RAW_PRIVATE_AUTH_DIAGNOSTIC_MUST_NOT_ESCAPE_6ECA51";
+const realMktemp = Bun.which("mktemp");
+const realStat = Bun.which("stat");
+if (!realMktemp || !realStat) {
+  throw new Error("Smoke contract tests require mktemp and stat");
+}
+
+const fakeMktemp = `#!/usr/bin/env bash
+set -euo pipefail
+printf 'CALLED\\n' >> "\${FAKE_DOCKER_STATE_DIR:?}/mktemp.log"
+exec ${JSON.stringify(realMktemp)} "$@"
+`;
+
+const fakeStat = `#!/usr/bin/env bash
+set -euo pipefail
+printf 'CALLED\\n' >> "\${FAKE_DOCKER_STATE_DIR:?}/stat.log"
+exec ${JSON.stringify(realStat)} "$@"
+`;
 
 const fakeDocker = `#!/usr/bin/env bash
 set -euo pipefail
@@ -35,10 +52,22 @@ if [[ "\${ALMIRANT_PI_SMOKE_POINT_OPERATION:-0}" == "1" ]]; then
 else
   printf 'UNBOUNDED\\n' >> "$state_dir/modes.log"
 fi
+if [[ -n "\${ZAI_API_KEY:-}" ]]; then
+  printf 'PRESENT\\n' >> "$state_dir/credential-env.log"
+fi
 
 command=\${1-}
 if [[ $# -gt 0 ]]; then shift; fi
 case "$command" in
+  info)
+    [[ "\${FAKE_DOCKER_INFO_FAILURE:-0}" != "1" ]]
+    printf '24.0.0\\n'
+    ;;
+  image)
+    [[ "\${1-}" == "inspect" ]]
+    [[ "\${FAKE_DOCKER_IMAGE_MISSING:-0}" != "1" ]]
+    printf 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'
+    ;;
   run)
     printf 'running\\n' > "$state_dir/state"
     printf 'fake-container-id\\n'
@@ -195,7 +224,11 @@ const createHarness = (): Harness => {
   mkdirSync(binDir, { recursive: true });
   mkdirSync(stateDir, { recursive: true });
   writeFileSync(join(binDir, "docker"), fakeDocker, { mode: 0o755 });
+  writeFileSync(join(binDir, "mktemp"), fakeMktemp, { mode: 0o755 });
+  writeFileSync(join(binDir, "stat"), fakeStat, { mode: 0o755 });
   chmodSync(join(binDir, "docker"), 0o755);
+  chmodSync(join(binDir, "mktemp"), 0o755);
+  chmodSync(join(binDir, "stat"), 0o755);
 
   return {
     root,
@@ -263,6 +296,120 @@ describe("pi-image-smoke.sh", () => {
     expect(dockerCalls(harness)).toEqual([]);
     expect(missing.stdout + missing.stderr + optionLike.stdout + optionLike.stderr)
       .not.toContain(defaultSentinel);
+  });
+
+  test("preflights the local image without credentials, temp logs, a container, or provider activity", () => {
+    const harness = createHarness();
+    const result = harness.run(
+      ["--preflight", "--image", "local/almirant-pi:smoke"],
+      { ZAI_API_KEY: fakeCredential },
+    );
+    const calls = dockerCalls(harness);
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(result.stdout).toBe("Pi image smoke preflight passed.\n");
+    expect(result.stderr).toBe("");
+    expect(calls.some((call) => call.startsWith("CALL\tinfo\t"))).toBe(true);
+    expect(calls.some((call) => call.startsWith("CALL\timage\tinspect\t")))
+      .toBe(true);
+    expect(calls.some((call) => call.startsWith("CALL\trun\t"))).toBe(false);
+    expect(calls.some((call) => call.startsWith("CALL\texec\t"))).toBe(false);
+    expect(lines(join(harness.stateDir, "modes.log")).every((mode) =>
+      mode === "BOUNDED"
+    )).toBe(true);
+    expect(existsSync(join(harness.stateDir, "mktemp.log"))).toBe(false);
+    expect(existsSync(join(harness.stateDir, "stat.log"))).toBe(false);
+    expect(existsSync(join(harness.stateDir, "credential-env.log"))).toBe(false);
+    expect(result.stdout + result.stderr).not.toContain(fakeCredential);
+  });
+
+  test("preflight rejects every credential-bearing flag before Docker or credential inspection", () => {
+    const harness = createHarness();
+    const credentialFile = privateCredentialFile(
+      `preflight-${process.pid}-${Date.now()}`.slice(0, 32),
+    );
+    const attempts = [
+      [
+        "--preflight",
+        "--image",
+        "local/almirant-pi:smoke",
+        "--env-file",
+        credentialFile,
+      ],
+      [
+        "--preflight",
+        "--image",
+        "local/almirant-pi:smoke",
+        "--env",
+        `ZAI_API_KEY=${fakeCredential}`,
+      ],
+      [
+        "--preflight",
+        "--image",
+        "local/almirant-pi:smoke",
+        "--expect-auth-failure",
+      ],
+      ["--preflight", ...credentialArgs(credentialFile)],
+    ].map((args) => harness.run(args));
+
+    for (const result of attempts) {
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain(
+        "pi image smoke: --preflight does not accept credential-bearing flags",
+      );
+      expect(result.stdout + result.stderr).not.toContain(fakeCredential);
+    }
+    expect(dockerCalls(harness)).toEqual([]);
+    expect(existsSync(join(harness.stateDir, "stat.log"))).toBe(false);
+    expect(existsSync(credentialFile)).toBe(true);
+  });
+
+  test("preflight fails closed when Docker or the exact local image is unavailable", () => {
+    const daemonHarness = createHarness();
+    const daemonResult = daemonHarness.run(
+      ["--preflight", "--image", "local/almirant-pi:smoke"],
+      { FAKE_DOCKER_INFO_FAILURE: "1" },
+    );
+    const imageHarness = createHarness();
+    const imageResult = imageHarness.run(
+      ["--preflight", "--image", "local/almirant-pi:smoke"],
+      { FAKE_DOCKER_IMAGE_MISSING: "1" },
+    );
+
+    expect(daemonResult.exitCode).not.toBe(0);
+    expect(daemonResult.stderr).toContain(
+      "pi image smoke: Docker daemon is unavailable",
+    );
+    expect(dockerCalls(daemonHarness).some((call) =>
+      call.startsWith("CALL\trun\t")
+    )).toBe(false);
+    expect(imageResult.exitCode).not.toBe(0);
+    expect(imageResult.stderr).toContain(
+      "pi image smoke: image is not locally inspectable",
+    );
+    expect(dockerCalls(imageHarness).some((call) =>
+      call.startsWith("CALL\trun\t")
+    )).toBe(false);
+  });
+
+  test("missing jq fails before credential validation, export, or Docker execution", () => {
+    const harness = createHarness();
+    const credentialFile = privateCredentialFile(
+      `missing-jq-${process.pid}`.slice(0, 32),
+    );
+    const result = harness.run(credentialArgs(credentialFile), {
+      PATH: join(harness.root, "bin"),
+      ZAI_API_KEY: fakeCredential,
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(
+      "pi image smoke: required local command is unavailable: jq",
+    );
+    expect(result.stdout + result.stderr).not.toContain(fakeCredential);
+    expect(dockerCalls(harness)).toEqual([]);
+    expect(existsSync(join(harness.stateDir, "stat.log"))).toBe(false);
+    expect(existsSync(credentialFile)).toBe(true);
   });
 
   test("runs credential-free with exact Pi/Z.AI/GLM selection and hardened bounded cleanup", () => {
@@ -439,7 +586,12 @@ describe("pi-image-smoke.sh", () => {
     expect(outsideTmp.exitCode).not.toBe(0);
     expect(permissive.exitCode).not.toBe(0);
     expect(valuedName.exitCode).not.toBe(0);
-    expect(dockerCalls(harness)).toEqual([]);
+    expect(dockerCalls(harness).every((call) =>
+      call.startsWith("CALL\tinfo\t") || call.startsWith("CALL\timage\tinspect\t")
+    )).toBe(true);
+    expect(dockerCalls(harness).some((call) =>
+      call.startsWith("CALL\trun\t") || call.startsWith("CALL\texec\t")
+    )).toBe(false);
     expect(
       missing.stdout + missing.stderr + outsideTmp.stdout + outsideTmp.stderr +
         permissive.stdout + permissive.stderr + valuedName.stdout + valuedName.stderr,

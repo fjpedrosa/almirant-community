@@ -7,6 +7,7 @@ umask 077
 IMAGE=""
 CREDENTIAL_ENV_FILE=""
 REQUESTED_ENV_NAME=""
+PREFLIGHT=0
 CREDENTIAL_FILE_ACCEPTED=0
 CREDENTIAL_MODE=0
 EXPECT_AUTH_FAILURE=0
@@ -16,7 +17,7 @@ CONTAINER_STOPPED=0
 CONTAINER_NAME=""
 SSE_PID=""
 TEMP_ROOT=""
-unset ALMIRANT_PI_SMOKE_POINT_OPERATION
+unset ZAI_API_KEY ALMIRANT_PI_SMOKE_POINT_OPERATION
 
 fail() {
   printf 'pi image smoke: %s\n' "$1" >&2
@@ -94,6 +95,20 @@ raise SystemExit(return_code if return_code >= 0 else 128 - return_code)
 ' "$@"
 }
 
+check_prerequisites() {
+  local required_command
+  for required_command in \
+    docker jq python3 od sed tail awk chmod grep mktemp tr stat rm sleep; do
+    command -v "$required_command" >/dev/null 2>&1 \
+      || fail "required local command is unavailable: $required_command"
+  done
+
+  bounded_docker info --format '{{.ServerVersion}}' >/dev/null 2>&1 \
+    || fail "Docker daemon is unavailable"
+  bounded_docker image inspect --format '{{.Id}}' "$IMAGE" >/dev/null 2>&1 \
+    || fail "image is not locally inspectable"
+}
+
 cleanup() {
   local exit_code=$?
   trap - EXIT HUP INT TERM
@@ -150,8 +165,15 @@ while [[ $# -gt 0 ]]; do
       EXPECT_AUTH_FAILURE=1
       shift
       ;;
+    --preflight)
+      [[ "$PREFLIGHT" -eq 0 ]] || fail "--preflight may be supplied only once"
+      PREFLIGHT=1
+      shift
+      ;;
     --help)
-      printf 'Usage: pi-image-smoke.sh --image IMAGE [--env-file /tmp/almirant-pi-smoke[.SUFFIX].env --env ZAI_API_KEY [--expect-auth-failure]]\n'
+      printf '%s\n' \
+        'Usage: pi-image-smoke.sh --image IMAGE --preflight' \
+        '       pi-image-smoke.sh --image IMAGE [--env-file /tmp/almirant-pi-smoke[.SUFFIX].env --env ZAI_API_KEY [--expect-auth-failure]]'
       exit 0
       ;;
     *)
@@ -162,6 +184,17 @@ done
 
 [[ -n "$IMAGE" ]] || fail "--image is required"
 [[ "$IMAGE" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@+-]{0,254}$ ]] || fail "--image is not a bounded Docker image reference"
+if [[ "$PREFLIGHT" -eq 1 ]] \
+  && [[ -n "$CREDENTIAL_ENV_FILE" || -n "$REQUESTED_ENV_NAME" || "$EXPECT_AUTH_FAILURE" -eq 1 ]]; then
+  fail "--preflight does not accept credential-bearing flags"
+fi
+
+check_prerequisites
+if [[ "$PREFLIGHT" -eq 1 ]]; then
+  printf 'Pi image smoke preflight passed.\n'
+  exit 0
+fi
+
 if [[ "$EXPECT_AUTH_FAILURE" -eq 1 ]]; then
   [[ -n "$CREDENTIAL_ENV_FILE" && -n "$REQUESTED_ENV_NAME" ]] || fail "--expect-auth-failure requires --env-file and --env ZAI_API_KEY"
 fi
@@ -208,10 +241,6 @@ if [[ -n "$CREDENTIAL_ENV_FILE" || -n "$REQUESTED_ENV_NAME" ]]; then
 else
   export ZAI_API_KEY='ALMIRANT_PI_SMOKE_FAKE_KEY_SENTINEL_NOT_A_CREDENTIAL_7F31C2'
 fi
-
-for required_command in docker jq python3 od sed tail awk chmod grep mktemp tr; do
-  command -v "$required_command" >/dev/null 2>&1 || fail "a required local command is unavailable"
-done
 
 TEMP_ROOT=$(mktemp -d /tmp/almirant-pi-image-smoke.XXXXXX)
 chmod 700 "$TEMP_ROOT"
