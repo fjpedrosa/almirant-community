@@ -9,6 +9,7 @@ import {
   integer,
   index,
   uniqueIndex,
+  check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { workItemTypeEnum, priorityEnum, assigneeRoleEnum, codingAgentEnum } from "./enums";
@@ -41,6 +42,9 @@ export const workItems = pgTable(
     startDate: timestamp("start_date", { withTimezone: true }),
     dueDate: timestamp("due_date", { withTimezone: true }),
     estimatedHours: integer("estimated_hours"),
+    workUnitSize: varchar("work_unit_size", { length: 16 }),
+    workUnitSizeOrigin: varchar("work_unit_size_origin", { length: 32 }),
+    backlogIntent: varchar("backlog_intent", { length: 16 }),
     metadata: jsonb("metadata").default({}).$type<Record<string, unknown>>(),
     // True while an AI agent (via MCP) is actively working on this item.
     isAiProcessing: boolean("is_ai_processing").notNull().default(false),
@@ -76,6 +80,10 @@ export const workItems = pgTable(
     index("work_items_task_id_idx").on(table.taskId),
     index("work_items_created_by_user_idx").on(table.createdByUserId),
     index("work_items_scheduled_agent_config_id_idx").on(table.scheduledAgentConfigId),
+    check("work_items_work_unit_size_check", sql`${table.workUnitSize} IS NULL OR ${table.workUnitSize} IN ('XS', 'S', 'M', 'L', 'XL')`),
+    check("work_items_work_unit_size_origin_check", sql`${table.workUnitSizeOrigin} IS NULL OR ${table.workUnitSizeOrigin} IN ('plan', 'legacy_points')`),
+    check("work_items_backlog_intent_check", sql`${table.backlogIntent} IS NULL OR ${table.backlogIntent} IN ('new', 'fix')`),
+    check("work_items_work_unit_size_pair_check", sql`(${table.workUnitSize} IS NULL AND ${table.workUnitSizeOrigin} IS NULL) OR (${table.workUnitSize} IS NOT NULL AND ${table.workUnitSizeOrigin} IS NOT NULL)`),
   ]
 );
 

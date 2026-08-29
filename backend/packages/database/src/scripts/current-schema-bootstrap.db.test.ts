@@ -33,8 +33,8 @@ const integrationTest = isSafeDedicatedDatabase ? test : test.skip;
 
 // The generated journal grows with every migration, so this hash must be bumped
 // whenever drizzle-kit appends an entry.
-const migrationJournal0234Hash =
-  "a11bc9ef73270057629bdd9a300eacd2624bedf511c94091d1f05da21eb1eb84";
+const migrationJournal0235Hash =
+  "fe9fec4692bf52a7eefbefbdb2a58263e62d1f9daa23e22d839cfcf9fec6ef7e";
 
 interface ImperativeObjectState {
   documentsFunction: boolean;
@@ -317,12 +317,12 @@ describe("materializeCurrentSchemaImperativeObjects (real DB)", () => {
   );
 });
 
-test("pins generated migration journal bytes through 0234", () => {
+test("pins generated migration journal bytes through 0235", () => {
   const contents = readFileSync(
     resolve(import.meta.dir, "../..", "migrations/meta/_journal.json"),
     "utf8",
   );
   expect(createHash("sha256").update(contents).digest("hex")).toBe(
-    migrationJournal0234Hash,
+    migrationJournal0235Hash,
   );
 });
