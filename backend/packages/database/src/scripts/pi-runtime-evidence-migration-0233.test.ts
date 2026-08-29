@@ -15,7 +15,7 @@ const expectedSql = [
   'CREATE UNIQUE INDEX "usage_records_idempotency_key_unique_idx" ON "usage_records" USING btree ("idempotency_key");',
 ].join("\n");
 
-const readJournalTail = (): Array<{
+const readMigrationEntries = (): Array<{
   idx: number;
   tag: string;
   when: number;
@@ -23,7 +23,9 @@ const readJournalTail = (): Array<{
   const journal = JSON.parse(read("migrations/meta/_journal.json")) as {
     entries: Array<{ idx: number; tag: string; when: number }>;
   };
-  return journal.entries.slice(-2);
+  return journal.entries.filter(
+    ({ tag }) => tag === "0232_oval_marvex" || tag === "0233_simple_terror",
+  );
 };
 
 describe("Pi runtime-evidence migration 0233", () => {
@@ -58,11 +60,11 @@ describe("Pi runtime-evidence migration 0233", () => {
   });
 
   test("records 0233 after 0232 with a strictly greater generator timestamp", () => {
-    const tail = readJournalTail();
-    expect(tail.map(({ idx, tag }) => ({ idx, tag }))).toEqual([
+    const entries = readMigrationEntries();
+    expect(entries.map(({ idx, tag }) => ({ idx, tag }))).toEqual([
       { idx: 232, tag: "0232_oval_marvex" },
       { idx: 233, tag: "0233_simple_terror" },
     ]);
-    expect(tail[1]!.when).toBeGreaterThan(tail[0]!.when);
+    expect(entries[1]!.when).toBeGreaterThan(entries[0]!.when);
   });
 });
