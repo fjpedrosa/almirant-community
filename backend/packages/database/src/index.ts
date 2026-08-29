@@ -51,6 +51,8 @@ export {
   getDevelopmentBoardColumns,
   type DevelopmentBoardColumnDefinition,
 } from "./domain/development-board-workflow";
+export * from "./domain/delivery-authority";
+export * from "./repositories/planning/delivery-compatibility-repository";
 
 // Re-export selected domain types (selective to avoid conflicts with schema table types)
 export type {
