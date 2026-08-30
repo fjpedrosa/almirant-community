@@ -60,6 +60,7 @@ export const deliveryPlanRevisions = pgTable("delivery_plan_revisions", {
   acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull(),
 }, (table) => [
   uniqueIndex("delivery_plan_revisions_plan_number_uidx").on(table.planId, table.revisionNumber),
+  unique("delivery_plan_revisions_plan_id_id_unique").on(table.planId, table.id),
   uniqueIndex("delivery_plan_revisions_source_admission_uidx").on(table.sourcePlanReviewAdmissionId).where(sql`${table.sourcePlanReviewAdmissionId} IS NOT NULL`),
   check("delivery_plan_revisions_number_check", sql`${table.revisionNumber} > 0`),
   check("delivery_plan_revisions_contract_check", sql`${table.contractVersion} = 1`),

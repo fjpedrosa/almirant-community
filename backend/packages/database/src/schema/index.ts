@@ -9,6 +9,7 @@ export * from "./work-items";
 export * from "./agent-jobs";
 export * from "./plan-review-admissions";
 export * from "./delivery-plans";
+export * from "./delivery-plan-acceptance-receipts";
 export * from "./agent-job-claim-sequence-receipts";
 export * from "./agent-job-logs";
 export * from "./agent-native-events";
