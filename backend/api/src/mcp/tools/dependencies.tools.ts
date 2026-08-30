@@ -6,8 +6,19 @@ import {
   addDependency,
   removeDependency,
   getWorkItemById,
+  isDependencyEndpointNotFoundError,
+  isNativePlanAuthorityError,
 } from "@almirant/database";
 import { assertOrgScope } from "../setup";
+
+const endpointNotFound = (error: unknown) => {
+  if (!isDependencyEndpointNotFoundError(error)) return null;
+  const endpoint = error.endpoint === "source" ? "Work item" : "Blocking work item"; return { content: [{ type: "text" as const, text: `Error: ${endpoint} not found or does not belong to your workspace` }], isError: true };
+};
+const authorityConflict = (error: unknown) => isNativePlanAuthorityError(error) ? {
+  content: [{ type: "text" as const, text: "Error: Planning fields are owned by the native Plan revision" }],
+  isError: true,
+} : null;
 
 export const registerDependenciesTools = (server: McpServer) => {
   // -------------------------------------------------------
@@ -70,23 +81,15 @@ export const registerDependenciesTools = (server: McpServer) => {
           };
         }
 
-        const [workItem, blockedByItem] = await Promise.all([
-          getWorkItemById(params.workItemId, workspaceId),
-          getWorkItemById(params.blockedByWorkItemId, workspaceId),
-        ]);
-        if (!workItem) {
-          return { content: [{ type: "text" as const, text: `Error: Work item '${params.workItemId}' not found or does not belong to your workspace` }], isError: true };
-        }
-        if (!blockedByItem) {
-          return { content: [{ type: "text" as const, text: `Error: Blocking work item '${params.blockedByWorkItemId}' not found or does not belong to your workspace` }], isError: true };
-        }
-
-        const dependency = await addDependency(params.workItemId, params.blockedByWorkItemId);
+        const dependency = await addDependency(params.workItemId, params.blockedByWorkItemId, { workspaceId });
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify(dependency, null, 2) }],
         };
       } catch (error) {
+        const notFound = endpointNotFound(error); if (notFound) return notFound;
+        const conflict = authorityConflict(error);
+        if (conflict) return conflict;
         return {
           content: [{ type: "text" as const, text: `Error adding dependency: ${error instanceof Error ? error.message : String(error)}` }],
           isError: true,
@@ -110,12 +113,7 @@ export const registerDependenciesTools = (server: McpServer) => {
       if (typeof workspaceId !== "string") return workspaceId;
       try {
 
-        const workItem = await getWorkItemById(params.workItemId, workspaceId);
-        if (!workItem) {
-          return { content: [{ type: "text" as const, text: `Error: Work item '${params.workItemId}' not found or does not belong to your workspace` }], isError: true };
-        }
-
-        const removed = await removeDependency(params.workItemId, params.blockedByWorkItemId);
+        const removed = await removeDependency(params.workItemId, params.blockedByWorkItemId, { workspaceId });
 
         if (!removed) {
           return {
@@ -128,6 +126,9 @@ export const registerDependenciesTools = (server: McpServer) => {
           content: [{ type: "text" as const, text: JSON.stringify({ removed: true }, null, 2) }],
         };
       } catch (error) {
+        const notFound = endpointNotFound(error); if (notFound) return notFound;
+        const conflict = authorityConflict(error);
+        if (conflict) return conflict;
         return {
           content: [{ type: "text" as const, text: `Error removing dependency: ${error instanceof Error ? error.message : String(error)}` }],
           isError: true,

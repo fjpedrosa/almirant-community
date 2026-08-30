@@ -46,6 +46,7 @@ import {
   updateAssigneeRole,
   resolveTaskIds,
   clearWorkItemAiState,
+  isDependencyEndpointNotFoundError,
   isNativePlanAuthorityError,
   db,
   workItems,
@@ -108,6 +109,9 @@ export const mapWorkItemMutationError = (
   error: unknown,
   set: { status?: number | string },
 ) => {
+  if (isDependencyEndpointNotFoundError(error)) {
+    set.status = 404; return notFoundResponse(error.endpoint === "source" ? "Work item" : "Blocking work item");
+  }
   if (!isNativePlanAuthorityError(error)) return null;
   set.status = 409;
   return errorResponse(
@@ -2196,7 +2200,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
       }
 
       try {
-        const dependency = await addDependency(params.id, body.blockedByWorkItemId);
+        const dependency = await addDependency(params.id, body.blockedByWorkItemId, { workspaceId: orgId });
 
         await refreshForecastsForChangedWorkItems(orgId, [
           params.id,
@@ -2214,6 +2218,8 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         set.status = 201;
         return successResponse(dependency);
       } catch (error) {
+        const authorityResponse = mapWorkItemMutationError(error, set);
+        if (authorityResponse) return authorityResponse;
         if (error instanceof Error && error.message.includes("unique")) {
           set.status = 409;
           return errorResponse("This dependency already exists");
@@ -2236,7 +2242,14 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
     "/:id/dependencies/:blockedById",
     async ({ params, set, activeWorkspace }) => {
       const orgId = activeWorkspace!.id;
-      const deleted = await removeDependency(params.id, params.blockedById);
+      let deleted: boolean;
+      try {
+        deleted = await removeDependency(params.id, params.blockedById, { workspaceId: orgId });
+      } catch (error) {
+        const authorityResponse = mapWorkItemMutationError(error, set);
+        if (authorityResponse) return authorityResponse;
+        throw error;
+      }
 
       if (!deleted) {
         set.status = 404;
