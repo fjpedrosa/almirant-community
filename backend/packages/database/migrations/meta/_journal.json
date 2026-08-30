@@ -1611,6 +1611,13 @@
       "when": 1788019701889,
       "tag": "0235_work_unit_qualifiers",
       "breakpoints": true
+    },
+    {
+      "idx": 236,
+      "version": "7",
+      "when": 1788125048199,
+      "tag": "0236_delivery_plan_acceptance_receipts",
+      "breakpoints": true
     }
   ]
 }
