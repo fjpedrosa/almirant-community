@@ -1,6 +1,8 @@
+import { isDeepStrictEqual } from "node:util";
 import { db, type Database } from "../../client";
 import {
   workItems,
+  deliveryPlanItems,
   workItemTags,
   workItemAssignees,
   tags,
@@ -32,8 +34,104 @@ import type { PaginationParams, ChildrenSummary } from "../../domain/types";
 import type { TriggeredByContext } from "./work-item-event-repository";
 import { defaultTriggeredByContext } from "./work-item-event-repository";
 import type { NewWorkItemEvent } from "../../schema/work-item-events";
+import {
+  loadDeliveryAuthorities,
+  type DeliveryCompatibilityExecutor,
+} from "../planning/delivery-compatibility-repository";
+import type {
+  DeliveryAuthority,
+  DeliveryAuthorityScope,
+} from "../../domain/delivery-authority";
 
 type WorkItemExecutor = Pick<Database, "select" | "insert">;
+type AuthorityLoader = (
+  ids: readonly string[],
+  scope: DeliveryAuthorityScope,
+  executor?: DeliveryCompatibilityExecutor,
+) => Promise<Record<string, DeliveryAuthority>>;
+type AuthorityProjectable = { id: string; projectId: string | null; boardId: string };
+export type WorkItemWithDeliveryAuthority<T = WorkItemWithRelations> = T & {
+  deliveryAuthority: DeliveryAuthority;
+};
+export type WorkItemsByColumnWithDeliveryAuthority = Omit<WorkItemsByColumn, "items"> & { items: WorkItemWithDeliveryAuthority<WorkItemWithContext>[] };
+
+const loadScopedDeliveryAuthorities: AuthorityLoader = async (ids, scope, executor) => {
+  if (scope.projectId) return loadDeliveryAuthorities(ids, scope, executor);
+  const rows = await db.select({ id: deliveryPlanItems.workItemId })
+    .from(deliveryPlanItems).where(inArray(deliveryPlanItems.workItemId, ids));
+  const linked = new Set(rows.flatMap(({ id }) => id ? [id] : []));
+  return Object.fromEntries(ids.map((id) => [id, linked.has(id)
+    ? { kind: "incompatible", code: "native_scope_mismatch" }
+    : { kind: "legacy" }])) as Record<string, DeliveryAuthority>;
+};
+
+const NATIVE_PLAN_FIELDS = new Set(["title", "description", "type", "parentId", "projectId", "deleted"]);
+const NATIVE_PLAN_METADATA_FIELDS = new Set([
+  "acceptance", "acceptanceCriteria", "acceptance_criteria", "dependencies", "blockedBy",
+  "duration", "rollbackBoundary", "reviewBudgetLines", "workUnitSize", "work_unit_size", "workUnitSizeOrigin", "work_unit_size_origin"]);
+
+export class NativePlanAuthorityError extends Error {
+  readonly code = "native_plan_authority";
+
+  constructor() {
+    super("Planning fields are owned by the native Plan revision");
+    this.name = "NativePlanAuthorityError";
+  }
+}
+
+export const isNativePlanAuthorityError = (error: unknown): error is NativePlanAuthorityError =>
+  error instanceof NativePlanAuthorityError || (
+    typeof error === "object" && error !== null &&
+    (error as { code?: unknown }).code === "native_plan_authority"
+  );
+
+export const assertDeliveryAuthorityMutationAllowed = (
+  authority: DeliveryAuthority,
+  update: Readonly<Record<string, unknown>>,
+  current: Readonly<Record<string, unknown>> = {},
+): void => {
+  if (authority.kind === "legacy") return;
+  const metadata = update.metadata;
+  const currentMetadata = current.metadata;
+  const changesPlanField = Object.entries(update).some(([key, value]) =>
+    value !== undefined && NATIVE_PLAN_FIELDS.has(key) && !isDeepStrictEqual(value, current[key]),
+  );
+  const changesPlanMetadata = typeof metadata === "object" && metadata !== null &&
+    Object.keys(metadata).some((key) => NATIVE_PLAN_METADATA_FIELDS.has(key) &&
+      !isDeepStrictEqual((metadata as Record<string, unknown>)[key],
+        typeof currentMetadata === "object" && currentMetadata !== null
+          ? (currentMetadata as Record<string, unknown>)[key] : undefined));
+  if (authority.kind === "native_work_unit" && !changesPlanField && !changesPlanMetadata) return;
+  throw new NativePlanAuthorityError();
+};
+
+export const projectWorkItemDeliveryAuthorities = async <T extends AuthorityProjectable>(
+  workspaceId: string,
+  items: readonly T[],
+  loader: AuthorityLoader = loadScopedDeliveryAuthorities,
+): Promise<Array<WorkItemWithDeliveryAuthority<T>>> => {
+  const groups = new Map<string, { scope: DeliveryAuthorityScope; ids: string[] }>();
+  for (const item of items) {
+    const projectId = item.projectId ?? "";
+    const key = `${projectId}:${item.boardId}`;
+    const group = groups.get(key) ?? {
+      scope: { workspaceId, projectId, boardId: item.boardId },
+      ids: [],
+    };
+    group.ids.push(item.id);
+    groups.set(key, group);
+  }
+  const byId: Record<string, DeliveryAuthority> = {};
+  await Promise.all([...groups.values()].flatMap(({ scope, ids }) => {
+    const chunks = Array.from({ length: Math.ceil(ids.length / 200) }, (_, index) =>
+      ids.slice(index * 200, (index + 1) * 200));
+    return chunks.map(async (chunk) => Object.assign(byId, await loader(chunk, scope)));
+  }));
+  return items.map((item) => ({
+    ...item,
+    deliveryAuthority: byId[item.id] ?? { kind: "incompatible", code: "native_scope_mismatch" },
+  }));
+};
 
 export type CreateWorkItemOptions = {
   /** Join an existing transaction for atomic batch generation. */
@@ -462,14 +560,15 @@ export const getWorkItems = async (
   workspaceId: string,
   pagination: PaginationParams,
   filters?: WorkItemFilters
-): Promise<{ items: WorkItemWithRelations[]; total: number }> => {
+): Promise<{ items: WorkItemWithDeliveryAuthority[]; total: number }> => {
   // Defense-in-depth: filter by workspace through project
   const orgProjectIds = db
     .select({ id: projects.id })
     .from(projects)
     .where(eq(projects.workspaceId, workspaceId));
+  const orgBoardIds = db.select({ id: boards.id }).from(boards).where(eq(boards.workspaceId, workspaceId));
   const conditions = [
-    sql`${workItems.projectId} IN (${orgProjectIds})`,
+    or(inArray(workItems.projectId, orgProjectIds), and(isNull(workItems.projectId), inArray(workItems.boardId, orgBoardIds)))!,
     isNull(workItems.archivedAt),
   ];
 
@@ -530,7 +629,7 @@ export const getWorkItems = async (
   const itemsWithRelations = await batchHydrateWorkItemRelations(itemsResult);
 
   return {
-    items: itemsWithRelations,
+    items: await projectWorkItemDeliveryAuthorities(workspaceId, itemsWithRelations),
     total: countResult[0]?.count ?? 0,
   };
 };
@@ -539,31 +638,31 @@ export const getWorkItems = async (
 export const getWorkItemById = async (
   id: string,
   workspaceId?: string
-): Promise<WorkItemWithRelations | null> => {
+): Promise<WorkItemWithDeliveryAuthority | null> => {
   const itemQuery = workspaceId
     ? db
-            .select({ item: workItems })
+            .select({ item: workItems, authorityWorkspaceId: boards.workspaceId })
             .from(workItems)
-            .innerJoin(projects, eq(workItems.projectId, projects.id))
-            .where(and(eq(workItems.id, id), isNull(workItems.archivedAt), eq(projects.workspaceId, workspaceId)))
+            .innerJoin(boards, eq(workItems.boardId, boards.id))
+            .where(and(eq(workItems.id, id), isNull(workItems.archivedAt), eq(boards.workspaceId, workspaceId), or(isNull(workItems.projectId), inArray(workItems.projectId, db.select({ id: projects.id }).from(projects).where(eq(projects.workspaceId, workspaceId))))))
             .limit(1)
     : db
-        .select({ item: workItems })
+        .select({ item: workItems, authorityWorkspaceId: boards.workspaceId })
         .from(workItems)
+        .innerJoin(boards, eq(workItems.boardId, boards.id))
         .where(and(eq(workItems.id, id), isNull(workItems.archivedAt)))
         .limit(1);
 
   const [result] = await itemQuery;
-  const item = result?.item;
-
-  if (!item) return null;
-  return hydrateWorkItemRelations(item);
+  if (!result?.item) return null;
+  const hydrated = await hydrateWorkItemRelations(result.item);
+  return (await projectWorkItemDeliveryAuthorities(result.authorityWorkspaceId ?? "", [hydrated]))[0]!;
 };
 
 export const getWorkItemsByIds = async (
   workspaceId: string,
   ids: string[]
-): Promise<WorkItemWithRelations[]> => {
+): Promise<WorkItemWithDeliveryAuthority[]> => {
   const uniqueIds = Array.from(new Set(ids)).filter(Boolean);
   if (uniqueIds.length === 0) return [];
 
@@ -573,13 +672,14 @@ export const getWorkItemsByIds = async (
     .innerJoin(projects, eq(workItems.projectId, projects.id))
       .where(and(inArray(workItems.id, uniqueIds), isNull(workItems.archivedAt), eq(projects.workspaceId, workspaceId)));
 
-  return batchHydrateWorkItemRelations(rows.map((r) => r.item));
+  const hydrated = await batchHydrateWorkItemRelations(rows.map((r) => r.item));
+  return projectWorkItemDeliveryAuthorities(workspaceId, hydrated);
 };
 
 export const getWorkItemsByTaskIds = async (
   workspaceId: string,
   taskIds: string[]
-): Promise<WorkItemWithRelations[]> => {
+): Promise<WorkItemWithDeliveryAuthority[]> => {
   const uniqueTaskIds = Array.from(new Set(taskIds)).filter(Boolean);
   if (uniqueTaskIds.length === 0) return [];
 
@@ -595,7 +695,8 @@ export const getWorkItemsByTaskIds = async (
       )
     );
 
-  return batchHydrateWorkItemRelations(rows.map((r) => r.item));
+  const hydrated = await batchHydrateWorkItemRelations(rows.map((r) => r.item));
+  return projectWorkItemDeliveryAuthorities(workspaceId, hydrated);
 };
 
 // Generate a prefix from project name initials (e.g. "Almirant" → "AL", null → "XX")
@@ -955,7 +1056,7 @@ export const updateWorkItem = async (
   data: UpdateWorkItemRequest,
   context: TriggeredByContext = defaultTriggeredByContext
 ): Promise<WorkItemWithRelations | null> => {
-  const { startDate, dueDate, tagIds, parentId, ...rest } = data;
+  const { startDate, dueDate, tagIds, parentId, metadata, ...rest } = data;
 
   // Fetch current item to detect changes for event logging (org-scoped via board)
   const [currentItem] = await db
@@ -967,11 +1068,19 @@ export const updateWorkItem = async (
     .then((rows) => rows.map((r) => r.work_items));
 
   if (!currentItem) return null;
+  const [projectedCurrentItem] = await projectWorkItemDeliveryAuthorities(workspaceId, [currentItem]);
+  const effectiveMetadata = metadata === undefined ? undefined : { ...(currentItem.metadata ?? {}), ...metadata };
+  assertDeliveryAuthorityMutationAllowed(
+    projectedCurrentItem!.deliveryAuthority,
+    { ...data, metadata: effectiveMetadata } as unknown as Record<string, unknown>,
+    currentItem as unknown as Record<string, unknown>,
+  );
 
   const updateData: Record<string, unknown> = {
     ...rest,
     updatedAt: new Date(),
   };
+  if (effectiveMetadata !== undefined) updateData.metadata = effectiveMetadata;
 
   // Handle startDate explicitly (can be null to clear, string to set, or undefined to skip)
   if (startDate !== undefined) {
@@ -1130,6 +1239,7 @@ export const deleteWorkItem = async (
       type: workItems.type,
       boardId: workItems.boardId,
       boardColumnId: workItems.boardColumnId,
+      projectId: workItems.projectId,
     })
     .from(workItems)
     .innerJoin(boards, eq(workItems.boardId, boards.id))
@@ -1137,6 +1247,8 @@ export const deleteWorkItem = async (
     .limit(1);
 
   if (!itemToDelete) return false;
+  const [projectedItem] = await projectWorkItemDeliveryAuthorities(workspaceId, [itemToDelete]);
+  assertDeliveryAuthorityMutationAllowed(projectedItem!.deliveryAuthority, { deleted: true });
 
   // Log "deleted" event before the actual deletion
   try {
@@ -1456,13 +1568,15 @@ export const changeParent = async (
 ): Promise<boolean> => {
   // Fetch current parentId for event logging (org-scoped via board)
   const [currentItem] = await db
-    .select({ parentId: workItems.parentId })
+    .select({ id: workItems.id, parentId: workItems.parentId, projectId: workItems.projectId, boardId: workItems.boardId })
     .from(workItems)
     .innerJoin(boards, eq(workItems.boardId, boards.id))
     .where(and(eq(workItems.id, id), isNull(workItems.archivedAt), eq(boards.workspaceId, workspaceId)))
     .limit(1);
 
   if (!currentItem) return false;
+  const [projectedItem] = await projectWorkItemDeliveryAuthorities(workspaceId, [currentItem]);
+  assertDeliveryAuthorityMutationAllowed(projectedItem!.deliveryAuthority, { parentId }, currentItem);
 
   const [updated] = await db
     .update(workItems)
@@ -1899,7 +2013,7 @@ export const getWorkItemsByBoard = async (
   boardId: string,
   filters?: WorkItemBoardFilters,
   options?: { slim?: boolean }
-): Promise<WorkItemsByColumn[]> => {
+): Promise<WorkItemsByColumnWithDeliveryAuthority[]> => {
   const [boardAccess] = await db
     .select({ id: boards.id })
     .from(boards)
@@ -1982,6 +2096,8 @@ export const getWorkItemsByBoard = async (
         .orderBy(asc(workItems.position), asc(workItems.createdAt));
     }
   })();
+  const authorityItems = await projectWorkItemDeliveryAuthorities(workspaceId, allItems);
+  allItems.forEach((item, index) => Object.assign(item, { deliveryAuthority: authorityItems[index]!.deliveryAuthority }));
 
   // Separate leaf items from hierarchy parents by type. Community parents may
   // carry a persisted board column because the database column is NOT NULL.
@@ -2144,7 +2260,7 @@ export const getWorkItemsByBoard = async (
         createdAt: column.createdAt,
         updatedAt: column.updatedAt,
       },
-      items: itemsWithContext as unknown as WorkItemWithContext[],
+      items: itemsWithContext as unknown as WorkItemWithDeliveryAuthority<WorkItemWithContext>[],
       count: itemsWithContext.length,
     };
   });
@@ -2178,7 +2294,7 @@ export const getWorkItemsByArea = async (
   area: BoardArea,
   filters?: WorkItemBoardFilters,
   options?: { slim?: boolean }
-): Promise<WorkItemsByColumn[]> => {
+): Promise<WorkItemsByColumnWithDeliveryAuthority[]> => {
   // 1. Get all board IDs for the area (filtered by workspace directly)
   const areaBoards = await db
     .select({ id: boards.id })
@@ -2305,6 +2421,8 @@ export const getWorkItemsByArea = async (
         .orderBy(asc(workItems.position), asc(workItems.createdAt));
     }
   })();
+  const authorityItems = await projectWorkItemDeliveryAuthorities(workspaceId, allItems);
+  allItems.forEach((item, index) => Object.assign(item, { deliveryAuthority: authorityItems[index]!.deliveryAuthority }));
 
   // 5. Separate leaf items from hierarchy parents by type.
   const itemsByRole = new Map<ColumnRole, (typeof allItems)>();
@@ -2497,7 +2615,7 @@ export const getWorkItemsByArea = async (
 
     return {
       column: entry.column,
-      items: itemsWithContext as unknown as WorkItemWithContext[],
+      items: itemsWithContext as unknown as WorkItemWithDeliveryAuthority<WorkItemWithContext>[],
       count: itemsWithContext.length,
     };
   });
