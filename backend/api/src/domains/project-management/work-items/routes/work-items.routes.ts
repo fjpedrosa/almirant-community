@@ -46,6 +46,7 @@ import {
   updateAssigneeRole,
   resolveTaskIds,
   clearWorkItemAiState,
+  isNativePlanAuthorityError,
   db,
   workItems,
   projects,
@@ -102,6 +103,19 @@ import {
 const VALID_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 const VALID_TYPES = ["epic", "feature", "story", "task", "idea"] as const;
 type ManagedByAgent = "claude-code" | "codex";
+
+export const mapWorkItemMutationError = (
+  error: unknown,
+  set: { status?: number | string },
+) => {
+  if (!isNativePlanAuthorityError(error)) return null;
+  set.status = 409;
+  return errorResponse(
+    "Planning fields are owned by the native Plan revision",
+    409,
+    "native_plan_authority",
+  );
+};
 
 const inferAiProvider = (model: string, provider?: string): AiProvider => {
   const normalizedProvider = provider?.trim().toLowerCase().replace(/_/g, "-");
@@ -692,23 +706,30 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         (existing?.metadata as Record<string, unknown> | undefined) ?? undefined
       );
 
-      const item = await updateWorkItem(orgId, params.id, {
-        title: body.title,
-        description: body.description,
-        type: body.type as typeof VALID_TYPES[number] | undefined,
-        priority: body.priority as typeof VALID_PRIORITIES[number] | undefined,
-        assignee: body.assignee,
-        startDate: body.startDate,
-        dueDate: body.dueDate,
-        estimatedHours: body.estimatedHours,
-        metadata: normalizedMetadata,
-        tagIds: body.tagIds,
-        parentId: body.parentId,
-        projectId: body.projectId,
-        requestedByUserId: body.requestedByUserId,
-        codingAgent: body.codingAgent,
-        aiModel: body.aiModel,
-      });
+      let item;
+      try {
+        item = await updateWorkItem(orgId, params.id, {
+          title: body.title,
+          description: body.description,
+          type: body.type as typeof VALID_TYPES[number] | undefined,
+          priority: body.priority as typeof VALID_PRIORITIES[number] | undefined,
+          assignee: body.assignee,
+          startDate: body.startDate,
+          dueDate: body.dueDate,
+          estimatedHours: body.estimatedHours,
+          metadata: normalizedMetadata,
+          tagIds: body.tagIds,
+          parentId: body.parentId,
+          projectId: body.projectId,
+          requestedByUserId: body.requestedByUserId,
+          codingAgent: body.codingAgent,
+          aiModel: body.aiModel,
+        });
+      } catch (error) {
+        const conflict = mapWorkItemMutationError(error, set);
+        if (conflict) return conflict;
+        throw error;
+      }
 
       if (!item) {
         set.status = 404;
@@ -846,7 +867,14 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
       // Fetch before deleting to get boardId for the broadcast
       const existing = await getWorkItemById(params.id, orgId);
 
-      const deleted = await deleteWorkItem(orgId, params.id);
+      let deleted;
+      try {
+        deleted = await deleteWorkItem(orgId, params.id);
+      } catch (error) {
+        const conflict = mapWorkItemMutationError(error, set);
+        if (conflict) return conflict;
+        throw error;
+      }
 
       if (!deleted) {
         set.status = 404;
@@ -1165,7 +1193,14 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
     async ({ params, body, set, activeWorkspace }) => {
       const orgId = activeWorkspace!.id;
       const existing = await getWorkItemById(params.id, orgId);
-      const success = await changeParent(orgId, params.id, body.parentId);
+      let success;
+      try {
+        success = await changeParent(orgId, params.id, body.parentId);
+      } catch (error) {
+        const conflict = mapWorkItemMutationError(error, set);
+        if (conflict) return conflict;
+        throw error;
+      }
 
       if (!success) {
         set.status = 404;
@@ -1224,9 +1259,16 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
       }
 
       // Update the type
-      const updated = await updateWorkItem(orgId, params.id, {
-        type: body.targetType as "task" | "feature" | "story" | "epic",
-      });
+      let updated;
+      try {
+        updated = await updateWorkItem(orgId, params.id, {
+          type: body.targetType as "task" | "feature" | "story" | "epic",
+        });
+      } catch (error) {
+        const conflict = mapWorkItemMutationError(error, set);
+        if (conflict) return conflict;
+        throw error;
+      }
 
       if (!updated) {
         set.status = 500;
@@ -2055,7 +2097,7 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
         for (const p of projs) projectNameById.set(p.id, p.name);
       }
 
-      let resolvedEvents = events.map((ev) => {
+      const resolvedEvents = events.map((ev) => {
         if (ev.fieldName === "boardColumnId") {
           const oldValue =
             typeof ev.oldValue === "string" && columnNameById.has(ev.oldValue)
