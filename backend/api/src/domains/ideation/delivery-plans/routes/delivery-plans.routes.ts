@@ -1,11 +1,11 @@
 import { Elysia, t } from "elysia";
 import {
-  acceptFirstDeliveryPlan, getBoardById, getProjectById, isProjectMember, readDeliveryPlan,
+  acceptFirstDeliveryPlan, acceptRevisedDeliveryPlan, getBoardById, getProjectById, isProjectMember, readDeliveryPlan,
   DeliveryPlanAcceptanceError,
 } from "@almirant/database";
 import {
-  deliveryPlanAcceptanceResponseSchema, deliveryPlanApiErrorSchema, parseDeliveryPlanAcceptanceRequest, parseDeliveryPlanView,
-  type DeliveryPlanApiErrorCode, type DeliveryPlanView,
+  deliveryPlanAcceptanceResponseSchema, deliveryPlanRevisionResponseSchema, deliveryPlanApiErrorSchema,
+  parseDeliveryPlanAcceptanceRequest, parseDeliveryPlanRevisionRequest, parseDeliveryPlanView, type DeliveryPlanApiErrorCode, type DeliveryPlanView,
 } from "@almirant/shared";
 import { DeliveryPlanAcceptanceGateError, assertDeliveryPlanAcceptanceEnabled } from "../services/delivery-plan-acceptance-gate";
 
@@ -16,6 +16,7 @@ type Dependencies = {
   authorize: (scope: Scope) => Promise<Authorization>;
   gate: (scope: Pick<Scope, "workspaceId" | "projectId" | "boardId">) => Promise<void>;
   accept: typeof acceptFirstDeliveryPlan;
+  acceptRevision: typeof acceptRevisedDeliveryPlan;
   read: (workspaceId: string, planId: string) => Promise<DeliveryPlanView | null>;
 };
 type Set = { status?: number | string };
@@ -23,8 +24,8 @@ const messages: Record<DeliveryPlanApiErrorCode, string> = {
   authentication_required: "Authentication required", acceptance_forbidden: "Delivery Plan access denied",
   delivery_scope_not_found: "Delivery scope not found", delivery_plan_not_found: "Delivery Plan not found",
   acceptance_unavailable: "Delivery Plan acceptance is unavailable", delivery_plan_read_unavailable: "Delivery Plan read is unavailable",
-  acceptance_idempotency_conflict: "Acceptance key conflicts with another Plan", acceptance_conflict: "Delivery Plan acceptance conflict",
-  invalid_delivery_plan_request: "Invalid Delivery Plan request",
+  acceptance_idempotency_conflict: "Acceptance key conflicts with another Plan", acceptance_stale_revision: "Delivery Plan revision is stale",
+  acceptance_projection_blocked: "Delivery Plan projection is blocked", acceptance_conflict: "Delivery Plan acceptance conflict", invalid_delivery_plan_request: "Invalid Delivery Plan request",
 };
 const failure = (set: Set, status: number, code: DeliveryPlanApiErrorCode) => {
   set.status = status;
@@ -41,7 +42,8 @@ const defaultAuthorize = async (scope: Scope): Promise<Authorization> => {
   return await isProjectMember(scope.projectId, scope.userId) ? "allowed" : "forbidden";
 };
 
-const defaults: Dependencies = { authorize: defaultAuthorize, gate: assertDeliveryPlanAcceptanceEnabled, accept: acceptFirstDeliveryPlan, read: readDeliveryPlan };
+const defaults: Dependencies = { authorize: defaultAuthorize, gate: assertDeliveryPlanAcceptanceEnabled, accept: acceptFirstDeliveryPlan, acceptRevision: acceptRevisedDeliveryPlan, read: readDeliveryPlan };
+const validId = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 export const createDeliveryPlansRoutes = (dependencies: Dependencies = defaults) => new Elysia({ prefix: "/delivery-plans" })
   .post("/accept", async (context) => {
@@ -68,10 +70,35 @@ export const createDeliveryPlansRoutes = (dependencies: Dependencies = defaults)
       return failure(context.set, 409, "acceptance_unavailable");
     }
   }, { body: t.Unknown() })
+  .post("/:planId/revisions", async (context) => {
+    const current = actor(context);
+    if (!current) return failure(context.set, 401, "authentication_required");
+    if (!validId(context.params.planId)) return failure(context.set, 422, "invalid_delivery_plan_request");
+    let request;
+    try { request = parseDeliveryPlanRevisionRequest(context.body); }
+    catch { return failure(context.set, 422, "invalid_delivery_plan_request"); }
+    try {
+      const stored = await dependencies.read(current.workspaceId, context.params.planId);
+      if (!stored) return failure(context.set, 404, "delivery_plan_not_found");
+      const authorization = await dependencies.authorize({ ...current, projectId: stored.projectId, boardId: stored.boardId });
+      if (authorization !== "allowed") return failure(context.set, authorization === "not_found" ? 404 : 403, authorization === "not_found" ? "delivery_plan_not_found" : "acceptance_forbidden");
+      await dependencies.gate({ workspaceId: current.workspaceId, projectId: stored.projectId, boardId: stored.boardId });
+      const result = await dependencies.acceptRevision({ ...request, workspaceId: current.workspaceId, userId: current.userId, planId: context.params.planId });
+      return { success: true as const, data: deliveryPlanRevisionResponseSchema.parse(result) };
+    } catch (error) {
+      if (error instanceof DeliveryPlanAcceptanceGateError) return failure(context.set, 409, "acceptance_unavailable");
+      if (error instanceof DeliveryPlanAcceptanceError) {
+        if (error.code === "acceptance_unauthorized") return failure(context.set, 403, "acceptance_forbidden");
+        if (["acceptance_idempotency_conflict", "acceptance_stale_revision", "acceptance_projection_blocked", "acceptance_conflict"].includes(error.code)) return failure(context.set, 409, error.code as DeliveryPlanApiErrorCode);
+        return failure(context.set, 422, "invalid_delivery_plan_request");
+      }
+      return failure(context.set, 409, "acceptance_unavailable");
+    }
+  }, { body: t.Unknown(), params: t.Object({ planId: t.String({ maxLength: 64 }) }) })
   .get("/:planId", async (context) => {
     const current = actor(context);
     if (!current) return failure(context.set, 401, "authentication_required");
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(context.params.planId)) return failure(context.set, 422, "invalid_delivery_plan_request");
+    if (!validId(context.params.planId)) return failure(context.set, 422, "invalid_delivery_plan_request");
     try {
       const view = await dependencies.read(current.workspaceId, context.params.planId);
       if (!view) return failure(context.set, 404, "delivery_plan_not_found");
