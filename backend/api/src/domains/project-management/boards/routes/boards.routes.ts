@@ -201,6 +201,9 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
       if (query.assignee) filters.assignee = query.assignee;
       if (query.projectId) filters.projectId = query.projectId;
       if (query.tagIds) filters.tagIds = query.tagIds;
+      if (query.isBug === "true" || query.isBug === "false") {
+        filters.isBug = query.isBug === "true";
+      }
 
       const hasFilters = Object.keys(filters).length > 0;
       // Opt-in slim board DTO: `?view=board` drops description + heavy metadata
@@ -226,6 +229,7 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
         assignee: t.Optional(t.String()),
         projectId: t.Optional(t.String()),
         tagIds: t.Optional(t.String()),
+        isBug: t.Optional(t.String()),
         view: t.Optional(t.String()),
       }),
     }
@@ -534,6 +538,9 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
       if (query.assignee) filters.assignee = query.assignee;
       if (query.projectId) filters.projectId = query.projectId;
       if (query.tagIds) filters.tagIds = query.tagIds;
+      if (query.isBug === "true" || query.isBug === "false") {
+        filters.isBug = query.isBug === "true";
+      }
 
       const hasFilters = Object.keys(filters).length > 0;
       // Opt-in slim board DTO: `?view=board` drops description + heavy metadata
@@ -564,6 +571,7 @@ export const boardsRoutes = new Elysia({ prefix: "/boards" })
         assignee: t.Optional(t.String()),
         projectId: t.Optional(t.String()),
         tagIds: t.Optional(t.String()),
+        isBug: t.Optional(t.String()),
         view: t.Optional(t.String()),
       }),
     }

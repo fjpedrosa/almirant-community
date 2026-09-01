@@ -1,7 +1,10 @@
 import { cookies } from "next/headers";
 import type { ProjectWithRelations } from "@/domains/projects/domain/types";
 import type { BoardWithStats } from "@/domains/boards/domain/types";
-import type { WorkItemsByColumn } from "@/domains/work-items/domain/types";
+import type {
+  BoardFilterPreferences,
+  WorkItemsByColumn,
+} from "@/domains/work-items/domain/types";
 import type { PlanningSessionWithPendingInteraction } from "@/domains/planning/domain/types";
 import { normalizeApiBaseUrl } from "@/lib/runtime-service-url";
 
@@ -114,12 +117,25 @@ export const workItemsServerApi = {
    * endpoint (`/boards/area/<area>/work-items?view=board`) so the SSR prefetch
    * and the client hook hit the SAME route AND request the SAME slim DTO — the
    * dehydrated cache then hydrates (identical shape) without a client refetch.
-   * Prefetches only the no-filter first paint. The queryKey is unchanged; only
-   * the payload shape (slim) differs.
+   * Accepts the effective URL/persisted board filters so SSR never prefetches
+   * cards from unrelated projects before the client filter state is restored.
    */
-  getByArea: (area: string): Promise<WorkItemsByColumn[]> =>
-    serverRequest<WorkItemsByColumn[]>(
-      `/boards/area/${encodeURIComponent(area)}/work-items?view=board`,
+  getByArea: (
+    area: string,
+    filterParams?: Record<string, string>,
+  ): Promise<WorkItemsByColumn[]> => {
+    const query = new URLSearchParams(filterParams);
+    query.set("view", "board");
+    return serverRequest<WorkItemsByColumn[]>(
+      `/boards/area/${encodeURIComponent(area)}/work-items?${query.toString()}`,
+    );
+  },
+};
+
+export const viewPreferencesServerApi = {
+  get: (pageKey: string): Promise<BoardFilterPreferences | null> =>
+    serverRequest<BoardFilterPreferences | null>(
+      `/users/me/view-preferences/${encodeURIComponent(pageKey)}`,
     ),
 };
 

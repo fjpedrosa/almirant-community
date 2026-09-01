@@ -60,7 +60,10 @@ import { useEnqueueAgentJob, useBatchEnqueueAgentJobs, useCancelAgentJob } from 
 import { useProjectRepos } from "@/domains/agents/application/hooks/use-project-repos";
 import { AgentActivityContainer } from "@/domains/agents/presentation/containers/agent-activity-container";
 import { useWorkItemChildren } from "../../application/hooks/use-work-item-children";
-import { useResetAiProcessing } from "../../application/hooks/use-work-items";
+import {
+  useDeleteWorkItem,
+  useResetAiProcessing,
+} from "../../application/hooks/use-work-items";
 import { useWorkItemParticipants } from "../../application/hooks/use-work-item-participants";
 import { useWorkItemDetailPanel } from "../../application/hooks/use-work-item-detail-panel";
 import { ParentDetailPanelContainer } from "./parent-detail-panel-container";
@@ -71,6 +74,8 @@ import { useCreateParentDialog } from "../../application/hooks/use-create-parent
 import { useGenerateDocs } from "../../application/hooks/use-generate-docs";
 import { WorkItemFormDialog } from "../components/work-item-form-dialog";
 import { GenerateDocsDialog } from "../components/generate-docs-dialog";
+import { ConfirmDialog } from "@/domains/shared/presentation/components/confirm-dialog";
+import { useConfirmDialog } from "@/domains/shared/application/hooks/use-confirm-dialog";
 import { PendingFilesSection } from "../components/pending-files-section";
 import { SelectionActionBar } from "../components/selection-action-bar";
 import { SavedViewsContainer } from "./saved-views-container";
@@ -81,6 +86,7 @@ import { uploadsApi } from "@/lib/api/client";
 import type { WorkItemBoardContainerProps, WorkItemMetadata, WorkItemParticipant, WorkItemsByColumn, WorkItemWithContext, WorkItemFormData, WorkItemType, Priority, SavedViewConfig, BoardSortBy } from "../../domain/types";
 import { filterToTopmostItems } from "../../domain/hierarchy-utils";
 import { buildBoardAssigneeOptions } from "../../domain/board-assignee-options";
+import { canDeleteWorkItem } from "../../domain/work-item-delete";
 import {
   resolveManualImplementRunnerJob,
   shouldBlockManualImplementForDodHumanReview,
@@ -237,8 +243,13 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
   const boardQuery = useWorkItemsByBoard(
     area ? "" : activeBoardId,
     area ? undefined : filterParams,
+    isPrefsLoaded,
   );
-  const areaQuery = useWorkItemsByArea(area ?? "", area ? filterParams : undefined);
+  const areaQuery = useWorkItemsByArea(
+    area ?? "",
+    area ? filterParams : undefined,
+    isPrefsLoaded,
+  );
   const { data: columnData, isLoading } = area ? areaQuery : boardQuery;
   const columns = useMemo(
     () => (columnData as WorkItemsByColumn[]) ?? EMPTY_COLUMNS,
@@ -443,6 +454,7 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
   const enqueueAgentJob = useEnqueueAgentJob();
   const batchEnqueueAgentJobs = useBatchEnqueueAgentJobs();
   const cancelAgentJob = useCancelAgentJob();
+  const deleteWorkItem = useDeleteWorkItem();
   const resetAiProcessing = useResetAiProcessing();
 
   // Multi-repo support: fetch repos for the project and manage selected repo state
@@ -674,6 +686,8 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
   const { copyAsPrompt, copyMultipleAsPrompt, activeId: copyingPromptId, successId: copySuccessId } = useCopyAsPrompt();
   const { copied: cliCommandCopied, copyToClipboard: copyCliCommand, getCommand: getCliCommand } = useCopyCliCommand();
   const bulkMove = useBulkMove(activeBoardId);
+  const [deletingWorkItemId, setDeletingWorkItemId] = useState<string | null>(null);
+  const { confirm, ...confirmDialogProps } = useConfirmDialog();
 
   // Horizontal scroll indicators for kanban board
   const {
@@ -723,6 +737,32 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
       onSuccess: () => clearSelection(),
     });
   }, [selectedIds, bulkMove, clearSelection, localColumns]);
+
+  const handleDeleteWorkItem = useCallback(async (item: WorkItemWithContext) => {
+    if (!canDeleteWorkItem(item)) return;
+
+    const confirmed = await confirm({
+      title: t("card.deleteTaskTitle"),
+      description: t("card.deleteTaskDescription", { title: item.title }),
+      confirmLabel: t("card.deleteTask"),
+      variant: "destructive",
+    });
+    if (!confirmed) return;
+
+    setDeletingWorkItemId(item.id);
+    deleteWorkItem.mutate(item.id, {
+      onSuccess: () => {
+        clearSelection();
+        showToast.success(t("card.deleteTaskSuccess"));
+      },
+      onError: () => {
+        showToast.error(t("card.deleteTaskError"));
+      },
+      onSettled: () => {
+        setDeletingWorkItemId(null);
+      },
+    });
+  }, [clearSelection, confirm, deleteWorkItem, t]);
 
   const handleGenerateCombinedPrompt = useCallback(async () => {
     const ids = localColumns
@@ -1151,6 +1191,8 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
                   collapsedGroups={collapsedGroups}
                   onToggleGroupCollapse={toggleGroupCollapse}
                   onParentClick={handleParentClick}
+                  onDelete={handleDeleteWorkItem}
+                  deletingItemId={deletingWorkItemId}
                 />
               ))}
             </div>
@@ -1200,6 +1242,13 @@ export const WorkItemBoardContainer: React.FC<WorkItemBoardContainerProps> = ({
           })()}
         </DragOverlay>
       </DndContext>
+
+      <ConfirmDialog
+        isOpen={confirmDialogProps.isOpen}
+        options={confirmDialogProps.options}
+        onConfirm={confirmDialogProps.handleConfirm}
+        onCancel={confirmDialogProps.handleCancel}
+      />
 
       {/* Create mode dialog */}
       <WorkItemFormDialog

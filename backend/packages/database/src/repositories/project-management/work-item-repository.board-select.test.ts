@@ -13,6 +13,7 @@ type Selection = Record<string, unknown> & {
 
 let getWorkItemsByBoard: typeof import("./work-item-repository").getWorkItemsByBoard;
 let capturedBoardSelection: Selection | undefined;
+let capturedBoardWhere: unknown;
 let selectCall = 0;
 
 const getCapturedBoardSelection = (): Selection | undefined => capturedBoardSelection;
@@ -26,27 +27,30 @@ beforeAll(async () => {
 
         return {
           from: () => ({
-            where: () => ({
-              limit: async () => [{ id: "board-1" }],
-              orderBy: async () => {
-                if (call === 2) {
-                  return [
-                    {
-                      id: "column-1",
-                      boardId: "board-1",
-                      name: "Todo",
-                      color: null,
-                      order: 0,
-                      role: "todo",
-                      isDone: false,
-                      createdAt: new Date("2026-01-01T00:00:00.000Z"),
-                      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
-                    },
-                  ];
-                }
-                return [];
+              where: (condition: unknown) => {
+                if (selection?.description) capturedBoardWhere = condition;
+                return {
+                  limit: async () => [{ id: "board-1" }],
+                  orderBy: async () => {
+                    if (call === 2) {
+                      return [
+                        {
+                          id: "column-1",
+                          boardId: "board-1",
+                          name: "Todo",
+                          color: null,
+                          order: 0,
+                          role: "todo",
+                          isDone: false,
+                          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+                          updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+                        },
+                      ];
+                    }
+                    return [];
+                  },
+                };
               },
-            }),
           }),
         };
       },
@@ -65,6 +69,7 @@ describe("work item board projection", () => {
   test("uses built-in PostgreSQL left() for description previews", async () => {
     selectCall = 0;
     capturedBoardSelection = undefined;
+    capturedBoardWhere = undefined;
 
     await getWorkItemsByBoard("org-1", "board-1");
 
@@ -74,6 +79,20 @@ describe("work item board projection", () => {
 
     expect(descriptionSql).toBe('left("work_items"."description", 200)');
     expect(descriptionSql).not.toContain("safe_left");
+  });
+
+  test("filters by the JSONB isBug metadata field", async () => {
+    selectCall = 0;
+    capturedBoardSelection = undefined;
+    capturedBoardWhere = undefined;
+
+    await getWorkItemsByBoard("org-1", "board-1", { isBug: true });
+
+    const whereQuery = new PgDialect().sqlToQuery(
+      capturedBoardWhere as Parameters<PgDialect["sqlToQuery"]>[0],
+    );
+    expect(whereQuery.sql).toContain("isBug");
+    expect(whereQuery.params).toContain("true");
   });
 });
 

@@ -14,7 +14,7 @@ import {
   restoreRealModules,
   withTestOrg,
 } from "../../../../test/mocks";
-import { testWorkItem } from "../../../../test/fixtures";
+import { testUser, testWorkItem, testWorkspace } from "../../../../test/fixtures";
 
 // ── Save real modules BEFORE mocking (prevents cross-file contamination) ──
 
@@ -51,6 +51,13 @@ const makeApp = async () => {
   const { workItemsRoutes } = await import("./work-items.routes");
   return new Elysia().use(withTestOrg).use(workItemsRoutes);
 };
+
+const withTestMember = (app: import("elysia").Elysia) =>
+  app.derive(() => ({
+    user: testUser,
+    activeWorkspace: testWorkspace,
+    memberRole: "member" as const,
+  }));
 
 // ── Helpers ──
 
@@ -321,6 +328,44 @@ describe("workItemsRoutes", () => {
       expect(status).toBe(200);
       expect(body.success).toBe(true);
       expect(body.data.deleted).toBe(true);
+    });
+
+    it("rejects deleting a parent work item", async () => {
+      mock.module("@almirant/database", () =>
+        createDatabaseMocks({
+          getWorkItemById: async () => ({
+            ...testWorkItem,
+            type: "feature",
+            children: [{ id: "child-1" }],
+          }),
+        }),
+      );
+
+      try {
+        const { Elysia } = await import("elysia");
+        const { workItemsRoutes } = await import("./work-items.routes");
+        const app = new Elysia().use(withTestOrg).use(workItemsRoutes);
+        const res = await app.handle(
+          makeRequest(`/work-items/${testWorkItem.id}`, { method: "DELETE" }),
+        );
+        const { status, body } = await parseResponse<{ error: string }>(res);
+
+        expect(status).toBe(400);
+        expect(body.error).toContain("Only leaf tasks can be deleted");
+      } finally {
+        mock.module("@almirant/database", () => dbMocks);
+      }
+    });
+
+    it("requires the work-item delete permission", async () => {
+      const { Elysia } = await import("elysia");
+      const { workItemsRoutes } = await import("./work-items.routes");
+      const app = new Elysia().use(withTestMember).use(workItemsRoutes);
+      const res = await app.handle(
+        makeRequest(`/work-items/${testWorkItem.id}`, { method: "DELETE" }),
+      );
+
+      expect(res.status).toBe(403);
     });
 
     it("returns 404 when work item does not exist", async () => {

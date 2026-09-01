@@ -76,6 +76,22 @@ describe("GET /boards/area/:area/work-items - slim board view", () => {
     expect(areaCalls).toHaveLength(1);
     expect(optionsArg(areaCalls).slim).toBe(false);
   });
+
+  it("forwards board filters, including isBug, to the repository", async () => {
+    const app = await makeApp();
+    const res = await app.handle(
+      makeRequest(
+        "/boards/area/desarrollo/work-items?type=task&priority=high&isBug=true&view=board",
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    expect(areaCalls[0]?.[2]).toEqual({
+      type: "task",
+      priority: "high",
+      isBug: true,
+    });
+  });
 });
 
 describe("GET /boards/:id/work-items - slim board view", () => {
@@ -97,5 +113,18 @@ describe("GET /boards/:id/work-items - slim board view", () => {
     expect(res.status).toBe(200);
     expect(boardCalls).toHaveLength(1);
     expect(optionsArg(boardCalls).slim).toBe(false);
+  });
+
+  it("forwards board filters, including isBug, to the repository", async () => {
+    const app = await makeApp();
+    const res = await app.handle(
+      makeRequest("/boards/board-1/work-items?search=checkout&isBug=false&view=board"),
+    );
+
+    expect(res.status).toBe(200);
+    expect(boardCalls[0]?.[2]).toEqual({
+      search: "checkout",
+      isBug: false,
+    });
   });
 });
