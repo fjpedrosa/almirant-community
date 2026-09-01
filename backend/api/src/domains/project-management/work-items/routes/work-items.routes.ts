@@ -79,6 +79,7 @@ import { formatText, isAiConfigured, generateDocumentation } from "../../../../d
 import { resolveModelFromProviderKey, withAuthErrorDetection } from "../../../../domains/ai/shared/services/model-factory";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { isParentType } from "@almirant/database";
+import { getPermissionChecker } from "@almirant/shared";
 import { getActivityLogger } from "@almirant/shared";
 import { logger } from "@almirant/config";
 import { propagateProviderToParent } from "../../../../domains/connections/services/propagate-provider";
@@ -866,14 +867,37 @@ export const workItemsRoutes = new Elysia({ prefix: "/work-items" })
   // DELETE /work-items/:id - Delete work item
   .delete(
     "/:id",
-    async ({ params, set, activeWorkspace }) => {
+    async ({ params, set, activeWorkspace, user, memberRole }) => {
       const orgId = activeWorkspace!.id;
       // Fetch before deleting to get boardId for the broadcast
       const existing = await getWorkItemById(params.id, orgId);
 
+      if (!existing) {
+        set.status = 404;
+        return notFoundResponse("Work item");
+      }
+
+      if (
+        !getPermissionChecker().can(
+          { userId: user!.id, workspaceId: orgId, role: memberRole },
+          "work-item.delete",
+        )
+      ) {
+        set.status = 403;
+        return errorResponse("Only workspace owners and admins can delete work items");
+      }
+
+      if (existing.type !== "task" || (existing.children?.length ?? 0) > 0) {
+        set.status = 400;
+        return errorResponse("Only leaf tasks can be deleted");
+      }
+
       let deleted;
       try {
-        deleted = await deleteWorkItem(orgId, params.id);
+        deleted = await deleteWorkItem(orgId, params.id, {
+          triggeredBy: "user",
+          triggeredByUserId: user?.id,
+        });
       } catch (error) {
         const conflict = mapWorkItemMutationError(error, set);
         if (conflict) return conflict;

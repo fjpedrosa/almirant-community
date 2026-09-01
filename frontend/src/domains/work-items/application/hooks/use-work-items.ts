@@ -13,6 +13,20 @@ import type {
   PaginatedWorkItemsResponse,
 } from "../../domain/types";
 
+export const serializeWorkItemBoardFilters = (
+  filterParams?: Record<string, string>,
+): string => {
+  if (!filterParams || Object.keys(filterParams).length === 0) return "";
+
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(filterParams).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+    ),
+  );
+};
+
 export const workItemKeys = {
   all: ["work-items"] as const,
   lists: () => [...workItemKeys.all, "list"] as const,
@@ -32,7 +46,7 @@ export const workItemKeys = {
   byAreaBase: (area: string, filterParams?: Record<string, string>) =>
     [
       ...workItemKeys.byArea(area),
-      filterParams ? JSON.stringify(filterParams) : "",
+      serializeWorkItemBoardFilters(filterParams),
     ] as const,
   byAreaPrefix: () => [...workItemKeys.all, "byArea"] as const,
   participants: (idsHash: string) => [...workItemKeys.all, "participants", idsHash] as const,

@@ -411,7 +411,12 @@
       "releasePr": "Release v{number}",
       "releaseOpen": "open",
       "releaseMerged": "shipped",
-      "scheduled": "Scheduled · {date}"
+      "scheduled": "Scheduled · {date}",
+      "deleteTask": "Delete task",
+      "deleteTaskTitle": "Delete task",
+      "deleteTaskDescription": "Are you sure you want to permanently delete \"{title}\"? This action cannot be undone.",
+      "deleteTaskSuccess": "Task deleted successfully",
+      "deleteTaskError": "Could not delete task"
     },
     "selection": {
       "selected": "{count, plural, one {# task selected} other {# tasks selected}}",

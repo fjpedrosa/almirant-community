@@ -20,12 +20,12 @@ afterAll(() => {
   restoreRealModules();
 });
 describe("dedicated Idea promotion authority boundary", () => {
-  it("maps update, delete, parent, and Idea promotion rejection to stable bounded HTTP 409", async () => {
+  it("maps update, parent, and Idea promotion rejection to stable bounded HTTP 409", async () => {
     lookup = "idea";
-    const requests = [new Request("http://localhost/work-items/idea-1", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "changed" }) }), new Request("http://localhost/work-items/idea-1", { method: "DELETE" }), new Request("http://localhost/work-items/idea-1/parent", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ parentId: null }) })];
-    const responses = await Promise.all([app.handle(requests[0]!), app.handle(requests[1]!), app.handle(requests[2]!), promote({ targetType: "task" })]);
-    expect(responses).toHaveLength(4);
-    expect(responses.map(({ status }) => status)).toEqual([409, 409, 409, 409]);
+    const requests = [new Request("http://localhost/work-items/idea-1", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "changed" }) }), new Request("http://localhost/work-items/idea-1/parent", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ parentId: null }) })];
+    const responses = await Promise.all([app.handle(requests[0]!), app.handle(requests[1]!), promote({ targetType: "task" })]);
+    expect(responses).toHaveLength(3);
+    expect(responses.map(({ status }) => status)).toEqual([409, 409, 409]);
     for (const response of responses) { const body = await response.json() as { success: boolean; code: string; error: string }; expect(body).toMatchObject({ success: false, error: "Planning fields are owned by the native Plan revision", code: "native_plan_authority" }); expect(JSON.stringify(body)).not.toContain("plan-1"); }
   });
   it("retains not-found, validation, and non-authority error mappings", async () => {

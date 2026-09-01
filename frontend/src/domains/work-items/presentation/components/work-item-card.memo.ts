@@ -61,6 +61,8 @@ export interface WorkItemCardProps {
   childrenItems?: WorkItemChild[];
   isLoadingChildren?: boolean;
   onParentClick?: (parentId: string) => void;
+  onDelete?: () => void;
+  isDeleting?: boolean;
   /** Column name-by-id map for grouped card progress badges */
   columnNamesById?: Record<string, string>;
   /** Column color-by-id map for grouped card progress badges */
@@ -154,6 +156,8 @@ export const workItemCardPropsAreEqual = (
     prev.onRepoSelect === next.onRepoSelect &&
     prev.participants === next.participants &&
     prev.onParentClick === next.onParentClick &&
+    prev.onDelete === next.onDelete &&
+    prev.isDeleting === next.isDeleting &&
     prev.columnNamesById === next.columnNamesById &&
     prev.columnColorsById === next.columnColorsById &&
     prev.item.childrenSummary === next.item.childrenSummary

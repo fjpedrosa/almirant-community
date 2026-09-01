@@ -5,7 +5,7 @@ import { workItemsApi } from "@/lib/api/client";
 import { useOrgScopedKey } from "@/lib/query-keys";
 import { useActiveTeam } from "@/domains/teams/application/hooks/use-active-team";
 import type { WorkItemsByColumn } from "../../domain/types";
-import { workItemKeys } from "./use-work-items";
+import { serializeWorkItemBoardFilters, workItemKeys } from "./use-work-items";
 
 export const useWorkItemsByBoard = (
   boardId: string,
@@ -13,7 +13,7 @@ export const useWorkItemsByBoard = (
   enabled = true,
 ) => {
   const { confirmedActiveTeamId } = useActiveTeam();
-  const filterKey = filterParams ? JSON.stringify(filterParams) : "";
+  const filterKey = serializeWorkItemBoardFilters(filterParams);
   const scopedKey = useOrgScopedKey([...workItemKeys.byBoard(boardId), filterKey]);
   return useQuery({
     queryKey: scopedKey,
@@ -27,7 +27,11 @@ export const useWorkItemsByBoard = (
   });
 };
 
-export const useWorkItemsByArea = (area: string, filterParams?: Record<string, string>) => {
+export const useWorkItemsByArea = (
+  area: string,
+  filterParams?: Record<string, string>,
+  enabled = true,
+) => {
   const { confirmedActiveTeamId } = useActiveTeam();
   // Shared key composer — the board pages prefetch under the SAME
   // `orgScopedKey(workItemKeys.byAreaBase(area), orgId)` so hydration matches.
@@ -36,7 +40,7 @@ export const useWorkItemsByArea = (area: string, filterParams?: Record<string, s
     queryKey: scopedKey,
     queryFn: () => workItemsApi.getByArea(area, filterParams, "board") as Promise<WorkItemsByColumn[]>,
     // Gate on a confirmed org (see useWorkItemsByBoard) to kill the double fetch.
-    enabled: !!area && !!confirmedActiveTeamId,
+    enabled: !!area && !!confirmedActiveTeamId && enabled,
     placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000, // 5 minutes - area updates via mutations, not polling
   });

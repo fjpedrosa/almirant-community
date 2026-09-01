@@ -1614,6 +1614,7 @@ export interface WorkItemBoardFilters {
   assignee?: string;
   projectId?: string;
   tagIds?: string; // comma-separated tag IDs
+  isBug?: boolean;
 }
 
 // Build a map of item ID -> ancestor chain (parent, grandparent, great-grandparent)
@@ -2069,6 +2070,11 @@ export const getWorkItemsByBoard = async (
       )
     );
   }
+  if (filters?.isBug !== undefined) {
+    conditions.push(
+      sql`coalesce(${workItems.metadata}->>'isBug', 'false') = ${String(filters.isBug)}`,
+    );
+  }
 
   // Slim projection (opt-in) drops description text + heavy metadata blobs.
   // Cast keeps the result row type aligned with the full projection (identical
@@ -2394,6 +2400,11 @@ export const getWorkItemsByArea = async (
           .from(workItemTags)
           .where(inArray(workItemTags.tagId, tagIdList))
       )
+    );
+  }
+  if (filters?.isBug !== undefined) {
+    conditions.push(
+      sql`coalesce(${workItems.metadata}->>'isBug', 'false') = ${String(filters.isBug)}`,
     );
   }
 

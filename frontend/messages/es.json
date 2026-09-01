@@ -411,7 +411,12 @@
       "releasePr": "Release v{number}",
       "releaseOpen": "abierta",
       "releaseMerged": "desplegada",
-      "scheduled": "Programada · {date}"
+      "scheduled": "Programada · {date}",
+      "deleteTask": "Eliminar tarea",
+      "deleteTaskTitle": "Eliminar tarea",
+      "deleteTaskDescription": "¿Seguro que quieres eliminar permanentemente \"{title}\"? Esta acción no se puede deshacer.",
+      "deleteTaskSuccess": "Tarea eliminada correctamente",
+      "deleteTaskError": "No se pudo eliminar la tarea"
     },
     "selection": {
       "selected": "{count, plural, one {# tarea seleccionada} other {# tareas seleccionadas}}",

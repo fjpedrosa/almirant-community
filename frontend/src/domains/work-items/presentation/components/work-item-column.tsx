@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { WorkItemCard } from "./work-item-card";
+import { canDeleteWorkItem } from "../../domain/work-item-delete";
 import { hasSavedPrompt } from "../../domain/card-fields";
 import { GroupHeader } from "./group-header";
 import {
@@ -117,6 +118,8 @@ const WorkItemColumnInner: React.FC<WorkItemColumnProps & {
   collapsedGroups?: Set<string>;
   onToggleGroupCollapse?: (groupKey: string) => void;
   onParentClick?: (parentId: string) => void;
+  onDelete?: (item: WorkItemWithContext) => void;
+  deletingItemId?: string | null;
 }> = ({
   compact,
   now,
@@ -158,6 +161,8 @@ const WorkItemColumnInner: React.FC<WorkItemColumnProps & {
   collapsedGroups,
   onToggleGroupCollapse,
   onParentClick,
+  onDelete,
+  deletingItemId,
   integrationContext,
 }) => {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
@@ -316,6 +321,8 @@ const WorkItemColumnInner: React.FC<WorkItemColumnProps & {
         childrenItems={expandedItemId === item.id ? expandedChildren : undefined}
         isLoadingChildren={expandedItemId === item.id ? isLoadingChildren : undefined}
         onParentClick={onParentClick}
+        onDelete={onDelete && canDeleteWorkItem(item) ? () => onDelete(item) : undefined}
+        isDeleting={deletingItemId === item.id}
       />
     );
   };

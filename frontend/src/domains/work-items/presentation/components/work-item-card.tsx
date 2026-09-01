@@ -3,7 +3,7 @@
 import { memo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { AlertTriangle, Bug, ChevronDown, ChevronRight, ClipboardCopy, ExternalLink, GitCommitHorizontal, HelpCircle, Info, Rocket, SearchCheck, ShieldCheck, TerminalSquare, Check } from "lucide-react";
+import { AlertTriangle, Bug, ChevronDown, ChevronRight, ClipboardCopy, ExternalLink, GitCommitHorizontal, HelpCircle, Info, Loader2, Rocket, SearchCheck, ShieldCheck, TerminalSquare, Trash2, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
 import useFormattedDate from "@/domains/shared/application/hooks/use-formatted-date";
@@ -255,6 +255,8 @@ const WorkItemCardInner: React.FC<WorkItemCardProps> = ({
   childrenItems,
   isLoadingChildren,
   onParentClick,
+  onDelete,
+  isDeleting,
   columnNamesById,
   columnColorsById,
 }) => {
@@ -543,6 +545,29 @@ const WorkItemCardInner: React.FC<WorkItemCardProps> = ({
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>{t("card.copyImplementCommand")}</TooltipContent>
+                    </Tooltip>
+                  )}
+                  {onDelete && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          className="shrink-0 text-destructive hover:text-destructive"
+                          onClick={onDelete}
+                          disabled={isDeleting}
+                          aria-label={t("card.deleteTask")}
+                          aria-busy={isDeleting}
+                        >
+                          {isDeleting ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3 w-3" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t("card.deleteTask")}</TooltipContent>
                     </Tooltip>
                   )}
                   {(columnRole
@@ -869,6 +894,29 @@ const WorkItemCardInner: React.FC<WorkItemCardProps> = ({
                 </span>
               </WorkItemInfoPopup>
             )
+          )}
+          {onDelete && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="shrink-0 text-destructive hover:text-destructive"
+                  onClick={onDelete}
+                  disabled={isDeleting}
+                  aria-label={t("card.deleteTask")}
+                  aria-busy={isDeleting}
+                >
+                  {isDeleting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("card.deleteTask")}</TooltipContent>
+            </Tooltip>
           )}
         </div>
       )}

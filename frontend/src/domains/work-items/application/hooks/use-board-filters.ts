@@ -10,12 +10,18 @@ import { useViewPreferences } from "@/domains/shared/application/hooks/use-view-
 import { createBoardFiltersConfig } from "../../domain/board-filters.config";
 import type { FilterOption } from "@/domains/shared/domain/filter-types";
 import type { GroupByMode, BoardFilterPreferences, BoardSortBy } from "../../domain/types";
+import {
+  getBoardFilterParamsFromSearchParams,
+  hasExplicitBoardFilterParams,
+  mergePersistedBoardFilterParams,
+  PERSISTABLE_BOARD_FILTER_KEYS,
+} from "../../domain/board-filter-params";
 
 /**
  * Keys whose values are persisted to the backend via useViewPreferences.
  * Search is excluded (too transient); excludedIds stay in localStorage.
  */
-const PERSISTABLE_FILTER_KEYS = ["priority", "assignee", "tagIds", "projectId", "isBug"] as const;
+const PERSISTABLE_FILTER_KEYS = PERSISTABLE_BOARD_FILTER_KEYS;
 
 const BOARD_FILTER_DEFAULTS: BoardFilterPreferences = {
   groupBy: "none",
@@ -81,17 +87,11 @@ export const useBoardFilters = (
     : parseGroupBy(viewPrefs.groupBy);
   const groupBy = resolvedGroupBy;
 
-  // Track whether preferences have been applied to avoid re-applying on every render
-  const hasAppliedPrefsRef = useRef(false);
-  const prevPageKeyRef = useRef(pageKey);
-
-  // Reset the applied-prefs flag when pageKey changes (board switch)
-  useEffect(() => {
-    if (prevPageKeyRef.current !== pageKey) {
-      hasAppliedPrefsRef.current = false;
-      prevPageKeyRef.current = pageKey;
-    }
-  }, [pageKey]);
+  // Keep the board query disabled until the saved filters have been applied to
+  // the URL (or explicitly superseded by URL filters). This avoids rendering
+  // an unfiltered board during the preference-restoration render.
+  const [appliedPrefsPageKey, setAppliedPrefsPageKey] = useState<string | null>(null);
+  const prefsAppliedForPage = appliedPrefsPageKey === pageKey;
 
   const setGroupBy = useCallback(
     (mode: GroupByMode) => {
@@ -210,20 +210,33 @@ export const useBoardFilters = (
 
   const dynamicFilters = useUrlDynamicFilters(config);
 
+  const hasExplicitFilterParams = useMemo(
+    () =>
+      hasExplicitBoardFilterParams(searchParams) ||
+      config.definitions.some((definition) => searchParams.has(definition.id)),
+    [config.definitions, searchParams],
+  );
+
   // --- Restore saved filters into URL on initial load ---
   // Only applies when there are NO filter-related URL params and preferences have loaded
   useEffect(() => {
-    if (!isPrefsLoaded || hasAppliedPrefsRef.current) return;
-    hasAppliedPrefsRef.current = true;
+    if (!isPrefsLoaded || prefsAppliedForPage) return;
 
-    // Check if there are already filter-related params in the URL
-    const hasFilterParams = config.definitions.some((def) =>
-      searchParams.has(def.id)
-    );
-    const hasGroupByParam = searchParams.has("groupBy");
+    let cancelled = false;
+    const schedulePrefsApplied = () => {
+      queueMicrotask(() => {
+        if (!cancelled) setAppliedPrefsPageKey(pageKey);
+      });
+    };
 
-    // If user navigated with explicit URL params, don't override
-    if (hasFilterParams || hasGroupByParam) return;
+    // Grouping is independent from dynamic filters. Only explicit dynamic
+    // filter params should prevent restoring saved filter values.
+    if (hasExplicitFilterParams) {
+      schedulePrefsApplied();
+      return () => {
+        cancelled = true;
+      };
+    }
 
     // Build URL params from saved preferences
     const params = new URLSearchParams(searchParams.toString());
@@ -231,16 +244,20 @@ export const useBoardFilters = (
 
     // Restore groupBy
     if (viewPrefs.groupBy && viewPrefs.groupBy !== "none") {
-      params.set("groupBy", viewPrefs.groupBy);
-      hasChanges = true;
+      if (params.get("groupBy") !== viewPrefs.groupBy) {
+        params.set("groupBy", viewPrefs.groupBy);
+        hasChanges = true;
+      }
     }
 
     // Restore dynamic filter values
     for (const key of PERSISTABLE_FILTER_KEYS) {
       const savedValue = viewPrefs[key];
       if (savedValue && typeof savedValue === "string" && savedValue.length > 0) {
-        params.set(key, savedValue);
-        hasChanges = true;
+        if (params.get(key) !== savedValue) {
+          params.set(key, savedValue);
+          hasChanges = true;
+        }
       }
     }
 
@@ -248,8 +265,25 @@ export const useBoardFilters = (
       const paramString = params.toString();
       const url = paramString ? `${pathname}?${paramString}` : pathname;
       router.replace(url, { scroll: false });
+      return () => {
+        cancelled = true;
+      };
     }
-  }, [isPrefsLoaded, searchParams, config.definitions, viewPrefs, pathname, router]);
+
+    schedulePrefsApplied();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    hasExplicitFilterParams,
+    isPrefsLoaded,
+    pageKey,
+    pathname,
+    prefsAppliedForPage,
+    router,
+    searchParams,
+    viewPrefs,
+  ]);
 
   // --- Persist dynamic filter changes to backend ---
   // Watches the appliedFilters from useUrlDynamicFilters and persists changes
@@ -260,9 +294,12 @@ export const useBoardFilters = (
   }, [pageKey]);
 
   useEffect(() => {
-    if (!isPrefsLoaded || !hasAppliedPrefsRef.current) return;
+    if (!isPrefsLoaded || !prefsAppliedForPage) return;
 
-    const currentParams = dynamicFilters.getFilterParams();
+    const currentParams = {
+      ...getBoardFilterParamsFromSearchParams(searchParams),
+      ...dynamicFilters.getFilterParams(),
+    };
     const currentSnapshot = buildPersistableSnapshot({
       priority: currentParams.priority,
       assignee: currentParams.assignee,
@@ -293,14 +330,40 @@ export const useBoardFilters = (
         updatePreference(key, value || undefined);
       }
     }
-  }, [dynamicFilters, isPrefsLoaded, updatePreference, viewPrefs]);
+  }, [
+    dynamicFilters,
+    isPrefsLoaded,
+    prefsAppliedForPage,
+    searchParams,
+    updatePreference,
+    viewPrefs,
+  ]);
 
   const getFilterParams = dynamicFilters.getFilterParams;
   const filterParams = useMemo(() => {
-    const params = getFilterParams();
+    const params = {
+      ...getBoardFilterParamsFromSearchParams(searchParams),
+      ...getFilterParams(),
+    };
     if (debouncedSearch) params.search = debouncedSearch;
-    return Object.keys(params).length > 0 ? params : undefined;
-  }, [getFilterParams, debouncedSearch]);
+
+    // Query with the restored preferences immediately. The URL replacement in
+    // the effect above is presentation-only and must not be the first moment
+    // the backend receives the user's saved filters.
+    const shouldApplyPersistedFilters = !prefsAppliedForPage;
+    const resolvedParams = shouldApplyPersistedFilters
+      ? mergePersistedBoardFilterParams(params, viewPrefs, hasExplicitFilterParams)
+      : params;
+
+    return Object.keys(resolvedParams).length > 0 ? resolvedParams : undefined;
+  }, [
+    debouncedSearch,
+    getFilterParams,
+    hasExplicitFilterParams,
+    prefsAppliedForPage,
+    searchParams,
+    viewPrefs,
+  ]);
 
   return {
     search,
@@ -313,6 +376,6 @@ export const useBoardFilters = (
     sortBy,
     sortDirection,
     setSort,
-    isPrefsLoaded,
+    isPrefsLoaded: isPrefsLoaded && prefsAppliedForPage,
   };
 };
