@@ -46,9 +46,9 @@ d("CAS-safe same-set delivery Plan revisions (dedicated PostgreSQL 17)", () => {
     const partial = { ...plan, title: "Plan 2", workUnits: [{ ...plan.workUnits[0]!, title: "changed" }] };
     await sql`UPDATE work_items SET board_column_id=${id(4)},is_ai_processing=true WHERE id=${unchanged!.work_item_id}`;
     await sql`INSERT INTO agent_jobs (id,work_item_id,status,provider,config) VALUES (${id(19)},${unchanged!.work_item_id},'completed','claude-code','{}')`;
-    const carriedProjection = await sql`SELECT title,description,priority,position,work_unit_size,metadata,updated_at FROM work_items WHERE id=${unchanged!.work_item_id}`;
+    const carriedProjection = [...(await sql`SELECT title,description,priority,position,work_unit_size,metadata,updated_at FROM work_items WHERE id=${unchanged!.work_item_id}`)];
     await expect(revise(initial.planId, "unchanged-blocked", 1, partial)).resolves.toMatchObject({ outcome: "created" });
-    expect(await sql`SELECT title,description,priority,position,work_unit_size,metadata,updated_at FROM work_items WHERE id=${unchanged!.work_item_id}`).toEqual(carriedProjection);
+    expect([...(await sql`SELECT title,description,priority,position,work_unit_size,metadata,updated_at FROM work_items WHERE id=${unchanged!.work_item_id}`)]).toEqual(carriedProjection);
     const changedPlan = { ...partial, title: "Plan 3", workUnits: [{ ...partial.workUnits[0]!, title: "changed again" }] };
     const cases: Array<[string, () => Promise<unknown>, () => Promise<unknown>]> = [
       ["advanced", () => sql`UPDATE work_items SET board_column_id=${id(4)} WHERE id=${changed!.work_item_id}`, () => sql`UPDATE work_items SET board_column_id=${id(3)} WHERE id=${changed!.work_item_id}`],
