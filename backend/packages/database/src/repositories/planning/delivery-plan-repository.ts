@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { canonicalizePlanV1, parsePlanV1, type PlanV1 } from "@almirant/shared";
+import { canonicalizePlanV1, parseDeliveryPlanView, parsePlanV1, type DeliveryPlanView, type PlanV1 } from "@almirant/shared";
 import { and, eq, sql } from "drizzle-orm";
 import { db, type Database } from "../../client";
 import {
@@ -13,7 +13,7 @@ import {
   workItemEvents,
   workItems,
 } from "../../schema";
-import { assertNativePlanCompatibilityReady } from "./delivery-compatibility-repository";
+import { assertNativePlanCompatibilityReady, type DeliveryCompatibilityExecutor } from "./delivery-compatibility-repository";
 
 export type DeliveryPlanAcceptanceWriteGroup = "plan" | "work_units" | "items" | "dependencies" | "receipt" | "cas";
 export type DeliveryPlanAcceptanceErrorCode =
@@ -46,6 +46,37 @@ interface AcceptanceOptions {
 const rows = <T>(value: unknown): T[] => value as T[];
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const fail = (code: DeliveryPlanAcceptanceErrorCode): never => { throw new DeliveryPlanAcceptanceError(code); };
+type ViewItem = DeliveryPlanView["items"][number];
+type PlanRow = Omit<DeliveryPlanView, "items"> & { items: Array<Omit<ViewItem, "projection">> };
+type Projection = NonNullable<ViewItem["projection"]>;
+
+export const readDeliveryPlan = async (
+  workspaceId: string,
+  planId: string,
+  executor: DeliveryCompatibilityExecutor = db,
+): Promise<DeliveryPlanView | null> => {
+  const [plan] = rows<PlanRow>(await executor.execute(sql`
+    SELECT dp.id AS "planId", dp.project_id AS "projectId", dp.board_id AS "boardId", r.id AS "revisionId",
+      r.revision_number AS "revisionNumber", r.content_sha256 AS "contentSha256", r.content_json AS plan,
+      COALESCE(jsonb_agg(jsonb_build_object('itemId', dpi.id, 'stableKey', dpi.stable_key, 'kind', dpi.kind,
+        'parentFeatureItemId', ri.parent_feature_item_id, 'workItemId', dpi.work_item_id) ORDER BY ri.item_order)
+        FILTER (WHERE ri.item_id IS NOT NULL), '[]'::jsonb) AS items,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('workUnitItemId', d.work_unit_item_id,
+        'blockedByWorkUnitItemId', d.blocked_by_work_unit_item_id, 'dependencyOrder', d.dependency_order) ORDER BY d.dependency_order)
+        FROM delivery_plan_revision_dependencies d WHERE d.plan_revision_id = r.id), '[]'::jsonb) AS dependencies
+    FROM delivery_plans dp JOIN delivery_plan_revisions r ON r.plan_id = dp.id AND r.revision_number = dp.current_revision_number
+    LEFT JOIN delivery_plan_revision_items ri ON ri.plan_revision_id = r.id LEFT JOIN delivery_plan_items dpi ON dpi.id = ri.item_id
+    WHERE dp.id = ${planId}::uuid AND dp.workspace_id = ${workspaceId}
+    GROUP BY dp.id, r.id`));
+  if (!plan) return null;
+  const workItemIds = plan.items.flatMap((item) => item.workItemId ? [item.workItemId] : []);
+  const projections = workItemIds.length ? rows<Projection>(await executor.execute(sql`
+    SELECT id AS "workItemId", board_column_id AS "boardColumnId", work_unit_size AS size, backlog_intent AS "backlogIntent"
+    FROM work_items WHERE id IN (${sql.join(workItemIds.map((id) => sql`${id}::uuid`), sql`, `)})
+      AND project_id = ${plan.projectId}::uuid AND board_id = ${plan.boardId}::uuid`)) : [];
+  const byId = new Map(projections.map((projection) => [projection.workItemId, projection]));
+  return parseDeliveryPlanView({ ...plan, items: plan.items.map((item) => ({ ...item, projection: item.workItemId ? byId.get(item.workItemId) ?? null : null })) });
+};
 
 export const acceptFirstDeliveryPlan = async (
   input: FirstDeliveryPlanAcceptanceInput,
@@ -78,8 +109,11 @@ export const acceptFirstDeliveryPlan = async (
             content_sha256 AS "contentSha256", response_sha256 AS "responseSha256"
           FROM delivery_plan_acceptance_receipts r JOIN delivery_plan_revisions v ON v.id = r.revision_id
           WHERE r.plan_id = ${existing.planId}::uuid AND r.idempotency_key = ${input.requestKey}`));
-        if (!receipt) fail("acceptance_conflict");
-        return { planId: existing.planId, ...receipt, revisionNumber: 1, replayed: true };
+        if (!receipt) return fail("acceptance_conflict");
+        return {
+          planId: existing.planId, revisionId: receipt.revisionId, revisionNumber: 1,
+          contentSha256: receipt.contentSha256, responseSha256: receipt.responseSha256, replayed: true,
+        };
       }
 
       const planId = randomUUID();

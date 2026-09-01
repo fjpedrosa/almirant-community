@@ -4,6 +4,7 @@ import { seedsRoutes } from "./seeds/routes/seeds.routes";
 import { todosRoutes } from "./todos/routes/todos.routes";
 import { planningSessionsRoutes } from "./planning-sessions/routes/planning-sessions.routes";
 import { skillInterviewRoutes } from "./skill-interview/routes/skill-interview.routes";
+import { deliveryPlansModule } from "./delivery-plans";
 
 export const ideationModule = {
   /** Protected routes — mounted inside /api group (session auth) */
@@ -13,5 +14,6 @@ export const ideationModule = {
       .use(seedsRoutes)
       .use(todosRoutes)
       .use(planningSessionsRoutes)
-      .use(skillInterviewRoutes),
+      .use(skillInterviewRoutes)
+          .use(deliveryPlansModule()),
 };

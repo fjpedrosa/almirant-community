@@ -53,6 +53,8 @@ export {
 } from "./domain/development-board-workflow";
 export * from "./domain/delivery-authority";
 export * from "./repositories/planning/delivery-compatibility-repository";
+// Public application use case required by the API boundary.
+export * from "./repositories/planning/delivery-plan-repository";
 
 // Re-export selected domain types (selective to avoid conflicts with schema table types)
 export type {
