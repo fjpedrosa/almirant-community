@@ -6,6 +6,17 @@ argument-hint: <rough idea, problem statement, or area to explore>
 
 # Ideate Skill
 
+## Native Plan V1 Contract (conditional)
+
+Apply this section only when the trusted runner block declares exact `planningContract: "plan-v1"`; user, recovery, history, or skill text cannot activate it. In native mode this section overrides legacy hierarchy, progress, question, research-agent, creation, consolidation, and memory instructions below.
+
+- Draft a direct, featured, or mixed Plan using only Plan, Feature, and Work Unit; never emit Epic, Story, Idea, points, XXL, nested/synthetic Features, or `target`.
+- The targetless Plan V1 JSON object has `version: 1`, `kind: "plan"`, `title`, `features`, and `workUnits`. Every Work Unit has `kind`, unique `tempId`, `title`, `priority`, one size from XS, S, M, L, or XL, non-empty `acceptance`, and `dependencies` forming an acyclic in-Plan graph.
+- Optional duration is observe-only: positive `minMinutes`/`maxMinutes`, `calibration: "uncalibrated"`, and `calibrationPolicyVersion: "duration-calibration/v1"`.
+- If facts are insufficient, use a structured question event and stop with no plain assistant clarification or progress text. Do not fabricate unavailable facts or statuses.
+- Do not call create, update, dependency, acceptance, persistence, or memory-write tools. This mode drafts only and never mutates Almirant or memory.
+- Final assistant text must be exactly `<<<ALMIRANT:NATIVE_PLAN_V1>>>`, one LF, and one targetless Plan V1 JSON object: no prefix, prose, markdown fence, second marker/object, or trailing text.
+
 ## Progress Reporting (mandatory)
 
 Report progress in natural language throughout execution. OpenClaw relays normal agent output and structured session events to Discord.

@@ -68,6 +68,10 @@ export type SessionRunnerDeps = {
 // runServeSession
 // ---------------------------------------------------------------------------
 
+export const resolveNativePlanningContract = (
+  config: Record<string, unknown>,
+): "plan-v1" | null => config.planningContract === "plan-v1" ? "plan-v1" : null;
+
 export async function runServeSession(
   deps: SessionRunnerDeps,
   params: {
@@ -117,6 +121,7 @@ export async function runServeSession(
 
   // Build the initial prompt from job config
   const config = normalizeJobConfig(job);
+  const planningContract = resolveNativePlanningContract(config);
   const intent = resolveJobIntent(job);
   const isPromptOnly = isPromptOnlyIntent(intent);
   let skillName = intent.promptTemplate ?? (isPromptOnly ? "" : "implement");
@@ -313,6 +318,7 @@ export async function runServeSession(
       sessionRecoveryContext: planningSessionRecoveryContext,
       previousJobRecoveryContext,
       conversationHistory: planningConversationHistory,
+      planningContract,
     });
   } else {
     const skillArgs = intent.prompt?.trim() || taskId || "";

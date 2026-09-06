@@ -1,8 +1,16 @@
-import { canonicalizePlanV1, parsePlanV1, type PlanV1 } from "@almirant/shared";
+import {
+  canonicalizePlanV1,
+  MAX_NATIVE_PLAN_V1_OUTPUT_CHARS as MAX_NATIVE_PLAN_OUTPUT_CHARS,
+  NATIVE_PLAN_V1_MARKER as NATIVE_PLAN_MARKER,
+  parsePlanV1,
+  type PlanV1,
+} from "@almirant/shared";
 import { isFeatureFlagEnabled } from "../../../../shared/services/posthog-service";
 
-export const NATIVE_PLAN_MARKER = "<<<ALMIRANT:NATIVE_PLAN_V1>>>";
-export const MAX_NATIVE_PLAN_OUTPUT_CHARS = 65_536;
+export {
+  MAX_NATIVE_PLAN_V1_OUTPUT_CHARS as MAX_NATIVE_PLAN_OUTPUT_CHARS,
+  NATIVE_PLAN_V1_MARKER as NATIVE_PLAN_MARKER,
+} from "@almirant/shared";
 const FLAG = "native-plan-generation-v1";
 
 type ScopeInput = {

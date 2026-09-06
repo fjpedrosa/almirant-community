@@ -1,0 +1,2 @@
+export const NATIVE_PLAN_V1_MARKER = "<<<ALMIRANT:NATIVE_PLAN_V1>>>" as const;
+export const MAX_NATIVE_PLAN_V1_OUTPUT_CHARS = 65_536;

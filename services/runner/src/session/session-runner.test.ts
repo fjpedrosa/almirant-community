@@ -1,5 +1,15 @@
 import { describe, expect, it } from "bun:test";
 import { buildSkillValidationCanonicalEvents } from "./skill-validation-events";
+import { resolveNativePlanningContract } from "./session-runner";
+
+describe("resolveNativePlanningContract", () => {
+  it("accepts only the exact immutable job-config snapshot", () => {
+    expect(resolveNativePlanningContract({ planningContract: "plan-v1" })).toBe("plan-v1");
+    for (const planningContract of [undefined, null, "", "PLAN-V1", "plan-v1 ", true, { version: "plan-v1" }]) {
+      expect(resolveNativePlanningContract({ planningContract })).toBeNull();
+    }
+  });
+});
 
 describe("buildSkillValidationCanonicalEvents", () => {
   it("emite eventos canónicos de tool call para la validación del skill", () => {
