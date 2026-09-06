@@ -131,6 +131,29 @@ export const listAgentJobLogsByJobId = async (
   };
 };
 
+export const getBoundedAssistantOutputByJobId = async (
+  jobId: string,
+  maxChars = 65_536,
+): Promise<{ text: string; truncated: boolean }> => {
+  const rows = await db
+    .select({ message: agentJobLogs.message })
+    .from(agentJobLogs)
+    .where(and(
+      eq(agentJobLogs.jobId, jobId),
+      eq(agentJobLogs.phase, "transcript"),
+      eq(agentJobLogs.eventType, "raw_output"),
+      eq(agentJobLogs.contentType, "text"),
+    ))
+    .orderBy(asc(agentJobLogs.seq), asc(agentJobLogs.timestamp))
+    .limit(MAX_PAGE_SIZE + 1);
+  let text = "";
+  for (const row of rows) {
+    if (text.length + row.message.length > maxChars) return { text, truncated: true };
+    text += row.message;
+  }
+  return { text, truncated: rows.length > MAX_PAGE_SIZE };
+};
+
 /**
  * Convenience function to retrieve raw transcript entries for a given job.
  * Filters by phase="transcript" and returns entries ordered by seq for
@@ -277,7 +300,7 @@ export const getConversationHistoryFromLogs = async (
  */
 export const getLatestJobForPlanningSession = async (
   planningSessionId: string
-): Promise<{ id: string; codingAgent: string; aiProvider: string; model: string; provider: string } | null> => {
+): Promise<{ id: string; codingAgent: string; aiProvider: string; model: string; provider: string; config?: typeof agentJobs.$inferSelect.config } | null> => {
   const [row] = await db
     .select({
       id: agentJobs.id,
@@ -285,6 +308,7 @@ export const getLatestJobForPlanningSession = async (
       aiProvider: agentJobs.aiProvider,
       model: agentJobs.model,
       provider: agentJobs.provider,
+      config: agentJobs.config,
     })
     .from(agentJobs)
     .where(eq(agentJobs.planningSessionId, planningSessionId))

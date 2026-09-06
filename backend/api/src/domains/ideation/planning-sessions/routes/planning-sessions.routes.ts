@@ -26,6 +26,7 @@ import {
   getRepositories,
   getJobById,
   listAgentJobLogsByJobId,
+  getBoundedAssistantOutputByJobId,
   getLatestPlanReviewAdmissionBySession,
 } from "@almirant/database";
 import { resolveRuntime } from "@almirant/shared";
@@ -44,6 +45,7 @@ import { logger } from "@almirant/config";
 import { inferPlanningSkillName } from "../services/planning-skill-routing";
 import { getOrRefreshCanonicalSessionProjection } from "../services/canonical-session-projection";
 import { planReviewHydrationResponse } from "../services/plan-review-hydration";
+import { buildNativePlanningSnapshot, parseNativePlanOutput } from "../../../ai/shared/services/native-plan-generation";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -667,6 +669,14 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
 
         // Resume marker handled via canonical event path (agent_job_logs)
 
+        const nativeSnapshot = await buildNativePlanningSnapshot({
+          workspaceId: orgId,
+          sessionWorkspaceId: resumed.workspaceId,
+          requestedByUserId: userId,
+          projectId: resumed.projectId,
+          boardId: resumed.boardId,
+        });
+
         // Create a new agent job with history
         const job = await createJob({
           projectId: resumed.projectId ?? null,
@@ -691,6 +701,7 @@ export const planningSessionsRoutes = new Elysia({ prefix: "/planning-sessions" 
             baseBranch: "main",
             seedIds: [],
             userMessage: resumeUserMessage,
+            ...(nativeSnapshot ?? {}),
             ...(conversationHistory.length > 0 ? { conversationHistory } : {}),
             ...(recoveryContext ? { recoveryContext } : {}),
           },
@@ -1224,6 +1235,27 @@ Examples:
               : new Date(log.timestamp).toISOString(),
         }));
 
+        const config = (latestJob.config ?? {}) as unknown as Record<string, unknown>;
+        let nativeResult: ReturnType<typeof parseNativePlanOutput> | { status: "unavailable" } | null = null;
+        if (
+          config.planningContract === "plan-v1" &&
+          config.workspaceId === workspaceId &&
+          typeof config.projectId === "string" &&
+          typeof config.boardId === "string" &&
+          typeof config.requestedByUserId === "string"
+        ) {
+          try {
+            const output = await getBoundedAssistantOutputByJobId(latestJob.id);
+            nativeResult = parseNativePlanOutput({
+              assistantText: output.text,
+              truncated: output.truncated,
+              target: { projectId: config.projectId, boardId: config.boardId },
+            });
+          } catch {
+            nativeResult = { status: "unavailable" };
+          }
+        }
+
         return successResponse({
           jobId: latestJob.id,
           sessionId: params.id,
@@ -1231,6 +1263,12 @@ Examples:
           text: chunks.map((chunk) => chunk.message).join("\n"),
           nextCursor: result.nextCursor,
           hasMore: result.nextCursor !== null,
+          ...(nativeResult?.status === "available" ? {
+            nativePlanStatus: nativeResult.status,
+            nativePlan: nativeResult.plan,
+            nativePlanContent: nativeResult.content,
+            nativePlanSha256: nativeResult.sha256,
+          } : nativeResult ? { nativePlanStatus: nativeResult.status } : {}),
         });
       } catch (error) {
         const mapped = mapPlanningErrorToHttp(normalizeErrorMessage(error));

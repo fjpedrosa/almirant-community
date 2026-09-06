@@ -11,15 +11,18 @@ import {
 const state = {
   session: {
     id: "session-1",
+    workspaceId: "org-1",
     projectId: "project-1",
     boardId: "board-1",
     status: "active",
   } as {
     id: string;
+    workspaceId: string;
     projectId: string | null;
     boardId: string | null;
     status: string;
   } | null,
+  nativeFlag: false,
   createJobInput: null as Record<string, unknown> | null,
   activeJob: {
     id: "job-1",
@@ -179,6 +182,9 @@ mock.module("../../domains/ai/shared/services/ai-service", () => ({
 }));
 
 mock.module("@almirant/config", () => createLoggerMock());
+mock.module("../services/posthog-service", () => ({
+  isFeatureFlagEnabled: async () => state.nativeFlag,
+}));
 
 const wsMocks = createWsMock();
 mock.module("./ws-connection-manager", () => ({
@@ -199,10 +205,12 @@ describe("ws-message-router planning flow", () => {
   beforeEach(() => {
     state.session = {
       id: "session-1",
+      workspaceId: "org-1",
       projectId: "project-1",
       boardId: "board-1",
       status: "active",
     };
+    state.nativeFlag = false;
     state.createJobInput = null;
     state.persistedInputs = [];
     state.convertPrewarmCall = null;
@@ -261,6 +269,7 @@ describe("ws-message-router planning flow", () => {
       workspaceIntent: "read-only",
       postSessionPushPolicy: "never",
     });
+    expect(state.createJobInput?.config).not.toHaveProperty("planningContract");
     expect(state.persistedInputs).toContainEqual({
       jobId: "job-created-1",
       orgId: "org-1",
@@ -275,6 +284,7 @@ describe("ws-message-router planning flow", () => {
 
   it("usa refine cuando el prompt de planning referencia una epica existente", async () => {
     const { routeMessage } = await import("./ws-message-router");
+    state.nativeFlag = true;
 
     const sentMessages: WsServerMessage[] = [];
     routeMessage(
@@ -299,6 +309,7 @@ describe("ws-message-router planning flow", () => {
     expect(state.createJobInput?.config).toMatchObject({
       skillName: "refine",
       userMessage: "Tengo una duda sobre la implementacion de la epica A-E-52 y sus dependencias",
+      planningContract: "plan-v1", workspaceId: "org-1", projectId: "project-1", boardId: "board-1",
     });
     expect(
       sentMessages.some((m) => m.type === "planning:step"),
@@ -491,6 +502,7 @@ describe("ws-message-router planning flow", () => {
   it("converts prewarm jobs into interactive planning jobs", async () => {
     const { routeMessage } = await import("./ws-message-router");
 
+    state.nativeFlag = true;
     state.prewarmJob = {
       id: "prewarm-1",
       config: {
@@ -535,6 +547,10 @@ describe("ws-message-router planning flow", () => {
         isPrewarm: false,
         workspaceIntent: "read-only",
         postSessionPushPolicy: "never",
+        planningContract: "plan-v1",
+        workspaceId: "org-1",
+        projectId: "project-1",
+        boardId: "board-1",
       },
       overrides: {
         provider: "codex",
@@ -562,6 +578,7 @@ describe("ws-message-router planning flow", () => {
     const { routeMessage } = await import("./ws-message-router");
 
     state.activeJob = null;
+    state.nativeFlag = true;
 
     const sentMessages: WsServerMessage[] = [];
     routeMessage(
@@ -590,6 +607,10 @@ describe("ws-message-router planning flow", () => {
       userMessage: "Continua el ideate con criterios de priorizacion",
       workspaceIntent: "read-only",
       postSessionPushPolicy: "never",
+      planningContract: "plan-v1",
+      workspaceId: "org-1",
+      projectId: "project-1",
+      boardId: "board-1",
     });
     expect(state.persistedInputs).toContainEqual({
       jobId: "job-created-1",
