@@ -1,3 +1,7 @@
+import {
+  MAX_NATIVE_PLAN_V1_OUTPUT_CHARS,
+  NATIVE_PLAN_V1_MARKER,
+} from "@almirant/shared";
 import type { RuntimeType } from "../shared/types";
 
 export type PlanningConversationEntry = {
@@ -15,6 +19,33 @@ export type BuildPlanningPromptParams = {
   sessionRecoveryContext?: string | null;
   previousJobRecoveryContext?: string | null;
   conversationHistory?: PlanningConversationEntry[];
+  planningContract?: unknown;
+};
+
+const NATIVE_PLAN_BLOCK_START = '<native_plan_protocol trusted="runner" version="plan-v1">';
+const NATIVE_PLAN_BLOCK_END = "</native_plan_protocol>";
+const NATIVE_PLAN_BLOCK = [
+  NATIVE_PLAN_BLOCK_START,
+  'planningContract: "plan-v1" is active for this invocation.',
+  `Final assistant text must be exactly ${NATIVE_PLAN_V1_MARKER} followed by LF and one targetless Plan V1 JSON object, with no prose, fence, or trailing text.`,
+  `Keep the entire final assistant text at most ${MAX_NATIVE_PLAN_V1_OUTPUT_CHARS} characters.`,
+  "Use only structured question events for clarification; emit no plain assistant clarification or progress text.",
+  "Do not call create, update, dependency, acceptance, persistence, or memory-write tools, and do not fabricate unavailable facts or statuses.",
+  NATIVE_PLAN_BLOCK_END,
+].join("\n");
+
+const neutralizeNativePlanProtocolText = (value: string): string =>
+  value
+    .replace(/ALMIRANT\s*:\s*NATIVE_PLAN_V1/gi, "[reserved-plan-marker]")
+    .replace(/native[\s_-]*plan[\s_-]*protocol/gi, "[reserved-plan-wrapper]");
+
+export const applyNativePlanPromptProtocol = (
+  prompt: string,
+  planningContract: unknown,
+): string => {
+  const neutralized = neutralizeNativePlanProtocolText(prompt);
+  if (planningContract !== "plan-v1") return neutralized;
+  return `${neutralized}\n\n${NATIVE_PLAN_BLOCK}`.trim();
 };
 
 const LOCALE_NAMES: Record<string, string> = {
@@ -36,7 +67,7 @@ const buildHistoryBlock = (
 
   const historyBlock = conversationHistory
     .map((message) =>
-      `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`,
+      `${message.role === "user" ? "User" : "Assistant"}: ${neutralizeNativePlanProtocolText(message.content)}`,
     )
     .join("\n\n");
 
@@ -96,7 +127,18 @@ export const shouldInlinePlanningSkillContent = (
 export const buildPlanningPrompt = (
   params: BuildPlanningPromptParams,
 ): string => {
-  const userMessage = params.userMessage?.trim() ?? "";
+  const skillName = neutralizeNativePlanProtocolText(params.skillName);
+  const skillContent = params.skillContent
+    ? neutralizeNativePlanProtocolText(params.skillContent)
+    : null;
+  const userMessage = neutralizeNativePlanProtocolText(params.userMessage?.trim() ?? "");
+  const seedIds = params.seedIds?.map(neutralizeNativePlanProtocolText);
+  const previousJobRecoveryContext = params.previousJobRecoveryContext
+    ? neutralizeNativePlanProtocolText(params.previousJobRecoveryContext)
+    : null;
+  const sessionRecoveryContext = params.sessionRecoveryContext
+    ? neutralizeNativePlanProtocolText(params.sessionRecoveryContext)
+    : null;
   const sections: string[] = [];
   const userRequestBlock = userMessage.length > 0
     ? `<user_request>\n${userMessage}\n</user_request>`
@@ -106,13 +148,13 @@ export const buildPlanningPrompt = (
     && !shouldInlinePlanningSkillContent(params.runtimeType, params);
 
   if (usesSlashCommand) {
-    sections.push(`/${params.skillName}`);
+    sections.push(`/${skillName}`);
     appendSection(sections, buildLocaleInstruction(params.promptLocale));
   } else {
     appendSection(
       sections,
-      params.skillContent
-        ? `<skill name="${params.skillName}">\n${params.skillContent}\n</skill>`
+      skillContent
+        ? `<skill name="${skillName}">\n${skillContent}\n</skill>`
         : null,
     );
     appendSection(sections, buildLocaleInstruction(params.promptLocale));
@@ -120,20 +162,20 @@ export const buildPlanningPrompt = (
 
   appendSection(
     sections,
-    params.seedIds && params.seedIds.length > 0
-      ? `Seed IDs for context (use get_seeds_for_ideation to fetch details): ${params.seedIds.join(", ")}`
+    seedIds && seedIds.length > 0
+      ? `Seed IDs for context (use get_seeds_for_ideation to fetch details): ${seedIds.join(", ")}`
       : null,
   );
   appendSection(
     sections,
-    params.previousJobRecoveryContext
-      ? `<previous_job_recovery>\n${params.previousJobRecoveryContext}\n</previous_job_recovery>`
+    previousJobRecoveryContext
+      ? `<previous_job_recovery>\n${previousJobRecoveryContext}\n</previous_job_recovery>`
       : null,
   );
   appendSection(
     sections,
-    params.sessionRecoveryContext
-      ? `<session_recovery>\n${params.sessionRecoveryContext}\n</session_recovery>`
+    sessionRecoveryContext
+      ? `<session_recovery>\n${sessionRecoveryContext}\n</session_recovery>`
       : null,
   );
   appendSection(
@@ -143,7 +185,7 @@ export const buildPlanningPrompt = (
   if (!usesSlashCommand) {
     appendSection(
       sections,
-      `Start the ${params.skillName} session using the following user request.`,
+      `Start the ${skillName} session using the following user request.`,
     );
   }
   // Keep the current request at the end of the prompt so resumed sessions do
@@ -156,5 +198,8 @@ export const buildPlanningPrompt = (
         : "No explicit user request was provided. Start by eliciting the missing idea or goal."),
   );
 
-  return sections.join("\n\n").trim();
+  return applyNativePlanPromptProtocol(
+    sections.join("\n\n").trim(),
+    params.planningContract,
+  );
 };
