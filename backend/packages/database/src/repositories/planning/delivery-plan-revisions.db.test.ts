@@ -67,9 +67,12 @@ d("CAS-safe same-set delivery Plan revisions (dedicated PostgreSQL 17)", () => {
     await expect(revise(initial.planId, "allowed", 2, changedPlan)).resolves.toMatchObject({ revisionNumber: 3 });
   });
 
-  test("rejects membership/kind changes and rolls back write groups before a race produces one stale loser", async () => {
-    const initial = await first();
-    await expect(revise(initial.planId, "removed", 1, { ...plan2, workUnits: [], features: [{ ...plan2.features[0]!, workUnits: [{ ...plan2.features[0]!.workUnits[0]!, dependencies: [] }] }] })).rejects.toMatchObject({ code: "acceptance_conflict" });
+  test("allows safe removal, rejects blocked removal/kind changes, and rolls back before one stale race loser", async () => {
+    const removedPlan = { ...plan2, workUnits: [], features: [{ ...plan2.features[0]!, workUnits: [{ ...plan2.features[0]!.workUnits[0]!, dependencies: [] }] }] };
+    const initial = await first(), [removed] = await sql<Array<{ work_item_id: string }>>`SELECT work_item_id FROM delivery_plan_items WHERE plan_id=${initial.planId} AND stable_key='wu-b'`;
+    await sql`INSERT INTO agent_jobs (id,work_item_id,status,provider,config) VALUES (${id(19)},${removed!.work_item_id},'completed','claude-code','{}')`;
+    await expect(revise(initial.planId, "blocked-removal", 1, removedPlan)).rejects.toMatchObject({ code: "acceptance_conflict" });
+    await sql`DELETE FROM agent_jobs WHERE id=${id(19)}`;
     await expect(revise(initial.planId, "kind", 1, { ...plan2, features: [{ ...plan2.features[0]!, tempId: "wu-b" }] })).rejects.toMatchObject({ code: "acceptance_invalid_plan" });
     await expect(acceptRevisedDeliveryPlan({ workspaceId: "other-tenant", userId: scope.userId, planId: initial.planId, requestKey: "cross-tenant", expectedCurrentRevisionNumber: 1, plan: plan2 }, { database })).rejects.toMatchObject({ code: "acceptance_unauthorized" });
     for (const group of ["plan", "work_units", "items", "dependencies", "receipt", "cas"] as DeliveryPlanAcceptanceWriteGroup[]) { await expect(revise(initial.planId, `rollback-${group}`, 1, plan2, group)).rejects.toThrow(`injected_${group}`); expect([...(await sql`SELECT current_revision_number FROM delivery_plans WHERE id=${initial.planId}`)]).toEqual([{ current_revision_number: 1 }]); expect(await sql`SELECT 1 FROM delivery_plan_revisions`).toHaveLength(1); expect(await sql`SELECT 1 FROM delivery_plan_acceptance_receipts`).toHaveLength(1); }
@@ -79,5 +82,7 @@ d("CAS-safe same-set delivery Plan revisions (dedicated PostgreSQL 17)", () => {
     const same = await Promise.all([revise(initial.planId, "same-race", 2, plan), revise(initial.planId, "same-race", 2, plan)]); expect(same.map(({ replayed }) => replayed).sort()).toEqual([false, true]);
     const outcomes = await Promise.allSettled([revise(initial.planId, "winner-a", 3), revise(initial.planId, "winner-b", 3, { ...plan2, title: "other" })]);
     expect(outcomes.filter((value) => value.status === "fulfilled")).toHaveLength(1); expect(outcomes.filter((value) => value.status === "rejected").map((value) => (value as PromiseRejectedResult).reason.code)).toEqual(["acceptance_stale_revision"]);
+    const safeInitial = await first("safe-removal");
+    await expect(revise(safeInitial.planId, "removed", 1, removedPlan)).resolves.toMatchObject({ revisionNumber: 2, outcome: "created" });
   });
 });
