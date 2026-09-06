@@ -25,6 +25,7 @@ import {
   getJobById,
 } from "@almirant/database";
 import { inferPlanningSkillName } from "../../domains/ideation/planning-sessions/services/planning-skill-routing";
+import { buildNativePlanningSnapshot } from "../../domains/ai/shared/services/native-plan-generation";
 import { wsConnectionManager } from "./ws-connection-manager";
 import type { WsClientMessage, WsServerMessage } from "./ws-types";
 
@@ -126,6 +127,13 @@ const startPlanningJob = async ({
       prompt: userMessage,
       previousSkillName,
     });
+    const nativeSnapshot = await buildNativePlanningSnapshot({
+      workspaceId,
+      sessionWorkspaceId: session.workspaceId,
+      requestedByUserId: userId,
+      projectId: session.projectId,
+      boardId: session.boardId,
+    });
 
     const job = await createJob({
       projectId: session.projectId ?? null,
@@ -150,6 +158,7 @@ const startPlanningJob = async ({
         baseBranch: "main",
         seedIds: seedIds ?? [],
         userMessage,
+        ...(nativeSnapshot ?? {}),
         ...(codingAgent ? { codingAgent: resolved.codingAgent } : {}),
         ...(model ? { model } : {}),
         ...(conversationHistory && conversationHistory.length > 0
@@ -241,7 +250,10 @@ const handlePlanningStart = (
 
         // Update the prewarm job with the real planning config,
         // including the user-selected coding agent/provider/model.
-        const prewarmConfigRecord = prewarmJob.config as unknown as Record<string, unknown>;
+        const prewarmConfigRecord = { ...(prewarmJob.config as unknown as Record<string, unknown>) };
+        delete prewarmConfigRecord.planningContract;
+        delete prewarmConfigRecord.workspaceId;
+        delete prewarmConfigRecord.boardId;
         const prewarmResolved = resolveRuntime({ provider, codingAgent, model });
         const skillName = inferPlanningSkillName({
           prompt: userMessage,
@@ -253,6 +265,13 @@ const handlePlanningStart = (
                 : typeof prewarmConfigRecord.skillName === "string"
                   ? prewarmConfigRecord.skillName
                   : null,
+        });
+        const nativeSnapshot = await buildNativePlanningSnapshot({
+          workspaceId,
+          sessionWorkspaceId: session.workspaceId,
+          requestedByUserId: userId,
+          projectId: session.projectId,
+          boardId: session.boardId,
         });
         const converted = await convertPrewarmToPlanning(prewarmJob.id, {
           ...prewarmConfigRecord,
@@ -271,6 +290,7 @@ const handlePlanningStart = (
           seedIds: seedIds ?? [],
           userMessage,
           isPrewarm: false,
+          ...(nativeSnapshot ?? {}),
           ...(codingAgent ? { codingAgent: prewarmResolved.codingAgent } : {}),
           ...(model ? { model } : {}),
         }, {

@@ -69,6 +69,9 @@ export interface AgentJobConfig {
   /** @deprecated The runner computes the Almirant MCP URL dynamically per job. */
   mcpServerUrl?: string;
   projectId?: string;
+  boardId?: string;
+  workspaceId?: string;
+  planningContract?: "plan-v1";
   /** Source scheduled-agent config UUID when a job is created from scheduled_agent_configs. */
   scheduledConfigId?: string;
   /** Human-readable scheduled-agent config name for session list UX and audit context. */
