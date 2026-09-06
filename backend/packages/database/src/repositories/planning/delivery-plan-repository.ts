@@ -217,14 +217,15 @@ export const acceptRevisedDeliveryPlan = async (input: RevisedDeliveryPlanAccept
       if (!revision) return fail("acceptance_conflict"); const stored = { ...aggregate, ...revision };
       if (plan.target.projectId !== stored.projectId || plan.target.boardId !== stored.boardId) fail("acceptance_scope_mismatch");
       const allItems = rows<{ itemId: string; stableKey: string; kind: "feature" | "work_unit"; workItemId: string | null }>(await tx.execute(sql`SELECT id AS "itemId",stable_key AS "stableKey",kind,work_item_id AS "workItemId" FROM delivery_plan_items WHERE plan_id=${input.planId}::uuid`));
-      const units = rows<{ itemId: string; stableKey: string; workItemId: string; itemJson: PlanV1["workUnits"][number]; parentKey: string | null; columnRole: string; columnName: string; backlogIntent: string | null; isAiProcessing: boolean; blocked: boolean }>(await tx.execute(sql`
-        SELECT i.id AS "itemId",i.stable_key AS "stableKey",i.work_item_id AS "workItemId",ri.item_json AS "itemJson",parent.stable_key AS "parentKey",
-          c.role AS "columnRole",c.name AS "columnName",w.backlog_intent AS "backlogIntent",w.is_ai_processing AS "isAiProcessing",
+      type StoredUnit = { itemId: string; stableKey: string; workItemId: string; current: boolean; archivedAt: string | null; columnRole: string; columnName: string; backlogIntent: string | null; isAiProcessing: boolean; blocked: boolean };
+      const units = rows<StoredUnit>(await tx.execute(sql`
+        SELECT i.id AS "itemId",i.stable_key AS "stableKey",i.work_item_id AS "workItemId",ri.item_id IS NOT NULL AS current,
+          to_char(w.archived_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "archivedAt",c.role AS "columnRole",c.name AS "columnName",w.backlog_intent AS "backlogIntent",w.is_ai_processing AS "isAiProcessing",
           (EXISTS(SELECT 1 FROM agent_jobs j WHERE j.work_item_id=w.id) OR EXISTS(SELECT 1 FROM ai_sessions s WHERE s.work_item_id=w.id) OR EXISTS(SELECT 1 FROM integration_batch_items bi WHERE bi.work_item_id=w.id)) AS blocked
-        FROM delivery_plan_revision_items ri JOIN delivery_plan_items i ON i.id=ri.item_id JOIN work_items w ON w.id=i.work_item_id
-        JOIN board_columns c ON c.id=w.board_column_id LEFT JOIN delivery_plan_items parent ON parent.id=ri.parent_feature_item_id
-        WHERE ri.plan_revision_id=${stored.revisionId}::uuid AND i.kind='work_unit' ORDER BY w.id FOR UPDATE OF w`));
-      const backlog = rows(await tx.execute(sql`SELECT id FROM board_columns WHERE board_id=${stored.boardId}::uuid AND role='backlog' AND name='Backlog' ORDER BY id FOR UPDATE`));
+        FROM delivery_plan_items i JOIN work_items w ON w.id=i.work_item_id JOIN board_columns c ON c.id=w.board_column_id
+        LEFT JOIN delivery_plan_revision_items ri ON ri.item_id=i.id AND ri.plan_revision_id=${stored.revisionId}::uuid
+        WHERE i.plan_id=${input.planId}::uuid AND i.kind='work_unit' ORDER BY w.id FOR UPDATE OF w`));
+      const backlog = rows<{ id: string }>(await tx.execute(sql`SELECT id FROM board_columns WHERE board_id=${stored.boardId}::uuid AND role='backlog' AND name='Backlog' ORDER BY id FOR UPDATE`));
       await assertNativePlanCompatibilityReady({ workspaceId: input.workspaceId, projectId: stored.projectId, boardId: stored.boardId }, tx);
       if (backlog.length !== 1) fail("acceptance_conflict");
       const [receipt] = rows<{ requestSha256: string; revisionId: string; revisionNumber: number; contentSha256: string; responseSha256: string }>(await tx.execute(sql`
@@ -237,34 +238,61 @@ export const acceptRevisedDeliveryPlan = async (input: RevisedDeliveryPlanAccept
         return { ...base, responseSha256: receipt.responseSha256, replayed: true, outcome };
       }
       if (stored.revisionNumber !== input.expectedCurrentRevisionNumber) fail("acceptance_stale_revision");
-      const incoming = flatten(plan), incomingKeys = incoming.map(({ unit }) => unit.tempId).sort(), currentKeys = units.map(({ stableKey }) => stableKey).sort();
-      if (JSON.stringify(incomingKeys) !== JSON.stringify(currentKeys)) fail("acceptance_conflict");
-      const existing = new Map(allItems.map((item) => [item.stableKey, item]));
+      const incoming = flatten(plan), incomingKeys = incoming.map(({ unit }) => unit.tempId).sort();
+      const existing = new Map(allItems.map((item) => [item.stableKey, item])), storedUnits = new Map(units.map((unit) => [unit.stableKey, unit]));
       for (const key of plan.features.map((feature) => feature.tempId)) if (existing.get(key)?.kind === "work_unit") fail("acceptance_conflict");
-      for (const key of incomingKeys) if (existing.get(key)?.kind !== "work_unit") fail("acceptance_conflict");
+      for (const key of incomingKeys) {
+        if (existing.get(key)?.kind === "feature" || (existing.get(key)?.kind === "work_unit" && !storedUnits.has(key))) fail("acceptance_conflict");
+      }
       const incomingByKey = new Map(incoming.map((value) => [value.unit.tempId, value]));
-      const currentPlanByKey = new Map(flatten(parsePlanV1(stored.contentJson)).map((value) => [value.unit.tempId, value]));
-      const changed = units.filter((unit) => digest(currentPlanByKey.get(unit.stableKey)) !== digest(incomingByKey.get(unit.stableKey)));
-      if (changed.some((unit) => unit.columnRole !== "backlog" || unit.columnName !== "Backlog" || unit.backlogIntent !== "new" || unit.isAiProcessing || unit.blocked)) fail("acceptance_projection_blocked");
+      const currentUnits = units.filter((unit) => unit.current), currentPlanByKey = new Map(flatten(parsePlanV1(stored.contentJson)).map((value) => [value.unit.tempId, value]));
+      const changed = currentUnits.filter((unit) => incomingByKey.has(unit.stableKey) && digest(currentPlanByKey.get(unit.stableKey)) !== digest(incomingByKey.get(unit.stableKey)));
+      const removed = currentUnits.filter((unit) => !incomingByKey.has(unit.stableKey));
+      const restored = incoming.flatMap(({ unit }) => { const storedUnit = storedUnits.get(unit.tempId); return storedUnit && !storedUnit.current ? [storedUnit] : []; });
+      const mutable = [...changed, ...removed, ...restored];
+      if (removed.some((unit) => unit.blocked)) fail("acceptance_conflict");
+      if (mutable.some((unit) => unit.columnRole !== "backlog" || unit.columnName !== "Backlog" || unit.backlogIntent !== "new" || unit.isAiProcessing || unit.blocked)
+        || [...changed, ...removed].some((unit) => unit.archivedAt !== null) || restored.some((unit) => unit.archivedAt === null)) fail("acceptance_projection_blocked");
       const outcome = canonical.sha256 === stored.contentSha256 ? "no_op" as const : "created" as const;
       const revisionNumber = outcome === "created" ? stored.revisionNumber + 1 : stored.revisionNumber, revisionId = outcome === "created" ? randomUUID() : stored.revisionId;
       const base = { planId: input.planId, revisionId, revisionNumber, contentSha256: canonical.sha256, outcome }, responseSha256 = digest(base);
       if (outcome === "no_op") { await tx.insert(deliveryPlanAcceptanceReceipts).values({ planId: input.planId, idempotencyKey: input.requestKey, requestSha256, revisionId, responseSha256 }); await options.failAfter?.("receipt"); return { ...base, responseSha256, replayed: false }; }
       await tx.insert(deliveryPlanRevisions).values({ id: revisionId, planId: input.planId, revisionNumber, contractVersion: 1, contentSha256: canonical.sha256, contentJson: JSON.parse(canonical.content), acceptedByUserId: input.userId, acceptedAt: new Date() }); await options.failAfter?.("plan");
       const features = plan.features.map((feature, order) => ({ feature, order, itemId: existing.get(feature.tempId)?.itemId ?? randomUUID(), fresh: !existing.has(feature.tempId) }));
-      if (features.some(({ fresh }) => fresh)) await tx.insert(deliveryPlanItems).values(features.filter(({ fresh }) => fresh).map(({ feature, itemId }) => ({ id: itemId, planId: input.planId, stableKey: feature.tempId, kind: "feature", workItemId: null })));
-      const featureIds = new Map(features.map(({ feature, itemId }) => [feature.tempId, itemId])), currentByKey = new Map(units.map((unit) => [unit.stableKey, unit]));
+      const added = incoming.filter(({ unit }) => !existing.has(unit.tempId)).map((value) => ({ ...value, itemId: randomUUID(), workItemId: randomUUID() }));
+      if (added.length) await tx.insert(workItems).values(added.map(({ unit, workItemId }, order) => ({
+        id: workItemId, projectId: stored.projectId, boardId: stored.boardId, boardColumnId: backlog[0]!.id, parentId: null, type: "task" as const,
+        title: unit.title, description: unit.description, priority: unit.priority, position: order + features.length, workUnitSize: unit.work_unit_size,
+        workUnitSizeOrigin: "plan", backlogIntent: "new", metadata: { deliveryPlanAcceptance: unit.acceptance }, createdByUserId: input.userId, requestedByUserId: input.userId,
+      })));
+      const newItems = [
+        ...features.filter(({ fresh }) => fresh).map(({ feature, itemId }) => ({ id: itemId, planId: input.planId, stableKey: feature.tempId, kind: "feature" as const, workItemId: null })),
+        ...added.map(({ unit, itemId, workItemId }) => ({ id: itemId, planId: input.planId, stableKey: unit.tempId, kind: "work_unit" as const, workItemId })),
+      ];
+      if (newItems.length) await tx.insert(deliveryPlanItems).values(newItems);
+      const featureIds = new Map(features.map(({ feature, itemId }) => [feature.tempId, itemId])), addedByKey = new Map(added.map((unit) => [unit.unit.tempId, unit]));
+      const accepted = incoming.map((value) => ({ ...value, itemId: storedUnits.get(value.unit.tempId)?.itemId ?? addedByKey.get(value.unit.tempId)!.itemId, workItemId: storedUnits.get(value.unit.tempId)?.workItemId ?? addedByKey.get(value.unit.tempId)!.workItemId }));
+      const acceptedByKey = new Map(accepted.map((unit) => [unit.unit.tempId, unit]));
       await tx.insert(deliveryPlanRevisionItems).values([
         ...features.map(({ feature, order, itemId }) => { const { workUnits: _, ...itemJson } = feature; return { planRevisionId: revisionId, itemId, kind: "feature", parentFeatureItemId: null, itemOrder: order, itemSha256: digest(itemJson), itemJson }; }),
-        ...incoming.map(({ unit, parentKey }, order) => ({ planRevisionId: revisionId, itemId: currentByKey.get(unit.tempId)!.itemId, kind: "work_unit", parentFeatureItemId: parentKey ? featureIds.get(parentKey)! : null, itemOrder: order + features.length, itemSha256: digest(unit), itemJson: unit })),
+        ...accepted.map(({ unit, parentKey, itemId }, order) => ({ planRevisionId: revisionId, itemId, kind: "work_unit", parentFeatureItemId: parentKey ? featureIds.get(parentKey)! : null, itemOrder: order + features.length, itemSha256: digest(unit), itemJson: unit })),
       ]); await options.failAfter?.("items");
-      for (const changedUnit of changed) { const { unit } = incomingByKey.get(changedUnit.stableKey)!; const position = incoming.findIndex(({ unit: value }) => value.tempId === changedUnit.stableKey) + features.length; await tx.execute(sql`UPDATE work_items SET title=${unit.title},description=${unit.description ?? null},priority=${unit.priority},position=${position},work_unit_size=${unit.work_unit_size},metadata=COALESCE(metadata,'{}')||jsonb_build_object('deliveryPlanAcceptance',${JSON.stringify(unit.acceptance)}::jsonb),updated_at=now() WHERE id=${changedUnit.workItemId}::uuid`); }
+      for (const storedUnit of [...changed, ...restored]) { const { unit } = incomingByKey.get(storedUnit.stableKey)!; const position = incoming.findIndex(({ unit: value }) => value.tempId === storedUnit.stableKey) + features.length; await tx.execute(sql`UPDATE work_items SET title=${unit.title},description=${unit.description ?? null},priority=${unit.priority},position=${position},work_unit_size=${unit.work_unit_size},metadata=COALESCE(metadata,'{}')||jsonb_build_object('deliveryPlanAcceptance',${JSON.stringify(unit.acceptance)}::jsonb),archived_at=NULL,updated_at=now() WHERE id=${storedUnit.workItemId}::uuid`); }
+      const archivedAt = new Date();
+      for (const storedUnit of removed) await tx.update(workItems).set({ archivedAt, updatedAt: archivedAt }).where(eq(workItems.id, storedUnit.workItemId));
       await options.failAfter?.("work_units");
-      const workIds = changed.map(({ workItemId }) => workItemId); if (workIds.length) await tx.delete(workItemDependencies).where(sql`${workItemDependencies.workItemId} IN (${sql.join(workIds.map((id) => sql`${id}::uuid`), sql`,`)})`);
-      const dependencies = incoming.flatMap(({ unit }) => unit.dependencies.map((blockedBy, dependencyOrder) => ({ planRevisionId: revisionId, workUnitItemId: currentByKey.get(unit.tempId)!.itemId, blockedByWorkUnitItemId: currentByKey.get(blockedBy)!.itemId, dependencyOrder, workItemId: currentByKey.get(unit.tempId)!.workItemId, blockedByWorkItemId: currentByKey.get(blockedBy)!.workItemId })));
+      const workIds = [...changed, ...removed, ...restored].map(({ workItemId }) => workItemId).concat(added.map(({ workItemId }) => workItemId));
+      if (workIds.length) await tx.delete(workItemDependencies).where(sql`${workItemDependencies.workItemId} IN (${sql.join(workIds.map((id) => sql`${id}::uuid`), sql`,`)})`);
+      const dependencies = accepted.flatMap(({ unit, itemId, workItemId }) => unit.dependencies.map((blockedBy, dependencyOrder) => ({ planRevisionId: revisionId, workUnitItemId: itemId, blockedByWorkUnitItemId: acceptedByKey.get(blockedBy)!.itemId, dependencyOrder, workItemId, blockedByWorkItemId: acceptedByKey.get(blockedBy)!.workItemId })));
       if (dependencies.length) await tx.insert(deliveryPlanRevisionDependencies).values(dependencies.map(({ workItemId: _, blockedByWorkItemId: __, ...value }) => value));
       const projectionDependencies = dependencies.filter(({ workItemId }) => workIds.includes(workItemId)); if (projectionDependencies.length) await tx.insert(workItemDependencies).values(projectionDependencies.map(({ workItemId, blockedByWorkItemId }) => ({ workItemId, blockedByWorkItemId })));
-      if (changed.length) await tx.insert(workItemEvents).values(changed.map(({ stableKey, workItemId, itemId }) => ({ workItemId, eventType: "updated" as const, triggeredBy: "user" as const, triggeredByUserId: input.userId, metadata: { deliveryPlanId: input.planId, deliveryPlanItemId: itemId, stableKey, revisionNumber } })));
+      const projectionEvents = [
+        ...added.map(({ unit, workItemId, itemId }) => ({ workItemId, eventType: "created" as const, triggeredBy: "user" as const, triggeredByUserId: input.userId, metadata: { title: unit.title, type: "task", boardId: stored.boardId, boardColumnId: backlog[0]!.id, deliveryPlanId: input.planId, deliveryPlanItemId: itemId } })),
+        ...changed.map(({ stableKey, workItemId, itemId }) => ({ workItemId, eventType: "updated" as const, triggeredBy: "user" as const, triggeredByUserId: input.userId, metadata: { deliveryPlanId: input.planId, deliveryPlanItemId: itemId, stableKey, revisionNumber } })),
+        ...removed.map(({ stableKey, workItemId, itemId }) => ({ workItemId, eventType: "updated" as const, fieldName: "archivedAt", oldValue: null, newValue: archivedAt.toISOString(), triggeredBy: "user" as const, triggeredByUserId: input.userId, metadata: { deliveryPlanId: input.planId, deliveryPlanItemId: itemId, stableKey, revisionNumber } })),
+        ...restored.map(({ stableKey, workItemId, itemId, archivedAt: oldArchivedAt }) => ({ workItemId, eventType: "updated" as const, fieldName: "archivedAt", oldValue: oldArchivedAt, newValue: null, triggeredBy: "user" as const, triggeredByUserId: input.userId, metadata: { deliveryPlanId: input.planId, deliveryPlanItemId: itemId, stableKey, revisionNumber } })),
+      ];
+      if (projectionEvents.length) await tx.insert(workItemEvents).values(projectionEvents);
       await options.failAfter?.("dependencies"); await tx.insert(deliveryPlanAcceptanceReceipts).values({ planId: input.planId, idempotencyKey: input.requestKey, requestSha256, revisionId, responseSha256 }); await options.failAfter?.("receipt");
       const updated = await tx.update(deliveryPlans).set({ currentRevisionNumber: revisionNumber, lockVersion: stored.lockVersion + 1, updatedAt: new Date() }).where(and(eq(deliveryPlans.id, input.planId), eq(deliveryPlans.currentRevisionNumber, stored.revisionNumber), eq(deliveryPlans.lockVersion, stored.lockVersion))).returning({ id: deliveryPlans.id });
       if (updated.length !== 1) fail("acceptance_stale_revision"); await options.failAfter?.("cas"); return { ...base, responseSha256, replayed: false };
