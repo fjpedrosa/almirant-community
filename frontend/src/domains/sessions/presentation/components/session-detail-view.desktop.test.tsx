@@ -133,7 +133,8 @@ describe("SessionDetailView (desktop layout)", () => {
     );
 
     expect(screen.getByText("Pi")).toBeInTheDocument();
-    expect(container.querySelector(".lucide-cpu")).toBeInTheDocument();
+    expect(container.querySelector('svg[viewBox="0 0 800 800"]')).toBeInTheDocument();
+    expect(container.querySelector(".lucide-cpu")).not.toBeInTheDocument();
   });
 
   it("retains an unknown persisted coding-agent label with a safe fallback icon", () => {
