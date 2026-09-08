@@ -2,6 +2,7 @@ export const PI_INBOUND_RECORD_MAX_BYTES = 262_144;
 export const PI_OUTBOUND_RECORD_MAX_BYTES = 4_194_304;
 
 export type PiAiProvider = "anthropic" | "openai" | "google" | "zai" | "xai";
+export type PiProviderId = PiAiProvider | "openai-codex";
 export type PiAuthClass = "api_key" | "setup_token" | "provider_oauth" | "subscription";
 export type PiCapabilityId =
   | "mcp"
@@ -20,13 +21,25 @@ export interface PiCapabilityContract {
     nodeEngine: ">=22.19.0";
     binary: "pi";
     mode: "rpc";
+    invocation: {
+      "openai-codex": {
+        kind: "programmatic";
+        executable: "node";
+        entrypoint: "services/runner/docker/pi-shim/dist/pi-rpc-entry.js";
+      };
+      zai: {
+        kind: "cli";
+        executable: "pi";
+        entrypoint: null;
+      };
+    };
     configDirectoryPolicy: "new-empty-per-session";
     sessionPersistence: false;
     projectResources: false;
     offline: true;
     telemetry: false;
     versionChecks: false;
-    arguments: string[];
+    cliArguments: string[];
     environment: Record<string, string>;
   };
   framing: {
@@ -95,9 +108,9 @@ export interface PiCapabilityContract {
 export interface PiProviderCandidate {
   displayName: string;
   aiProvider: PiAiProvider;
-  piProvider: PiAiProvider;
-  authClass: "api_key";
-  environmentVariable: string;
+  piProvider: PiProviderId;
+  authClass: "api_key" | "subscription";
+  environmentVariable: string | null;
   endpoint: string;
   apis: string[];
   targetCatalogModels: string[];
@@ -312,7 +325,7 @@ const assertRuntime = (value: unknown): void => {
   literal(runtime.offline, true, "$.runtime.offline");
   literal(runtime.telemetry, false, "$.runtime.telemetry");
   literal(runtime.versionChecks, false, "$.runtime.versionChecks");
-  stringArray(runtime.arguments, "$.runtime.arguments");
+  stringArray(runtime.cliArguments, "$.runtime.cliArguments");
   const environment = record(runtime.environment, "$.runtime.environment");
   for (const [key, entry] of Object.entries(environment)) {
     string(entry, `$.runtime.environment.${key}`);
@@ -435,10 +448,27 @@ const assertProviders = (value: unknown): void => {
   entries.forEach((entry, index) => {
     const provider = record(entry, `$.providers[${index}]`);
     string(provider.displayName, `$.providers[${index}].displayName`);
-    string(provider.aiProvider, `$.providers[${index}].aiProvider`);
-    string(provider.piProvider, `$.providers[${index}].piProvider`);
-    literal(provider.authClass, "api_key", `$.providers[${index}].authClass`);
-    string(provider.environmentVariable, `$.providers[${index}].environmentVariable`);
+    const aiProvider = string(provider.aiProvider, `$.providers[${index}].aiProvider`);
+    const piProvider = string(provider.piProvider, `$.providers[${index}].piProvider`);
+    const authClass = string(provider.authClass, `$.providers[${index}].authClass`);
+    if (authClass === "api_key") {
+      string(provider.environmentVariable, `$.providers[${index}].environmentVariable`);
+      if (piProvider !== aiProvider) {
+        fail(`$.providers[${index}].piProvider`, "API-key provider must match aiProvider");
+      }
+    } else if (authClass === "subscription") {
+      if (provider.environmentVariable !== null) {
+        fail(`$.providers[${index}].environmentVariable`, "expected null");
+      }
+      if (aiProvider !== "openai" || piProvider !== "openai-codex") {
+        fail(
+          `$.providers[${index}]`,
+          "subscription candidate must be openai/openai-codex",
+        );
+      }
+    } else {
+      fail(`$.providers[${index}].authClass`, "expected api_key or subscription");
+    }
     string(provider.endpoint, `$.providers[${index}].endpoint`);
     const apis = stringArray(provider.apis, `$.providers[${index}].apis`);
     const target = stringArray(
@@ -475,10 +505,11 @@ const assertProviders = (value: unknown): void => {
       provider.excludedTargetModels,
       `$.providers[${index}].excludedTargetModels`,
     );
-    assertUnique(target, `target model in provider ${string(provider.aiProvider, "aiProvider")}`);
-    assertUnique(candidates, `candidate model in provider ${string(provider.aiProvider, "aiProvider")}`);
-    assertUnique(admittedModels, `admitted model in provider ${string(provider.aiProvider, "aiProvider")}`);
-    assertUnique(excluded, `excluded model in provider ${string(provider.aiProvider, "aiProvider")}`);
+    const providerIdentity = `${aiProvider}/${piProvider}/${authClass}`;
+    assertUnique(target, `target model in provider ${providerIdentity}`);
+    assertUnique(candidates, `candidate model in provider ${providerIdentity}`);
+    assertUnique(admittedModels, `admitted model in provider ${providerIdentity}`);
+    assertUnique(excluded, `excluded model in provider ${providerIdentity}`);
     if (candidates.some((model) => excluded.includes(model))) {
       fail(`$.providers[${index}]`, "candidate and excluded model sets must be disjoint");
     }
@@ -515,7 +546,14 @@ const assertProviders = (value: unknown): void => {
     string(provenance.targetCatalog, `$.providers[${index}].catalogProvenance.targetCatalog`);
   });
   assertUnique(
-    entries.map((entry) => string(record(entry, "provider").aiProvider, "provider.aiProvider")),
+    entries.map((entry) => {
+      const provider = record(entry, "provider");
+      return [
+        string(provider.aiProvider, "provider.aiProvider"),
+        string(provider.piProvider, "provider.piProvider"),
+        string(provider.authClass, "provider.authClass"),
+      ].join("/");
+    }),
     "provider",
   );
   const admittedRows = entries.flatMap((entry) => {

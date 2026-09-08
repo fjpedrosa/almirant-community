@@ -2,15 +2,20 @@ import { getModelsForProvider } from "@/lib/ai-models-catalog";
 import type { ModelDefinition } from "./types";
 
 /**
- * Provider connections are consumed by coding-agent runtimes. Z.AI connections
- * in this UI are always Coding Plan connections, so API-only/VLM models must
- * never appear in their selectors or be persisted in their stage defaults.
+ * Z.AI connections are consumed by the Coding Plan agent runtime, while OpenAI
+ * API connections must expose only models available through the general API.
  */
-export const getModelsForAiConnection = (provider: string): ModelDefinition[] =>
-  getModelsForProvider(
-    provider,
-    provider.trim().toLowerCase() === "zai" ? "agent-runtime" : undefined,
-  );
+export const getModelsForAiConnection = (provider: string): ModelDefinition[] => {
+  const normalizedProvider = provider.trim().toLowerCase();
+  const accessChannel =
+    normalizedProvider === "zai"
+      ? "agent-runtime"
+      : normalizedProvider === "openai"
+        ? "general-api"
+        : undefined;
+
+  return getModelsForProvider(provider, accessChannel);
+};
 
 /** Return the canonical selectable model id, or omit an unsupported value. */
 export const normalizeAiConnectionModel = (

@@ -15,20 +15,72 @@ import {
   isSingleProviderAgent,
   defaultCodingAgentForProvider,
   getModelsForAgentProvider,
+  agentProviderToAiProvider,
 } from "../../domain/coding-agent-compatibility";
 import type { CodingAgent } from "../../domain/coding-agent-compatibility";
 import type { AgentProvider } from "../../domain/types";
 import { RepoSelector } from "./repo-selector";
 import type { ProviderSelectorPopoverProps } from "../../domain/types";
 import { useCodingAgentBetaAccess } from "../../application/hooks/use-coding-agent-beta-access";
+import { usePiOpenAiSubscriptionConnections } from "@/domains/integrations/application/hooks/use-pi-openai-connections";
 
-type Step = "agent" | "provider" | "model";
+type Step = "agent" | "provider" | "model" | "connection";
 
 const CATEGORY_BADGES: Record<string, { label: string; className: string }> = {
   best: { label: "Best", className: "bg-amber-500/15 text-amber-600 dark:text-amber-400" },
   fast: { label: "Fast", className: "bg-sky-500/15 text-sky-600 dark:text-sky-400" },
   cheap: { label: "Affordable", className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" },
   reasoning: { label: "Reasoning", className: "bg-violet-500/15 text-violet-600 dark:text-violet-400" },
+};
+
+type PiOpenAiConnectionStepProps = {
+  onBack: () => void;
+  onSelectConnection: (connectionId: string) => void;
+  disabled?: boolean;
+  isPending?: boolean;
+};
+
+const PiOpenAiConnectionStep = ({
+  onBack,
+  onSelectConnection,
+  disabled,
+  isPending,
+}: PiOpenAiConnectionStepProps) => {
+  const { data: connections = [], isLoading } =
+    usePiOpenAiSubscriptionConnections();
+
+  return (
+    <>
+      <div className="flex items-center gap-1 px-2 py-1.5">
+        <button type="button" className="p-0.5 rounded-sm hover:bg-accent transition-colors" onClick={onBack} aria-label="Back">
+          <ChevronLeft className="h-3.5 w-3.5 text-muted-foreground" />
+        </button>
+        <span className="text-xs font-medium text-muted-foreground">Select connection</span>
+      </div>
+      <div className="flex flex-col max-h-64 overflow-y-auto">
+        {isLoading && (
+          <p className="px-2 py-2 text-xs text-muted-foreground">Loading subscription connections…</p>
+        )}
+        {!isLoading && connections.length === 0 && (
+          <p className="px-2 py-2 text-xs text-muted-foreground">No eligible OpenAI subscription connection</p>
+        )}
+        {connections.map((connection) => (
+          <button
+            key={connection.id}
+            type="button"
+            className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent transition-colors text-left w-full"
+            onClick={() => onSelectConnection(connection.id)}
+            disabled={disabled || isPending}
+          >
+            <span className="text-sm truncate">{connection.name}</span>
+            <span className="ml-auto text-[10px] text-muted-foreground">
+              {connection.scope === "organization" ? "Organization" : "Personal"}
+            </span>
+          </button>
+        ))}
+      </div>
+    </>
+  );
 };
 
 export const ProviderSelectorPopover: React.FC<ProviderSelectorPopoverProps> = ({
@@ -51,6 +103,7 @@ export const ProviderSelectorPopover: React.FC<ProviderSelectorPopoverProps> = (
   const [step, setStep] = useState<Step>("agent");
   const [selectedAgent, setSelectedAgent] = useState<CodingAgent | null>(null);
   const [selectedProviderVal, setSelectedProviderVal] = useState<AgentProvider | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
 
   const hasMultipleRepos = repos && repos.length >= 2;
 
@@ -73,11 +126,23 @@ export const ProviderSelectorPopover: React.FC<ProviderSelectorPopoverProps> = (
     setStep("agent");
     setSelectedAgent(null);
     setSelectedProviderVal(null);
+    setSelectedModel(null);
   }, []);
 
   const finishSelection = useCallback(
-    (agent: CodingAgent, provider: AgentProvider, model?: string) => {
-      onSelect({ codingAgent: agent, provider, model });
+    (
+      agent: CodingAgent,
+      provider: AgentProvider,
+      model?: string,
+      providerConnectionId?: string,
+    ) => {
+      onSelect({
+        codingAgent: agent,
+        provider: agent === "pi" ? "zipu" : provider,
+        aiProvider: agentProviderToAiProvider(provider),
+        model,
+        ...(providerConnectionId ? { providerConnectionId } : {}),
+      });
       setOpen(false);
       resetState();
     },
@@ -124,13 +189,25 @@ export const ProviderSelectorPopover: React.FC<ProviderSelectorPopoverProps> = (
         selectedProviderVal,
       ).some((model) => model.id === modelId);
       if (!isAdmitted) return;
+      if (
+        selectedAgent === "pi" &&
+        selectedProviderVal === "codex" &&
+        modelId === "gpt-5.6-sol"
+      ) {
+        setSelectedModel(modelId);
+        setStep("connection");
+        return;
+      }
       finishSelection(selectedAgent, selectedProviderVal, modelId);
     },
     [selectedAgent, selectedProviderVal, finishSelection]
   );
 
   const handleBack = useCallback(() => {
-    if (step === "model") {
+    if (step === "connection") {
+      setStep("model");
+      setSelectedModel(null);
+    } else if (step === "model") {
       if (selectedAgent && isSingleProviderAgent(selectedAgent)) {
         setStep("agent");
         setSelectedAgent(null);
@@ -307,6 +384,22 @@ export const ProviderSelectorPopover: React.FC<ProviderSelectorPopoverProps> = (
               ))}
             </div>
           </>
+        )}
+
+        {step === "connection" && selectedAgent && selectedProviderVal && selectedModel && (
+          <PiOpenAiConnectionStep
+            onBack={handleBack}
+            onSelectConnection={(connectionId) =>
+              finishSelection(
+                selectedAgent,
+                selectedProviderVal,
+                selectedModel,
+                connectionId,
+              )
+            }
+            disabled={disabled}
+            isPending={isPending}
+          />
         )}
       </PopoverContent>
     </Popover>
