@@ -7,13 +7,25 @@
     "nodeEngine": ">=22.19.0",
     "binary": "pi",
     "mode": "rpc",
+    "invocation": {
+      "openai-codex": {
+        "kind": "programmatic",
+        "executable": "node",
+        "entrypoint": "services/runner/docker/pi-shim/dist/pi-rpc-entry.js"
+      },
+      "zai": {
+        "kind": "cli",
+        "executable": "pi",
+        "entrypoint": null
+      }
+    },
     "configDirectoryPolicy": "new-empty-per-session",
     "sessionPersistence": false,
     "projectResources": false,
     "offline": true,
     "telemetry": false,
     "versionChecks": false,
-    "arguments": [
+    "cliArguments": [
       "--mode",
       "rpc",
       "--no-session",

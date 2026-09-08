@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from "bun:test";
+import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 
@@ -14,9 +14,26 @@ mock.module("@/components/ui/popover", () => ({
   PopoverTrigger: Passthrough,
 }));
 
+const connectionId = "2e46283e-79e7-45b4-a9ec-2c0f5a8c410e";
+const usePiOpenAiSubscriptionConnections = mock(() => ({
+  data: [{
+    id: connectionId,
+    name: "My OpenAI Subscription",
+    scope: "user",
+  }],
+  isLoading: false,
+}));
+mock.module("@/domains/integrations/application/hooks/use-pi-openai-connections", () => ({
+  usePiOpenAiSubscriptionConnections,
+}));
+
 const { ProviderSelectorPopover } = await import("./provider-selector-popover");
 
 describe("ProviderSelectorPopover", () => {
+  beforeEach(() => {
+    usePiOpenAiSubscriptionConnections.mockClear();
+  });
+
   it("offers only the admitted GLM-5.3 model for Pi and cannot submit disabled Z.AI models", () => {
     const onSelect = mock(() => {});
     render(<ProviderSelectorPopover onSelect={onSelect} />);
@@ -32,8 +49,18 @@ describe("ProviderSelectorPopover", () => {
     expect(onSelect).toHaveBeenCalledWith({
       codingAgent: "pi",
       provider: "zipu",
+      aiProvider: "zai",
       model: "glm-5.3",
     });
+  });
+
+  it("does not query OpenAI subscription connections for the Pi Z.AI path", () => {
+    render(<ProviderSelectorPopover onSelect={() => {}} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
+    fireEvent.click(screen.getByRole("button", { name: /^GLM-5\.3/ }));
+
+    expect(usePiOpenAiSubscriptionConnections).not.toHaveBeenCalled();
   });
 
   it("preserves the existing Claude Code Z.AI model catalog and ordering", () => {
