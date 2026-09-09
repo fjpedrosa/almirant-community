@@ -1,3 +1,5 @@
+import { createHash, timingSafeEqual } from "node:crypto";
+
 export const PI_OPENAI_AUTH_ROOT_DIRECTORY = "/run/almirant-pi-openai-auth";
 export const PI_OPENAI_AUTH_STAGING_DIRECTORY = PI_OPENAI_AUTH_ROOT_DIRECTORY;
 export const PI_OPENAI_AUTH_SEED_DIRECTORY =
@@ -19,6 +21,10 @@ export const PI_OPENAI_AUTH_FILE_MAX_BYTES = 96 * 1024;
 
 const TAR_BLOCK_BYTES = 512;
 const TAR_END_BYTES = TAR_BLOCK_BYTES * 2;
+const ARCHIVE_MAX_BYTES = 128 * 1024;
+const ARCHIVE_TIMEOUT_MS = 5_000;
+const MAX_ARCHIVE_TIMEOUT_MS = 30_000;
+const CAPTURED_FILENAME = "rotated-auth.json";
 const MAX_OAUTH_TOKEN_LENGTH = 32_768;
 const MAX_ACCOUNT_ID_LENGTH = 512;
 
@@ -148,6 +154,32 @@ const serializeSeedEnvelope = (state: PiOpenAiOAuthState): Buffer =>
     },
   }), "utf8");
 
+const parseExactEnvelope = (bytes: Uint8Array): PiOpenAiOAuthState => {
+  let canonical: Buffer | undefined;
+  try {
+    if (bytes.byteLength === 0 || bytes.byteLength > PI_OPENAI_AUTH_FILE_MAX_BYTES) {
+      throw invalidArchive();
+    }
+    const value = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    ) as unknown;
+    if (!isPlainRecord(value) || !hasExactKeys(value, ["openai-codex"])) {
+      throw invalidArchive();
+    }
+    const state = parseOAuthState(value["openai-codex"]);
+    canonical = serializeSeedEnvelope(state);
+    const observed = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (canonical.length !== observed.length || !canonical.equals(observed)) {
+      throw invalidArchive();
+    }
+    return state;
+  } catch {
+    throw invalidArchive();
+  } finally {
+    canonical?.fill(0);
+  }
+};
+
 export const createPiOpenAiAuthSeedArchive = (value: unknown): Buffer => {
   let content: Buffer | undefined;
   let directoryHeader: Buffer | undefined;
@@ -193,5 +225,220 @@ export const createPiOpenAiAuthSeedArchive = (value: unknown): Buffer => {
     fileHeader?.fill(0);
     padding?.fill(0);
     ending?.fill(0);
+  }
+};
+
+const destroyStream = (stream: NodeJS.ReadableStream): void => {
+  try {
+    (stream as NodeJS.ReadableStream & { destroy?: () => void }).destroy?.();
+  } catch {
+    // The generic archive failure remains authoritative.
+  }
+};
+
+const positiveBoundedInteger = (value: number, maximum: number): number => {
+  if (!Number.isSafeInteger(value) || value <= 0) throw invalidArchive();
+  return Math.min(value, maximum);
+};
+
+const readBoundedArchive = async (
+  stream: NodeJS.ReadableStream,
+  options: Readonly<{ timeoutMs?: number; maxBytes?: number }> | undefined,
+): Promise<Buffer> => {
+  const maxBytes = positiveBoundedInteger(
+    options?.maxBytes ?? ARCHIVE_MAX_BYTES,
+    ARCHIVE_MAX_BYTES,
+  );
+  const timeoutMs = positiveBoundedInteger(
+    options?.timeoutMs ?? ARCHIVE_TIMEOUT_MS,
+    MAX_ARCHIVE_TIMEOUT_MS,
+  );
+  const chunks: Buffer[] = [];
+  let total = 0;
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const zeroChunks = (): void => {
+    for (const chunk of chunks) chunk.fill(0);
+    chunks.length = 0;
+  };
+  const read = async (): Promise<Buffer> => {
+    try {
+      for await (const chunk of stream as AsyncIterable<unknown>) {
+        if (!(chunk instanceof Uint8Array)) throw invalidArchive();
+        if (chunk.byteLength > maxBytes - total) {
+          chunk.fill(0);
+          throw invalidArchive();
+        }
+        const bytes = Buffer.from(chunk);
+        try {
+          chunk.fill(0);
+        } catch {
+          bytes.fill(0);
+          throw invalidArchive();
+        }
+        if (timedOut) {
+          bytes.fill(0);
+          throw invalidArchive();
+        }
+        total += bytes.length;
+        chunks.push(bytes);
+      }
+      return Buffer.concat(chunks, total);
+    } finally {
+      zeroChunks();
+    }
+  };
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      zeroChunks();
+      destroyStream(stream);
+      reject(invalidArchive());
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([read(), timeout]);
+  } catch {
+    destroyStream(stream);
+    throw invalidArchive();
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
+
+const allZero = (bytes: Uint8Array): boolean => {
+  for (const byte of bytes) {
+    if (byte !== 0) return false;
+  }
+  return true;
+};
+
+const parseCanonicalOctal = (field: Uint8Array): number => {
+  if (field.length < 2 || field[field.length - 1] !== 0) throw invalidArchive();
+  let value = 0;
+  for (let index = 0; index < field.length - 1; index += 1) {
+    const byte = field[index]!;
+    if (byte < 0x30 || byte > 0x37) throw invalidArchive();
+    value = value * 8 + byte - 0x30;
+  }
+  if (!Number.isSafeInteger(value)) throw invalidArchive();
+  return value;
+};
+
+const exactAscii = (
+  bytes: Uint8Array,
+  offset: number,
+  value: string,
+): boolean => {
+  for (let index = 0; index < value.length; index += 1) {
+    if (bytes[offset + index] !== value.charCodeAt(index)) return false;
+  }
+  return true;
+};
+
+const exactHeaderName = (header: Buffer): boolean => {
+  if (!exactAscii(header, 0, CAPTURED_FILENAME)) return false;
+  return allZero(header.subarray(CAPTURED_FILENAME.length, 100));
+};
+
+const validHeaderChecksum = (header: Buffer): boolean => {
+  if (header[154] !== 0 || header[155] !== 0x20) return false;
+  let copy: Buffer | undefined;
+  try {
+    const expected = parseCanonicalOctal(header.subarray(148, 155));
+    copy = Buffer.from(header);
+    copy.fill(0x20, 148, 156);
+    return checksum(copy) === expected;
+  } finally {
+    copy?.fill(0);
+  }
+};
+
+const parseCaptureTar = (archive: Buffer): Buffer => {
+  if (
+    archive.length < TAR_BLOCK_BYTES + TAR_END_BYTES ||
+    archive.length % TAR_BLOCK_BYTES !== 0
+  ) {
+    throw invalidArchive();
+  }
+  const header = archive.subarray(0, TAR_BLOCK_BYTES);
+  if (
+    allZero(header) ||
+    !validHeaderChecksum(header) ||
+    !exactHeaderName(header) ||
+    header[156] !== 0x30 ||
+    !exactAscii(header, 257, "ustar\0") ||
+    !exactAscii(header, 263, "00") ||
+    !allZero(header.subarray(157, 257)) ||
+    !allZero(header.subarray(345, TAR_BLOCK_BYTES))
+  ) {
+    throw invalidArchive();
+  }
+
+  const mode = parseCanonicalOctal(header.subarray(100, 108));
+  const uid = parseCanonicalOctal(header.subarray(108, 116));
+  const gid = parseCanonicalOctal(header.subarray(116, 124));
+  const size = parseCanonicalOctal(header.subarray(124, 136));
+  parseCanonicalOctal(header.subarray(136, 148));
+  const devmajor = parseCanonicalOctal(header.subarray(329, 337));
+  const devminor = parseCanonicalOctal(header.subarray(337, 345));
+  if (
+    mode !== PI_OPENAI_AUTH_FILE_MODE || uid !== 0 || gid !== 0 ||
+    devmajor !== 0 || devminor !== 0 ||
+    size <= 0 || size > PI_OPENAI_AUTH_FILE_MAX_BYTES
+  ) {
+    throw invalidArchive();
+  }
+
+  const bodyStart = TAR_BLOCK_BYTES;
+  const bodyEnd = bodyStart + size;
+  const paddingEnd = bodyStart + Math.ceil(size / TAR_BLOCK_BYTES) * TAR_BLOCK_BYTES;
+  if (
+    archive.length < paddingEnd + TAR_END_BYTES ||
+    bodyEnd > paddingEnd ||
+    !allZero(archive.subarray(bodyEnd, paddingEnd)) ||
+    !allZero(archive.subarray(paddingEnd))
+  ) {
+    throw invalidArchive();
+  }
+  return Buffer.from(archive.subarray(bodyStart, bodyEnd));
+};
+
+const accountDigest = (accountId: string): Buffer =>
+  createHash("sha256").update(accountId, "utf8").digest();
+
+export const parsePiOpenAiAuthCaptureArchive = async (
+  stream: NodeJS.ReadableStream,
+  expectedAccountId: string,
+  options?: Readonly<{ timeoutMs?: number; maxBytes?: number }>,
+): Promise<PiOpenAiOAuthState> => {
+  let archive: Buffer | undefined;
+  let content: Buffer | undefined;
+  try {
+    if (!boundedNonEmptyString(expectedAccountId, MAX_ACCOUNT_ID_LENGTH)) {
+      throw invalidArchive();
+    }
+    archive = await readBoundedArchive(stream, options);
+    content = parseCaptureTar(archive);
+    const state = parseExactEnvelope(content);
+    let capturedDigest: Buffer | undefined;
+    let expectedDigest: Buffer | undefined;
+    try {
+      capturedDigest = accountDigest(state.accountId);
+      expectedDigest = accountDigest(expectedAccountId);
+      if (!timingSafeEqual(capturedDigest, expectedDigest)) throw invalidArchive();
+    } finally {
+      capturedDigest?.fill(0);
+      expectedDigest?.fill(0);
+    }
+    return state;
+  } catch {
+    throw invalidArchive();
+  } finally {
+    content?.fill(0);
+    archive?.fill(0);
+    content = undefined;
+    archive = undefined;
   }
 };
