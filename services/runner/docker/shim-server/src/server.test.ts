@@ -72,6 +72,8 @@ const createAdapter = (
 
 const quietLogger = { info: () => {}, error: () => {} };
 const AUTH_TOKEN = Buffer.alloc(32, 11).toString("base64url");
+const BOOTSTRAP_TOKEN = Buffer.alloc(32, 12).toString("base64url");
+const ACTIVE_TOKEN = Buffer.alloc(32, 13).toString("base64url");
 
 describe("createShimServer", () => {
   let currentServer: {
@@ -82,6 +84,173 @@ describe("createShimServer", () => {
   afterEach(async () => {
     await currentServer?.stop();
     currentServer = null;
+  });
+
+  it("activates bootstrap auth with an empty 204 and immediately accepts only the active token", async () => {
+    const port = await getFreePort();
+    currentServer = createShimServer({
+      adapter: createAdapter(), host: "127.0.0.1", port,
+      bootstrapToken: BOOTSTRAP_TOKEN, logger: quietLogger,
+    });
+    await currentServer.start();
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const activation = await fetch(`${baseUrl}/control/activate`, {
+      method: "POST", headers: {
+        authorization: `Bearer ${BOOTSTRAP_TOKEN}`,
+        "X-Almirant-Active-Token": ACTIVE_TOKEN,
+        "content-type": "application/json",
+      }, body: "{",
+    });
+    expect(activation.status).toBe(204);
+    expect(await activation.text()).toBe("");
+    expect(activation.headers.get("content-type")).toBeNull();
+    for (const token of [ACTIVE_TOKEN, BOOTSTRAP_TOKEN, AUTH_TOKEN]) {
+      const response = await fetch(`${baseUrl}/session`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(response.status).toBe(token === ACTIVE_TOKEN ? 200 : 401);
+      expect(await response.text()).toBe(token === ACTIVE_TOKEN ? "[]" : '{"error":"Unauthorized"}');
+    }
+  });
+
+  it("rejects malformed and duplicate activation headers without consuming bootstrap or leaking credentials", async () => {
+    const port = await getFreePort();
+    const logged: unknown[] = [];
+    const logs = (["log", "info", "warn", "error", "debug", "trace"] as const)
+      .map((method) => spyOn(console, method).mockImplementation((...args) => { logged.push(args); }));
+    try {
+      currentServer = createShimServer({
+        adapter: createAdapter(), host: "127.0.0.1", port, bootstrapToken: BOOTSTRAP_TOKEN,
+        logger: { info: (...args) => logged.push(args), error: (...args) => logged.push(args) },
+      });
+      await currentServer.start();
+      const request = (headers: string[], path = "/control/activate", method = "POST") =>
+        new Promise<{ status: number | undefined; body: string }>((resolve, reject) => {
+          const req = httpRequest({ host: "127.0.0.1", port, path, method,
+            headers: ["Host", "127.0.0.1", "Content-Type", "application/json", ...headers] }, (res) => {
+            let body = "";
+            res.setEncoding("utf8");
+            res.on("data", (chunk) => { body += chunk; });
+            res.on("end", () => resolve({ status: res.statusCode, body }));
+            res.on("error", reject);
+          });
+          req.on("error", reject);
+          req.setTimeout(1_000, () => req.destroy(new Error("HTTP test timed out")));
+          req.end(method === "POST" ? "{" : undefined);
+        });
+      const bearer = `Bearer ${BOOTSTRAP_TOKEN}`;
+      const headers = (authorization?: string, proposed?: string) => [
+        ...(authorization === undefined ? [] : ["aUtHoRiZaTiOn", authorization]),
+        ...(proposed === undefined ? [] : ["X-Almirant-Active-Token", proposed]),
+      ];
+      const denied = { status: 401, body: '{"error":"Unauthorized"}' };
+      const invalidBearers = [undefined, "", BOOTSTRAP_TOKEN, `Bearer ${AUTH_TOKEN}`,
+        `Bearer ${ACTIVE_TOKEN}`, `bearer ${BOOTSTRAP_TOKEN}`, `BEARER ${BOOTSTRAP_TOKEN}`,
+        `Bearer  ${BOOTSTRAP_TOKEN}`, `Bearer\t${BOOTSTRAP_TOKEN}`, `${bearer}=`,
+        `${bearer}, ${bearer}`, `Bearer ${BOOTSTRAP_TOKEN.slice(0, -1)}x`];
+      const invalidProposals = [undefined, "", "invalid", BOOTSTRAP_TOKEN, `${ACTIVE_TOKEN}=`,
+        `Bearer ${ACTIVE_TOKEN}`, `${ACTIVE_TOKEN},${ACTIVE_TOKEN}`, `${ACTIVE_TOKEN.slice(0, -1)}1`,
+        Buffer.alloc(31, 13).toString("base64url"), "+".repeat(43), "/".repeat(43)];
+      for (const authorization of [bearer, ...invalidBearers]) {
+        for (const proposed of [ACTIVE_TOKEN, ...invalidProposals]) {
+          if (authorization === bearer && proposed === ACTIVE_TOKEN) continue;
+          expect(await request(headers(authorization, proposed))).toEqual(denied);
+        }
+      }
+      for (const name of ["Authorization", "X-Almirant-Active-Token"]) {
+        const correct = name === "Authorization" ? bearer : ACTIVE_TOKEN;
+        const other = name === "Authorization" ? ["X-Almirant-Active-Token", ACTIVE_TOKEN] : ["Authorization", bearer];
+        for (const values of [[correct, "wrong"], ["wrong", correct], [correct, correct]]) {
+          expect(await request([...other, name, values[0]!, name.toLowerCase(), values[1]!])).toEqual(denied);
+        }
+      }
+      expect(await request(headers(`Bearer ${ACTIVE_TOKEN}`), "/session", "GET")).toEqual(denied);
+      // Mixed-case field names are legal; their values must remain canonical.
+      expect(await request(headers(bearer, ACTIVE_TOKEN))).toEqual({ status: 204, body: "" });
+      for (const token of [BOOTSTRAP_TOKEN, ACTIVE_TOKEN, AUTH_TOKEN]) {
+        for (const proposed of [ACTIVE_TOKEN, AUTH_TOKEN]) {
+          expect(await request(headers(`Bearer ${token}`, proposed))).toEqual(denied);
+        }
+      }
+      const activeBearer = `Bearer ${ACTIVE_TOKEN}`;
+      for (const values of [[activeBearer, "wrong"], ["wrong", activeBearer], [activeBearer, activeBearer]]) {
+        expect(await request(["Authorization", values[0]!, "authorization", values[1]!], "/session", "GET")).toEqual(denied);
+      }
+      for (const token of [BOOTSTRAP_TOKEN, AUTH_TOKEN]) {
+        expect(await request(headers(`Bearer ${token}`), "/session", "GET")).toEqual(denied);
+      }
+      expect(await request(headers(activeBearer), "/session", "GET")).toEqual({ status: 200, body: "[]" });
+      for (const token of [BOOTSTRAP_TOKEN, ACTIVE_TOKEN, AUTH_TOKEN]) {
+        expect(JSON.stringify(logged)).not.toContain(token);
+        expect(inspect(currentServer, { showHidden: true })).not.toContain(token);
+      }
+      expect(logged).toHaveLength(1); // Only the existing listener-start message.
+    } finally { for (const log of logs) log.mockRestore(); }
+  });
+
+  it("commits activation before response completion so an active-token probe survives a lost response", async () => {
+    const port = await getFreePort();
+    currentServer = createShimServer({
+      adapter: createAdapter(), host: "127.0.0.1", port,
+      bootstrapToken: BOOTSTRAP_TOKEN, logger: quietLogger,
+    });
+    await currentServer.start();
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const ending = createDeferred();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let held: ServerResponse | undefined;
+    const prototype = ServerResponse.prototype as unknown as {
+      end: (this: ServerResponse, ...args: unknown[]) => ServerResponse;
+    };
+    const originalEnd = prototype.end;
+    // Keep Express and real HTTP handling intact; withhold only the transport completion.
+    prototype.end = function (...args) {
+      if (this.req.url === "/control/activate" && this.statusCode === 204) {
+        held = this;
+        ending.resolve();
+        return this;
+      }
+      return Reflect.apply(originalEnd, this, args);
+    };
+    const controller = new AbortController();
+    const activation = fetch(`${baseUrl}/control/activate`, {
+      method: "POST", signal: controller.signal,
+      headers: { authorization: `Bearer ${BOOTSTRAP_TOKEN}`, "X-Almirant-Active-Token": ACTIVE_TOKEN },
+    }).then(() => "received", () => "lost");
+    try {
+      await Promise.race([ending.promise, new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error("Activation response did not reach end")), 1_000);
+      })]);
+      expect(held!.writableEnded).toBe(false);
+      expect(held!.headersSent).toBe(false);
+      const proof = await fetch(`${baseUrl}/session`, { headers: { authorization: `Bearer ${ACTIVE_TOKEN}` } });
+      expect(proof.status).toBe(200);
+      expect(await proof.text()).toBe("[]");
+      const replay = await fetch(`${baseUrl}/control/activate`, {
+        method: "POST", headers: { authorization: `Bearer ${BOOTSTRAP_TOKEN}`, "X-Almirant-Active-Token": AUTH_TOKEN },
+      });
+      expect(replay.status).toBe(401);
+      expect(await replay.text()).toBe('{"error":"Unauthorized"}');
+      controller.abort();
+      expect(await activation).toBe("lost");
+    } finally {
+      clearTimeout(timer);
+      prototype.end = originalEnd;
+      controller.abort();
+      held?.destroy();
+      await activation;
+    }
+  });
+
+  it("rejects mutually exclusive tokens before adapter registration with a generic error", () => {
+    const adapter = createAdapter();
+    const listen = spyOn(adapter, "onEvent");
+    for (const authToken of [AUTH_TOKEN, "", null]) {
+      expect(() => createShimServer({ adapter, authToken: authToken as string,
+        bootstrapToken: BOOTSTRAP_TOKEN, logger: quietLogger,
+      })).toThrow("Invalid control authentication configuration");
+    }
+    expect(listen).not.toHaveBeenCalled();
   });
 
   it("rejects a missing bearer before reaching the adapter", async () => {
@@ -99,19 +268,26 @@ describe("createShimServer", () => {
     expect(list).not.toHaveBeenCalled();
   });
 
-  it("rejects invalid bearers on every control route before parsing bodies or calling adapters", async () => {
+  it.each(["static", "bootstrap", "active"] as const)("rejects invalid bearers on every control route before parsing bodies or calling adapters in %s mode", async (mode) => {
     const adapter = createAdapter({ async abortSession() { return true; } });
     const calls = (["createSession", "listSessions", "getSession", "deleteSession",
       "sendPrompt", "abortSession"] as const).map((method) => spyOn(adapter, method));
     const logged: unknown[] = [];
     const port = await getFreePort();
     currentServer = createShimServer({
-      adapter, host: "127.0.0.1", port, authToken: AUTH_TOKEN,
+      adapter, host: "127.0.0.1", port,
+      ...(mode === "static" ? { authToken: AUTH_TOKEN } : { bootstrapToken: BOOTSTRAP_TOKEN }),
       logger: { info: (...args) => logged.push(args), error: (...args) => logged.push(args) },
     });
     await currentServer.start();
+    if (mode === "active") {
+      expect((await fetch(`http://127.0.0.1:${port}/control/activate`, {
+        method: "POST", headers: { authorization: `Bearer ${BOOTSTRAP_TOKEN}`,
+          "X-Almirant-Active-Token": ACTIVE_TOKEN },
+      })).status).toBe(204);
+    }
     const otherToken = Buffer.alloc(32, 12).toString("base64url");
-    // Static protocol/route matrix from reference tree 32a7844e; no activation wiring.
+    // Protocol/route provenance: reference tree 32a7844e, without origin gating.
     const routes = [
       ["GET", "/session"], ["POST", "/session"],
       ["GET", "/session/session-1"], ["DELETE", "/session/session-1"],
@@ -123,7 +299,11 @@ describe("createShimServer", () => {
     for (const authorization of [undefined, "", AUTH_TOKEN, `Bearer ${otherToken}`,
       `bearer ${AUTH_TOKEN}`, `BEARER ${AUTH_TOKEN}`, `Bearer  ${AUTH_TOKEN}`,
       `Bearer\t${AUTH_TOKEN}`, `Bearer ${AUTH_TOKEN}=`,
-      `Bearer ${AUTH_TOKEN}, Bearer ${AUTH_TOKEN}`]) {
+      `Bearer ${AUTH_TOKEN}, Bearer ${AUTH_TOKEN}`,
+      ...(mode === "bootstrap" ? [`Bearer ${ACTIVE_TOKEN}`, `Bearer ${AUTH_TOKEN}`] : []),
+      ...(mode === "active" ? [`Bearer ${AUTH_TOKEN}`, `bearer ${ACTIVE_TOKEN}`,
+        `Bearer  ${ACTIVE_TOKEN}`, `Bearer\t${ACTIVE_TOKEN}`, `Bearer ${ACTIVE_TOKEN}=`,
+        `Bearer ${ACTIVE_TOKEN}, Bearer ${ACTIVE_TOKEN}`] : [])]) {
       for (const [method, path] of routes) {
         const response = await fetch(`http://127.0.0.1:${port}${path}`, {
           method, redirect: "manual",
@@ -158,6 +338,7 @@ describe("createShimServer", () => {
     }
     expect(JSON.stringify(logged)).not.toContain(AUTH_TOKEN);
     expect(JSON.stringify(logged)).not.toContain(otherToken);
+    expect(JSON.stringify(logged)).not.toContain(ACTIVE_TOKEN);
     expect(inspect(currentServer, { showHidden: true })).not.toContain(AUTH_TOKEN);
     expect(JSON.stringify(currentServer)).not.toContain(AUTH_TOKEN);
   });
@@ -191,8 +372,8 @@ describe("createShimServer", () => {
     expect(list).not.toHaveBeenCalled();
   });
 
-  it.each(["disabled", "static"] as const)("preserves every route in %s mode", async (mode) => {
-    const authToken = mode === "static" ? AUTH_TOKEN : undefined;
+  it.each(["disabled", "static", "active"] as const)("preserves every route in %s mode", async (mode) => {
+    const authToken = mode === "static" ? AUTH_TOKEN : mode === "active" ? ACTIVE_TOKEN : undefined;
     const port = await getFreePort();
     let listener: RuntimeEventListener = () => {};
     const adapter = createAdapter({
@@ -202,10 +383,17 @@ describe("createShimServer", () => {
     });
     const prompt = spyOn(adapter, "sendPrompt");
     currentServer = createShimServer({
-      adapter, host: "127.0.0.1", port, authToken, logger: quietLogger,
+      adapter, host: "127.0.0.1", port, logger: quietLogger,
+      ...(mode === "active" ? { bootstrapToken: BOOTSTRAP_TOKEN } : { authToken }),
     });
     await currentServer.start();
     const baseUrl = `http://127.0.0.1:${port}`;
+    if (mode === "active") {
+      expect((await fetch(`${baseUrl}/control/activate`, {
+        method: "POST", headers: { authorization: `Bearer ${BOOTSTRAP_TOKEN}`,
+          "X-Almirant-Active-Token": ACTIVE_TOKEN },
+      })).status).toBe(204);
+    }
     const request = (path: string, method = "GET", body?: string) => fetch(`${baseUrl}${path}`, {
       method, body, redirect: "manual", headers: {
         authorization: authToken ? `Bearer ${authToken}` : "malformed but ignored",
@@ -245,10 +433,20 @@ describe("createShimServer", () => {
       expect(new TextDecoder().decode(first.value)).toContain('data: {"type":"server.connected"');
     } finally { await reader.cancel(); }
     expect((await request("/session/session-1", "DELETE")).status).toBe(204);
-    expect((await request("/control/activate", "POST")).status).toBe(404);
+    expect((await request("/control/activate", "POST")).status).toBe(mode === "active" ? 401 : 404);
+    if (mode !== "active") {
+      for (const token of [BOOTSTRAP_TOKEN, ACTIVE_TOKEN, AUTH_TOKEN]) {
+        const response = await fetch(`${baseUrl}/control/activate`, {
+          method: "POST", headers: { authorization: `Bearer ${token}`,
+            "X-Almirant-Active-Token": ACTIVE_TOKEN },
+        });
+        expect(response.status).toBe(mode === "disabled" || token === AUTH_TOKEN ? 404 : 401);
+      }
+      expect((await request("/session")).status).toBe(200);
+    }
   });
 
-  it("rejects invalid static configuration during construction without side effects or secret leakage", () => {
+  it.each(["authToken", "bootstrapToken"] as const)("rejects invalid %s configuration during construction without side effects or secret leakage", (option) => {
     const adapter = createAdapter();
     const listen = spyOn(adapter, "onEvent");
     const logged: unknown[] = [];
@@ -259,7 +457,7 @@ describe("createShimServer", () => {
       let caught: unknown;
       try {
         currentServer = createShimServer({
-          adapter, authToken: authToken as string,
+          adapter, [option]: authToken as string,
           logger: { info: (...args) => logged.push(args), error: (...args) => logged.push(args) },
         });
       } catch (error) { caught = error; }
@@ -295,7 +493,7 @@ describe("createShimServer", () => {
         .toBe("{adapter,host,port,heartbeatIntervalMs:15_000,}");
     }
     const source = readFileSync(new URL("./server.ts", import.meta.url), "utf8");
-    expect(source).not.toMatch(/process\.env|Bun\.env|bootstrapToken|\.activate\(/);
+    expect(source).not.toMatch(/process\.env|Bun\.env/);
   });
 
   it("preserves the Community default session cwd when the create body omits cwd", async () => {
