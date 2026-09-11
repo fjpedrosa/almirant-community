@@ -2,6 +2,7 @@ import express from "express";
 import type { NextFunction, Request, Response } from "express";
 import type { Server as HttpServer } from "node:http";
 import type { RuntimeAdapter } from "./adapter.js";
+import { createControlAuth } from "./control-auth.js";
 import { createQueuedAdapter } from "./session-queue.js";
 import type {
   PromptPart,
@@ -18,6 +19,7 @@ type ShimServerOptions = {
   maxQueueDepth?: number;
   adapterCloseTimeoutMs?: number;
   httpCloseTimeoutMs?: number;
+  authToken?: string;
   logger?: Pick<Console, "info" | "error">;
 };
 
@@ -145,6 +147,12 @@ const createHeartbeatEvent = (): SSEEvent => ({
 });
 
 export const createShimServer = (options: ShimServerOptions): ShimServer => {
+  const authToken = options.authToken;
+  const controlAuth = createControlAuth(
+    authToken === undefined
+      ? { mode: "disabled" }
+      : { mode: "static", token: authToken },
+  );
   const app = express();
   const adapter = options.adapter;
   const host = options.host ?? DEFAULT_HOST;
@@ -248,6 +256,22 @@ export const createShimServer = (options: ShimServerOptions): ShimServer => {
 
   app.get("/health/ready", (_req: Request, res: Response) => {
     res.status(ready ? 200 : 503).json({ ready });
+  });
+
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    // Normalized headers can discard duplicate Authorization fields.
+    const values: string[] = [];
+    for (let index = 0; index < req.rawHeaders.length; index += 2) {
+      if (req.rawHeaders[index]!.toLowerCase() === "authorization") {
+        values.push(req.rawHeaders[index + 1]!);
+      }
+    }
+    const authorization = values.length === 1 ? values[0] : values;
+    if (controlAuth.authorize(authorization).status !== "authorized") {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    next();
   });
 
   app.use((req: Request, res: Response, next: NextFunction) => {

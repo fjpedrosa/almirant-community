@@ -2,7 +2,6 @@ import { describe, expect, it, spyOn } from "bun:test";
 import crypto from "node:crypto";
 import { inspect } from "node:util";
 import { readFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import { createControlAuth, type ControlAuthConfig } from "./control-auth.js";
 
 const bootstrap = Buffer.alloc(32, 1).toString("base64url");
@@ -11,7 +10,7 @@ const other = Buffer.alloc(32, 3).toString("base64url");
 const bearer = (token: string) => `Bearer ${token}`;
 
 describe("control auth", () => {
-  it("stays dormant on import, without tracked callers or re-exports", async () => {
+  it("stays dormant on import without environment access or logging", async () => {
     const source = readFileSync(new URL("./control-auth.ts", import.meta.url), "utf8");
     expect([...source.matchAll(/^import .* from "([^"]+)"/gm)].map((match) => match[1]))
       .toEqual(["node:crypto"]);
@@ -25,18 +24,6 @@ describe("control auth", () => {
       expect(hash).not.toHaveBeenCalled();
       for (const log of logs) expect(log).not.toHaveBeenCalled();
     } finally { hash.mockRestore(); for (const log of logs) log.mockRestore(); }
-    for (const [pattern, paths] of [
-      ["createControlAuth|shim-server.*control-auth", ["*.ts", "*.tsx", "*.js", "*.mjs", "*.cjs"]],
-      ["control-auth", ["services/runner/docker/shim-server/src"]],
-    ] as const) {
-      const callers = spawnSync("git", ["grep", "-n", "-E", pattern, "--", ...paths,
-        ":!services/runner/docker/shim-server/src/control-auth.ts",
-        ":!services/runner/docker/shim-server/src/control-auth.test.ts"],
-      { cwd: new URL("../../../../../", import.meta.url), encoding: "utf8" });
-      expect(callers.status).toBe(1); // git grep: no tracked matches.
-      expect(callers.stdout).toBe("");
-      expect(callers.stderr).toBe("");
-    }
   });
 
   it("keeps disabled compatibility open without permitting activation", () => {
