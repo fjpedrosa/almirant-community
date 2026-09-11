@@ -20,6 +20,8 @@ type ShimServerOptions = {
   adapterCloseTimeoutMs?: number;
   httpCloseTimeoutMs?: number;
   authToken?: string;
+  /** One-shot activation; mutually exclusive with authToken. */
+  bootstrapToken?: string;
   logger?: Pick<Console, "info" | "error">;
 };
 
@@ -146,12 +148,28 @@ const createHeartbeatEvent = (): SSEEvent => ({
   properties: { timestamp: new Date().toISOString() },
 });
 
+// Normalized headers can discard or coalesce duplicates; preserve their cardinality.
+const readSingleHeader = (req: Request, name: string): string | string[] => {
+  const values: string[] = [];
+  for (let index = 0; index < req.rawHeaders.length; index += 2) {
+    if (req.rawHeaders[index]!.toLowerCase() === name) {
+      values.push(req.rawHeaders[index + 1]!);
+    }
+  }
+  return values.length === 1 ? values[0]! : values;
+};
+
 export const createShimServer = (options: ShimServerOptions): ShimServer => {
-  const authToken = options.authToken;
+  const { authToken, bootstrapToken } = options;
+  if (authToken !== undefined && bootstrapToken !== undefined) {
+    throw new Error("Invalid control authentication configuration");
+  }
   const controlAuth = createControlAuth(
-    authToken === undefined
-      ? { mode: "disabled" }
-      : { mode: "static", token: authToken },
+    bootstrapToken !== undefined
+      ? { mode: "bootstrap", token: bootstrapToken }
+      : authToken !== undefined
+        ? { mode: "static", token: authToken }
+        : { mode: "disabled" },
   );
   const app = express();
   const adapter = options.adapter;
@@ -258,15 +276,23 @@ export const createShimServer = (options: ShimServerOptions): ShimServer => {
     res.status(ready ? 200 : 503).json({ ready });
   });
 
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    // Normalized headers can discard duplicate Authorization fields.
-    const values: string[] = [];
-    for (let index = 0; index < req.rawHeaders.length; index += 2) {
-      if (req.rawHeaders[index]!.toLowerCase() === "authorization") {
-        values.push(req.rawHeaders[index + 1]!);
+  if (bootstrapToken !== undefined) {
+    app.post("/control/activate", (req: Request, res: Response) => {
+      const result = controlAuth.activate(
+        readSingleHeader(req, "authorization"),
+        readSingleHeader(req, "x-almirant-active-token"),
+      );
+      if (result.status !== "activated") {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
       }
-    }
-    const authorization = values.length === 1 ? values[0] : values;
+      // State is committed synchronously, even if the response never reaches the caller.
+      res.status(204).send();
+    });
+  }
+
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const authorization = readSingleHeader(req, "authorization");
     if (controlAuth.authorize(authorization).status !== "authorized") {
       res.status(401).json({ error: "Unauthorized" });
       return;
