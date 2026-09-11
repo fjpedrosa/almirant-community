@@ -3,6 +3,7 @@ import type { NextFunction, Request, Response } from "express";
 import type { Server as HttpServer } from "node:http";
 import type { RuntimeAdapter } from "./adapter.js";
 import { createControlAuth } from "./control-auth.js";
+import { isExternalControlOrigin } from "./control-origin.js";
 import { createQueuedAdapter } from "./session-queue.js";
 import type {
   PromptPart,
@@ -22,6 +23,8 @@ type ShimServerOptions = {
   authToken?: string;
   /** One-shot activation; mutually exclusive with authToken. */
   bootstrapToken?: string;
+  /** Require a direct external peer for all control requests; requires authentication. */
+  requireExternalControlOrigin?: boolean;
   logger?: Pick<Console, "info" | "error">;
 };
 
@@ -160,8 +163,12 @@ const readSingleHeader = (req: Request, name: string): string | string[] => {
 };
 
 export const createShimServer = (options: ShimServerOptions): ShimServer => {
-  const { authToken, bootstrapToken } = options;
-  if (authToken !== undefined && bootstrapToken !== undefined) {
+  const { authToken, bootstrapToken, requireExternalControlOrigin = false } = options;
+  if (
+    typeof requireExternalControlOrigin !== "boolean" ||
+    (requireExternalControlOrigin && authToken === undefined && bootstrapToken === undefined) ||
+    (authToken !== undefined && bootstrapToken !== undefined)
+  ) {
     throw new Error("Invalid control authentication configuration");
   }
   const controlAuth = createControlAuth(
@@ -274,6 +281,16 @@ export const createShimServer = (options: ShimServerOptions): ShimServer => {
 
   app.get("/health/ready", (_req: Request, res: Response) => {
     res.status(ready ? 200 : 503).json({ ready });
+  });
+
+  // Gate every control path before credentials, activation, draining, or parsing.
+  // Use only the direct socket peer; forwarded/request-supplied origins are untrusted.
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (requireExternalControlOrigin && !isExternalControlOrigin(req.socket.remoteAddress)) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    next();
   });
 
   if (bootstrapToken !== undefined) {
