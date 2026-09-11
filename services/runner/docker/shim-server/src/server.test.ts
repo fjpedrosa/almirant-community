@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { inspect } from "node:util";
 import net from "node:net";
 import { createShimServer } from "./server.js";
+import * as controlAuthModule from "./control-auth.js";
 import type { RuntimeAdapter, RuntimeEventListener } from "./adapter.js";
 import type {
   PromptRequest,
@@ -84,6 +85,138 @@ describe("createShimServer", () => {
   afterEach(async () => {
     await currentServer?.stop();
     currentServer = null;
+  });
+
+  it("rejects invalid external-origin configuration generically before adapter registration", () => {
+    const adapter = createAdapter();
+    const listen = spyOn(adapter, "onEvent");
+    const logged: unknown[] = [];
+    const logger = { info: (...args: unknown[]) => logged.push(args), error: (...args: unknown[]) => logged.push(args) };
+    const invalid: unknown[] = [null, 0, 1, "false", "true", AUTH_TOKEN, {}, [], new Boolean(true),
+      { toString() { throw new Error(AUTH_TOKEN); }, valueOf() { throw new Error(AUTH_TOKEN); } }];
+    for (const requireExternalControlOrigin of invalid) {
+      for (const auth of [{}, { authToken: AUTH_TOKEN }, { bootstrapToken: BOOTSTRAP_TOKEN }]) {
+        let caught: unknown;
+        try {
+          currentServer = createShimServer({ adapter, logger, ...auth,
+            requireExternalControlOrigin: requireExternalControlOrigin as boolean });
+        } catch (error) { caught = error; }
+        expect(caught).toBeInstanceOf(Error);
+        expect((caught as Error).message).toBe("Invalid control authentication configuration");
+        expect((caught as Error).cause).toBeUndefined();
+        expect(inspect(caught, { showHidden: true })).not.toContain(AUTH_TOKEN);
+        expect(JSON.stringify(caught)).toBe("{}");
+      }
+    }
+    expect(listen).not.toHaveBeenCalled();
+    expect(logged).toEqual([]);
+  });
+
+  it("rejects external-origin enforcement without authentication", () => {
+    const adapter = createAdapter();
+    const listen = spyOn(adapter, "onEvent");
+    expect(() => createShimServer({ adapter, logger: quietLogger, requireExternalControlOrigin: true }))
+      .toThrow("Invalid control authentication configuration");
+    expect(listen).not.toHaveBeenCalled();
+  });
+
+  it("accepts the external-origin boolean/auth configuration matrix", async () => {
+    for (const requireExternalControlOrigin of [undefined, false, true]) {
+      for (const auth of [{}, { authToken: AUTH_TOKEN }, { bootstrapToken: BOOTSTRAP_TOKEN }]) {
+        if (requireExternalControlOrigin === true && !("authToken" in auth || "bootstrapToken" in auth)) continue;
+        currentServer = createShimServer({ adapter: createAdapter(), logger: quietLogger,
+          ...auth, requireExternalControlOrigin });
+        expect(JSON.stringify(currentServer)).toBe("{}");
+        await currentServer.stop();
+        currentServer = null;
+      }
+    }
+  });
+
+  it.each(["static", "bootstrap", "active"] as const)("denies direct loopback before credentials on every route in external-origin %s mode", async (mode) => {
+    const adapter = createAdapter({ async abortSession() { return true; } });
+    const calls = (["createSession", "listSessions", "getSession", "deleteSession",
+      "sendPrompt", "abortSession"] as const).map((method) => spyOn(adapter, method));
+    const logged: unknown[] = [];
+    const logs = (["log", "info", "warn", "error", "debug", "trace"] as const)
+      .map((method) => spyOn(console, method).mockImplementation((...args) => { logged.push(args); }));
+    const originalCreateAuth = controlAuthModule.createControlAuth;
+    let auth!: controlAuthModule.ControlAuth;
+    // Observe real auth at its factory boundary. Only active-mode setup seeds the
+    // real state machine directly: no fake external socket or production bypass.
+    const factory = spyOn(controlAuthModule, "createControlAuth").mockImplementation((config) => {
+      auth = { ...originalCreateAuth(config) };
+      return auth;
+    });
+    try {
+      const port = await getFreePort();
+      currentServer = createShimServer({ adapter, host: "127.0.0.1", port,
+        requireExternalControlOrigin: true,
+        ...(mode === "static" ? { authToken: AUTH_TOKEN } : { bootstrapToken: BOOTSTRAP_TOKEN }),
+        logger: { info: (...args) => logged.push(args), error: (...args) => logged.push(args) } });
+      if (mode === "active") {
+        expect(auth.activate(`Bearer ${BOOTSTRAP_TOKEN}`, ACTIVE_TOKEN)).toEqual({ status: "activated" });
+      }
+      const authorize = spyOn(auth, "authorize");
+      const activate = spyOn(auth, "activate");
+      await currentServer.start();
+      expect(logged).toEqual([[`[shim-server] listening on http://127.0.0.1:${port}`]]);
+      logged.length = 0; // Preserve the existing listener diagnostic, not a peer log.
+      const baseUrl = `http://127.0.0.1:${port}`;
+      // Route provenance: 32a7844e:services/runner/docker/shim-server/src/server.ts.
+      const routes = [["GET", "/session"], ["POST", "/session"],
+        ["GET", "/session/session-1"], ["DELETE", "/session/session-1"],
+        ["POST", "/session/session-1/abort"], ["POST", "/session/session-1/message"],
+        ["POST", "/session/session-1/prompt_async"], ["GET", "/event"],
+        ["GET", "/session/session-1/event"], ["POST", "/control/activate"], ["GET", "/unknown"]] as const;
+      const spoofed = { "X-Forwarded-For": "172.18.0.1", Forwarded: 'for="[2001:db8::1]"',
+        Host: "external.invalid", Origin: "https://external.invalid", "X-Real-IP": "10.0.0.1" };
+      for (const spoof of [false, true]) {
+        for (const token of [undefined, "wrong", AUTH_TOKEN, BOOTSTRAP_TOKEN, ACTIVE_TOKEN]) {
+          for (const [method, path] of routes) {
+            const response = await fetch(`${baseUrl}${path}`, { method, redirect: "manual",
+              signal: AbortSignal.timeout(1_000), headers: { "content-type": "application/json",
+                "X-Almirant-Active-Token": ACTIVE_TOKEN, ...(spoof ? spoofed : {}),
+                ...(token === undefined ? {} : { authorization: `Bearer ${token}` }) },
+              ...(method === "POST" ? { body: "{" } : {}) });
+            expect(response.status).toBe(401);
+            expect(await response.text()).toBe('{"error":"Unauthorized"}');
+            expect(response.headers.get("location")).toBeNull();
+            expect(response.headers.get("content-type")).toContain("application/json");
+            for (const detail of [AUTH_TOKEN, BOOTSTRAP_TOKEN, ACTIVE_TOKEN, "127.0.0.1", ...Object.values(spoofed)]) {
+              expect(JSON.stringify([...response.headers])).not.toContain(detail);
+            }
+          }
+        }
+      }
+      for (const body of [JSON.stringify({ remoteAddress: "172.18.0.1", origin: "10.0.0.1" }),
+        JSON.stringify({ prompt: "x".repeat(1_048_576) })]) {
+        const response = await fetch(`${baseUrl}/session`, { method: "POST", body,
+          headers: { "content-type": "application/json", authorization: `Bearer ${AUTH_TOKEN}` } });
+        expect(response.status).toBe(401);
+        expect(await response.text()).toBe('{"error":"Unauthorized"}');
+      }
+      for (const path of ["/health/live", "/health/ready"]) {
+        for (const authorization of [undefined, "malformed", `Bearer ${AUTH_TOKEN}`]) {
+          const response = await fetch(`${baseUrl}${path}`, {
+            headers: { ...spoofed, ...(authorization === undefined ? {} : { authorization }) } });
+          expect(response.status).toBe(200);
+          expect(await response.json()).toEqual(path.endsWith("live") ? { ok: true } : { ready: true });
+        }
+      }
+      expect(authorize).not.toHaveBeenCalled();
+      expect(activate).not.toHaveBeenCalled();
+      expect(auth.snapshot()).toEqual({ mode });
+      for (const call of calls) expect(call).not.toHaveBeenCalled();
+      expect(logged).toEqual([]);
+      expect(JSON.stringify(currentServer)).toBe("{}");
+      for (const detail of [AUTH_TOKEN, BOOTSTRAP_TOKEN, ACTIVE_TOKEN, "127.0.0.1", "172.18.0.1"]) {
+        expect(inspect(currentServer, { showHidden: true })).not.toContain(detail);
+      }
+    } finally {
+      factory.mockRestore();
+      for (const log of logs) log.mockRestore();
+    }
   });
 
   it("activates bootstrap auth with an empty 204 and immediately accepts only the active token", async () => {
@@ -372,7 +505,9 @@ describe("createShimServer", () => {
     expect(list).not.toHaveBeenCalled();
   });
 
-  it.each(["disabled", "static", "active"] as const)("preserves every route in %s mode", async (mode) => {
+  it.each((["disabled", "static", "active"] as const).flatMap((mode) =>
+    [undefined, false].map((requireExternalControlOrigin) => [mode, requireExternalControlOrigin] as const)
+  ))("preserves every route in %s mode with external-origin option %s", async (mode, requireExternalControlOrigin) => {
     const authToken = mode === "static" ? AUTH_TOKEN : mode === "active" ? ACTIVE_TOKEN : undefined;
     const port = await getFreePort();
     let listener: RuntimeEventListener = () => {};
@@ -383,7 +518,7 @@ describe("createShimServer", () => {
     });
     const prompt = spyOn(adapter, "sendPrompt");
     currentServer = createShimServer({
-      adapter, host: "127.0.0.1", port, logger: quietLogger,
+      adapter, host: "127.0.0.1", port, logger: quietLogger, requireExternalControlOrigin,
       ...(mode === "active" ? { bootstrapToken: BOOTSTRAP_TOKEN } : { authToken }),
     });
     await currentServer.start();
@@ -446,7 +581,9 @@ describe("createShimServer", () => {
     }
   });
 
-  it.each(["authToken", "bootstrapToken"] as const)("rejects invalid %s configuration during construction without side effects or secret leakage", (option) => {
+  it.each((["authToken", "bootstrapToken"] as const).flatMap((option) =>
+    [undefined, false, true].map((requireExternalControlOrigin) => [option, requireExternalControlOrigin] as const)
+  ))("rejects invalid %s configuration without side effects or secrets with external-origin option %s", (option, requireExternalControlOrigin) => {
     const adapter = createAdapter();
     const listen = spyOn(adapter, "onEvent");
     const logged: unknown[] = [];
@@ -457,7 +594,7 @@ describe("createShimServer", () => {
       let caught: unknown;
       try {
         currentServer = createShimServer({
-          adapter, [option]: authToken as string,
+          adapter, [option]: authToken as string, requireExternalControlOrigin,
           logger: { info: (...args) => logged.push(args), error: (...args) => logged.push(args) },
         });
       } catch (error) { caught = error; }
@@ -487,7 +624,7 @@ describe("createShimServer", () => {
     ]);
     for (const path of paths) {
       const source = readFileSync(new URL(path, root), "utf8");
-      expect(source).not.toMatch(/authToken|bootstrapToken/);
+      expect(source).not.toMatch(/authToken|bootstrapToken|requireExternalControlOrigin/);
       // Exact existing argument shape also excludes indirect/spread configuration.
       expect(source.match(/createShimServer\(([\s\S]*?)\);/)?.[1]?.replace(/\s/g, ""))
         .toBe("{adapter,host,port,heartbeatIntervalMs:15_000,}");
@@ -599,10 +736,10 @@ describe("createShimServer", () => {
     expect(unsupported.status).toBe(404);
   });
 
-  it.each(["disabled", "static"] as const)("keeps health public and rejects non-health admission while draining in %s mode", async (mode) => {
+  it.each(["disabled", "static", "external"] as const)("keeps health public and rejects non-health admission while draining in %s mode", async (mode) => {
     const closeStarted = createDeferred();
     const allowClose = createDeferred();
-    const authToken = mode === "static" ? AUTH_TOKEN : undefined;
+    const authToken = mode === "disabled" ? undefined : AUTH_TOKEN;
     let closeCalls = 0;
     let eventListenerStops = 0;
     let canonicalListenerStops = 0;
@@ -611,6 +748,7 @@ describe("createShimServer", () => {
     const port = await getFreePort();
     currentServer = createShimServer({
       authToken,
+      requireExternalControlOrigin: mode === "external",
       adapter: createAdapter({
         onEvent() {
           return () => {
@@ -665,7 +803,8 @@ describe("createShimServer", () => {
       const rejected = await fetch(`${baseUrl}/session`, {
         headers: authToken ? { authorization: `Bearer ${authToken}` } : {},
       });
-      expect(rejected.status).toBe(503);
+      expect(rejected.status).toBe(mode === "external" ? 401 : 503);
+      if (mode === "external") expect(await rejected.json()).toEqual({ error: "Unauthorized" });
       if (authToken) {
         const unauthorized = await fetch(`${baseUrl}/session`);
         expect(unauthorized.status).toBe(401);

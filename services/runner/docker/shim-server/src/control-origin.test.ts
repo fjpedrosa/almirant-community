@@ -239,6 +239,7 @@ describe("direct control peer origin", () => {
         calls++; return { eth0: [{ address: "172.18.0.2" }] };
       });
       const module = await import(${JSON.stringify(url.href)});
+      await import(${JSON.stringify(new URL("./server.ts", import.meta.url).href)});
       if (calls !== 0 || Object.keys(module).join() !== "isExternalControlOrigin") process.exit(1);
       const decide = module.isExternalControlOrigin;
       if (!decide("172.18.0.1", () => ({ eth0: [{ address: "172.18.0.2" }] })) || calls !== 0) process.exit(2);
@@ -255,13 +256,13 @@ describe("direct control peer origin", () => {
     expect(result.stderr.toString()).toBe("");
   });
 
-  it("has no tracked production caller or re-export", () => {
+  it("has only the dormant shim-server production caller and no re-export", () => {
     const result = Bun.spawnSync(["git", "grep", "-l", "-E", "control-origin|isExternalControlOrigin", "--",
       "*.ts", "*.tsx", "*.js", "*.mjs", "*.cjs", ":!**/control-origin.ts", ":!**/control-origin.test.ts"], {
       cwd: fileURLToPath(new URL("../../../../../", import.meta.url)), stdout: "pipe", stderr: "pipe",
     });
-    expect(result.exitCode).toBe(1); // git grep: no matches, not a command error.
-    expect(result.stdout.toString()).toBe("");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).toBe("services/runner/docker/shim-server/src/server.ts\n");
     expect(result.stderr.toString()).toBe("");
   });
 
