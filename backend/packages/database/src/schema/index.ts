@@ -30,6 +30,7 @@ export * from "./document-work-items";
 export * from "./api-keys";
 export * from "./service-accounts";
 export * from "./provider-connections";
+export * from "./pi-openai-connection-leases";
 export * from "./oauth-states";
 export * from "./manifest-states";
 export * from "./quotas";

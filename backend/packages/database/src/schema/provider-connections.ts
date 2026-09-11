@@ -46,7 +46,7 @@ export const providerConnections = pgTable("provider_connections", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
+  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 3 })
     .defaultNow()
     .notNull(),
 }, (table) => [
