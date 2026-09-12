@@ -144,6 +144,7 @@ for (const [key, values] of invalidFields) {
         expect(await helpers.requirePiOpenAiConnectionLeaseWith(tx, input, now)).toEqual({ outcome: "invalid" });
         expect(await helpers.releasePiOpenAiConnectionLeaseWith(tx, input)).toEqual({ outcome: "invalid" });
         expect(await helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...input, now })).toEqual({ outcome: "invalid" });
+        expect(await helpers.renewPiOpenAiConnectionLeaseWith(tx, { ...input, now })).toEqual({ outcome: "invalid" });
         expect(queries).toEqual([]);
       });
       expect(await rows()).toEqual(before);
@@ -160,6 +161,8 @@ test("malformed ownership is invalid before missing/replay and performs no SQL",
         .toEqual({ outcome: "invalid" });
       expect(await helpers.acquirePiOpenAiConnectionLeaseWith(tx, input as typeof owner & { now: number }))
         .toEqual({ outcome: "invalid" });
+      expect(await helpers.renewPiOpenAiConnectionLeaseWith(tx, input as typeof owner & { now: number }))
+        .toEqual({ outcome: "invalid" });
     }
     expect(queries).toEqual([]);
   });
@@ -171,6 +174,8 @@ for (const value of [NaN, Infinity, -Infinity, 0, -1, 1.5, Number.MAX_SAFE_INTEG
       queries.length = 0;
       expect(await helpers.requirePiOpenAiConnectionLeaseWith(tx, owner, value as number)).toEqual({ outcome: "invalid" });
       expect(await helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...owner, now: value as number }))
+        .toEqual({ outcome: "invalid" });
+      expect(await helpers.renewPiOpenAiConnectionLeaseWith(tx, { ...owner, now: value as number }))
         .toEqual({ outcome: "invalid" });
       expect(queries).toEqual([]);
     });
@@ -492,6 +497,155 @@ test("acquire uses normalized millisecond authority and accepts maximal exact id
   expect(await rows()).toEqual([{ ...acquiredRow(input, now + 1), createdAt: new Date(now) }]);
 });
 
+const renew = (input = owner, at = now) =>
+  transaction((tx) => helpers.renewPiOpenAiConnectionLeaseWith(tx, { ...input, now: at }));
+test("renew extends the exact active owner, preserving createdAt and unrelated leases", async () => {
+  await seed();
+  await seed(other);
+  const before = await rows();
+  expect(await renew()).toEqual({ outcome: "renewed" });
+  expect(await rows()).toEqual([
+    { ...acquiredRow(), createdAt: before[0]!.createdAt }, before[1]!,
+  ]);
+});
+
+for (const offset of [-1, 0, 1]) {
+  test(`renew exact expiry boundary ${offset} never revives an expired lease`, async () => {
+    await seed(owner, now + offset);
+    const before = await rows();
+    expect(await renew()).toEqual({ outcome: offset > 0 ? "renewed" : "expired" });
+    expect(await rows()).toEqual(offset > 0 ? [{ ...acquiredRow(), createdAt: before[0]!.createdAt }] : before);
+  });
+  for (const [key, value] of Object.entries(mismatches)) {
+    test(`renew ${key} mismatch precedes expiry ${offset}`, async () => {
+      await seed(owner, now + offset);
+      await seed(other, now + offset);
+      const input = { ...owner, [key]: value };
+      // Match connection authority so a lease-version mismatch reaches the lease fence.
+      await client.query("UPDATE provider_connections SET updated_at = $1", [input.credentialVersion]);
+      const before = await rows();
+      expect(await renew(input)).toEqual({ outcome: "conflict" });
+      expect(await rows()).toEqual(before);
+    });
+  }
+}
+for (const [input, outcome, count] of [
+  [{ ...owner, jobId: missingId, connectionId: missingId }, "invalid", 1],
+  [{ ...owner, connectionId: missingId }, "connection_ineligible", 2],
+  [owner, "missing", 3],
+] as const) {
+  test(`renew stops at ${outcome} with ${count} locks and no mutation`, async () => {
+    await transaction(async (tx) => {
+      queries.length = 0;
+      expect(await helpers.renewPiOpenAiConnectionLeaseWith(tx, { ...input, now })).toEqual({ outcome });
+      expect(queries).toHaveLength(count);
+      expect(queries.every((query) => query.sql.endsWith("for update"))).toBe(true);
+    });
+    expect(await rows()).toEqual([]);
+  });
+}
+const renewEligibility = eligibility.filter(([column]) => column !== "scope").concat([
+  ["is_active", null, "connection_ineligible"], ["config", null, "connection_ineligible"],
+]);
+for (const [column, value, outcome] of renewEligibility) {
+  for (const state of ["missing", "expired", "mismatch"] as const) {
+    test(`renew ${column}=${JSON.stringify(value)} precedes ${state} lease and version conflict`, async () => {
+      if (state !== "missing") await seed(state === "mismatch" ? { ...owner, workerId: "other" } : owner, now);
+      const before = await rows();
+      await client.query(`UPDATE provider_connections SET ${column} = $1 WHERE id = $2`, [value, owner.connectionId]);
+      // Every ineligibility must win even when the credential version is also stale.
+      await client.query("UPDATE provider_connections SET updated_at = $1", [mismatches.credentialVersion]);
+      await transaction(async (tx) => {
+        queries.length = 0;
+        expect(await helpers.renewPiOpenAiConnectionLeaseWith(tx, { ...owner, now })).toEqual({ outcome });
+        expect(queries).toHaveLength(2);
+      });
+      expect(await rows()).toEqual(before);
+    });
+  }
+}
+for (const authMethod of ["subscription", "oauth"]) {
+  for (const scope of ["organization", "user", "project", null]) {
+    test(`renew accepts ${authMethod}/${scope} without scope checks or generic-job queries`, async () => {
+      await seed();
+      await client.query("UPDATE provider_connections SET scope = $1, config = $2", [scope, JSON.stringify({ authMethod })]);
+      await client.query("UPDATE agent_jobs SET status = 'running', resolved_runtime_selection = $1", [JSON.stringify(generic)]);
+      await transaction(async (tx) => {
+        queries.length = 0;
+        expect(await helpers.renewPiOpenAiConnectionLeaseWith(tx, { ...owner, now })).toEqual({ outcome: "renewed" });
+        expect(queries).toHaveLength(4);
+        for (const [index, table, column, id] of [
+          [0, "agent_jobs", "id", owner.jobId], [1, "provider_connections", "id", owner.connectionId],
+          [2, "pi_openai_connection_leases", "connection_id", owner.connectionId],
+        ] as const) {
+          expect(queries[index]!.sql).toContain(`from "${table}" where "${table}"."${column}" = $1 limit $2 for update`);
+          expect(queries[index]!.params).toEqual([id, 1]);
+        }
+        expect(queries.filter((query) => query.sql.includes('from "agent_jobs"'))).toHaveLength(1);
+        expect(queries[1]!.sql).not.toMatch(/scope|credential|token|account_identifier|select \*/i);
+        expect(queries.map((query) => query.sql).join("\n")).not.toMatch(/resolved_runtime_selection|status|workspace_id|created_by_user_id/);
+        expect(queries[3]!.sql).toBe('update "pi_openai_connection_leases" set "expires_at" = $1, "updated_at" = $2 where ("pi_openai_connection_leases"."connection_id" = $3 and "pi_openai_connection_leases"."job_id" = $4 and "pi_openai_connection_leases"."worker_id" = $5 and "pi_openai_connection_leases"."claim_attempt_id" = $6 and "pi_openai_connection_leases"."credential_version" = $7)');
+        expect(queries[3]!.params).toEqual([new Date(now + 21_600_000).toISOString(), new Date(now).toISOString(), ...Object.values(owner)]);
+      });
+    });
+  }
+}
+for (const at of [1, Date.parse("9999-12-31T23:00:00.000Z"), Date.parse("+010000-01-01T00:00:00.000Z"), maxNow]) {
+  test(`renew supports now=${at} with parameterized extended years and exact timestamps`, async () => {
+    const input = { ...owner, workerId: "w".repeat(255), claimAttemptId: "c".repeat(100) };
+    await seed(input);
+    // Seed independently of acquire/renew's timestamp normalization.
+    await client.query("UPDATE pi_openai_connection_leases SET expires_at = $1", [new Date(at + 1).toISOString().replace(/^\+/, "")]);
+    const [before] = await rows();
+    await transaction(async (tx) => {
+      queries.length = 0;
+      expect(await helpers.renewPiOpenAiConnectionLeaseWith(tx, { ...input, now: at })).toEqual({ outcome: "renewed" });
+      const update = queries[3]!;
+      expect(update.params).toEqual([
+        new Date(at + 21_600_000).toISOString().replace(/^\+/, ""), new Date(at).toISOString().replace(/^\+/, ""), ...Object.values(input),
+      ]);
+      for (const [index, time] of [at + 21_600_000, at].entries()) {
+        const extended = new Date(time).getUTCFullYear() > 9999;
+        expect(update.sql.includes(`$${index + 1}::timestamptz`)).toBe(extended);
+        expect(update.sql).not.toContain(String(update.params[index]));
+      }
+    });
+    expect(await rows()).toEqual([{ ...acquiredRow(input, at), createdAt: before!.createdAt }]);
+  });
+}
+test("renew propagates lookup and update failures; caller rollback restores successful renewal", async () => {
+  await seed();
+  await seed(other);
+  const before = await rows();
+  await expect(transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL search_path TO pg_catalog`);
+    return helpers.renewPiOpenAiConnectionLeaseWith(tx, { ...owner, now });
+  })).rejects.toMatchObject({ cause: { code: "42P01" } });
+  await expect(transaction(async (tx) => {
+    await tx.execute(sql`CREATE FUNCTION pg_temp.reject_renew() RETURNS trigger LANGUAGE plpgsql AS
+      $$ BEGIN RAISE EXCEPTION 'renew sentinel'; END $$`);
+    await tx.execute(sql`CREATE TRIGGER reject_renew BEFORE UPDATE ON pi_openai_connection_leases
+      FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_renew()`);
+    return helpers.renewPiOpenAiConnectionLeaseWith(tx, { ...owner, now });
+  })).rejects.toMatchObject({ cause: { message: "renew sentinel" } });
+  expect(await rows()).toEqual(before);
+  const sentinel = new Error("caller rollback renewal");
+  await expect(transaction(async (tx) => {
+    queries.length = 0;
+    expect(await helpers.renewPiOpenAiConnectionLeaseWith(tx, { ...owner, now })).toEqual({ outcome: "renewed" });
+    expect(queries.some((query) => /begin|commit|rollback|savepoint/i.test(query.sql))).toBe(false);
+    expect(await tx.select().from(piOpenaiConnectionLeases).orderBy(piOpenaiConnectionLeases.connectionId))
+      .toEqual([{ ...acquiredRow(), createdAt: before[0]!.createdAt }, before[1]!]);
+    throw sentinel;
+  })).rejects.toBe(sentinel);
+  expect(await rows()).toEqual(before);
+});
+
+type RenewTx = Parameters<typeof helpers.renewPiOpenAiConnectionLeaseWith>[0];
+const preciseRenew: Equal<RenewTx, LiveAgentJobClaimTransaction> = true;
+const renewNotAny: 0 extends (1 & RenewTx) ? false : true = true;
+const preciseRenewResult: Equal<Awaited<ReturnType<typeof helpers.renewPiOpenAiConnectionLeaseWith>>,
+  import("./pi-openai-connection-lease-repository").PiOpenAiConnectionLeaseRenewResult> = true;
 type AcquireTx = Parameters<typeof helpers.acquirePiOpenAiConnectionLeaseWith>[0];
 const preciseAcquire: Equal<AcquireTx, LiveAgentJobClaimTransaction> = true;
 type RequireTx = Parameters<typeof helpers.requirePiOpenAiConnectionLeaseWith>[0];
@@ -503,6 +657,7 @@ const preciseRelease: Equal<ReleaseTx, LiveAgentJobClaimTransaction> = true;
 const notAny: 0 extends (1 & RequireTx) ? false : true = true;
 test("TypeScript checks helper callback precision and this focused source pair", () => {
   expect([preciseAcquire, preciseRequire, preciseRelease, notAny]).toEqual([true, true, true, true]);
+  expect([preciseRenew, renewNotAny, preciseRenewResult]).toEqual([true, true, true]);
   const files = [import.meta.path, new URL("./pi-openai-connection-lease-repository.ts", import.meta.url).pathname];
   const program = ts.createProgram(files, {
     strict: true, noEmit: true, skipLibCheck: true, esModuleInterop: true,
