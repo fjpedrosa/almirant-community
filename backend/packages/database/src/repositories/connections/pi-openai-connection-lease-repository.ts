@@ -1,6 +1,10 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Database } from "../../client";
 import { piOpenaiConnectionLeases } from "../../schema/pi-openai-connection-leases";
+import { agentJobs } from "../../schema/agent-jobs";
+import { providerConnections } from "../../schema/provider-connections";
+
+export const PI_OPENAI_CONNECTION_LEASE_TTL_MS = 6 * 60 * 60 * 1000;
 
 type LeaseTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 export type PiOpenAiConnectionLeaseOwnership = Readonly<{
@@ -9,6 +13,11 @@ export type PiOpenAiConnectionLeaseOwnership = Readonly<{
   workerId: string;
   claimAttemptId: string;
   credentialVersion: string;
+}>;
+type TimedLeaseOwnership = PiOpenAiConnectionLeaseOwnership & Readonly<{ now: number }>;
+export type PiOpenAiConnectionLeaseAcquireResult = Readonly<{
+  outcome: "invalid" | "connection_ineligible" | "credential_version_conflict" |
+    "conflict" | "acquired" | "idempotent";
 }>;
 export type PiOpenAiConnectionLeaseRequireResult = Readonly<{
   outcome: "invalid" | "missing" | "conflict" | "expired" | "valid";
@@ -49,6 +58,85 @@ const exactOwner = (
   lease.connectionId === owner.connectionId && lease.jobId === owner.jobId &&
   lease.workerId === owner.workerId && lease.claimAttemptId === owner.claimAttemptId &&
   lease.credentialVersion.getTime() === new Date(owner.credentialVersion).getTime();
+
+/** Dormant acquisition inside the caller's transaction, locking job -> connection -> lease. */
+export const acquirePiOpenAiConnectionLeaseWith = async (
+  transaction: LeaseTransaction,
+  input: TimedLeaseOwnership,
+): Promise<PiOpenAiConnectionLeaseAcquireResult> => {
+  if (!validOwnership(input) || !validNow(input.now)) return { outcome: "invalid" };
+  const credentialVersion = new Date(input.credentialVersion);
+  const [job] = await transaction.select({ id: agentJobs.id }).from(agentJobs)
+    .where(eq(agentJobs.id, input.jobId)).for("update").limit(1);
+  if (!job) return { outcome: "invalid" };
+
+  const [connection] = await transaction.select({
+    provider: providerConnections.provider, category: providerConnections.category,
+    isActive: providerConnections.isActive, suspendedAt: providerConnections.suspendedAt,
+    scope: providerConnections.scope, scopeId: providerConnections.scopeId,
+    config: providerConnections.config, updatedAt: providerConnections.updatedAt,
+  }).from(providerConnections).where(eq(providerConnections.id, input.connectionId))
+    .for("update").limit(1);
+  const config = connection?.config;
+  if (!connection || connection.provider !== "openai" || connection.category !== "ai" ||
+    connection.isActive !== true || connection.suspendedAt !== null ||
+    !config || typeof config !== "object" || Array.isArray(config) ||
+    !("authMethod" in config) || (config.authMethod !== "subscription" && config.authMethod !== "oauth")) {
+    return { outcome: "connection_ineligible" };
+  }
+  if (connection.updatedAt.getTime() !== credentialVersion.getTime()) {
+    return { outcome: "credential_version_conflict" };
+  }
+  if (connection.scope !== "organization" && connection.scope !== "user") {
+    return { outcome: "connection_ineligible" };
+  }
+
+  // Fence earlier generic subscription selection while holding the connection lock.
+  // Once provider/auth match, missing or malformed coding agents still conflict; only exact Pi is exempt.
+  const [genericJob] = await transaction.select({ id: agentJobs.id }).from(agentJobs)
+    .where(and(
+      ne(agentJobs.id, input.jobId),
+      inArray(agentJobs.status, ["running", "finalizing", "waiting_for_input"]),
+      connection.scope === "organization"
+        ? eq(agentJobs.workspaceId, connection.scopeId)
+        : eq(agentJobs.createdByUserId, connection.scopeId),
+      sql`${agentJobs.resolvedRuntimeSelection} ->> 'aiProvider' = 'openai'`,
+      sql`${agentJobs.resolvedRuntimeSelection} ->> 'authClass' = 'subscription'`,
+      sql`${agentJobs.resolvedRuntimeSelection} ->> 'codingAgent' IS DISTINCT FROM 'pi'`,
+    )).limit(1);
+  if (genericJob) return { outcome: "conflict" };
+
+  const lease = await lockedLease(transaction, input.connectionId);
+  const timestamp = (milliseconds: number) => {
+    const date = new Date(milliseconds);
+    // PostgreSQL accepts extended positive years without JavaScript's leading '+'.
+    return date.getUTCFullYear() > 9999 ? sql`${date.toISOString().slice(1)}::timestamptz` : date;
+  };
+  const now = timestamp(input.now);
+  const expiresAt = timestamp(input.now + PI_OPENAI_CONNECTION_LEASE_TTL_MS);
+  if (lease && exactOwner(lease, input)) {
+    await transaction.update(piOpenaiConnectionLeases).set({ expiresAt, updatedAt: now })
+      .where(and(
+        eq(piOpenaiConnectionLeases.connectionId, input.connectionId),
+        eq(piOpenaiConnectionLeases.jobId, input.jobId),
+        eq(piOpenaiConnectionLeases.workerId, input.workerId),
+        eq(piOpenaiConnectionLeases.claimAttemptId, input.claimAttemptId),
+        eq(piOpenaiConnectionLeases.credentialVersion, credentialVersion),
+      ));
+    return { outcome: "idempotent" };
+  }
+  if (lease && lease.expiresAt.getTime() > input.now) return { outcome: "conflict" };
+  if (lease) {
+    await transaction.delete(piOpenaiConnectionLeases)
+      .where(eq(piOpenaiConnectionLeases.connectionId, input.connectionId));
+  }
+  const [inserted] = await transaction.insert(piOpenaiConnectionLeases).values({
+    connectionId: input.connectionId, jobId: input.jobId,
+    workerId: input.workerId, claimAttemptId: input.claimAttemptId,
+    credentialVersion, expiresAt, createdAt: now, updatedAt: now,
+  }).onConflictDoNothing().returning({ connectionId: piOpenaiConnectionLeases.connectionId });
+  return { outcome: inserted ? "acquired" : "conflict" };
+};
 
 /** Metadata-only check inside the caller's transaction; mismatches precede expiry. */
 export const requirePiOpenAiConnectionLeaseWith = async (

@@ -25,8 +25,15 @@ const database = drizzle(client, {
 let helpers: typeof import("./pi-openai-connection-lease-repository");
 beforeAll(async () => {
   await client.exec(`
-    CREATE TABLE provider_connections (id uuid PRIMARY KEY, updated_at timestamptz DEFAULT now());
-    CREATE TABLE agent_jobs (id uuid PRIMARY KEY);
+    CREATE TABLE provider_connections (
+      id uuid PRIMARY KEY, updated_at timestamptz DEFAULT now(),
+      provider text, category text, is_active boolean, suspended_at timestamptz,
+      scope text, scope_id text, config jsonb
+    );
+    CREATE TABLE agent_jobs (
+      id uuid PRIMARY KEY, status text, workspace_id text,
+      created_by_user_id text, resolved_runtime_selection jsonb
+    );
   `);
   await client.exec(await Bun.file(new URL("../../../migrations/0237_past_harpoon.sql", import.meta.url)).text());
   for (const input of [owner, other]) {
@@ -36,9 +43,17 @@ beforeAll(async () => {
   helpers = await import("./pi-openai-connection-lease-repository");
 });
 afterAll(() => client.close());
-beforeEach(async () => { await database.delete(piOpenaiConnectionLeases); });
+beforeEach(async () => {
+  await database.delete(piOpenaiConnectionLeases);
+  await client.query(`UPDATE provider_connections SET provider = 'openai', category = 'ai',
+    is_active = true, suspended_at = NULL, scope = 'organization', scope_id = 'org-1',
+    config = '{"authMethod":"subscription"}', updated_at = $1`, [owner.credentialVersion]);
+  await client.exec(`UPDATE agent_jobs SET status = 'queued', workspace_id = 'org-1',
+    created_by_user_id = 'user-1', resolved_runtime_selection = NULL`);
+});
 const seed = (input = owner, expiresAt = now + 1) => database.insert(piOpenaiConnectionLeases).values({
   ...input, credentialVersion: new Date(input.credentialVersion), expiresAt: new Date(expiresAt),
+  createdAt: new Date(now - 1000), updatedAt: new Date(now - 1000),
 });
 const rows = () => database.select().from(piOpenaiConnectionLeases).orderBy(piOpenaiConnectionLeases.connectionId);
 
@@ -46,6 +61,18 @@ const rows = () => database.select().from(piOpenaiConnectionLeases).orderBy(piOp
 // Drizzle PostgreSQL builders. The production callback type is checked separately.
 const transaction = <T>(run: (tx: LiveAgentJobClaimTransaction) => Promise<T>) =>
   database.transaction((tx) => run(tx as unknown as LiveAgentJobClaimTransaction));
+
+const acquire = (input = owner, at = now) =>
+  transaction((tx) => helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...input, now: at }));
+const acquiredRow = (input = owner, at = now) => ({
+  ...input, credentialVersion: new Date(input.credentialVersion),
+  createdAt: new Date(at), updatedAt: new Date(at), expiresAt: new Date(at + 21_600_000),
+});
+test("acquire creates an exact owner with a six-hour TTL and caller timestamps", async () => {
+  expect(await acquire()).toEqual({ outcome: "acquired" });
+  expect(helpers.PI_OPENAI_CONNECTION_LEASE_TTL_MS).toBe(21_600_000);
+  expect(await rows()).toEqual([acquiredRow()]);
+});
 
 test("missing require and repeated missing release are categorical successes", async () => {
   await transaction(async (tx) => {
@@ -116,6 +143,7 @@ for (const [key, values] of invalidFields) {
         queries.length = 0;
         expect(await helpers.requirePiOpenAiConnectionLeaseWith(tx, input, now)).toEqual({ outcome: "invalid" });
         expect(await helpers.releasePiOpenAiConnectionLeaseWith(tx, input)).toEqual({ outcome: "invalid" });
+        expect(await helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...input, now })).toEqual({ outcome: "invalid" });
         expect(queries).toEqual([]);
       });
       expect(await rows()).toEqual(before);
@@ -130,18 +158,30 @@ test("malformed ownership is invalid before missing/replay and performs no SQL",
         .toEqual({ outcome: "invalid" });
       expect(await helpers.releasePiOpenAiConnectionLeaseWith(tx, input as typeof owner))
         .toEqual({ outcome: "invalid" });
+      expect(await helpers.acquirePiOpenAiConnectionLeaseWith(tx, input as typeof owner & { now: number }))
+        .toEqual({ outcome: "invalid" });
     }
     expect(queries).toEqual([]);
   });
 });
 const maxNow = 8_640_000_000_000_000 - 6 * 60 * 60 * 1000;
-for (const value of [NaN, Infinity, -Infinity, 0, -1, 1.5, Number.MAX_SAFE_INTEGER, maxNow + 1, "1", null]) {
+for (const value of [NaN, Infinity, -Infinity, 0, -1, 1.5, Number.MAX_SAFE_INTEGER, maxNow + 1, "1", null, undefined]) {
   test(`invalid now=${String(value)} executes no SQL even for missing ownership`, async () => {
     await transaction(async (tx) => {
       queries.length = 0;
       expect(await helpers.requirePiOpenAiConnectionLeaseWith(tx, owner, value as number)).toEqual({ outcome: "invalid" });
+      expect(await helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...owner, now: value as number }))
+        .toEqual({ outcome: "invalid" });
       expect(queries).toEqual([]);
     });
+  });
+}
+for (const at of [1, Date.parse("9999-12-31T23:00:00.000Z"), maxNow]) {
+  test(`acquire succeeds at valid now boundary ${at} with exact timestamps`, async () => {
+    expect(await acquire(owner, at)).toEqual({ outcome: "acquired" });
+    expect(await rows()).toEqual([acquiredRow(owner, at)]);
+    expect(await acquire(owner, at)).toEqual({ outcome: "idempotent" });
+    expect(await rows()).toEqual([acquiredRow(owner, at)]);
   });
 }
 test("maximum exact identifiers and representable now boundaries are accepted", async () => {
@@ -206,6 +246,254 @@ test("delete failures propagate and roll back without losing the lease", async (
   expect(await rows()).toEqual(before);
 });
 
+for (const offset of [-1, 0, 1]) {
+  test(`acquire refreshes exact owner even at expired boundary ${offset}`, async () => {
+    await seed(owner, now + offset);
+    const [before] = await rows();
+    expect(await acquire()).toEqual({ outcome: "idempotent" });
+    expect(await rows()).toEqual([{ ...acquiredRow(), createdAt: before!.createdAt }]);
+  });
+  for (const [key, value] of Object.entries(mismatches).filter(([key]) => key !== "connectionId")) {
+    test(`acquire fences/replaces ${key} at expiry ${offset}`, async () => {
+      await seed({ ...owner, [key]: value }, now + offset);
+      const before = await rows();
+      expect(await acquire()).toEqual({ outcome: offset > 0 ? "conflict" : "acquired" });
+      expect(await rows()).toEqual(offset > 0 ? before : [acquiredRow()]);
+    });
+  }
+}
+const missingId = "eeeeeeee-1111-4111-8111-111111111111";
+for (const [key, outcome, count] of [
+  ["jobId", "invalid", 1], ["connectionId", "connection_ineligible", 2],
+] as const) {
+  test(`acquire stops after missing ${key}`, async () => {
+    await transaction(async (tx) => {
+      queries.length = 0;
+      expect(await helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...owner, [key]: missingId, now }))
+        .toEqual({ outcome });
+      expect(queries).toHaveLength(count);
+    });
+    expect(await rows()).toEqual([]);
+  });
+}
+const eligibility: [string, unknown, "connection_ineligible" | "credential_version_conflict"][] = [
+  ["provider", "anthropic", "connection_ineligible"], ["provider", "OpenAI", "connection_ineligible"],
+  ["category", "storage", "connection_ineligible"], ["category", "AI", "connection_ineligible"],
+  ["is_active", false, "connection_ineligible"], ["suspended_at", new Date(now), "connection_ineligible"],
+  ["scope", "project", "connection_ineligible"], ["scope", "Organization", "connection_ineligible"],
+  ["updated_at", "2026-05-01T11:59:00.124Z", "credential_version_conflict"],
+  ...[null, [], "subscription", {}, { authMethod: "api_key" }, { authMethod: "OAuth" },
+    { authMethod: true }].map((config): [string, unknown, "connection_ineligible"] =>
+      ["config", JSON.stringify(config), "connection_ineligible"]),
+];
+for (const [column, value, outcome] of eligibility) {
+  test(`acquire rejects ${column}=${JSON.stringify(value)} without touching the lease`, async () => {
+    await seed();
+    const before = await rows();
+    await client.query(`UPDATE provider_connections SET ${column} = $1 WHERE id = $2`, [value, owner.connectionId]);
+    await transaction(async (tx) => {
+      queries.length = 0;
+      expect(await helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...owner, now })).toEqual({ outcome });
+      expect(queries).toHaveLength(2);
+    });
+    expect(await rows()).toEqual(before);
+  });
+}
+test("credential version conflict precedes invalid scope without touching the lease", async () => {
+  await seed();
+  const before = await rows();
+  await client.query("UPDATE provider_connections SET scope = 'project', updated_at = $1 WHERE id = $2",
+    ["2026-05-01T11:59:00.124Z", owner.connectionId]);
+  await transaction(async (tx) => {
+    queries.length = 0;
+    expect(await helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...owner, now }))
+      .toEqual({ outcome: "credential_version_conflict" });
+    expect(queries).toHaveLength(2);
+  });
+  expect(await rows()).toEqual(before);
+});
+const generic = { codingAgent: "codex", aiProvider: "openai", authClass: "subscription" };
+const selections: [unknown, boolean][] = [
+  [generic, true], [{ ...generic, codingAgent: "claude-code" }, true],
+  [{ ...generic, codingAgent: "opencode" }, true], [{ ...generic, codingAgent: "pi" }, false],
+  ...[null, {}, [], [generic], "openai", 1, true].map((value): [unknown, boolean] => [value, false]),
+  ...[undefined, null, "", "other", "Pi", " pi", 1, true, [], ["pi"], {}, { agent: "pi" }]
+    .map((codingAgent): [unknown, boolean] => [{ ...generic, codingAgent }, true]),
+  ...["aiProvider", "authClass"].flatMap((key) =>
+    [undefined, null, {}, [], 1, "other"].map((value): [unknown, boolean] => [{ ...generic, [key]: value }, false])),
+  [{ ...generic, aiProvider: "anthropic" }, false], [{ ...generic, authClass: "api_key" }, false],
+];
+for (const scope of ["organization", "user"]) {
+  for (const status of ["running", "finalizing", "waiting_for_input", "queued", "paused", "completed", "failed", "cancelled"]) {
+    test(`acquire generic-job scope/status exclusion: ${scope}/${status}`, async () => {
+      await client.query("UPDATE provider_connections SET scope = $1, scope_id = $2, config = $3", [
+        scope, scope === "organization" ? "org-1" : "user-1", '{"authMethod":"oauth"}',
+      ]);
+      await client.query("UPDATE agent_jobs SET status = $1, resolved_runtime_selection = $2", [status, JSON.stringify(generic)]);
+      expect(await acquire()).toEqual({
+        outcome: ["running", "finalizing", "waiting_for_input"].includes(status) ? "conflict" : "acquired",
+      });
+    });
+  }
+  for (const [selection, conflict] of selections) {
+    test(`acquire runtime exclusion: ${scope}/${JSON.stringify(selection)}`, async () => {
+      await client.query("UPDATE provider_connections SET scope = $1, scope_id = $2", [scope, scope === "organization" ? "org-1" : "user-1"]);
+      await client.query("UPDATE agent_jobs SET status = 'running', resolved_runtime_selection = $1 WHERE id = $2",
+        [JSON.stringify(selection), other.jobId]);
+      if (conflict) await seed(owner, now - 1);
+      const before = await rows();
+      await transaction(async (tx) => {
+        queries.length = 0;
+        expect(await helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...owner, now }))
+          .toEqual({ outcome: conflict ? "conflict" : "acquired" });
+        expect(queries[2]!.params).toEqual([
+          owner.jobId, "running", "finalizing", "waiting_for_input", scope === "organization" ? "org-1" : "user-1", 1,
+        ]);
+      });
+      expect(await rows()).toEqual(conflict ? before : [acquiredRow()]);
+    });
+  }
+  for (const column of ["workspace_id", "created_by_user_id"]) {
+    test(`acquire uses only ${scope}'s relevant scope column: ${column}`, async () => {
+      await client.query("UPDATE provider_connections SET scope = $1, scope_id = $2", [scope, scope === "organization" ? "org-1" : "user-1"]);
+      await client.query(`UPDATE agent_jobs SET status = 'running', ${column} = 'unrelated', resolved_runtime_selection = $1`, [JSON.stringify(generic)]);
+      const relevant = scope === "organization" ? "workspace_id" : "created_by_user_id";
+      expect(await acquire()).toEqual({ outcome: column === relevant ? "acquired" : "conflict" });
+    });
+  }
+}
+test("acquire excludes itself even with a generic subscription selection", async () => {
+  await client.query("UPDATE agent_jobs SET status = 'running', resolved_runtime_selection = $1 WHERE id = $2", [JSON.stringify(generic), owner.jobId]);
+  expect(await acquire()).toEqual({ outcome: "acquired" });
+});
+test("acquire reports job uniqueness categorically and caller can roll back replacement", async () => {
+  await seed(owner);
+  await seed(other, now);
+  const before = await rows();
+  const sentinel = new Error("caller rollback after conflict");
+  await expect(transaction(async (tx) => {
+    expect(await helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...owner, connectionId: other.connectionId, now }))
+      .toEqual({ outcome: "conflict" });
+    expect(await tx.select().from(piOpenaiConnectionLeases)).toEqual([before[0]!]);
+    throw sentinel;
+  })).rejects.toBe(sentinel);
+  expect(await rows()).toEqual(before);
+  expect(await acquire({ ...other, connectionId: owner.connectionId })).toEqual({ outcome: "conflict" });
+});
+test("acquire locks job -> connection -> lease, projects no credentials, and fences updates", async () => {
+  await transaction(async (tx) => {
+    queries.length = 0;
+    await helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...owner, now });
+    expect(queries).toHaveLength(5);
+    for (const [index, table, id] of [[0, "agent_jobs", owner.jobId], [1, "provider_connections", owner.connectionId], [3, "pi_openai_connection_leases", owner.connectionId]] as const) {
+      expect(queries[index]!.sql).toContain(`from "${table}" where "${table}".`);
+      expect(queries[index]!.sql).toMatch(/= \$1 limit \$2 for update$/);
+      expect(queries[index]!.params).toEqual([id, 1]);
+    }
+    expect(queries[1]!.sql).not.toMatch(/credential|token|account_identifier|select \*/i);
+    expect(queries[2]!.sql).toContain('"agent_jobs"."id" <>');
+    expect(queries[2]!.sql).toContain("->> 'codingAgent' IS DISTINCT FROM 'pi'");
+    expect(queries[2]!.params).toEqual([owner.jobId, "running", "finalizing", "waiting_for_input", "org-1", 1]);
+    expect(queries[4]!.sql).toContain("on conflict do nothing returning");
+    queries.length = 0;
+    await helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...owner, now: now + 1 });
+    const update = queries[4]!;
+    expect(update.sql.split(" where ")[1]).toBe('(\"pi_openai_connection_leases\".\"connection_id\" = $3 and \"pi_openai_connection_leases\".\"job_id\" = $4 and \"pi_openai_connection_leases\".\"worker_id\" = $5 and \"pi_openai_connection_leases\".\"claim_attempt_id\" = $6 and \"pi_openai_connection_leases\".\"credential_version\" = $7)');
+    expect(update.params).toEqual([new Date(now + 21_600_001).toISOString(), new Date(now + 1).toISOString(), ...Object.values(owner)]);
+  });
+});
+for (const [operation, workerId] of [["INSERT", null], ["INSERT", "old"], ["UPDATE", owner.workerId], ["DELETE", "old"]] as const) {
+  test(`acquire propagates ${operation} errors with caller rollback (previous worker: ${workerId})`, async () => {
+    if (workerId) await seed({ ...owner, workerId }, now);
+    const before = await rows();
+    await expect(transaction(async (tx) => {
+      await tx.execute(sql`CREATE FUNCTION pg_temp.reject_acquire() RETURNS trigger LANGUAGE plpgsql AS
+        $$ BEGIN RAISE EXCEPTION 'acquire sentinel'; END $$`);
+      await tx.execute(sql.raw(`CREATE TRIGGER reject_acquire BEFORE ${operation} ON pi_openai_connection_leases
+        FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_acquire()`));
+      return helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...owner, now });
+    })).rejects.toMatchObject({ cause: { message: "acquire sentinel" } });
+    expect(await rows()).toEqual(before);
+  });
+}
+test("acquire propagates lookup errors and caller sentinel rolls back successful insertion", async () => {
+  await expect(transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL search_path TO pg_catalog`);
+    return helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...owner, now });
+  })).rejects.toMatchObject({ cause: { code: "42P01" } });
+  const sentinel = new Error("caller rollback");
+  await expect(transaction(async (tx) => {
+    expect(await helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...owner, now })).toEqual({ outcome: "acquired" });
+    throw sentinel;
+  })).rejects.toBe(sentinel);
+  expect(await rows()).toEqual([]);
+});
+
+test("acquire cannot insert the same job on a second empty connection", async () => {
+  await seed(owner);
+  const before = await rows();
+  expect(await acquire({ ...owner, connectionId: other.connectionId })).toEqual({ outcome: "conflict" });
+  expect(await rows()).toEqual(before);
+});
+for (const workerId of [owner.workerId, "replacement"]) {
+  test(`caller rollback restores ${workerId} refresh/replacement and preserves unrelated lease`, async () => {
+    await seed(owner, now);
+    await seed(other);
+    const before = await rows();
+    const sentinel = new Error("caller rollback");
+    await expect(transaction(async (tx) => {
+      queries.length = 0;
+      const input = { ...owner, workerId, now };
+      const exact = workerId === owner.workerId;
+      expect(await helpers.acquirePiOpenAiConnectionLeaseWith(tx, input)).toEqual({ outcome: exact ? "idempotent" : "acquired" });
+      if (!exact) {
+        expect(queries[4]!.sql).toBe('delete from "pi_openai_connection_leases" where "pi_openai_connection_leases"."connection_id" = $1');
+        expect(queries[4]!.params).toEqual([owner.connectionId]);
+        expect(queries[5]!.sql).toStartWith('insert into "pi_openai_connection_leases"');
+      }
+      expect(await tx.select().from(piOpenaiConnectionLeases).orderBy(piOpenaiConnectionLeases.connectionId)).toEqual([
+        { ...acquiredRow({ ...owner, workerId }), createdAt: exact ? before[0]!.createdAt : new Date(now) }, before[1]!,
+      ]);
+      throw sentinel;
+    })).rejects.toBe(sentinel);
+    expect(await rows()).toEqual(before);
+  });
+}
+test("acquire handles a connection-unique insert collision without aborting the caller", async () => {
+  const sentinel = new Error("rollback collision fixture");
+  await expect(transaction(async (tx) => {
+    // Insert a competing connection owner at the SQL insertion boundary, not a mocked result.
+    await tx.execute(sql.raw(`CREATE FUNCTION pg_temp.collide_connection() RETURNS trigger LANGUAGE plpgsql AS
+      $$ BEGIN
+        IF pg_trigger_depth() = 1 THEN
+          INSERT INTO pi_openai_connection_leases VALUES
+            (NEW.connection_id, '${other.jobId}', NEW.worker_id, NEW.claim_attempt_id,
+             NEW.credential_version, NEW.expires_at, NEW.created_at, NEW.updated_at);
+        END IF;
+        RETURN NEW;
+      END $$`));
+    await tx.execute(sql`CREATE TRIGGER collide_connection BEFORE INSERT ON pi_openai_connection_leases
+      FOR EACH ROW EXECUTE FUNCTION pg_temp.collide_connection()`);
+    expect(await helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...owner, now })).toEqual({ outcome: "conflict" });
+    expect(await tx.select().from(piOpenaiConnectionLeases)).toEqual([acquiredRow({ ...owner, jobId: other.jobId })]);
+    throw sentinel;
+  })).rejects.toBe(sentinel);
+  expect(await rows()).toEqual([]);
+});
+test("acquire uses normalized millisecond authority and accepts maximal exact identifiers", async () => {
+  await client.query("UPDATE provider_connections SET updated_at = $1", ["2026-05-01T11:59:00.123789Z"]);
+  expect(await acquire()).toEqual({ outcome: "credential_version_conflict" });
+  const input = { ...owner, credentialVersion: "2026-05-01T11:59:00.124Z", workerId: "w".repeat(255), claimAttemptId: "c".repeat(100) };
+  expect(await acquire(input)).toEqual({ outcome: "acquired" });
+  expect(await acquire(input, now + 1)).toEqual({ outcome: "idempotent" });
+  const equality = await client.query<{ exact: boolean }>(`SELECT p.updated_at = l.credential_version AS exact
+    FROM provider_connections p JOIN pi_openai_connection_leases l ON p.id = l.connection_id`);
+  expect(equality.rows).toEqual([{ exact: true }]);
+  expect(await rows()).toEqual([{ ...acquiredRow(input, now + 1), createdAt: new Date(now) }]);
+});
+
+type AcquireTx = Parameters<typeof helpers.acquirePiOpenAiConnectionLeaseWith>[0];
+const preciseAcquire: Equal<AcquireTx, LiveAgentJobClaimTransaction> = true;
 type RequireTx = Parameters<typeof helpers.requirePiOpenAiConnectionLeaseWith>[0];
 type ReleaseTx = Parameters<typeof helpers.releasePiOpenAiConnectionLeaseWith>[0];
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends
@@ -214,7 +502,7 @@ const preciseRequire: Equal<RequireTx, LiveAgentJobClaimTransaction> = true;
 const preciseRelease: Equal<ReleaseTx, LiveAgentJobClaimTransaction> = true;
 const notAny: 0 extends (1 & RequireTx) ? false : true = true;
 test("TypeScript checks helper callback precision and this focused source pair", () => {
-  expect([preciseRequire, preciseRelease, notAny]).toEqual([true, true, true]);
+  expect([preciseAcquire, preciseRequire, preciseRelease, notAny]).toEqual([true, true, true, true]);
   const files = [import.meta.path, new URL("./pi-openai-connection-lease-repository.ts", import.meta.url).pathname];
   const program = ts.createProgram(files, {
     strict: true, noEmit: true, skipLibCheck: true, esModuleInterop: true,
