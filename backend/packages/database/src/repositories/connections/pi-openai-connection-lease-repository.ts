@@ -1,4 +1,4 @@
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { Database } from "../../client";
 import { piOpenaiConnectionLeases } from "../../schema/pi-openai-connection-leases";
 import { agentJobs } from "../../schema/agent-jobs";
@@ -34,6 +34,13 @@ export type PiOpenAiConnectionLeaseReleaseFenceResult = Readonly<{
 }>;
 export type PiOpenAiConnectionLeaseClaimBoundReleaseResult = Readonly<{
   outcome: "invalid" | "connection_ineligible" | "credential_version_conflict" | "conflict" | "released";
+}>;
+
+export type PiOpenAiConnectionLeaseQuarantineReason =
+  "capture_unavailable" | "rotation_outcome_unknown" | "credential_cleanup_failed";
+export type PiOpenAiConnectionLeaseQuarantineResult = Readonly<{
+  outcome: "invalid" | "connection_ineligible" | "credential_version_conflict" |
+    "missing" | "conflict" | "idempotent" | "quarantined";
 }>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -243,6 +250,62 @@ export const releaseClaimBoundPiOpenAiConnectionLeaseWith = async (
     return { outcome: "credential_version_conflict" };
   }
   return releasePiOpenAiConnectionLeaseWith(transaction, ownership);
+};
+
+/** Dormant metadata-only quarantine, locking job -> connection -> lease; caller owns rollback. */
+export const quarantineClaimBoundPiOpenAiConnectionLeaseWith = async (
+  transaction: LeaseTransaction,
+  input: TimedLeaseOwnership & Readonly<{ reason: PiOpenAiConnectionLeaseQuarantineReason }>,
+): Promise<PiOpenAiConnectionLeaseQuarantineResult> => {
+  if (!validOwnership(input) || !validNow(input.now) ||
+    (input.reason !== "capture_unavailable" && input.reason !== "rotation_outcome_unknown" &&
+      input.reason !== "credential_cleanup_failed")) return { outcome: "invalid" };
+  const credentialVersion = new Date(input.credentialVersion);
+  const [job] = await transaction.select({ id: agentJobs.id }).from(agentJobs)
+    .where(eq(agentJobs.id, input.jobId)).for("update").limit(1);
+  if (!job) return { outcome: "invalid" };
+
+  const [connection] = await transaction.select({
+    provider: providerConnections.provider, category: providerConnections.category,
+    isActive: providerConnections.isActive, suspendedAt: providerConnections.suspendedAt,
+    config: providerConnections.config, updatedAt: providerConnections.updatedAt,
+  }).from(providerConnections).where(eq(providerConnections.id, input.connectionId))
+    .for("update").limit(1);
+  const config = connection?.config;
+  if (!connection || connection.provider !== "openai" || connection.category !== "ai" ||
+    connection.isActive !== true || !config || typeof config !== "object" || Array.isArray(config) ||
+    !("authMethod" in config) || (config.authMethod !== "subscription" && config.authMethod !== "oauth")) {
+    return { outcome: "connection_ineligible" };
+  }
+  if (connection.updatedAt.getTime() !== credentialVersion.getTime()) {
+    return { outcome: "credential_version_conflict" };
+  }
+
+  const lease = await lockedLease(transaction, input.connectionId);
+  if (lease && !exactOwner(lease, input)) return { outcome: "conflict" };
+  const suspended = connection.suspendedAt !== null;
+  if (!suspended) {
+    if (!lease) return { outcome: "missing" };
+    const [updated] = await transaction.update(providerConnections).set({
+      suspendedAt: timestamp(input.now),
+      lastValidationError: `Pi OpenAI credential quarantine: ${input.reason}`,
+    }).where(and(
+      eq(providerConnections.id, input.connectionId),
+      eq(providerConnections.updatedAt, credentialVersion),
+      isNull(providerConnections.suspendedAt),
+    )).returning({ id: providerConnections.id });
+    if (!updated) return { outcome: "conflict" };
+  }
+  if (lease) {
+    await transaction.delete(piOpenaiConnectionLeases).where(and(
+      eq(piOpenaiConnectionLeases.connectionId, input.connectionId),
+      eq(piOpenaiConnectionLeases.jobId, input.jobId),
+      eq(piOpenaiConnectionLeases.workerId, input.workerId),
+      eq(piOpenaiConnectionLeases.claimAttemptId, input.claimAttemptId),
+      eq(piOpenaiConnectionLeases.credentialVersion, credentialVersion),
+    ));
+  }
+  return { outcome: suspended ? "idempotent" : "quarantined" };
 };
 
 /** Exact-owner release ignores expiry; absence is an idempotent successful replay. */
