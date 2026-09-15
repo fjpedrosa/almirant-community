@@ -1,6 +1,6 @@
 import { db } from "../../client";
-import { providerConnections, workspaceSettings, member } from "../../schema";
-import { eq, and, asc, desc, sql, isNull, inArray, type SQL } from "drizzle-orm";
+import { providerConnections, workspaceSettings, member, piOpenaiConnectionLeases } from "../../schema";
+import { eq, and, asc, desc, sql, isNull, inArray, gt, notExists, type SQL } from "drizzle-orm";
 import type {
   ProviderConnection,
   NewProviderConnection,
@@ -670,6 +670,19 @@ export const setConnectionAsDefault = async (
   });
 };
 
+/** Generic availability is fenced by connection ID, independent of lease ownership/version. */
+const withoutActivePiOpenaiLease = (): SQL => {
+  const now = new Date();
+  return notExists(
+    db.select({ one: sql`1` })
+      .from(piOpenaiConnectionLeases)
+      .where(and(
+        eq(piOpenaiConnectionLeases.connectionId, providerConnections.id),
+        gt(piOpenaiConnectionLeases.expiresAt, now),
+      )),
+  );
+};
+
 /**
  * Find the first active connection matching the given criteria.
  * Returns the full row including encrypted fields so the caller can decrypt
@@ -692,6 +705,7 @@ export const findActiveConnection = async (
         eq(providerConnections.scopeId, scopeId),
         eq(providerConnections.isActive, true),
         isNull(providerConnections.suspendedAt),
+        withoutActivePiOpenaiLease(),
       ),
     )
     .orderBy(asc(providerConnections.priority), desc(providerConnections.isDefault), desc(providerConnections.updatedAt))
@@ -720,6 +734,7 @@ export const findActiveConnections = async (
         eq(providerConnections.scopeId, scopeId),
         eq(providerConnections.isActive, true),
         isNull(providerConnections.suspendedAt),
+        withoutActivePiOpenaiLease(),
       ),
     )
     .orderBy(asc(providerConnections.priority), desc(providerConnections.isDefault), desc(providerConnections.updatedAt));
@@ -859,6 +874,7 @@ export const getAiProviderKeyById = async (
     eq(providerConnections.id, id),
     eq(providerConnections.isActive, true),
     isNull(providerConnections.suspendedAt),
+    withoutActivePiOpenaiLease(),
   ];
 
   if (scopeFilter) {
@@ -1008,6 +1024,7 @@ export const getOAuthAiKeyByUserAndProvider = async (
         eq(providerConnections.category, "ai"),
         eq(providerConnections.isActive, true),
         isNull(providerConnections.suspendedAt),
+        withoutActivePiOpenaiLease(),
         sql`${providerConnections.config}->>'authMethod' = 'oauth'`,
       ),
     )
@@ -1097,6 +1114,7 @@ export const getLatestActiveAiKeyByProvider = async (
         eq(providerConnections.category, "ai"),
         eq(providerConnections.isActive, true),
         isNull(providerConnections.suspendedAt),
+        withoutActivePiOpenaiLease(),
       ),
     )
     .orderBy(desc(providerConnections.updatedAt))
