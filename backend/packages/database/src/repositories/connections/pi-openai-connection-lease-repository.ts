@@ -29,6 +29,12 @@ export type PiOpenAiConnectionLeaseRequireResult = Readonly<{
 export type PiOpenAiConnectionLeaseReleaseResult = Readonly<{
   outcome: "invalid" | "conflict" | "released";
 }>;
+export type PiOpenAiConnectionLeaseReleaseFenceResult = Readonly<{
+  outcome: "invalid" | "conflict" | "releasable";
+}>;
+export type PiOpenAiConnectionLeaseClaimBoundReleaseResult = Readonly<{
+  outcome: "invalid" | "connection_ineligible" | "credential_version_conflict" | "conflict" | "released";
+}>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const validId = (value: unknown): boolean => typeof value === "string" && UUID.test(value);
@@ -198,6 +204,45 @@ export const requirePiOpenAiConnectionLeaseWith = async (
   if (!lease) return { outcome: "missing" };
   if (!exactOwner(lease, ownership)) return { outcome: "conflict" };
   return { outcome: lease.expiresAt.getTime() <= now ? "expired" : "valid" };
+};
+
+/** Non-mutating terminal fence; callers must already hold the connection lock. */
+export const ensurePiOpenAiConnectionLeaseReleasableWith = async (
+  transaction: LeaseTransaction,
+  ownership: PiOpenAiConnectionLeaseOwnership,
+): Promise<PiOpenAiConnectionLeaseReleaseFenceResult> => {
+  if (!validOwnership(ownership)) return { outcome: "invalid" };
+  const lease = await lockedLease(transaction, ownership.connectionId);
+  return { outcome: !lease || exactOwner(lease, ownership) ? "releasable" : "conflict" };
+};
+
+/** Dormant claim-bound release, locking job -> connection -> lease regardless of expiry. */
+export const releaseClaimBoundPiOpenAiConnectionLeaseWith = async (
+  transaction: LeaseTransaction,
+  ownership: PiOpenAiConnectionLeaseOwnership,
+): Promise<PiOpenAiConnectionLeaseClaimBoundReleaseResult> => {
+  if (!validOwnership(ownership)) return { outcome: "invalid" };
+  const [job] = await transaction.select({ id: agentJobs.id }).from(agentJobs)
+    .where(eq(agentJobs.id, ownership.jobId)).for("update").limit(1);
+  if (!job) return { outcome: "invalid" };
+
+  const [connection] = await transaction.select({
+    provider: providerConnections.provider, category: providerConnections.category,
+    isActive: providerConnections.isActive, suspendedAt: providerConnections.suspendedAt,
+    config: providerConnections.config, updatedAt: providerConnections.updatedAt,
+  }).from(providerConnections).where(eq(providerConnections.id, ownership.connectionId))
+    .for("update").limit(1);
+  const config = connection?.config;
+  if (!connection || connection.provider !== "openai" || connection.category !== "ai" ||
+    connection.isActive !== true || connection.suspendedAt !== null ||
+    !config || typeof config !== "object" || Array.isArray(config) ||
+    !("authMethod" in config) || (config.authMethod !== "subscription" && config.authMethod !== "oauth")) {
+    return { outcome: "connection_ineligible" };
+  }
+  if (connection.updatedAt.getTime() !== new Date(ownership.credentialVersion).getTime()) {
+    return { outcome: "credential_version_conflict" };
+  }
+  return releasePiOpenAiConnectionLeaseWith(transaction, ownership);
 };
 
 /** Exact-owner release ignores expiry; absence is an idempotent successful replay. */

@@ -145,6 +145,8 @@ for (const [key, values] of invalidFields) {
         expect(await helpers.releasePiOpenAiConnectionLeaseWith(tx, input)).toEqual({ outcome: "invalid" });
         expect(await helpers.acquirePiOpenAiConnectionLeaseWith(tx, { ...input, now })).toEqual({ outcome: "invalid" });
         expect(await helpers.renewPiOpenAiConnectionLeaseWith(tx, { ...input, now })).toEqual({ outcome: "invalid" });
+        expect(await helpers.ensurePiOpenAiConnectionLeaseReleasableWith(tx, input)).toEqual({ outcome: "invalid" });
+        expect(await helpers.releaseClaimBoundPiOpenAiConnectionLeaseWith(tx, input)).toEqual({ outcome: "invalid" });
         expect(queries).toEqual([]);
       });
       expect(await rows()).toEqual(before);
@@ -162,6 +164,10 @@ test("malformed ownership is invalid before missing/replay and performs no SQL",
       expect(await helpers.acquirePiOpenAiConnectionLeaseWith(tx, input as typeof owner & { now: number }))
         .toEqual({ outcome: "invalid" });
       expect(await helpers.renewPiOpenAiConnectionLeaseWith(tx, input as typeof owner & { now: number }))
+        .toEqual({ outcome: "invalid" });
+      expect(await helpers.ensurePiOpenAiConnectionLeaseReleasableWith(tx, input as typeof owner))
+        .toEqual({ outcome: "invalid" });
+      expect(await helpers.releaseClaimBoundPiOpenAiConnectionLeaseWith(tx, input as typeof owner))
         .toEqual({ outcome: "invalid" });
     }
     expect(queries).toEqual([]);
@@ -641,6 +647,168 @@ test("renew propagates lookup and update failures; caller rollback restores succ
   expect(await rows()).toEqual(before);
 });
 
+test("WU16 absent lease is releasable and claim-bound release replays", async () => {
+  await transaction(async (tx) => {
+    expect(await helpers.ensurePiOpenAiConnectionLeaseReleasableWith(tx, owner)).toEqual({ outcome: "releasable" });
+    expect(await helpers.releaseClaimBoundPiOpenAiConnectionLeaseWith(tx, owner)).toEqual({ outcome: "released" });
+    expect(await helpers.releaseClaimBoundPiOpenAiConnectionLeaseWith(tx, owner)).toEqual({ outcome: "released" });
+  });
+  expect(await rows()).toEqual([]);
+});
+
+// WU16: release never consults expiry; the terminal fence assumes a caller-held connection lock.
+for (const expiry of [null, now - 1, now, now + 1]) {
+  test(`WU16 fence locks by connection only without mutation (${expiry})`, async () => {
+    if (expiry !== null) await seed(owner, expiry);
+    await seed(other);
+    const before = await rows();
+    await transaction(async (tx) => {
+      queries.length = 0;
+      expect(await helpers.ensurePiOpenAiConnectionLeaseReleasableWith(tx, owner)).toEqual({ outcome: "releasable" });
+      expect(queries).toHaveLength(1);
+      expect(queries[0]!.sql).toMatch(/where "pi_openai_connection_leases"\."connection_id" = \$1 limit \$2 for update$/);
+      expect(queries[0]!.params).toEqual([owner.connectionId, 1]);
+    });
+    expect(await rows()).toEqual(before);
+  });
+  test(`WU16 claim release ignores expiry and preserves unrelated leases (${expiry})`, async () => {
+    if (expiry !== null) await seed(owner, expiry);
+    await seed(other);
+    const unrelated = (await rows()).find((row) => row.connectionId === other.connectionId)!;
+    await transaction(async (tx) => {
+      expect(await helpers.releaseClaimBoundPiOpenAiConnectionLeaseWith(tx, owner)).toEqual({ outcome: "released" });
+      expect(await helpers.releaseClaimBoundPiOpenAiConnectionLeaseWith(tx, owner)).toEqual({ outcome: "released" });
+    });
+    expect(await rows()).toEqual([unrelated]);
+  });
+}
+for (const expiry of [now - 1, now + 1]) {
+  for (const [key, value] of Object.entries(mismatches)) {
+    test(`WU16 fence and claim release reject ${key} mismatch (${expiry}) without mutation`, async () => {
+      await seed(owner, expiry);
+      await seed(other, expiry);
+      const before = await rows();
+      const input = { ...owner, [key]: value };
+      await client.query("UPDATE provider_connections SET updated_at = $1", [input.credentialVersion]);
+      await transaction(async (tx) => {
+        queries.length = 0;
+        expect(await helpers.ensurePiOpenAiConnectionLeaseReleasableWith(tx, input)).toEqual({ outcome: "conflict" });
+        expect(await helpers.releaseClaimBoundPiOpenAiConnectionLeaseWith(tx, input)).toEqual({ outcome: "conflict" });
+        expect(queries).toHaveLength(4);
+        expect(queries.every((query) => query.sql.startsWith("select "))).toBe(true);
+      });
+      expect(await rows()).toEqual(before);
+    });
+  }
+}
+for (const [input, outcome, count] of [
+  [{ ...owner, jobId: missingId, connectionId: missingId }, "invalid", 1],
+  [{ ...owner, connectionId: missingId }, "connection_ineligible", 2],
+  [owner, "released", 3],
+] as const) {
+  test(`WU16 claim release stops at ${outcome} with ${count} locks`, async () => {
+    await transaction(async (tx) => {
+      queries.length = 0;
+      expect(await helpers.releaseClaimBoundPiOpenAiConnectionLeaseWith(tx, input)).toEqual({ outcome });
+      expect(queries).toHaveLength(count);
+      expect(queries.every((query) => query.sql.endsWith("for update"))).toBe(true);
+    });
+    expect(await rows()).toEqual([]);
+  });
+}
+for (const [column, value, outcome] of renewEligibility) {
+  for (const stale of [false, true]) {
+    for (const state of ["missing", "exact", "mismatch"] as const) {
+      test(`WU16 claim release ${column}=${JSON.stringify(value)}, stale=${stale} precedes ${state}`, async () => {
+        if (state !== "missing") await seed(state === "exact" ? owner : { ...owner, workerId: "other" }, now - 1);
+        const before = await rows();
+        await client.query(`UPDATE provider_connections SET ${column} = $1 WHERE id = $2`, [value, owner.connectionId]);
+        if (stale) await client.query("UPDATE provider_connections SET updated_at = $1", [mismatches.credentialVersion]);
+        await transaction(async (tx) => {
+          queries.length = 0;
+          expect(await helpers.releaseClaimBoundPiOpenAiConnectionLeaseWith(tx, owner)).toEqual({ outcome });
+          expect(queries).toHaveLength(2);
+        });
+        expect(await rows()).toEqual(before);
+      });
+    }
+  }
+}
+for (const authMethod of ["subscription", "oauth"]) {
+  for (const scope of ["organization", "user", "project", null]) {
+    test(`WU16 claim release locks job -> connection -> lease for ${authMethod}/${scope}, then exact delete`, async () => {
+      await seed();
+      await client.query("UPDATE provider_connections SET scope = $1, config = $2", [scope, JSON.stringify({ authMethod })]);
+      await client.query("UPDATE agent_jobs SET status = 'running', resolved_runtime_selection = $1", [JSON.stringify(generic)]);
+      await transaction(async (tx) => {
+        queries.length = 0;
+        expect(await helpers.releaseClaimBoundPiOpenAiConnectionLeaseWith(tx, owner)).toEqual({ outcome: "released" });
+        expect(queries).toHaveLength(4);
+        for (const [index, table, column, id] of [
+          [0, "agent_jobs", "id", owner.jobId], [1, "provider_connections", "id", owner.connectionId],
+          [2, "pi_openai_connection_leases", "connection_id", owner.connectionId],
+        ] as const) {
+          expect(queries[index]!.sql).toContain(`from "${table}" where "${table}"."${column}" = $1 limit $2 for update`);
+          expect(queries[index]!.params).toEqual([id, 1]);
+        }
+        expect(queries[0]!.sql).toBe('select "id" from "agent_jobs" where "agent_jobs"."id" = $1 limit $2 for update');
+        expect(queries[1]!.sql).toBe('select "provider", "category", "is_active", "suspended_at", "config", "updated_at" from "provider_connections" where "provider_connections"."id" = $1 limit $2 for update');
+        expect(queries[3]!.sql).toBe('delete from "pi_openai_connection_leases" where ("pi_openai_connection_leases"."connection_id" = $1 and "pi_openai_connection_leases"."job_id" = $2 and "pi_openai_connection_leases"."worker_id" = $3 and "pi_openai_connection_leases"."claim_attempt_id" = $4 and "pi_openai_connection_leases"."credential_version" = $5)');
+        expect(queries[3]!.params).toEqual(Object.values(owner));
+      });
+    });
+  }
+}
+for (const helper of ["ensurePiOpenAiConnectionLeaseReleasableWith", "releaseClaimBoundPiOpenAiConnectionLeaseWith"] as const) {
+  test(`WU16 ${helper} propagates database errors and leaves transaction ownership to caller`, async () => {
+    await seed();
+    await seed(other);
+    const before = await rows();
+    await expect(transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL search_path TO pg_catalog`);
+      return helpers[helper](tx, owner);
+    })).rejects.toMatchObject({ cause: { code: "42P01" } });
+    const sentinel = new Error("caller rollback WU16");
+    await expect(transaction(async (tx) => {
+      queries.length = 0;
+      const fence = helper === "ensurePiOpenAiConnectionLeaseReleasableWith";
+      expect(await helpers[helper](tx, owner)).toEqual({ outcome: fence ? "releasable" : "released" });
+      expect(queries.some((query) => /begin|commit|rollback|savepoint/i.test(query.sql))).toBe(false);
+      expect(await tx.select().from(piOpenaiConnectionLeases).orderBy(piOpenaiConnectionLeases.connectionId))
+        .toEqual(fence ? before : [before[1]!]);
+      throw sentinel;
+    })).rejects.toBe(sentinel);
+    expect(await rows()).toEqual(before);
+  });
+}
+test("WU16 claim release propagates delete failure with rollback", async () => {
+  await seed();
+  const before = await rows();
+  await expect(transaction(async (tx) => {
+    await tx.execute(sql`CREATE FUNCTION pg_temp.reject_claim_release() RETURNS trigger LANGUAGE plpgsql AS
+      $$ BEGIN RAISE EXCEPTION 'claim release sentinel'; END $$`);
+    await tx.execute(sql`CREATE TRIGGER reject_claim_release BEFORE DELETE ON pi_openai_connection_leases
+      FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_claim_release()`);
+    return helpers.releaseClaimBoundPiOpenAiConnectionLeaseWith(tx, owner);
+  })).rejects.toMatchObject({ cause: { message: "claim release sentinel" } });
+  expect(await rows()).toEqual(before);
+});
+
+type FenceTx = Parameters<typeof helpers.ensurePiOpenAiConnectionLeaseReleasableWith>[0];
+type ClaimReleaseTx = Parameters<typeof helpers.releaseClaimBoundPiOpenAiConnectionLeaseWith>[0];
+const preciseFence: Equal<FenceTx, LiveAgentJobClaimTransaction> = true;
+const preciseClaimRelease: Equal<ClaimReleaseTx, LiveAgentJobClaimTransaction> = true;
+const fenceNotAny: 0 extends (1 & FenceTx) ? false : true = true;
+const claimReleaseNotAny: 0 extends (1 & ClaimReleaseTx) ? false : true = true;
+const preciseFenceResult: Equal<Awaited<ReturnType<typeof helpers.ensurePiOpenAiConnectionLeaseReleasableWith>>,
+  import("./pi-openai-connection-lease-repository").PiOpenAiConnectionLeaseReleaseFenceResult> = true;
+const preciseClaimReleaseResult: Equal<Awaited<ReturnType<typeof helpers.releaseClaimBoundPiOpenAiConnectionLeaseWith>>,
+  import("./pi-openai-connection-lease-repository").PiOpenAiConnectionLeaseClaimBoundReleaseResult> = true;
+const preciseFenceInput: Equal<Parameters<typeof helpers.ensurePiOpenAiConnectionLeaseReleasableWith>,
+  [LiveAgentJobClaimTransaction, import("./pi-openai-connection-lease-repository").PiOpenAiConnectionLeaseOwnership]> = true;
+const preciseClaimReleaseInput: Equal<Parameters<typeof helpers.releaseClaimBoundPiOpenAiConnectionLeaseWith>,
+  [LiveAgentJobClaimTransaction, import("./pi-openai-connection-lease-repository").PiOpenAiConnectionLeaseOwnership]> = true;
+
 type RenewTx = Parameters<typeof helpers.renewPiOpenAiConnectionLeaseWith>[0];
 const preciseRenew: Equal<RenewTx, LiveAgentJobClaimTransaction> = true;
 const renewNotAny: 0 extends (1 & RenewTx) ? false : true = true;
@@ -658,6 +826,9 @@ const notAny: 0 extends (1 & RequireTx) ? false : true = true;
 test("TypeScript checks helper callback precision and this focused source pair", () => {
   expect([preciseAcquire, preciseRequire, preciseRelease, notAny]).toEqual([true, true, true, true]);
   expect([preciseRenew, renewNotAny, preciseRenewResult]).toEqual([true, true, true]);
+  expect([preciseFence, preciseClaimRelease, fenceNotAny, claimReleaseNotAny,
+    preciseFenceResult, preciseClaimReleaseResult, preciseFenceInput, preciseClaimReleaseInput])
+    .toEqual(Array(8).fill(true));
   const files = [import.meta.path, new URL("./pi-openai-connection-lease-repository.ts", import.meta.url).pathname];
   const program = ts.createProgram(files, {
     strict: true, noEmit: true, skipLibCheck: true, esModuleInterop: true,
