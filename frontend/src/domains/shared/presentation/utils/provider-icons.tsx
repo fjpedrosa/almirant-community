@@ -6,6 +6,7 @@ import { CodexIcon } from "@/components/icons/codex-icon";
 import { GrokIcon } from "@/components/icons/grok-icon";
 import { OpenCodeIcon } from "@/components/icons/opencode-icon";
 import { OpenAIIcon } from "@/components/icons/openai-icon";
+import { PiIcon } from "@/components/icons/pi-icon";
 import { XAIIcon } from "@/components/icons/xai-icon";
 import { ZAIIcon } from "@/components/icons/zai-icon";
 import type { AgentProvider } from "@/domains/agents/domain/types";
@@ -407,7 +408,7 @@ export const CODING_AGENT_ICON_MAP: Record<CodingAgent, IconComponent> = {
   "claude-code": ClaudeCodeIcon,
   "codex": CodexIcon,
   "opencode": OpenCodeIcon,
-  "pi": Cpu,
+  "pi": PiIcon,
 };
 
 export const getCodingAgentIcon = (agent: CodingAgent): IconComponent =>

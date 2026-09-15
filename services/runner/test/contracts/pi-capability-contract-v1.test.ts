@@ -145,6 +145,18 @@ describe("Pi 0.84.2 capability contract", () => {
       nodeEngine: ">=22.19.0",
       binary: "pi",
       mode: "rpc",
+      invocation: {
+        "openai-codex": {
+          kind: "programmatic",
+          executable: "node",
+          entrypoint: "services/runner/docker/pi-shim/dist/pi-rpc-entry.js",
+        },
+        zai: {
+          kind: "cli",
+          executable: "pi",
+          entrypoint: null,
+        },
+      },
       configDirectoryPolicy: "new-empty-per-session",
       sessionPersistence: false,
       projectResources: false,
@@ -152,7 +164,7 @@ describe("Pi 0.84.2 capability contract", () => {
       telemetry: false,
       versionChecks: false,
     });
-    expect(contract.runtime.arguments).toEqual([
+    expect(contract.runtime.cliArguments).toEqual([
       "--mode",
       "rpc",
       "--no-session",

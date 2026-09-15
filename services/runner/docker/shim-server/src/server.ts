@@ -2,6 +2,8 @@ import express from "express";
 import type { NextFunction, Request, Response } from "express";
 import type { Server as HttpServer } from "node:http";
 import type { RuntimeAdapter } from "./adapter.js";
+import { createControlAuth } from "./control-auth.js";
+import { isExternalControlOrigin } from "./control-origin.js";
 import { createQueuedAdapter } from "./session-queue.js";
 import type {
   PromptPart,
@@ -18,6 +20,11 @@ type ShimServerOptions = {
   maxQueueDepth?: number;
   adapterCloseTimeoutMs?: number;
   httpCloseTimeoutMs?: number;
+  authToken?: string;
+  /** One-shot activation; mutually exclusive with authToken. */
+  bootstrapToken?: string;
+  /** Require a direct external peer for all control requests; requires authentication. */
+  requireExternalControlOrigin?: boolean;
   logger?: Pick<Console, "info" | "error">;
 };
 
@@ -144,7 +151,33 @@ const createHeartbeatEvent = (): SSEEvent => ({
   properties: { timestamp: new Date().toISOString() },
 });
 
+// Normalized headers can discard or coalesce duplicates; preserve their cardinality.
+const readSingleHeader = (req: Request, name: string): string | string[] => {
+  const values: string[] = [];
+  for (let index = 0; index < req.rawHeaders.length; index += 2) {
+    if (req.rawHeaders[index]!.toLowerCase() === name) {
+      values.push(req.rawHeaders[index + 1]!);
+    }
+  }
+  return values.length === 1 ? values[0]! : values;
+};
+
 export const createShimServer = (options: ShimServerOptions): ShimServer => {
+  const { authToken, bootstrapToken, requireExternalControlOrigin = false } = options;
+  if (
+    typeof requireExternalControlOrigin !== "boolean" ||
+    (requireExternalControlOrigin && authToken === undefined && bootstrapToken === undefined) ||
+    (authToken !== undefined && bootstrapToken !== undefined)
+  ) {
+    throw new Error("Invalid control authentication configuration");
+  }
+  const controlAuth = createControlAuth(
+    bootstrapToken !== undefined
+      ? { mode: "bootstrap", token: bootstrapToken }
+      : authToken !== undefined
+        ? { mode: "static", token: authToken }
+        : { mode: "disabled" },
+  );
   const app = express();
   const adapter = options.adapter;
   const host = options.host ?? DEFAULT_HOST;
@@ -248,6 +281,40 @@ export const createShimServer = (options: ShimServerOptions): ShimServer => {
 
   app.get("/health/ready", (_req: Request, res: Response) => {
     res.status(ready ? 200 : 503).json({ ready });
+  });
+
+  // Gate every control path before credentials, activation, draining, or parsing.
+  // Use only the direct socket peer; forwarded/request-supplied origins are untrusted.
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (requireExternalControlOrigin && !isExternalControlOrigin(req.socket.remoteAddress)) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    next();
+  });
+
+  if (bootstrapToken !== undefined) {
+    app.post("/control/activate", (req: Request, res: Response) => {
+      const result = controlAuth.activate(
+        readSingleHeader(req, "authorization"),
+        readSingleHeader(req, "x-almirant-active-token"),
+      );
+      if (result.status !== "activated") {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      // State is committed synchronously, even if the response never reaches the caller.
+      res.status(204).send();
+    });
+  }
+
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const authorization = readSingleHeader(req, "authorization");
+    if (controlAuth.authorize(authorization).status !== "authorized") {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    next();
   });
 
   app.use((req: Request, res: Response, next: NextFunction) => {

@@ -273,8 +273,13 @@ export const resolveRuntimeCapabilityPolicy = (
 /** Full selection result from the 3-step selector. */
 export interface AgentSelection {
   codingAgent: CodingAgent;
+  /** Legacy infrastructure lane; Pi always uses zipu. */
   provider: AgentProvider;
+  /** Explicit AI API identity so Pi/OpenAI does not overwrite the zipu lane. */
+  aiProvider?: AIProvider;
   model?: string;
+  /** Exact public connection binding required by Pi/OpenAI subscription jobs. */
+  providerConnectionId?: string;
 }
 
 const codingAgentLabel = (agent: CodingAgent): string => {

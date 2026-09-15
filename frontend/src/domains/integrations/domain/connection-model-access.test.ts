@@ -18,8 +18,19 @@ describe("AI connection model access", () => {
     expect(normalizeAiConnectionModel("zai", "glm-5.2")).toBe("glm-5.2");
   });
 
+  test("limits OpenAI API connections to general-API models", () => {
+    const ids = getModelsForAiConnection("openai").map((model) => model.id);
+
+    expect(ids).toContain("gpt-5.6-sol");
+    expect(ids).not.toContain("gpt-5.3-codex-spark");
+    expect(
+      normalizeAiConnectionModel("openai", "gpt-5.3-codex-spark"),
+    ).toBeUndefined();
+  });
+
   test("keeps selectable models for other AI providers", () => {
-    expect(normalizeAiConnectionModel("anthropic", "claude-opus-4-8")).toBe("claude-opus-4-8");
-    expect(normalizeAiConnectionModel("openai", "gpt-5.6-sol")).toBe("gpt-5.6-sol");
+    expect(normalizeAiConnectionModel("anthropic", "claude-opus-4-8")).toBe(
+      "claude-opus-4-8",
+    );
   });
 });

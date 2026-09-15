@@ -6,6 +6,7 @@ import { CodexIcon } from "@/components/icons/codex-icon";
 import { GrokIcon } from "@/components/icons/grok-icon";
 import { OpenCodeIcon } from "@/components/icons/opencode-icon";
 import { OpenAIIcon } from "@/components/icons/openai-icon";
+import { PiIcon } from "@/components/icons/pi-icon";
 import { XAIIcon } from "@/components/icons/xai-icon";
 import { ZAIIcon } from "@/components/icons/zai-icon";
 import {
@@ -27,10 +28,19 @@ describe("provider icon mappings", () => {
     expect(getModelIconComponent("grok-4.20-reasoning", "xai")).toBe(GrokIcon);
   });
 
-  it("uses coding-agent icons for Claude Code, Codex and OpenCode", () => {
+  it("uses dedicated coding-agent icons for Claude Code, Codex, OpenCode and Pi", () => {
     expect(CODING_AGENT_ICON_MAP["claude-code"]).toBe(ClaudeCodeIcon);
     expect(CODING_AGENT_ICON_MAP.codex).toBe(CodexIcon);
     expect(CODING_AGENT_ICON_MAP.opencode).toBe(OpenCodeIcon);
+    expect(CODING_AGENT_ICON_MAP.pi).toBe(PiIcon);
+  });
+
+  it("keeps the generic CPU icon for unknown providers", () => {
+    const UnknownProviderIcon = getProviderIconComponent("future-provider");
+    const markup = renderToStaticMarkup(<UnknownProviderIcon />);
+
+    expect(markup).toContain("lucide-cpu");
+    expect(markup).not.toContain('viewBox="0 0 800 800"');
   });
 
   it("offers xAI as the Grok-backed agent provider option with the xAI icon", () => {

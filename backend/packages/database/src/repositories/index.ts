@@ -67,6 +67,7 @@ export * from "./ai/suggested-docs-repository";
 // ── connections ──
 export * from "./connections/connection-repository";
 export * from "./connections/oauth-states-repository";
+export * from "./connections/pi-openai-connection-lease-repository";
 
 // ── integrations ──
 export * from "./integrations/repository-repository";

@@ -930,9 +930,13 @@ export type LiveAgentJobClaim = Readonly<{
   workspaceId: string | null;
   workerId: string;
   config: AgentJobConfig;
+  resolvedRuntimeSelection: ResolvedRuntimeSelection | null;
 }>;
 
 type LiveAgentJobClaimDatabase = Pick<typeof db, "transaction">;
+export type LiveAgentJobClaimTransaction = Parameters<
+  Parameters<LiveAgentJobClaimDatabase["transaction"]>[0]
+>[0];
 
 /** Hold the exact active claim under row lock while reading claim-bound data. */
 export const withLiveAgentJobClaimWith = async <T>(
@@ -942,7 +946,10 @@ export const withLiveAgentJobClaimWith = async <T>(
     workerId: string;
     claimAttemptId: string;
   }>,
-  operation: (job: LiveAgentJobClaim) => Promise<T>,
+  operation: (
+    job: LiveAgentJobClaim,
+    transaction: LiveAgentJobClaimTransaction,
+  ) => Promise<T>,
 ): Promise<T | null> => {
   const jobId = ownership.jobId.trim();
   const workerId = ownership.workerId.trim();
@@ -968,6 +975,7 @@ export const withLiveAgentJobClaimWith = async <T>(
         workspaceId: agentJobs.workspaceId,
         workerId: agentJobs.workerId,
         config: agentJobs.config,
+        resolvedRuntimeSelection: agentJobs.resolvedRuntimeSelection,
       })
       .from(agentJobClaimSequenceReceipts)
       .innerJoin(agentJobs, eq(agentJobs.id, agentJobClaimSequenceReceipts.jobId))
@@ -976,7 +984,10 @@ export const withLiveAgentJobClaimWith = async <T>(
       .limit(1);
     if (!locked || locked.status !== "running" || locked.workerId !== workerId) return null;
 
-    const result = await operation({ ...locked, status: "running", workerId });
+    const result = await operation(
+      { ...locked, status: "running", workerId },
+      tx,
+    );
 
     const [stillAuthorized] = await tx
       .select({ id: agentJobs.id })
@@ -994,7 +1005,10 @@ export const withLiveAgentJobClaim = <T>(
     workerId: string;
     claimAttemptId: string;
   }>,
-  operation: (job: LiveAgentJobClaim) => Promise<T>,
+  operation: (
+    job: LiveAgentJobClaim,
+    transaction: LiveAgentJobClaimTransaction,
+  ) => Promise<T>,
 ): Promise<T | null> => withLiveAgentJobClaimWith(db, ownership, operation);
 
 export type ClaimReleaseConfig = Readonly<{
