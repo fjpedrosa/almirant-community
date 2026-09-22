@@ -134,7 +134,7 @@ export const DEFAULT_OPENCODE_CONTAINER_CONFIG = (
   config: OpenCodeRuntimeConfig = {}
 ): ContainerConfig => {
   return {
-    image: config.image ?? "ghcr.io/almirant-ai/almirant/opencode-shim:1.18.4",
+    image: config.image ?? "ghcr.io/almirant-ai/almirant/opencode-shim:1.18.32",
     envVars: {
       OPENCODE_SERVER_HOST: config.host ?? "0.0.0.0",
       OPENCODE_SERVER_PORT: String(config.port ?? 4096),

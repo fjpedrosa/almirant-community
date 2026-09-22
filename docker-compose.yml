@@ -192,9 +192,9 @@ services:
       PLATFORM_CONFIG_PATH: /app/platform-config
       ENABLE_BROWSER: ${ENABLE_BROWSER:-false}
       WEB_OUTPUT_ENABLED: ${WEB_OUTPUT_ENABLED:-true}
-      OPENCODE_IMAGE: ${OPENCODE_IMAGE:-almirant-opencode-shim:1.18.4}
-      CLAUDE_SHIM_IMAGE: ${CLAUDE_SHIM_IMAGE:-almirant-claude-shim:2.1.218}
-      CODEX_SHIM_IMAGE: ${CODEX_SHIM_IMAGE:-almirant-codex-shim:0.145.0}
+      OPENCODE_IMAGE: ${OPENCODE_IMAGE:-almirant-opencode-shim:1.18.32}
+      CLAUDE_SHIM_IMAGE: ${CLAUDE_SHIM_IMAGE:-almirant-claude-shim:2.1.280}
+      CODEX_SHIM_IMAGE: ${CODEX_SHIM_IMAGE:-almirant-codex-shim:0.156.0}
       PI_SHIM_IMAGE: ${PI_SHIM_IMAGE:-almirant-pi-shim:0.84.2}
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -309,21 +309,21 @@ services:
     build:
       context: .
       dockerfile: services/runner-claude/Dockerfile
-    image: almirant-claude-shim:2.1.218
+    image: almirant-claude-shim:2.1.280
 
   codex-shim:
     profiles: ["shims"]
     build:
       context: .
       dockerfile: services/runner/docker/Dockerfile.codex
-    image: almirant-codex-shim:0.145.0
+    image: almirant-codex-shim:0.156.0
 
   opencode-shim:
     profiles: ["shims"]
     build:
       context: .
       dockerfile: services/runner/docker/Dockerfile.opencode
-    image: almirant-opencode-shim:1.18.4
+    image: almirant-opencode-shim:1.18.32
 
   # Local build artifact only. Production must set PI_SHIM_IMAGE to an
   # immutable registry image@sha256 reference.

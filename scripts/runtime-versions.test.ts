@@ -6,11 +6,11 @@ const root = join(import.meta.dir, "..");
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const versions = {
-  claudeCode: "2.1.218",
+  claudeCode: "2.1.280",
   legacyWorkerClaudeCode: "2.1.209",
-  openCode: "1.18.4",
-  codex: "0.145.0",
-  playwrightMcp: "0.0.78",
+  openCode: "1.18.32",
+  codex: "0.156.0",
+  playwrightMcp: "0.0.82",
 } as const;
 
 describe("agent runtime version manifest", () => {

@@ -89,9 +89,9 @@ describe("loadRunnerEnv", () => {
 
   it("defaults shim images to locally built self-hosted images", () => {
     const env = loadRunnerEnv(MINIMAL_ENV);
-    expect(env.OPENCODE_IMAGE).toBe("almirant-opencode-shim:1.18.4");
-    expect(env.CLAUDE_SHIM_IMAGE).toBe("almirant-claude-shim:2.1.218");
-    expect(env.CODEX_SHIM_IMAGE).toBe("almirant-codex-shim:0.145.0");
+    expect(env.OPENCODE_IMAGE).toBe("almirant-opencode-shim:1.18.32");
+    expect(env.CLAUDE_SHIM_IMAGE).toBe("almirant-claude-shim:2.1.280");
+    expect(env.CODEX_SHIM_IMAGE).toBe("almirant-codex-shim:0.156.0");
     expect(env.PI_SHIM_IMAGE).toBe("almirant-pi-shim:0.84.2");
   });
 

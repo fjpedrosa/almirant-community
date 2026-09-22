@@ -93,9 +93,9 @@ These are the variables that matter for the self-hosted Docker stacks.
 | `RUNNER_RAM_BUDGET_ENABLED` | `true` | Enables RAM-aware job claiming based on current available memory and job forecasts |
 | `RUNNER_RAM_RESERVED_MB` | `2048` | RAM kept outside the runner budget for the host and upgrade/build spikes |
 | `MAX_CONCURRENT` | `4` | Runner slot cap; RAM budgeting adds a dynamic memory bound on top |
-| `OPENCODE_IMAGE` | `almirant-opencode-shim:1.18.4` | Local image name for OpenCode jobs |
-| `CLAUDE_SHIM_IMAGE` | `almirant-claude-shim:2.1.218` | Local image name for Claude jobs |
-| `CODEX_SHIM_IMAGE` | `almirant-codex-shim:0.145.0` | Local image name for Codex jobs |
+| `OPENCODE_IMAGE` | `almirant-opencode-shim:1.18.32` | Local image name for OpenCode jobs |
+| `CLAUDE_SHIM_IMAGE` | `almirant-claude-shim:2.1.280` | Local image name for Claude jobs |
+| `CODEX_SHIM_IMAGE` | `almirant-codex-shim:0.156.0` | Local image name for Codex jobs |
 | `PI_SHIM_IMAGE` | `almirant-pi-shim:0.84.2` (local only) | Pi image. Production Compose requires `DOCKERHUB_USERNAME/almirant-pi-shim@sha256:<digest>`. |
 
 ## Pi runtime controls and image

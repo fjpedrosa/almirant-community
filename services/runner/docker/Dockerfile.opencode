@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
   xvfb \
   && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g bun@1.3.13 opencode-ai@1.18.4 @playwright/mcp@0.0.78
+RUN npm install -g bun@1.3.13 opencode-ai@1.18.32 @playwright/mcp@0.0.82
 
 # Install Playwright with Chromium browser
 RUN npx playwright install chromium
