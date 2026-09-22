@@ -23,7 +23,7 @@ import {
   type PiUsageSnapshot,
 } from "../docker/pi-shim/src/event-mapper";
 
-const usageReplayPath = `${import.meta.dir}/fixtures/pi-0.84.2/rpc-usage-replay-v1.jsonl`;
+const usageReplayPath = `${import.meta.dir}/fixtures/pi-0.87.1/rpc-usage-replay-v1.jsonl`;
 
 const usageReplayRecords = async (): Promise<Record<string, unknown>[]> =>
   (await Bun.file(usageReplayPath).text())

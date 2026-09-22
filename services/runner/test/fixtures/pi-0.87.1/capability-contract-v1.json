@@ -3,7 +3,7 @@
   "contractVersion": 1,
   "runtime": {
     "packageName": "@earendil-works/pi-coding-agent",
-    "packageVersion": "0.84.2",
+    "packageVersion": "0.87.1",
     "nodeEngine": ">=22.19.0",
     "binary": "pi",
     "mode": "rpc",
@@ -63,6 +63,10 @@
       },
       {
         "type": "get_session_stats",
+        "responseCardinality": "exactly-one-correlated"
+      },
+      {
+        "type": "clear_queue",
         "responseCardinality": "exactly-one-correlated"
       }
     ],
@@ -158,6 +162,7 @@
         "anthropic-messages"
       ],
       "targetCatalogModels": [
+        "claude-opus-5-5",
         "claude-opus-5",
         "claude-opus-4-8",
         "claude-fable-5",
@@ -166,6 +171,7 @@
         "claude-haiku-4-5"
       ],
       "candidateModels": [
+        "claude-opus-5-5",
         "claude-opus-5",
         "claude-opus-4-8",
         "claude-fable-5",
@@ -174,6 +180,7 @@
         "claude-haiku-4-5"
       ],
       "candidateModelApis": {
+        "claude-opus-5-5": "anthropic-messages",
         "claude-opus-5": "anthropic-messages",
         "claude-opus-4-8": "anthropic-messages",
         "claude-fable-5": "anthropic-messages",
@@ -183,7 +190,7 @@
       },
       "admittedModels": [],
       "excludedTargetModels": [],
-      "exclusionRule": "Exclude any model absent from either the Pi 0.84.2 static provider catalog or the current Almirant target catalog.",
+      "exclusionRule": "Exclude any model absent from either the Pi 0.87.1 static provider catalog or the current Almirant target catalog.",
       "runtimeVerified": false,
       "admissionEnabled": false,
       "catalogProvenance": {
@@ -203,6 +210,9 @@
         "openai-responses"
       ],
       "targetCatalogModels": [
+        "gpt-6-sol",
+        "gpt-6-astra",
+        "gpt-6-luna",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
         "gpt-5.6-luna",
@@ -217,6 +227,9 @@
         "gpt-4.1-mini"
       ],
       "candidateModels": [
+        "gpt-6-sol",
+        "gpt-6-astra",
+        "gpt-6-luna",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
         "gpt-5.6-luna",
@@ -231,6 +244,9 @@
         "gpt-4.1-mini"
       ],
       "candidateModelApis": {
+        "gpt-6-sol": "openai-responses",
+        "gpt-6-astra": "openai-responses",
+        "gpt-6-luna": "openai-responses",
         "gpt-5.6-sol": "openai-responses",
         "gpt-5.6-terra": "openai-responses",
         "gpt-5.6-luna": "openai-responses",
@@ -294,7 +310,7 @@
       },
       "admittedModels": [],
       "excludedTargetModels": [],
-      "exclusionRule": "Exclude any model absent from either the Pi 0.84.2 static provider catalog or the current Almirant target catalog.",
+      "exclusionRule": "Exclude any model absent from either the Pi 0.87.1 static provider catalog or the current Almirant target catalog.",
       "runtimeVerified": false,
       "admissionEnabled": false,
       "catalogProvenance": {
@@ -360,7 +376,7 @@
         "glm-4.6v-flash",
         "glm-ocr"
       ],
-      "exclusionRule": "The listed models are absent from Pi 0.84.2's static zai Coding Plan catalog; general-api-only target rows are not endpoint-compatible with this candidate.",
+      "exclusionRule": "The listed models are absent from Pi 0.87.1's static zai Coding Plan catalog; general-api-only target rows are not endpoint-compatible with this candidate.",
       "runtimeVerified": true,
       "admissionEnabled": true,
       "catalogProvenance": {
@@ -377,7 +393,6 @@
       "environmentVariable": "XAI_API_KEY",
       "endpoint": "https://api.x.ai/v1",
       "apis": [
-        "openai-completions",
         "openai-responses"
       ],
       "targetCatalogModels": [
@@ -388,20 +403,19 @@
         "grok-build-0.1"
       ],
       "candidateModels": [
-        "grok-4.3",
-        "grok-build-0.1"
+        "grok-4.3"
       ],
       "candidateModelApis": {
-        "grok-4.3": "openai-completions",
-        "grok-build-0.1": "openai-completions"
+        "grok-4.3": "openai-responses"
       },
       "admittedModels": [],
       "excludedTargetModels": [
         "grok-4.20-reasoning",
         "grok-4.20-multi-agent",
-        "grok-4.20"
+        "grok-4.20",
+        "grok-build-0.1"
       ],
-      "exclusionRule": "The Grok 4.20 target aliases are absent from Pi 0.84.2's static xai catalog; Pi's grok-4.5 and grok-4.6 rows are excluded because they are absent from the current target catalog.",
+      "exclusionRule": "The Grok 4.20 target aliases and grok-build-0.1 are absent from Pi 0.87.1's static xai catalog (0.87.1 dropped grok-build-0.1 and added grok-4.7); Pi's grok-4.5, grok-4.6 and grok-4.7 rows are excluded because they are absent from the current target catalog.",
       "runtimeVerified": false,
       "admissionEnabled": false,
       "catalogProvenance": {
@@ -756,7 +770,7 @@
       "id": "pi-provider-data",
       "scope": "pi-ai-package",
       "path": "dist/providers/data",
-      "establishes": "Static provider model IDs, APIs, endpoints, and model capabilities for 0.84.2."
+      "establishes": "Static provider model IDs, APIs, endpoints, and model capabilities for 0.87.1."
     },
     {
       "id": "almirant-target-catalog",
@@ -769,6 +783,12 @@
       "scope": "repository",
       "path": "backend/packages/database/src/schema",
       "establishes": "Defaults, nullability, enums, JSONB duplication, and persisted surface gaps."
+    },
+    {
+      "id": "pi-rpc-transcripts-carryover",
+      "scope": "repository",
+      "path": "services/runner/test/fixtures/pi-0.87.1",
+      "establishes": "The rpc-*.jsonl and rpc-framing-cases-v1.json fixtures carry over from 0.84.2. Every record is runtimeCaptured:false \u2014 34 schema-derived and 5 from a sanitized bounded Z.AI probe whose 401 diagnostics are provider-side \u2014 so they follow the RPC schema rather than a live capture. That schema is unchanged: dist/modes/rpc/jsonl.js is byte-identical between 0.84.2 and 0.87.1, rpc-types.d.ts removes nothing, and rpc-mode.js only adds clear_queue plus an internal source tag. No live 0.87.1 session was run."
     }
   ]
 }

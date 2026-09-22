@@ -2,7 +2,7 @@
 
 This audit freezes how runtime selection is currently represented across six persisted surfaces. It does not redefine existing rows. The immediate conclusion is that Almirant does not yet persist one complete, atomic runtime tuple: defaults, nullable fields, copied values, fieldwise inheritance, and JSONB duplicates can disagree.
 
-The normative machine-readable audit is `persistedSurfaceAudit` in `services/runner/test/fixtures/pi-0.84.2/capability-contract-v1.json`.
+The normative machine-readable audit is `persistedSurfaceAudit` in `services/runner/test/fixtures/pi-0.87.1/capability-contract-v1.json`.
 
 ## Tuple under audit
 

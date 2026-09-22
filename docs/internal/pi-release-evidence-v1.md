@@ -34,7 +34,7 @@ The first two rows are mandatory publication gates in `publish-docker.yml`. They
 
 ## Already-recorded valid Z.AI evidence
 
-The existing valid-credential record for Pi 0.84.2 observed:
+The existing valid-credential record for Pi 0.87.1 observed:
 
 - exact core selection `pi/zai/glm-5.3`;
 - `182` events and `14` canonical text events;

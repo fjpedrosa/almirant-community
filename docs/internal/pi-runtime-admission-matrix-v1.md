@@ -1,6 +1,6 @@
 # Pi runtime admission matrix v1
 
-Pi 0.84.2 has one admitted production tuple: `pi/zai/glm-5.3/api_key`. Every other Pi tuple, auth class, or optional capability fails closed before credential export.
+Pi 0.87.1 has one admitted production tuple: `pi/zai/glm-5.3/api_key`. Every other Pi tuple, auth class, or optional capability fails closed before credential export.
 
 Related documents:
 
@@ -77,7 +77,7 @@ Persisted unknown, future, legacy, null/default, and unsupported values are reta
 
 | Boundary | Decision |
 | --- | --- |
-| Pi process | Version `0.84.2`, RPC mode, no session persistence |
+| Pi process | Version `0.87.1`, RPC mode, no session persistence |
 | Configuration | New empty config directory per session |
 | Project discovery | Context files, extensions, skills, prompt templates, and themes disabled |
 | Network-dependent package behavior | Offline controls enabled; provider traffic still follows runner egress policy |
@@ -99,7 +99,7 @@ Runtime identities may be opaque hashes only when their source is non-secret pro
 
 | Environment | Gate |
 | --- | --- |
-| Local development | `docker compose --profile shims build pi-shim` builds `almirant-pi-shim:0.84.2` for local smoke only |
+| Local development | `docker compose --profile shims build pi-shim` builds `almirant-pi-shim:0.87.1` for local smoke only |
 | Community publication | `.github/workflows/publish-docker.yml` builds one X64 (`linux/amd64`) Pi image, runs credential-free and expected-auth-failure smokes, then pushes that same image to Docker Hub |
 | Self-host production | `PI_SHIM_IMAGE=DOCKERHUB_USERNAME/almirant-pi-shim@sha256:<digest>` is required |
 

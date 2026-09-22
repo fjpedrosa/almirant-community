@@ -5,7 +5,7 @@ import {
   serializeJsonlObject,
 } from "./jsonl.js";
 
-const fixturePath = `${import.meta.dir}/../../../test/fixtures/pi-0.84.2/rpc-framing-cases-v1.json`;
+const fixturePath = `${import.meta.dir}/../../../test/fixtures/pi-0.87.1/rpc-framing-cases-v1.json`;
 
 type FramingCase = {
   id: string;

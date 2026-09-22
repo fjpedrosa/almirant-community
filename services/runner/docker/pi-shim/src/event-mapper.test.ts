@@ -8,9 +8,9 @@ import {
   projectPiNativeEvent,
 } from "./event-mapper.js";
 
-const lifecyclePath = `${import.meta.dir}/../../../test/fixtures/pi-0.84.2/rpc-lifecycle-v1.jsonl`;
-const usageReplayPath = `${import.meta.dir}/../../../test/fixtures/pi-0.84.2/rpc-usage-replay-v1.jsonl`;
-const invalidAuthPath = `${import.meta.dir}/../../../test/fixtures/pi-0.84.2/rpc-invalid-auth-v1.jsonl`;
+const lifecyclePath = `${import.meta.dir}/../../../test/fixtures/pi-0.87.1/rpc-lifecycle-v1.jsonl`;
+const usageReplayPath = `${import.meta.dir}/../../../test/fixtures/pi-0.87.1/rpc-usage-replay-v1.jsonl`;
+const invalidAuthPath = `${import.meta.dir}/../../../test/fixtures/pi-0.87.1/rpc-invalid-auth-v1.jsonl`;
 const trustedZaiEndpoint = { trustedFixedEndpointProvider: "zai" } as const;
 
 const fixtureRecords = async (path: string): Promise<Record<string, unknown>[]> =>

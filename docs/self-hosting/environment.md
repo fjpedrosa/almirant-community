@@ -96,7 +96,7 @@ These are the variables that matter for the self-hosted Docker stacks.
 | `OPENCODE_IMAGE` | `almirant-opencode-shim:1.18.32` | Local image name for OpenCode jobs |
 | `CLAUDE_SHIM_IMAGE` | `almirant-claude-shim:2.1.280` | Local image name for Claude jobs |
 | `CODEX_SHIM_IMAGE` | `almirant-codex-shim:0.156.0` | Local image name for Codex jobs |
-| `PI_SHIM_IMAGE` | `almirant-pi-shim:0.84.2` (local only) | Pi image. Production Compose requires `DOCKERHUB_USERNAME/almirant-pi-shim@sha256:<digest>`. |
+| `PI_SHIM_IMAGE` | `almirant-pi-shim:0.87.1` (local only) | Pi image. Production Compose requires `DOCKERHUB_USERNAME/almirant-pi-shim@sha256:<digest>`. |
 
 ## Pi runtime controls and image
 

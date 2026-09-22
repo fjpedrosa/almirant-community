@@ -36,7 +36,7 @@ const envSchema = z.object({
   OPENCODE_IMAGE: z.string().default("almirant-opencode-shim:1.18.32"),
   CLAUDE_SHIM_IMAGE: z.string().default("almirant-claude-shim:2.1.280"),
   CODEX_SHIM_IMAGE: z.string().default("almirant-codex-shim:0.156.0"),
-  PI_SHIM_IMAGE: z.string().default("almirant-pi-shim:0.84.2"),
+  PI_SHIM_IMAGE: z.string().default("almirant-pi-shim:0.87.1"),
   OPENCODE_COMMAND: z.string().optional(),
   REPOS_HOST_PATH: z.string().optional(),
   REDIS_URL: optionalUrl,

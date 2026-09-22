@@ -132,7 +132,7 @@ export const runtimeCapabilityProjection = {
       "model": "glm-5.2"
     }
   ],
-  "hash": "sha256:4b2850bcc3e62d363627b11345551bae396fc8ea3ff3f955d9aefb32b808083f",
+  "hash": "sha256:b2c38b1412bc9df6ae428dbcde7394a488b9bf694c28d596b25548889a781f34",
   "rejectionCodes": [
     "PI_AUTH_PROVIDER_OAUTH_DISABLED",
     "PI_AUTH_SETUP_TOKEN_DISABLED",
@@ -1457,6 +1457,24 @@ export const runtimeCapabilityProjection = {
         "api_key"
       ],
       "codingAgent": "pi",
+      "model": "claude-opus-5-5",
+      "reasoningEfforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "rejectionCode": "RUNTIME_ADMISSION_DISABLED",
+      "runtimeVerified": false
+    },
+    {
+      "admissionEnabled": false,
+      "aiProvider": "anthropic",
+      "authClasses": [
+        "api_key"
+      ],
+      "codingAgent": "pi",
       "model": "claude-sonnet-5",
       "reasoningEfforts": [
         "low",
@@ -1749,6 +1767,60 @@ export const runtimeCapabilityProjection = {
     },
     {
       "admissionEnabled": false,
+      "aiProvider": "openai",
+      "authClasses": [
+        "api_key"
+      ],
+      "codingAgent": "pi",
+      "model": "gpt-6-astra",
+      "reasoningEfforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "rejectionCode": "RUNTIME_ADMISSION_DISABLED",
+      "runtimeVerified": false
+    },
+    {
+      "admissionEnabled": false,
+      "aiProvider": "openai",
+      "authClasses": [
+        "api_key"
+      ],
+      "codingAgent": "pi",
+      "model": "gpt-6-luna",
+      "reasoningEfforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "rejectionCode": "RUNTIME_ADMISSION_DISABLED",
+      "runtimeVerified": false
+    },
+    {
+      "admissionEnabled": false,
+      "aiProvider": "openai",
+      "authClasses": [
+        "api_key"
+      ],
+      "codingAgent": "pi",
+      "model": "gpt-6-sol",
+      "reasoningEfforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "rejectionCode": "RUNTIME_ADMISSION_DISABLED",
+      "runtimeVerified": false
+    },
+    {
+      "admissionEnabled": false,
       "aiProvider": "xai",
       "authClasses": [
         "api_key"
@@ -1761,18 +1833,6 @@ export const runtimeCapabilityProjection = {
         "high",
         "xhigh"
       ],
-      "rejectionCode": "RUNTIME_ADMISSION_DISABLED",
-      "runtimeVerified": false
-    },
-    {
-      "admissionEnabled": false,
-      "aiProvider": "xai",
-      "authClasses": [
-        "api_key"
-      ],
-      "codingAgent": "pi",
-      "model": "grok-build-0.1",
-      "reasoningEfforts": [],
       "rejectionCode": "RUNTIME_ADMISSION_DISABLED",
       "runtimeVerified": false
     },

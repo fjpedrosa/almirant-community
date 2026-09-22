@@ -14,8 +14,8 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends bash ca-certificates curl git jq openssh-client tini \
   && rm -rf /var/lib/apt/lists/*
 
-RUN npm install --global --ignore-scripts @earendil-works/pi-coding-agent@0.84.2 \
-  && pi --version | grep -Fx '0.84.2'
+RUN npm install --global --ignore-scripts @earendil-works/pi-coding-agent@0.87.1 \
+  && pi --version | grep -Fx '0.87.1'
 
 WORKDIR /app
 COPY backend/tsconfig.base.json ./backend/tsconfig.base.json

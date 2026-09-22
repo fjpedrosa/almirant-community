@@ -9,7 +9,7 @@ import {
   type RuntimeRejectionCode,
 } from "./runtime-capability-registry";
 
-const piFixturePath = `${import.meta.dir}/../../../../../services/runner/test/fixtures/pi-0.84.2/capability-contract-v1.json`;
+const piFixturePath = `${import.meta.dir}/../../../../../services/runner/test/fixtures/pi-0.87.1/capability-contract-v1.json`;
 
 interface PiFixture {
   authClasses: Array<{

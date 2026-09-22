@@ -1,4 +1,4 @@
-# Operate Pi Coding Agent 0.84.2
+# Operate Pi Coding Agent 0.87.1
 
 Pi is admitted for one production runtime tuple: `pi/zai/glm-5.3/api_key`. This runbook covers credential setup, image publication, self-host rollout, diagnosis, admission control, and rollback without exposing credentials or terminating active jobs.
 
@@ -23,7 +23,7 @@ Related documents:
 
 | Field | Required value |
 | --- | --- |
-| Pi version | `0.84.2` |
+| Pi version | `0.87.1` |
 | Infrastructure `provider` lane | `zipu` |
 | Coding agent | `pi` |
 | AI provider | `zai` |
@@ -141,7 +141,7 @@ Run from the repository root for development only:
 ```bash
 docker compose --profile shims build pi-shim
 bash services/runner/scripts/pi-image-smoke.sh \
-  --image almirant-pi-shim:0.84.2
+  --image almirant-pi-shim:0.87.1
 ```
 
 The smoke must report credential-free mode. Do not pass a real key. This local result does not create or approve a deployable registry manifest.

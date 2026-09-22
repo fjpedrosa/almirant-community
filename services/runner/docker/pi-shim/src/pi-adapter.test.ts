@@ -174,7 +174,7 @@ const createSession = async (adapter: PiAdapter) =>
 
 const invalidAuthFixtureRecords = async (): Promise<Record<string, unknown>[]> =>
   (await Bun.file(
-    `${import.meta.dir}/../../../test/fixtures/pi-0.84.2/rpc-invalid-auth-v1.jsonl`,
+    `${import.meta.dir}/../../../test/fixtures/pi-0.87.1/rpc-invalid-auth-v1.jsonl`,
   ).text())
     .trimEnd()
     .split("\n")
@@ -221,7 +221,7 @@ describe("Pi typed runtime failure taxonomy", () => {
 });
 
 describe("Pi private RPC authentication classification", () => {
-  it("maps exact repeated 0.84.2 Z.AI diagnostics with duplicate 401 statuses to one safe nonretryable auth terminal and one cleanup", async () => {
+  it("maps exact repeated 0.87.1 Z.AI diagnostics with duplicate 401 statuses to one safe nonretryable auth terminal and one cleanup", async () => {
     const harness = createHarness({
       env: {
         WORKSPACE_REPO_PATH: "/workspace",

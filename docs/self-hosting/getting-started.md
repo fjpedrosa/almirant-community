@@ -227,7 +227,7 @@ The local Pi tag is for development smoke only. Run the credential-free smoke wi
 
 ```bash
 bash services/runner/scripts/pi-image-smoke.sh \
-  --image almirant-pi-shim:0.84.2
+  --image almirant-pi-shim:0.87.1
 ```
 
 Production still requires `DOCKERHUB_USERNAME/almirant-pi-shim@sha256:<digest>` from the X64 publication workflow. See the [Pi operator runbook](../operations/pi-coding-agent.md#publish-and-pin-the-image).

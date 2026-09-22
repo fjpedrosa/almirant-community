@@ -294,6 +294,7 @@ const EXISTING_RUNTIME_FAMILIES = [
 
 const PI_CANDIDATE_MODELS = {
   anthropic: [
+    "claude-opus-5-5",
     "claude-opus-5",
     "claude-opus-4-8",
     "claude-fable-5",
@@ -302,6 +303,9 @@ const PI_CANDIDATE_MODELS = {
     "claude-haiku-4-5",
   ],
   openai: [
+    "gpt-6-sol",
+    "gpt-6-astra",
+    "gpt-6-luna",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
@@ -325,7 +329,7 @@ const PI_CANDIDATE_MODELS = {
     "gemini-2.5-flash-lite",
   ],
   zai: ["glm-5.3", "glm-5.2", "glm-5-turbo", "glm-4.7"],
-  xai: ["grok-4.3", "grok-build-0.1"],
+  xai: ["grok-4.3"],
 } as const satisfies Readonly<Record<RuntimeAiProvider, readonly string[]>>;
 
 const GENERIC_REJECTION_CODES = [

@@ -434,7 +434,7 @@ services:
     build:
       context: .
       dockerfile: services/runner/docker/Dockerfile.pi
-    image: almirant-pi-shim:0.84.2
+    image: almirant-pi-shim:0.87.1
 
 networks:
   almirant-prod:

@@ -12,7 +12,7 @@ import {
   type PiCapabilityContract,
 } from "./pi-capability-contract-v1.schema";
 
-const fixtureDirectory = `${import.meta.dir}/../fixtures/pi-0.84.2`;
+const fixtureDirectory = `${import.meta.dir}/../fixtures/pi-0.87.1`;
 
 const readJson = async (name: string): Promise<unknown> =>
   Bun.file(`${fixtureDirectory}/${name}`).json();
@@ -35,6 +35,7 @@ const expectedProviders = {
     endpoint: "https://api.anthropic.com",
     apis: ["anthropic-messages"],
     candidateModels: [
+      "claude-opus-5-5",
       "claude-opus-5",
       "claude-opus-4-8",
       "claude-fable-5",
@@ -50,6 +51,9 @@ const expectedProviders = {
     endpoint: "https://api.openai.com/v1",
     apis: ["openai-responses"],
     candidateModels: [
+      "gpt-6-sol",
+      "gpt-6-astra",
+      "gpt-6-luna",
       "gpt-5.6-sol",
       "gpt-5.6-terra",
       "gpt-5.6-luna",
@@ -106,12 +110,13 @@ const expectedProviders = {
     displayName: "xAI",
     environmentVariable: "XAI_API_KEY",
     endpoint: "https://api.x.ai/v1",
-    apis: ["openai-completions", "openai-responses"],
-    candidateModels: ["grok-4.3", "grok-build-0.1"],
+    apis: ["openai-responses"],
+    candidateModels: ["grok-4.3"],
     excludedTargetModels: [
       "grok-4.20-reasoning",
       "grok-4.20-multi-agent",
       "grok-4.20",
+      "grok-build-0.1",
     ],
   },
 } as const;
@@ -134,14 +139,14 @@ const expectedAuditSurfaces = [
   "agent_native_events",
 ];
 
-describe("Pi 0.84.2 capability contract", () => {
+describe("Pi 0.87.1 capability contract", () => {
   test("pins the package, process isolation, transport, and byte limits", async () => {
     const contract = await loadContract();
 
     expect(contract.schemaVersion).toBe("pi-capability-contract-v1");
     expect(contract.runtime).toMatchObject({
       packageName: "@earendil-works/pi-coding-agent",
-      packageVersion: "0.84.2",
+      packageVersion: "0.87.1",
       nodeEngine: ">=22.19.0",
       binary: "pi",
       mode: "rpc",
@@ -193,6 +198,9 @@ describe("Pi 0.84.2 capability contract", () => {
       { type: "prompt", responseCardinality: "exactly-one-correlated" },
       { type: "abort", responseCardinality: "exactly-one-correlated" },
       { type: "get_session_stats", responseCardinality: "exactly-one-correlated" },
+      // Added in 0.87.1. The shim never sends it; it is recorded so the frozen
+      // surface stays a full description of the runtime.
+      { type: "clear_queue", responseCardinality: "exactly-one-correlated" },
     ]);
     expect(contract.rpc.normalTerminal).toBe("agent_settled");
     expect(contract.rpc.nonTerminals).toContain("agent_end");

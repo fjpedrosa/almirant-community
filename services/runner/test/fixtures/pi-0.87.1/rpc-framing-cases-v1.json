@@ -1,6 +1,6 @@
 {
   "schemaVersion": "pi-rpc-framing-cases-v1",
-  "packageVersion": "0.84.2",
+  "packageVersion": "0.87.1",
   "limits": {
     "inboundMaxBytes": 262144,
     "outboundMaxBytes": 4194304,

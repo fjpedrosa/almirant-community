@@ -121,7 +121,7 @@ const images = {
   opencodeImage: "opencode:1.14.25",
   claudeShimImage: "claude-shim:2.1.119",
   codexShimImage: "codex-shim:0.125.0",
-  piShimImage: "pi-shim:0.84.2",
+  piShimImage: "pi-shim:0.87.1",
 };
 
 const makeResolvedRuntimeSelection = (

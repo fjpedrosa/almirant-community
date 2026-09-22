@@ -13,6 +13,6 @@
   },
   "pi": {
     "repository": "almirant-pi-shim",
-    "tag": "0.84.2"
+    "tag": "0.87.1"
   }
 }

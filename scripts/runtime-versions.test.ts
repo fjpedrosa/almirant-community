@@ -10,6 +10,7 @@ const versions = {
   legacyWorkerClaudeCode: "2.1.209",
   openCode: "1.18.32",
   codex: "0.156.0",
+  pi: "0.87.1",
   playwrightMcp: "0.0.82",
 } as const;
 
@@ -20,6 +21,10 @@ describe("agent runtime version manifest", () => {
     );
     expect(read("services/runner/docker/Dockerfile.opencode")).toContain(
       `opencode-ai@${versions.openCode}`,
+    );
+
+    expect(read("services/runner/docker/Dockerfile.pi")).toContain(
+      `@earendil-works/pi-coding-agent@${versions.pi}`,
     );
 
     const codexPackage = JSON.parse(
@@ -53,12 +58,13 @@ describe("agent runtime version manifest", () => {
 
   test("uses truthful image tags that match the packaged primary runtime", () => {
     const manifest = JSON.parse(read("config/shim-images.json")) as Record<
-      "claude" | "codex" | "opencode",
+      "claude" | "codex" | "opencode" | "pi",
       { repository: string; tag: string }
     >;
     expect(manifest.claude.tag).toBe(versions.claudeCode);
     expect(manifest.codex.tag).toBe(versions.codex);
     expect(manifest.opencode.tag).toBe(versions.openCode);
+    expect(manifest.pi.tag).toBe(versions.pi);
   });
 
   test("aligns env examples, compose files, docs and runtime defaults with the manifest", () => {
@@ -82,6 +88,22 @@ describe("agent runtime version manifest", () => {
     }
     expect(read("backend/packages/remote-agent/src/agents/opencode/types.ts")).toContain(
       `opencode-shim:${versions.openCode}`,
+    );
+  });
+
+  test("aligns the Pi image tag where a tag is expected at all", () => {
+    for (const path of [
+      "docker-compose.yml",
+      "docker-compose.prod.yml",
+      "services/runner/docker-compose.prod.yml",
+      "services/runner/src/shared/config.ts",
+      "docs/self-hosting/environment.md",
+    ]) {
+      expect(read(path)).toContain(`almirant-pi-shim:${versions.pi}`);
+    }
+    // Production pins Pi by immutable digest instead of a tag.
+    expect(read(".env.production.example")).toContain(
+      "PI_SHIM_IMAGE=YOUR_DOCKERHUB_USERNAME/almirant-pi-shim@sha256:",
     );
   });
 

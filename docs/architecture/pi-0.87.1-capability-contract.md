@@ -1,15 +1,15 @@
-# Pi 0.84.2 capability contract
+# Pi 0.87.1 capability contract
 
-This document freezes the evidence-backed boundary for Pi 0.84.2 and records the narrow production admission decision. Exactly one tuple is runtime-verified and enabled: `(pi, zai, glm-5.3, api_key)` with no optional Pi capability. Every other Pi provider/model/auth/capability/custom-provider row remains disabled.
+This document freezes the evidence-backed boundary for Pi 0.87.1 and records the narrow production admission decision. Exactly one tuple is runtime-verified and enabled: `(pi, zai, glm-5.3, api_key)` with no optional Pi capability. Every other Pi provider/model/auth/capability/custom-provider row remains disabled.
 
-The machine-readable source of truth is `services/runner/test/fixtures/pi-0.84.2/capability-contract-v1.json`; framing and lifecycle examples are versioned beside it.
+The machine-readable source of truth is `services/runner/test/fixtures/pi-0.87.1/capability-contract-v1.json`; framing and lifecycle examples are versioned beside it.
 
 ## Runtime identity and invocation
 
 | Field | Frozen value |
 | --- | --- |
 | Package | `@earendil-works/pi-coding-agent` |
-| Version | `0.84.2` |
+| Version | `0.87.1` |
 | Node engine | `>=22.19.0` |
 | Binary | `pi` |
 | Mode | `rpc` |
@@ -70,7 +70,7 @@ Malformed JSON fails with `PI_RPC_MALFORMED_JSON`; null, arrays, and primitives 
 
 ### Intentional final-LF discrepancy
 
-Pi 0.84.2's `dist/modes/rpc/jsonl.js` splits on LF, strips an optional CR, and accepts a partial final record at EOF. Almirant is deliberately stricter: both accepted fixture streams and emitted records must end in LF. The stricter reader turns a partial EOF record into a session-fatal `PI_RPC_UNTERMINATED_RECORD` instead of guessing whether truncated output was complete.
+Pi 0.87.1's `dist/modes/rpc/jsonl.js` splits on LF, strips an optional CR, and accepts a partial final record at EOF. Almirant is deliberately stricter: both accepted fixture streams and emitted records must end in LF. The stricter reader turns a partial EOF record into a session-fatal `PI_RPC_UNTERMINATED_RECORD` instead of guessing whether truncated output was complete.
 
 ## RPC command and lifecycle contract
 
@@ -153,11 +153,11 @@ Candidate model IDs are exact and case-preserving. Only the Z.AI `glm-5.3` model
 
 | Provider | Credential variable | Endpoint | Pi API | Candidate models |
 | --- | --- | --- | --- | --- |
-| Anthropic (`anthropic`) | `ANTHROPIC_API_KEY` | `https://api.anthropic.com` | `anthropic-messages` | `claude-opus-5`, `claude-opus-4-8`, `claude-fable-5`, `claude-opus-4-7`, `claude-sonnet-5`, `claude-haiku-4-5` |
-| OpenAI API (`openai`) | `OPENAI_API_KEY` | `https://api.openai.com/v1` | `openai-responses` | `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.4`, `gpt-5.4-pro`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5.3-codex`, `gpt-4.1`, `gpt-4.1-mini` |
+| Anthropic (`anthropic`) | `ANTHROPIC_API_KEY` | `https://api.anthropic.com` | `anthropic-messages` | `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-fable-5`, `claude-opus-4-7`, `claude-sonnet-5`, `claude-haiku-4-5` |
+| OpenAI API (`openai`) | `OPENAI_API_KEY` | `https://api.openai.com/v1` | `openai-responses` | `gpt-6-sol`, `gpt-6-astra`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.4`, `gpt-5.4-pro`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5.3-codex`, `gpt-4.1`, `gpt-4.1-mini` |
 | Google (`google`) | `GEMINI_API_KEY` | `https://generativelanguage.googleapis.com/v1beta` | `google-generative-ai` | `gemini-3.1-pro-preview`, `gemini-3.5-flash`, `gemini-3.1-flash-lite`, `gemini-3-flash-preview`, `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite` |
 | Z.AI (`zai`) | `ZAI_API_KEY` | `https://api.z.ai/api/coding/paas/v4` | `openai-completions` | `glm-5.3`, `glm-5.2`, `glm-5-turbo`, `glm-4.7` |
-| xAI (`xai`) | `XAI_API_KEY` | `https://api.x.ai/v1` | `openai-completions` for both candidates; provider also exposes `openai-responses` | `grok-4.3`, `grok-build-0.1` |
+| xAI (`xai`) | `XAI_API_KEY` | `https://api.x.ai/v1` | `openai-responses` | `grok-4.3` |
 
 Static intersection exclusions are part of the decision, not implied support:
 
@@ -166,8 +166,8 @@ Static intersection exclusions are part of the decision, not implied support:
 | Anthropic | None | Every listed target model is present in the pinned Pi static catalog. |
 | OpenAI API | None | Every listed target model is present in the pinned Pi static catalog; OAuth/subscription `openai-codex` remains excluded. |
 | Google | None | Every listed target model is present in the pinned Pi static catalog. |
-| Z.AI | `glm-5.1`, `glm-5`, `glm-5v-turbo`, `glm-4.7-flashx`, `glm-4.7-flash`, `glm-4.6`, `glm-4.5`, `glm-4.5-air`, `glm-4.6v`, `glm-4.6v-flashx`, `glm-4.6v-flash`, `glm-ocr` | Absent from Pi 0.84.2's static Z.AI Coding Plan catalog or not compatible with this endpoint candidate. |
-| xAI | `grok-4.20-reasoning`, `grok-4.20-multi-agent`, `grok-4.20` | Target aliases are absent from Pi 0.84.2's static xAI catalog. Pi-only `grok-4.5` and `grok-4.6` are also outside the Almirant target catalog. |
+| Z.AI | `glm-5.1`, `glm-5`, `glm-5v-turbo`, `glm-4.7-flashx`, `glm-4.7-flash`, `glm-4.6`, `glm-4.5`, `glm-4.5-air`, `glm-4.6v`, `glm-4.6v-flashx`, `glm-4.6v-flash`, `glm-ocr` | Absent from Pi 0.87.1's static Z.AI Coding Plan catalog or not compatible with this endpoint candidate. |
+| xAI | `grok-4.20-reasoning`, `grok-4.20-multi-agent`, `grok-4.20` | Target aliases are absent from Pi 0.87.1's static xAI catalog. Pi-only `grok-4.5` and `grok-4.6` are also outside the Almirant target catalog. |
 
 Static catalog intersection is necessary but not sufficient. Z.AI `glm-5.3` is the sole row promoted after typed-credential, fixed-endpoint, adapter, and Pi RPC verification. Promotion of any additional row requires independent evidence and a registry/projection update.
 

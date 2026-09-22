@@ -16,7 +16,7 @@ export interface PiCapabilityContract {
   contractVersion: 1;
   runtime: {
     packageName: "@earendil-works/pi-coding-agent";
-    packageVersion: "0.84.2";
+    packageVersion: "0.87.1";
     nodeEngine: ">=22.19.0";
     binary: "pi";
     mode: "rpc";
@@ -42,7 +42,13 @@ export interface PiCapabilityContract {
   };
   rpc: {
     commands: Array<{
-      type: "get_state" | "set_model" | "prompt" | "abort" | "get_session_stats";
+      type:
+        | "get_state"
+        | "set_model"
+        | "prompt"
+        | "abort"
+        | "get_session_stats"
+        | "clear_queue";
       responseCardinality: "exactly-one-correlated";
     }>;
     normalTerminal: "agent_settled";
@@ -160,7 +166,7 @@ export type PiFramingCase =
 
 export interface PiFramingCases {
   schemaVersion: "pi-rpc-framing-cases-v1";
-  packageVersion: "0.84.2";
+  packageVersion: "0.87.1";
   limits: {
     inboundMaxBytes: 262_144;
     outboundMaxBytes: 4_194_304;
@@ -205,7 +211,7 @@ export interface PiLifecycleRecord {
 
 export interface PiLifecycleEnvelope {
   fixture: "rpc-lifecycle-v1";
-  packageVersion: "0.84.2";
+  packageVersion: "0.87.1";
   runtimeCaptured: false;
   basis: "schema-derived";
   sequence: number;
@@ -298,7 +304,7 @@ export const findSensitiveMaterial = (value: unknown): string[] => {
 const assertRuntime = (value: unknown): void => {
   const runtime = record(value, "$.runtime");
   literal(runtime.packageName, "@earendil-works/pi-coding-agent", "$.runtime.packageName");
-  literal(runtime.packageVersion, "0.84.2", "$.runtime.packageVersion");
+  literal(runtime.packageVersion, "0.87.1", "$.runtime.packageVersion");
   literal(runtime.nodeEngine, ">=22.19.0", "$.runtime.nodeEngine");
   literal(runtime.binary, "pi", "$.runtime.binary");
   literal(runtime.mode, "rpc", "$.runtime.mode");
@@ -643,7 +649,7 @@ export function assertPiFramingCases(value: unknown): asserts value is PiFraming
   }
   const fixture = record(value, "$");
   literal(fixture.schemaVersion, "pi-rpc-framing-cases-v1", "$.schemaVersion");
-  literal(fixture.packageVersion, "0.84.2", "$.packageVersion");
+  literal(fixture.packageVersion, "0.87.1", "$.packageVersion");
   const limits = record(fixture.limits, "$.limits");
   literal(limits.inboundMaxBytes, PI_INBOUND_RECORD_MAX_BYTES, "$.limits.inboundMaxBytes");
   literal(
@@ -797,7 +803,7 @@ export const parsePiLifecycleJsonl = (text: string): PiLifecycleEnvelope[] => {
   const parsed = decodeAlmirantJsonl(textEncoder.encode(text), PI_OUTBOUND_RECORD_MAX_BYTES);
   const envelopes = parsed.map((entry, index) => {
     literal(entry.fixture, "rpc-lifecycle-v1", `$[${index}].fixture`);
-    literal(entry.packageVersion, "0.84.2", `$[${index}].packageVersion`);
+    literal(entry.packageVersion, "0.87.1", `$[${index}].packageVersion`);
     literal(entry.runtimeCaptured, false, `$[${index}].runtimeCaptured`);
     literal(entry.basis, "schema-derived", `$[${index}].basis`);
     literal(entry.sequence, index + 1, `$[${index}].sequence`);
