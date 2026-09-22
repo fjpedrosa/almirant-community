@@ -51,12 +51,12 @@ describe("scheduled connection runtime", () => {
       aiProvider: "openai",
       jobType: "implementation",
       connections: [connection({})],
-    })).toEqual(["gpt-5.6-sol"]);
+    })).toEqual(["gpt-6-sol"]);
     expect(collectScheduledAgentEffectiveModels({
       aiProvider: "anthropic",
       jobType: "implementation",
       connections: [connection({})],
-    })).toEqual(["claude-opus-4-8"]);
+    })).toEqual(["claude-opus-5-5"]);
     expect(collectScheduledAgentEffectiveModels({
       aiProvider: "zai",
       jobType: "implementation",

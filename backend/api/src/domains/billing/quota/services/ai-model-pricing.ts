@@ -43,6 +43,18 @@ const AI_MODEL_PRICING: AiModelPricing[] = [
   },
   {
     provider: "anthropic",
+    // Cache reads are 5% of input here, not the 10% the Anthropic fallback
+    // assumes, so the exact rates are spelled out.
+    model: "claude-opus-5-5",
+    label: "Claude Opus 5.5",
+    inputUsdPerMTok: 4,
+    outputUsdPerMTok: 20,
+    cachedInputUsdPerMTok: 0.2,
+    cacheCreationUsdPerMTok: 5,
+    matches: (m) => m.includes("claude-opus-5-5") || m.includes("opus-5-5"),
+  },
+  {
+    provider: "anthropic",
     model: "claude-opus-5",
     label: "Claude Opus 5",
     inputUsdPerMTok: 5,
@@ -133,6 +145,33 @@ const AI_MODEL_PRICING: AiModelPricing[] = [
   },
 
   // OpenAI — Current models
+  {
+    provider: "openai",
+    model: "gpt-6-astra",
+    label: "GPT-6 Astra",
+    inputUsdPerMTok: 10,
+    outputUsdPerMTok: 50,
+    cachedInputUsdPerMTok: 1,
+    matches: (m) => m === "gpt-6-astra" || m.startsWith("gpt-6-astra-20"),
+  },
+  {
+    provider: "openai",
+    model: "gpt-6-sol",
+    label: "GPT-6 Sol",
+    inputUsdPerMTok: 2,
+    outputUsdPerMTok: 10,
+    cachedInputUsdPerMTok: 0.2,
+    matches: (m) => m === "gpt-6-sol" || m.startsWith("gpt-6-sol-20"),
+  },
+  {
+    provider: "openai",
+    model: "gpt-6-luna",
+    label: "GPT-6 Luna",
+    inputUsdPerMTok: 0.1,
+    outputUsdPerMTok: 0.5,
+    cachedInputUsdPerMTok: 0.01,
+    matches: (m) => m === "gpt-6-luna" || m.startsWith("gpt-6-luna-20"),
+  },
   {
     provider: "openai",
     model: "gpt-5.6-sol",

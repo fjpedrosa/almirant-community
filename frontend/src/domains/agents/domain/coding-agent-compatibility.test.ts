@@ -164,10 +164,10 @@ describe("coding agent compatibility", () => {
     expect(modelIds).toContain("claude-haiku-4-5");
   });
 
-  test("Claude Code defaults to Opus 5 (first catalog entry), with Fable 5 selectable but not default", () => {
+  test("Claude Code defaults to Opus 5.5 (first catalog entry), with Fable 5 selectable but not default", () => {
     const models = getModelsForAgentProvider("claude-code", "claude-code");
     // use-model-selector picks availableModels[0] as the default selection.
-    expect(models[0]?.id).toBe("claude-opus-5");
+    expect(models[0]?.id).toBe("claude-opus-5-5");
     expect(models[0]?.category).toBe("best");
 
     const fable = models.find((m) => m.id === "claude-fable-5");
@@ -175,12 +175,12 @@ describe("coding agent compatibility", () => {
     expect(models.findIndex((m) => m.id === "claude-fable-5")).toBeGreaterThan(0);
   });
 
-  test("Codex exposes the GPT-5.6 family and defaults to Sol", () => {
+  test("Codex exposes the GPT-6 family and defaults to Sol", () => {
     const models = getModelsForAgentProvider("codex", "codex");
     expect(models.slice(0, 3).map((model) => model.id)).toEqual([
-      "gpt-5.6-sol",
-      "gpt-5.6-terra",
-      "gpt-5.6-luna",
+      "gpt-6-sol",
+      "gpt-6-astra",
+      "gpt-6-luna",
     ]);
   });
 

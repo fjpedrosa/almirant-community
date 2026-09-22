@@ -70,7 +70,7 @@ describe("resolveScheduledRuntimePrecedence", () => {
     const defaulted = resolveScheduledRuntimePrecedence({
       schedule: { provider: "codex", codingAgent: "codex", aiProvider: "openai" },
     });
-    expect(defaulted.model).toBe("gpt-5.6-sol");
+    expect(defaulted.model).toBe("gpt-6-sol");
     expect(defaulted.provenance.model).toEqual({
       source: "legacy-default",
       resolution: "legacy-adapter",

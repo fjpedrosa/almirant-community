@@ -60,6 +60,8 @@ const normalizeClaudeEffortLevel = (value: string | undefined): string | undefin
 // Family match so dated/snapshot ids are covered too.
 const MODELS_WITHOUT_EFFORT = /haiku/i;
 const CLAUDE_46_MODELS = /claude-(?:opus|sonnet)-4-6/i;
+// Opus 4.5 supports effort, but only up to `high`.
+const CLAUDE_OPUS_45_MODELS = /claude-opus-4-5/i;
 
 export const READ_ONLY_CLAUDE_MCP_CONFIG_PATH =
   "/tmp/almirant-visual-judge-mcp.json";
@@ -91,6 +93,13 @@ export const resolveClaudeEffortLevel = (
   if (!level) return undefined;
   if (model && MODELS_WITHOUT_EFFORT.test(model)) return undefined;
   if (model && CLAUDE_46_MODELS.test(model) && level === "xhigh") return undefined;
+  if (
+    model &&
+    CLAUDE_OPUS_45_MODELS.test(model) &&
+    (level === "xhigh" || level === "max")
+  ) {
+    return undefined;
+  }
   return level;
 };
 

@@ -45,8 +45,8 @@ const PROVIDER_NAMES: Record<string, string> = {
 };
 
 const MODEL_PLACEHOLDERS: Record<string, string> = {
-  anthropic: "claude-opus-5",
-  openai: "gpt-5.6-sol",
+  anthropic: "claude-opus-5-5",
+  openai: "gpt-6-sol",
   google: "gemini-3.5-flash",
   zai: "glm-5.2",
   xai: "grok-4.3",
@@ -86,7 +86,7 @@ export const ApiKeyConnectDialog: React.FC<ApiKeyConnectDialogProps> = ({
   const isSetupToken = authMethod === "setup_token";
   const isSubscription = authMethod === "subscription";
   const supportsSubscription = (isAnthropic || isOpenAi) && showSubscriptionOption;
-  const modelPlaceholder = MODEL_PLACEHOLDERS[selectedProvider] ?? "gpt-5.6-sol";
+  const modelPlaceholder = MODEL_PLACEHOLDERS[selectedProvider] ?? "gpt-6-sol";
   const reasoningContext = {
     codingAgent:
       selectedProvider === "anthropic"

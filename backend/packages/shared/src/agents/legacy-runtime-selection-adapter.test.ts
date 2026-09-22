@@ -47,7 +47,7 @@ describe("legacy runtime selection adapter", () => {
       provider: "codex",
       codingAgent: "codex",
       aiProvider: "openai",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
     });
 
     expect(

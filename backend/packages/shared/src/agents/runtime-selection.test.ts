@@ -136,12 +136,12 @@ describe("resolveRequestedRuntimeSelection", () => {
 });
 
 describe("resolveRuntime", () => {
-  it("preserves Community's claude-code legacy default", () => {
+  it("defaults the claude-code legacy provider to the current Opus", () => {
     expect(resolveRuntime({})).toEqual({
       provider: "claude-code",
       codingAgent: "claude-code",
       aiProvider: "anthropic",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5-5",
     });
   });
 
@@ -150,12 +150,12 @@ describe("resolveRuntime", () => {
       provider: "claude-code",
       codingAgent: "claude-code",
       aiProvider: "anthropic",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5-5",
     });
   });
 
-  it("preserves Community's Codex and Zipu defaults", () => {
-    expect(resolveRuntime({ provider: "codex" }).model).toBe("gpt-5.6-sol");
+  it("defaults Codex to the current GPT and keeps Zipu on GLM-5.2", () => {
+    expect(resolveRuntime({ provider: "codex" }).model).toBe("gpt-6-sol");
     expect(resolveRuntime({ provider: "zipu" }).model).toBe("glm-5.2");
   });
 
@@ -188,7 +188,7 @@ describe("resolveRuntime", () => {
       provider: "codex",
       codingAgent: "codex",
       aiProvider: "openai",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
     });
   });
 

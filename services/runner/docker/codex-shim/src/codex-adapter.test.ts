@@ -52,8 +52,8 @@ describe("TOOL_CANONICAL_KINDS", () => {
 });
 
 describe("normalizeCodexReasoningEffort", () => {
-  it("accepts exactly the ModelReasoningEffort values from codex-sdk 0.145.0", () => {
-    for (const effort of ["minimal", "low", "medium", "high", "xhigh"] as const) {
+  it("accepts exactly the ModelReasoningEffort values from codex-sdk 0.156.0", () => {
+    for (const effort of ["minimal", "low", "medium", "high", "xhigh", "max"] as const) {
       expect(normalizeCodexReasoningEffort(effort)).toBe(effort);
     }
   });
@@ -61,9 +61,13 @@ describe("normalizeCodexReasoningEffort", () => {
   it("fails closed for unsupported Pi-only reasoning selections", () => {
     expect(normalizeCodexReasoningEffort("off")).toBeUndefined();
     expect(normalizeCodexReasoningEffort("none")).toBeUndefined();
-    expect(normalizeCodexReasoningEffort("max")).toBeUndefined();
     expect(normalizeCodexReasoningEffort("min")).toBeUndefined();
     expect(normalizeCodexReasoningEffort("arbitrary")).toBeUndefined();
+  });
+
+  it("does not forward the ultra and persistent tiers codex-sdk types but no catalog model documents", () => {
+    expect(normalizeCodexReasoningEffort("ultra")).toBeUndefined();
+    expect(normalizeCodexReasoningEffort("persistent")).toBeUndefined();
   });
 });
 

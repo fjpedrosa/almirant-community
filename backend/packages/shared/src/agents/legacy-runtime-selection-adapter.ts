@@ -16,12 +16,12 @@ const LEGACY_PROVIDER_DEFAULTS: Readonly<Record<AgentProvider, LegacyProviderDef
   "claude-code": {
     codingAgent: "claude-code",
     aiProvider: "anthropic",
-    defaultModel: "claude-opus-4-8",
+    defaultModel: "claude-opus-5-5",
   },
   codex: {
     codingAgent: "codex",
     aiProvider: "openai",
-    defaultModel: "gpt-5.6-sol",
+    defaultModel: "gpt-6-sol",
   },
   zipu: {
     codingAgent: "opencode",

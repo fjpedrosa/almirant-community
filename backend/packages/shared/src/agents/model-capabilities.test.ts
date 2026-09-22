@@ -8,6 +8,7 @@ import {
 
 const expectedModels = {
   anthropic: [
+    "claude-opus-5-5",
     "claude-opus-5",
     "claude-opus-4-8",
     "claude-fable-5",
@@ -20,6 +21,9 @@ const expectedModels = {
     "claude-sonnet-4-5",
   ],
   openai: [
+    "gpt-6-astra",
+    "gpt-6-sol",
+    "gpt-6-luna",
     "gpt-5.6",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
@@ -64,8 +68,8 @@ const expectedModels = {
 } as const;
 
 const expectedDefaults = {
-  anthropic: "claude-opus-5",
-  openai: "gpt-5.6-sol",
+  anthropic: "claude-opus-5-5",
+  openai: "gpt-6-sol",
   google: "gemini-3.1-pro-preview",
   zai: "glm-5.2",
   xai: "grok-4.3",
@@ -79,12 +83,11 @@ const expectedReasoningEfforts = (
     if (model === "gpt-5.5-pro" || model === "gpt-5.4-pro") {
       return ["medium", "high", "xhigh"];
     }
+    if (model.startsWith("gpt-6-") || model.startsWith("gpt-5.6")) {
+      return ["low", "medium", "high", "xhigh", "max"];
+    }
     if (
       [
-        "gpt-5.6",
-        "gpt-5.6-sol",
-        "gpt-5.6-terra",
-        "gpt-5.6-luna",
         "gpt-5.5",
         "gpt-5.4",
         "gpt-5.4-mini",
@@ -100,9 +103,13 @@ const expectedReasoningEfforts = (
     if (model === "claude-opus-4-6" || model === "claude-sonnet-4-6") {
       return ["low", "medium", "high", "max"];
     }
+    if (model === "claude-opus-4-5") {
+      return ["low", "medium", "high"];
+    }
     if (
       [
         "claude-fable-5",
+        "claude-opus-5-5",
         "claude-opus-5",
         "claude-opus-4-7",
         "claude-opus-4-8",
@@ -114,7 +121,11 @@ const expectedReasoningEfforts = (
   }
 
   if (provider === "zai" && (model === "glm-5.3" || model === "glm-5.2")) {
-    return ["high", "max"];
+    return ["low", "high", "max"];
+  }
+
+  if (provider === "xai" && model === "grok-4.3") {
+    return ["low", "medium", "high", "xhigh"];
   }
 
   return [];

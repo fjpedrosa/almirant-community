@@ -130,10 +130,10 @@ describe("useModelSelector", () => {
     render(<Harness defaultCodingAgent="codex" />);
 
     expect(screen.getByTestId("models").textContent?.split(",").slice(0, 3)).toEqual([
-      "gpt-5.6-sol",
-      "gpt-5.6-terra",
-      "gpt-5.6-luna",
+      "gpt-6-sol",
+      "gpt-6-astra",
+      "gpt-6-luna",
     ]);
-    expect(screen.getByTestId("model")).toHaveTextContent("gpt-5.6-sol");
+    expect(screen.getByTestId("model")).toHaveTextContent("gpt-6-sol");
   });
 });

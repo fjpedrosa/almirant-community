@@ -177,7 +177,7 @@ describe("agentJobsRoutes POST /agent-jobs", () => {
     );
 
     expect(res.status).toBe(201);
-    expect(state.createdJobInput?.model).toBe("claude-opus-4-8");
+    expect(state.createdJobInput?.model).toBe("claude-opus-5-5");
   });
 
   it("admits direct Pi / Z.AI / GLM-5.3 with API-key auth and no optional capabilities", async () => {
@@ -311,7 +311,7 @@ describe("agentJobsRoutes POST /agent-jobs", () => {
     );
 
     expect(res.status).toBe(201);
-    expect(state.createdJobInput?.model).toBe("gpt-5.6-sol");
+    expect(state.createdJobInput?.model).toBe("gpt-6-sol");
   });
 
   it("resolves the default model from the shared runtime for batch jobs without an explicit model", async () => {
@@ -328,7 +328,7 @@ describe("agentJobsRoutes POST /agent-jobs", () => {
 
     expect(res.status).toBe(201);
     expect(state.createdBatchJobInputs).toHaveLength(1);
-    expect(state.createdBatchJobInputs?.[0]?.model).toBe("claude-opus-4-8");
+    expect(state.createdBatchJobInputs?.[0]?.model).toBe("claude-opus-5-5");
   });
 
   it.each([
@@ -422,7 +422,7 @@ describe("agentJobsRoutes POST /agent-jobs", () => {
     );
 
     expect(res.status).toBe(201);
-    expect(state.createdJobInput?.model).toBe("claude-opus-4-8");
+    expect(state.createdJobInput?.model).toBe("claude-opus-5-5");
   });
 
   it("rejects user-created jobs targeting an internal-only skill", async () => {

@@ -68,7 +68,7 @@ const normalizeDecision = (rawPrompt: string): "allow" | "deny" => {
 export const normalizeCodexReasoningEffort = (value: string | undefined): ModelReasoningEffort | undefined => {
   if (!value) return undefined;
   const normalized = value.trim().toLowerCase();
-  if (["minimal", "low", "medium", "high", "xhigh"].includes(normalized)) {
+  if (["minimal", "low", "medium", "high", "xhigh", "max"].includes(normalized)) {
     return normalized as ModelReasoningEffort;
   }
   return undefined;

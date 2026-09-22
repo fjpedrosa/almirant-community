@@ -914,18 +914,25 @@ describe("scheduledAgentsRoutes PATCH /scheduled-agents/:id", () => {
   it("valida un cambio aislado de reasoningLevel", async () => {
     const { scheduledAgentsRoutes } = await import("./scheduled-agents.routes");
     const app = new Elysia().use(withTestOrg).use(scheduledAgentsRoutes);
+    // gpt-5.6 and the gpt-6 family accept max; gpt-5.5 tops out at xhigh, so
+    // it is what makes an isolated max a genuinely unsupported effort here.
+    state.scheduledConfigOverride = { ...scheduledConfig, aiModel: "gpt-5.5" };
 
-    const response = await app.handle(new Request(
-      `http://localhost/scheduled-agents/${scheduledConfig.id}`,
-      {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ reasoningLevel: "max" }),
-      },
-    ));
+    try {
+      const response = await app.handle(new Request(
+        `http://localhost/scheduled-agents/${scheduledConfig.id}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ reasoningLevel: "max" }),
+        },
+      ));
 
-    expect(response.status).toBe(400);
-    expect(state.updatedConfigInput).toBeNull();
+      expect(response.status).toBe(400);
+      expect(state.updatedConfigInput).toBeNull();
+    } finally {
+      state.scheduledConfigOverride = null;
+    }
   });
 
   it("al quitar el proyecto no hereda los defaults del repo primario", async () => {

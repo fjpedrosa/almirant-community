@@ -189,7 +189,7 @@ describe("assertValidScheduledAgentRuntime", () => {
       provider: "claude-code",
       codingAgent: "claude-code",
       aiProvider: "anthropic",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5-5",
     });
 
     for (const runtime of [

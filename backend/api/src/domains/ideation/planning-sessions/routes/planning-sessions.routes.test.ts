@@ -333,7 +333,7 @@ describe("planning-sessions.routes", () => {
 
       expect(res.status).toBe(200);
       expect(capturedCreateJobInput?.provider).toBe("claude-code");
-      expect(capturedCreateJobInput?.model).toBe("claude-opus-4-8");
+      expect(capturedCreateJobInput?.model).toBe("claude-opus-5-5");
     });
   });
 

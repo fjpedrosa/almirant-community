@@ -191,9 +191,10 @@ const CAPABILITY_IDS = [
 
 const LOW_TO_XHIGH = ["low", "medium", "high", "xhigh"] as const;
 const MEDIUM_TO_XHIGH = ["medium", "high", "xhigh"] as const;
+const LOW_TO_HIGH = ["low", "medium", "high"] as const;
 const LOW_TO_MAX = ["low", "medium", "high", "max"] as const;
 const LOW_TO_XHIGH_AND_MAX = ["low", "medium", "high", "xhigh", "max"] as const;
-const HIGH_TO_MAX = ["high", "max"] as const;
+const LOW_HIGH_MAX = ["low", "high", "max"] as const;
 const NO_REASONING = [] as const;
 
 const model = (
@@ -204,8 +205,9 @@ const model = (
 const MODEL_CATALOGS: readonly RuntimeModelCatalog[] = [
   {
     aiProvider: "anthropic",
-    defaultModel: "claude-opus-5",
+    defaultModel: "claude-opus-5-5",
     models: [
+      model("claude-opus-5-5", LOW_TO_XHIGH_AND_MAX),
       model("claude-opus-5", LOW_TO_XHIGH_AND_MAX),
       model("claude-opus-4-8", LOW_TO_XHIGH_AND_MAX),
       model("claude-fable-5", LOW_TO_XHIGH_AND_MAX),
@@ -214,18 +216,21 @@ const MODEL_CATALOGS: readonly RuntimeModelCatalog[] = [
       model("claude-haiku-4-5"),
       model("claude-opus-4-6", LOW_TO_MAX),
       model("claude-sonnet-4-6", LOW_TO_MAX),
-      model("claude-opus-4-5"),
+      model("claude-opus-4-5", LOW_TO_HIGH),
       model("claude-sonnet-4-5"),
     ],
   },
   {
     aiProvider: "openai",
-    defaultModel: "gpt-5.6-sol",
+    defaultModel: "gpt-6-sol",
     models: [
-      model("gpt-5.6", LOW_TO_XHIGH),
-      model("gpt-5.6-sol", LOW_TO_XHIGH),
-      model("gpt-5.6-terra", LOW_TO_XHIGH),
-      model("gpt-5.6-luna", LOW_TO_XHIGH),
+      model("gpt-6-astra", LOW_TO_XHIGH_AND_MAX),
+      model("gpt-6-sol", LOW_TO_XHIGH_AND_MAX),
+      model("gpt-6-luna", LOW_TO_XHIGH_AND_MAX),
+      model("gpt-5.6", LOW_TO_XHIGH_AND_MAX),
+      model("gpt-5.6-sol", LOW_TO_XHIGH_AND_MAX),
+      model("gpt-5.6-terra", LOW_TO_XHIGH_AND_MAX),
+      model("gpt-5.6-luna", LOW_TO_XHIGH_AND_MAX),
       model("gpt-5.5", LOW_TO_XHIGH),
       model("gpt-5.5-pro", MEDIUM_TO_XHIGH),
       model("gpt-5.4", LOW_TO_XHIGH),
@@ -254,8 +259,8 @@ const MODEL_CATALOGS: readonly RuntimeModelCatalog[] = [
     aiProvider: "zai",
     defaultModel: "glm-5.2",
     models: [
-      model("glm-5.3", HIGH_TO_MAX),
-      model("glm-5.2", HIGH_TO_MAX),
+      model("glm-5.3", LOW_HIGH_MAX),
+      model("glm-5.2", LOW_HIGH_MAX),
       model("glm-5.1"),
       model("glm-5"),
       model("glm-5-turbo"),
@@ -269,7 +274,7 @@ const MODEL_CATALOGS: readonly RuntimeModelCatalog[] = [
     aiProvider: "xai",
     defaultModel: "grok-4.3",
     models: [
-      model("grok-4.3"),
+      model("grok-4.3", LOW_TO_XHIGH),
       model("grok-4.20-reasoning"),
       model("grok-4.20-multi-agent"),
       model("grok-4.20"),

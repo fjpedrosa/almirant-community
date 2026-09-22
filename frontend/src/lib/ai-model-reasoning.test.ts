@@ -8,13 +8,16 @@ const valuesFor = (input: Parameters<typeof getReasoningEffortOptions>[0]) =>
   getReasoningEffortOptions(input).map((option) => option.value);
 
 describe("getReasoningEffortOptions", () => {
-  test("exposes only GPT-5.6 efforts that codex-sdk 0.145.0 can serialize", () => {
-    expect(valuesFor({ codingAgent: "codex", aiProvider: "openai", model: "gpt-5.6-sol" })).toEqual([
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-    ]);
+  test("exposes the full GPT-6 and GPT-5.6 ladder now that codex-sdk 0.156.0 serializes max", () => {
+    for (const model of ["gpt-6-sol", "gpt-6-astra", "gpt-6-luna", "gpt-5.6-sol"]) {
+      expect(valuesFor({ codingAgent: "codex", aiProvider: "openai", model })).toEqual([
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+      ]);
+    }
   });
 
   test("uses the documented model-specific OpenAI effort sets", () => {
@@ -43,6 +46,18 @@ describe("getReasoningEffortOptions", () => {
   });
 
   test("uses model-specific Claude efforts and exposes none for Haiku", () => {
+    expect(valuesFor({ codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-opus-5-5" })).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    expect(valuesFor({ codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-opus-4-5" })).toEqual([
+      "low",
+      "medium",
+      "high",
+    ]);
     expect(valuesFor({ codingAgent: "claude-code", aiProvider: "anthropic", model: "claude-opus-5" })).toEqual([
       "low",
       "medium",
@@ -68,10 +83,12 @@ describe("getReasoningEffortOptions", () => {
 
   test("only exposes verified Coding Plan flagship efforts", () => {
     expect(valuesFor({ codingAgent: "opencode", aiProvider: "zai", model: "glm-5.3" })).toEqual([
+      "low",
       "high",
       "max",
     ]);
     expect(valuesFor({ codingAgent: "opencode", aiProvider: "zai", model: "glm-5.2" })).toEqual([
+      "low",
       "high",
       "max",
     ]);
