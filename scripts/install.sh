@@ -166,7 +166,9 @@ resolve_proxy_mode() {
     elif [ "$ALMIRANT_WITH_PROXY" = "1" ]; then
       mode="local"
     elif [ "$ALMIRANT_BIND_ADDRESS" != "127.0.0.1" ]; then
-      mode="none"
+      # LAN install: the browser hits one origin, so something must route
+      # /api, /ws and /mcp to the backend. The frontend alone does not.
+      mode="local"
     elif [ "$site_domain" != "localhost" ] && [ "$site_domain" != "127.0.0.1" ]; then
       mode="external"
     else
@@ -224,6 +226,13 @@ write_env() {
   ALMIRANT_DOMAIN="$site_domain"
   ALMIRANT_PROXY_MODE="$proxy_mode"
 
+  # In local mode the bundled Caddy owns PROXY_PORT (8080), so the frontend
+  # must publish on a different host port or the two binds collide.
+  local frontend_host_port=8080
+  if [ "$proxy_mode" = "local" ]; then
+    frontend_host_port=3000
+  fi
+
   local postgres_password encryption_key better_auth_secret email_api_secret api_key updater_token
   postgres_password=$(gen_password)
   encryption_key=$(gen_secret)
@@ -279,7 +288,7 @@ ALMIRANT_REPO_PATH=${REPO_DIR}
 
 # ─── Host ports (bound to 127.0.0.1 — put a reverse proxy to expose) ───
 ALMIRANT_BIND_ADDRESS=${ALMIRANT_BIND_ADDRESS}
-FRONTEND_HOST_PORT=8080
+FRONTEND_HOST_PORT=${frontend_host_port}
 BACKEND_HOST_PORT=8081
 PROXY_PORT=8080
 HTTP_PORT=80

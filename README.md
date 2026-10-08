@@ -63,7 +63,7 @@ LAN-only install, reachable from other devices on your private network but not p
 
 ```bash
 ALMIRANT_BIND_ADDRESS=0.0.0.0 \
-ALMIRANT_PROXY_MODE=none \
+ALMIRANT_PROXY_MODE=local \
 ALMIRANT_PUBLIC_URL=http://192.168.1.50:8080 \
 ./scripts/install.sh
 ```
