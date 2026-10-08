@@ -3,6 +3,12 @@
 }
 
 :80 {
+	# Next.js route handlers that live in the frontend, not the backend.
+	@frontend_api path /api/ws-token /api/document-assets/*
+	handle @frontend_api {
+		reverse_proxy frontend:3000
+	}
+
 	@mcp_api path /api/mcp /api/mcp/*
 	handle @mcp_api {
 		uri strip_prefix /api
