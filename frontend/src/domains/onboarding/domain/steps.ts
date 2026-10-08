@@ -22,3 +22,15 @@ export const getVisibleOnboardingSteps = (
   isCloud: boolean,
 ): OnboardingStepKey[] =>
   isCloud ? CLOUD_ONBOARDING_STEPS : SELF_HOSTED_ONBOARDING_STEPS;
+
+/**
+ * Step that follows `current` in the visible flow, or null when `current` is
+ * the last visible step (or not visible at all).
+ */
+export const getNextOnboardingStep = (
+  steps: readonly OnboardingStepKey[],
+  current: OnboardingStepKey,
+): OnboardingStepKey | null => {
+  const index = steps.indexOf(current);
+  return index === -1 ? null : (steps[index + 1] ?? null);
+};

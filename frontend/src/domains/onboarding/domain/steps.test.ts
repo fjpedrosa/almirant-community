@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
   CLOUD_ONBOARDING_STEPS,
   SELF_HOSTED_ONBOARDING_STEPS,
+  getNextOnboardingStep,
   getVisibleOnboardingSteps,
 } from "./steps";
 
@@ -19,5 +20,20 @@ describe("getVisibleOnboardingSteps", () => {
       "github",
     ]);
     expect(getVisibleOnboardingSteps(false)).toBe(SELF_HOSTED_ONBOARDING_STEPS);
+  });
+});
+
+describe("getNextOnboardingStep", () => {
+  it("moves from the Public URL step to the GitHub App step on self-hosted", () => {
+    expect(getNextOnboardingStep(SELF_HOSTED_ONBOARDING_STEPS, "tailscale")).toBe("github");
+  });
+
+  it("returns null after the last visible step", () => {
+    expect(getNextOnboardingStep(SELF_HOSTED_ONBOARDING_STEPS, "github")).toBeNull();
+    expect(getNextOnboardingStep(CLOUD_ONBOARDING_STEPS, "github")).toBeNull();
+  });
+
+  it("returns null for a step that is not visible", () => {
+    expect(getNextOnboardingStep(CLOUD_ONBOARDING_STEPS, "tailscale")).toBeNull();
   });
 });

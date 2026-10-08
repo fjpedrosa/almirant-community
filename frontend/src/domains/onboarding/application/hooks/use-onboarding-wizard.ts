@@ -10,7 +10,7 @@ import {
 import { useTailscaleSetup } from "./use-tailscale-setup";
 import { useGithubAppSetup } from "./use-github-app-setup";
 import type { OnboardingStepKey } from "../../domain/types";
-import { getVisibleOnboardingSteps } from "../../domain/steps";
+import { getNextOnboardingStep, getVisibleOnboardingSteps } from "../../domain/steps";
 import {
   githubStepStatusEnabled,
   tailscaleStatusEnabled,
@@ -106,8 +106,14 @@ export const useOnboardingWizard = () => {
   }, [completeMutation, handleActivationCompleted]);
 
   const handleSkipTailscale = useCallback(() => {
-    skipMutation.mutate("tailscale");
-  }, [skipMutation]);
+    // Self-hosted: record the skip and move on, so the click visibly does something.
+    skipMutation.mutate("tailscale", {
+      onSuccess: () => {
+        const next = getNextOnboardingStep(visibleSteps, "tailscale");
+        if (next) setCurrentStep(next);
+      },
+    });
+  }, [skipMutation, visibleSteps]);
 
   const handleSkipGithub = useCallback(() => {
     // Self-hosted: record the skip and stay in the wizard (other steps remain).
