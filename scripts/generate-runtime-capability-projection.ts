@@ -10,6 +10,10 @@ export const runtimeCapabilityProjectionPaths = {
     `${projectRoot}/backend/packages/shared/src/agents/runtime-capability-projection.generated.ts`,
   frontendJson:
     `${projectRoot}/frontend/src/generated/runtime-capability-projection.v1.json`,
+  // The frontend image builds with `context: ./frontend`, so it cannot import
+  // the backend copy; it gets an identical typed artifact inside its own tree.
+  frontendTypescript:
+    `${projectRoot}/frontend/src/generated/runtime-capability-projection.generated.ts`,
 } as const;
 
 export interface RuntimeCapabilityProjectionArtifacts {
@@ -73,14 +77,20 @@ const readArtifact = async (path: string): Promise<string> => {
 };
 
 export const checkRuntimeCapabilityProjection = async (): Promise<void> => {
-  const [generatedTypescript, frontendJson] = await Promise.all([
+  const [generatedTypescript, frontendJson, frontendTypescript] = await Promise.all([
     readArtifact(runtimeCapabilityProjectionPaths.generatedTypescript),
     readArtifact(runtimeCapabilityProjectionPaths.frontendJson),
+    readArtifact(runtimeCapabilityProjectionPaths.frontendTypescript),
   ]);
   assertRuntimeCapabilityProjectionArtifactsCurrent({
     generatedTypescript,
     frontendJson,
   });
+  if (frontendTypescript !== generatedTypescript) {
+    throw new Error(
+      "frontend/src/generated/runtime-capability-projection.generated.ts is stale; run bun run runtime-capabilities:generate",
+    );
+  }
 };
 
 export const generateRuntimeCapabilityProjection = async (): Promise<void> => {
@@ -91,6 +101,10 @@ export const generateRuntimeCapabilityProjection = async (): Promise<void> => {
       artifacts.generatedTypescript,
     ),
     Bun.write(runtimeCapabilityProjectionPaths.frontendJson, artifacts.frontendJson),
+    Bun.write(
+      runtimeCapabilityProjectionPaths.frontendTypescript,
+      artifacts.generatedTypescript,
+    ),
   ]);
 };
 

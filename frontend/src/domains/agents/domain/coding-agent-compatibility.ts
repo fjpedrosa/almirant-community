@@ -1,7 +1,7 @@
 import type { ModelDefinition } from "@/domains/integrations/domain/types";
 import generatedProjection from "@/generated/runtime-capability-projection.v1.json";
 import { getModelsForProvider } from "@/lib/ai-models-catalog";
-import type { RuntimeCapabilityProjectionGenerated } from "../../../../../backend/packages/shared/src/agents/runtime-capability-projection.generated";
+import type { RuntimeCapabilityProjectionGenerated } from "@/generated/runtime-capability-projection.generated";
 import type { AgentProvider } from "./types";
 
 /**
